@@ -84,7 +84,7 @@ class Config(BaseModel):
     literature: LiteratureConfig = Field(default_factory=LiteratureConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
-    api_key: str | None = None
+    api_key: str | None = Field(default=None, validate_default=True)
 
     @field_validator("api_key", mode="before")
     @classmethod

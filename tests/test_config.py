@@ -66,7 +66,7 @@ def test_storage_config_creates_directory():
     os.environ["ANTHROPIC_API_KEY"] = "test-key"
 
     with TemporaryDirectory() as tmpdir:
-        data_dir = Path(tmpdir) / "test_data"
+        data_dir = Path(tmpdir).resolve() / "test_data"
         assert not data_dir.exists()
 
         config = Config(storage={"data_dir": str(data_dir)})
@@ -81,7 +81,7 @@ def test_env_var_override():
     os.environ["ANTHROPIC_API_KEY"] = "test-key"
 
     with TemporaryDirectory() as tmpdir:
-        data_dir = Path(tmpdir) / "env_data"
+        data_dir = Path(tmpdir).resolve() / "env_data"
         os.environ["PARADIGM_DATA_DIR"] = str(data_dir)
 
         config = load_config()

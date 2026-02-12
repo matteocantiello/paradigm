@@ -1,0 +1,330 @@
+"""Unified literature search interface combining arXiv, local embeddings, and citations."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from paradigm.config import LiteratureConfig, StorageConfig
+from paradigm.literature.arxiv import ArxivClient, ArxivPaper
+from paradigm.literature.citations import CitationTracker
+from paradigm.literature.embeddings import EmbeddingStore
+from paradigm.logging.events import EventLogger, EventType
+from paradigm.storage.database import Database
+
+
+class Corpus:
+    """Unified search interface for scientific literature.
+
+    Combines arXiv API search, local semantic search (ChromaDB),
+    and citation tracking into a single high-level API.
+    """
+
+    def __init__(
+        self,
+        database: Database,
+        literature_config: LiteratureConfig,
+        storage_config: StorageConfig,
+        logger: EventLogger | None = None,
+        arxiv_client: ArxivClient | None = None,
+        embedding_store: EmbeddingStore | None = None,
+    ) -> None:
+        """Initialize corpus.
+
+        Args:
+            database: SQLite database for paper storage.
+            literature_config: Literature configuration.
+            storage_config: Storage configuration (for vector DB path).
+            logger: Optional event logger.
+            arxiv_client: Optional pre-configured ArxivClient (for testing).
+            embedding_store: Optional pre-configured EmbeddingStore (for testing).
+        """
+        self._db = database
+        self._config = literature_config
+        self._logger = logger
+
+        self._arxiv = arxiv_client or ArxivClient(
+            rate_limit=literature_config.arxiv_rate_limit,
+            logger=logger,
+        )
+        self._embeddings = embedding_store or EmbeddingStore(
+            vector_db_path=storage_config.vector_db_path,
+        )
+        self._citations = CitationTracker(database)
+
+    async def search(
+        self,
+        query: str,
+        max_results: int | None = None,
+        include_local: bool = True,
+        include_arxiv: bool = True,
+        categories: list[str] | None = None,
+    ) -> list[ArxivPaper]:
+        """Search both local corpus and arXiv, deduplicate, and return.
+
+        Args:
+            query: Search query text.
+            max_results: Maximum results (defaults to config value).
+            include_local: Whether to search local embeddings.
+            include_arxiv: Whether to search arXiv API.
+            categories: Optional arXiv category filters.
+
+        Returns:
+            Deduplicated list of ArxivPaper objects.
+        """
+        if max_results is None:
+            max_results = self._config.max_results_per_search
+
+        seen: dict[str, ArxivPaper] = {}
+
+        # Search local embeddings
+        if include_local and self._embeddings.count() > 0:
+            local_results = self._embeddings.search(query, n_results=max_results)
+            for result in local_results:
+                arxiv_id = result["arxiv_id"]
+                # Try to get full paper from database
+                db_paper = self._db.get_paper(f"arxiv:{arxiv_id}")
+                if db_paper:
+                    paper = self._db_row_to_paper(db_paper)
+                    if paper:
+                        seen[arxiv_id] = paper
+
+        # Search arXiv API
+        if include_arxiv:
+            arxiv_results = await self._arxiv.search(
+                query,
+                max_results=max_results,
+                categories=categories,
+            )
+            for paper in arxiv_results:
+                if paper.arxiv_id not in seen:
+                    seen[paper.arxiv_id] = paper
+
+        papers = list(seen.values())[:max_results]
+
+        if self._logger:
+            self._logger.log(
+                EventType.LITERATURE_SEARCH,
+                content={
+                    "query": query,
+                    "local_results": len(seen) - len(papers) + len(papers),
+                    "total_results": len(papers),
+                    "sources": {
+                        "local": include_local,
+                        "arxiv": include_arxiv,
+                    },
+                },
+            )
+
+        return papers
+
+    async def ingest_paper(self, paper: ArxivPaper, fetch_pdf: bool = False) -> None:
+        """Add a paper to local storage (SQLite + ChromaDB).
+
+        Args:
+            paper: ArxivPaper to ingest.
+            fetch_pdf: Whether to fetch and extract PDF text.
+        """
+        # Optionally fetch PDF text
+        if fetch_pdf and paper.body is None and self._config.enable_pdf_fetch:
+            body = await self._arxiv.fetch_pdf_text(paper)
+            if body:
+                paper = paper.model_copy(update={"body": body})
+
+        # Store in SQLite
+        paper_id = f"arxiv:{paper.arxiv_id}"
+        existing = self._db.get_paper(paper_id)
+        if existing is None:
+            self._db.create_paper(
+                paper_id=paper_id,
+                title=paper.title,
+                abstract=paper.abstract,
+                authors=paper.authors,
+                body=paper.body or "",
+                status="external",
+                keywords=paper.categories,
+            )
+        else:
+            # Update if we now have body text
+            if paper.body and not existing.get("body"):
+                self._db.update_paper(paper_id, body=paper.body)
+
+        # Store in ChromaDB
+        self._embeddings.add_paper(
+            arxiv_id=paper.arxiv_id,
+            title=paper.title,
+            abstract=paper.abstract,
+            metadata={
+                "title": paper.title,
+                "authors": ", ".join(paper.authors),
+                "primary_category": paper.primary_category,
+                "published": paper.published.isoformat(),
+            },
+        )
+
+    async def ingest_from_search(
+        self,
+        query: str,
+        max_results: int | None = None,
+        categories: list[str] | None = None,
+        fetch_pdfs: bool = False,
+    ) -> list[ArxivPaper]:
+        """Search arXiv and ingest all results into local corpus.
+
+        Args:
+            query: Search query.
+            max_results: Maximum results to ingest.
+            categories: Optional category filters.
+            fetch_pdfs: Whether to fetch PDFs for all results.
+
+        Returns:
+            List of ingested papers.
+        """
+        papers = await self._arxiv.search(
+            query,
+            max_results=max_results or self._config.max_results_per_search,
+            categories=categories,
+        )
+
+        for paper in papers:
+            await self.ingest_paper(paper, fetch_pdf=fetch_pdfs)
+
+        return papers
+
+    async def semantic_search(self, query: str, n_results: int = 10) -> list[dict[str, Any]]:
+        """Search local corpus by semantic similarity only.
+
+        Args:
+            query: Search query text.
+            n_results: Maximum number of results.
+
+        Returns:
+            List of result dicts from EmbeddingStore.
+        """
+        return self._embeddings.search(query, n_results=n_results)
+
+    async def get_paper(self, arxiv_id: str) -> ArxivPaper | None:
+        """Get a paper, checking local storage first then arXiv.
+
+        Args:
+            arxiv_id: arXiv paper ID.
+
+        Returns:
+            ArxivPaper if found, None otherwise.
+        """
+        # Check local DB first
+        db_paper = self._db.get_paper(f"arxiv:{arxiv_id}")
+        if db_paper:
+            paper = self._db_row_to_paper(db_paper)
+            if paper:
+                return paper
+
+        # Fall back to arXiv API
+        return await self._arxiv.get_paper(arxiv_id)
+
+    async def build_literature_context(
+        self,
+        topic: str,
+        max_papers: int = 15,
+        include_arxiv: bool = True,
+    ) -> str:
+        """Build a formatted literature context string for an agent.
+
+        Searches for relevant papers and formats them as markdown
+        suitable for inclusion in an agent's context window.
+
+        Args:
+            topic: Research topic to search for.
+            max_papers: Maximum number of papers to include.
+            include_arxiv: Whether to include arXiv results.
+
+        Returns:
+            Markdown-formatted literature summary with numbered references.
+        """
+        papers = await self.search(topic, max_results=max_papers, include_arxiv=include_arxiv)
+
+        if not papers:
+            return f"## Literature Search: {topic}\n\nNo relevant papers found."
+
+        lines = [f"## Relevant Literature for: {topic}\n"]
+
+        for i, paper in enumerate(papers, 1):
+            authors_str = ", ".join(paper.authors[:3])
+            if len(paper.authors) > 3:
+                authors_str += " et al."
+
+            date_str = paper.published.strftime("%Y-%m-%d")
+            cats = ", ".join(paper.categories[:3])
+
+            lines.append(f"### [{i}] {paper.title}")
+            lines.append(f"**Authors:** {authors_str}")
+            lines.append(f"**Published:** {date_str} | **Categories:** {cats}")
+            lines.append(f"**arXiv:** {paper.arxiv_id}")
+            lines.append(f"\n{paper.abstract}\n")
+            lines.append("---\n")
+
+        # References section
+        lines.append("## References\n")
+        for i, paper in enumerate(papers, 1):
+            authors_short = paper.authors[0] if paper.authors else "Unknown"
+            if len(paper.authors) > 1:
+                authors_short += " et al."
+            year = paper.published.strftime("%Y")
+            lines.append(f'[{i}] {authors_short} ({year}). "{paper.title}". arXiv:{paper.arxiv_id}')
+
+        return "\n".join(lines)
+
+    @property
+    def citations(self) -> CitationTracker:
+        """Access the citation tracker."""
+        return self._citations
+
+    def _db_row_to_paper(self, row: dict[str, Any]) -> ArxivPaper | None:
+        """Convert a database row to an ArxivPaper.
+
+        Args:
+            row: Database row dict from papers table.
+
+        Returns:
+            ArxivPaper, or None if conversion fails.
+        """
+        paper_id = row.get("id", "")
+        arxiv_id = paper_id.removeprefix("arxiv:")
+
+        try:
+            import json
+
+            authors = row.get("authors", "[]")
+            if isinstance(authors, str):
+                authors = json.loads(authors)
+
+            categories = row.get("keywords", "[]")
+            if isinstance(categories, str):
+                categories = json.loads(categories) or []
+
+            return ArxivPaper(
+                arxiv_id=arxiv_id,
+                title=row.get("title", ""),
+                abstract=row.get("abstract", ""),
+                authors=authors,
+                categories=categories,
+                primary_category=categories[0] if categories else "",
+                published=row.get("created_at", "2000-01-01T00:00:00"),
+                updated=row.get("updated_at", "2000-01-01T00:00:00"),
+                pdf_url=f"http://arxiv.org/pdf/{arxiv_id}",
+                abs_url=f"http://arxiv.org/abs/{arxiv_id}",
+                body=row.get("body") or None,
+            )
+        except (json.JSONDecodeError, KeyError, ValueError):
+            return None
+
+    async def close(self) -> None:
+        """Close the arXiv client."""
+        await self._arxiv.close()
+
+    async def __aenter__(self) -> Corpus:
+        """Context manager entry."""
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        """Context manager exit."""
+        await self.close()

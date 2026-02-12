@@ -16,3 +16,21 @@
 
 **Root cause:** The `prompts/` directory was empty and had no `.gitkeep`, so git didn't track it. The `verify_setup.py` script checks for it and exits with code 1.
 **Fix:** Added `.gitkeep` to `src/paradigm/agents/prompts/`
+
+### Prompt 3: Move to Phase 1
+> CI passed. We can move to phase 1
+
+**Key decisions:** Begin Phase 1 implementation per ROADMAP.md
+**Artifacts created:**
+- `src/paradigm/literature/arxiv.py` — ArxivClient + ArxivPaper model (async, rate-limited, XML parsing)
+- `src/paradigm/literature/embeddings.py` — EmbeddingStore (ChromaDB wrapper, semantic search)
+- `src/paradigm/literature/citations.py` — CitationTracker (SQLite-based citation graph)
+- `src/paradigm/literature/corpus.py` — Corpus (unified search combining arXiv + local + citations)
+- `src/paradigm/literature/__init__.py` — Public exports
+- `tests/test_arxiv.py` — 11 tests for arXiv client
+- `tests/test_embeddings.py` — 9 tests for embeddings
+- `tests/test_citations.py` — 9 tests for citations
+- `tests/test_corpus.py` — 13 tests for corpus
+**Artifacts modified:**
+- `src/paradigm/config.py` — Fixed Pydantic v2 `validate_default=True` for api_key validator
+- `tests/test_config.py` — Fixed macOS path resolution in tests
