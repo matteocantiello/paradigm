@@ -38,6 +38,9 @@ orchestrator:
   checkpoint_interval: 5
   enable_writing: true
   max_review_iterations: 1
+  enable_peer_review: true
+  num_reviewers: 2
+  max_revision_rounds: 2
 
 # Scientific skills configuration
 skills:

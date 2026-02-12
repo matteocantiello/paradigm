@@ -16,6 +16,8 @@ from paradigm.journal.paper import (
     parse_review_feedback,
     parse_sections_from_markdown,
 )
+from paradigm.journal.publication import publish_paper, reject_paper
+from paradigm.journal.review import PeerReview, parse_peer_review, synthesize_decision
 from paradigm.literature.corpus import Corpus
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
@@ -119,6 +121,47 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Output the complete revised paper in markdown."
         ),
     },
+    ResearchPhase.SUBMITTED: {
+        "desk_review": (
+            "You are the editor-in-chief performing a desk review of a submitted paper.\n"
+            "Topic: {seed_prompt}\n\n"
+            "## Submitted Paper\n{current_draft}\n\n"
+            "Perform a quick quality check:\n"
+            "- Is the paper coherent and on-topic?\n"
+            "- Does it have the basic structure of a research paper?\n"
+            "- Is it written in intelligible prose?\n\n"
+            "Respond with:\n"
+            "## Decision\nEither 'send_to_review' (paper is suitable for peer review) "
+            "or 'desk_reject' (paper has fundamental issues)\n\n"
+            "## Reason\nBrief explanation of your decision."
+        ),
+    },
+    ResearchPhase.PEER_REVIEW: {
+        "review": (
+            "You are an independent peer reviewer evaluating a submitted manuscript.\n"
+            "Topic: {seed_prompt}\n\n"
+            "## Manuscript\n{current_draft}\n\n"
+            "Provide your review in this exact format using ## headers:\n\n"
+            "## Summary\nBrief summary of the paper.\n\n"
+            "## Strengths\n- Key strengths as bullet points\n\n"
+            "## Weaknesses\n- Key weaknesses as bullet points\n\n"
+            "## Questions\n- Questions for the authors\n\n"
+            "## Suggestions\n- Specific suggestions for improvement\n\n"
+            "## Scores\nNovelty: X/10\nRigor: X/10\nClarity: X/10\nSignificance: X/10\n\n"
+            "## Recommendation\nOne of: accept, minor_revision, major_revision, reject"
+        ),
+    },
+    ResearchPhase.REVISION: {
+        "revise": (
+            "You are revising a research paper based on peer review feedback.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "## Current Draft\n{current_draft}\n\n"
+            "## Peer Review Feedback\n{review_feedback}\n\n"
+            "Revise the paper to address the reviewer concerns and suggestions. "
+            "Output the complete revised paper in markdown."
+        ),
+    },
 }
 
 # How many recent messages to include in agent context
@@ -170,7 +213,7 @@ class OrchestrationEngine:
         mode: str = "directed",
         team_roles: list[str] | None = None,
     ) -> str:
-        """Run a full research cycle: SEEDING -> IDEATION -> PLANNING -> WRITING -> REVIEW.
+        """Run a full research cycle: SEEDING -> IDEATION -> PLANNING -> WRITING -> REVIEW -> PEER REVIEW.
 
         Args:
             seed_prompt: The research question or topic.
@@ -236,7 +279,36 @@ class OrchestrationEngine:
             click.echo("Phase: INTERNAL_REVIEW")
             await self._run_review_phase(paper_draft)
 
-            self._db.update_thread(self._thread_id, status="reviewed")
+            # Phase 6: PEER REVIEW PIPELINE (optional)
+            if self._config.orchestrator.enable_peer_review:
+                accepted = await self._run_submission_phase(paper_draft)
+                if accepted:
+                    decision, reviews = await self._run_peer_review_phase(paper_draft)
+                    revision_count = 0
+                    max_revisions = self._config.orchestrator.max_revision_rounds
+                    while (
+                        decision in ("minor_revision", "major_revision")
+                        and revision_count < max_revisions
+                    ):
+                        paper_draft = await self._run_revision_phase(paper_draft, reviews)
+                        decision, reviews = await self._run_peer_review_phase(paper_draft)
+                        revision_count += 1
+
+                    thread = self._db.get_thread(self._thread_id)
+                    paper_id = thread["current_draft_id"] if thread else None
+                    if paper_id and decision in ("accept", "minor_revision"):
+                        await publish_paper(paper_id, self._db, self._corpus, self._logger, reviews)
+                        self._db.update_thread(self._thread_id, status="published")
+                        click.echo("  Paper PUBLISHED")
+                    elif paper_id:
+                        reject_paper(paper_id, self._db, reviews, self._logger)
+                        self._db.update_thread(self._thread_id, status="rejected")
+                        click.echo("  Paper REJECTED")
+                else:
+                    # Desk rejected
+                    self._db.update_thread(self._thread_id, status="rejected")
+            else:
+                self._db.update_thread(self._thread_id, status="reviewed")
         else:
             self._db.update_thread(self._thread_id, status="planning_complete")
 
@@ -281,6 +353,9 @@ class OrchestrationEngine:
             status="draft",
         )
         self._db.update_thread(self._thread_id, current_draft_id=paper_id)
+
+        # Write markdown file to papers directory
+        self._save_paper_file(paper_id, draft.assembled_body)
 
         click.echo(f"  Paper saved: {paper_id}")
         return draft
@@ -433,14 +508,16 @@ class OrchestrationEngine:
                 current_body = await self._run_revision(current_body, response.content)
                 draft.assembled_body = current_body
 
-                # Update paper in database
+                # Update paper in database and on disk
                 thread = self._db.get_thread(self._thread_id)
                 if thread and thread.get("current_draft_id"):
+                    paper_id = thread["current_draft_id"]
                     self._db.update_paper(
-                        thread["current_draft_id"],
+                        paper_id,
                         body=current_body,
                         status="revised",
                     )
+                    self._save_paper_file(paper_id, current_body)
 
         # Max iterations reached, mark as reviewed regardless
         thread = self._db.get_thread(self._thread_id)
@@ -483,6 +560,225 @@ class OrchestrationEngine:
             self._logger.log_error(e, agent_id=writer.agent_id, thread_id=self._thread_id)
             click.echo(f"    [!] Revision failed: {e}")
             return current_body
+
+    async def _run_submission_phase(self, draft: PaperDraft) -> bool:
+        """Run the SUBMITTED phase: desk review by editor-in-chief.
+
+        Args:
+            draft: Paper draft to submit.
+
+        Returns:
+            True if paper passes desk review, False if desk-rejected.
+        """
+        self._phase_manager.transition_to(ResearchPhase.SUBMITTED)
+        self._log_phase_transition(ResearchPhase.INTERNAL_REVIEW, ResearchPhase.SUBMITTED)
+        self._messages = []
+        click.echo("Phase: SUBMITTED (desk review)")
+
+        # Update submitted_at in database
+        from datetime import UTC, datetime
+
+        thread = self._db.get_thread(self._thread_id)
+        if thread and thread.get("current_draft_id"):
+            self._db.update_paper(
+                thread["current_draft_id"],
+                status="submitted",
+                submitted_at=datetime.now(UTC).isoformat(),
+            )
+
+        # Editor desk review
+        editor = self._find_agent_by_role("editor")
+        if editor is None:
+            click.echo("  [!] No editor agent found, auto-accepting for desk review")
+            return True
+
+        current_body = draft.assembled_body or draft.to_markdown()
+        template = _PHASE_INSTRUCTIONS[ResearchPhase.SUBMITTED]["desk_review"]
+        prompt = template.format(
+            seed_prompt=self._seed_prompt,
+            current_draft=current_body[:8000],
+        )
+
+        try:
+            response = await editor.generate(prompt)
+        except Exception as e:
+            self._logger.log_error(e, agent_id=editor.agent_id, thread_id=self._thread_id)
+            click.echo(f"  [!] Desk review failed: {e}, auto-accepting")
+            return True
+
+        self._log_agent_response(editor.agent_id, response, ResearchPhase.SUBMITTED, "desk_review")
+
+        # Parse decision
+        response_lower = response.content.lower()
+        if "desk_reject" in response_lower or "desk reject" in response_lower:
+            click.echo("  Desk REJECTED")
+            # Desk rejection — create a minimal review for graveyard
+            desk_review = PeerReview(
+                reviewer_id=editor.agent_id,
+                summary="Desk rejection by editor-in-chief.",
+                weaknesses=["Did not pass desk review"],
+                recommendation="reject",
+            )
+            thread = self._db.get_thread(self._thread_id)
+            if thread and thread.get("current_draft_id"):
+                reject_paper(thread["current_draft_id"], self._db, [desk_review], self._logger)
+            self._phase_manager.transition_to(ResearchPhase.REJECTED)
+            self._log_phase_transition(ResearchPhase.SUBMITTED, ResearchPhase.REJECTED)
+            return False
+
+        click.echo("  Desk review passed — sending to peer review")
+        return True
+
+    async def _run_peer_review_phase(self, draft: PaperDraft) -> tuple[str, list[PeerReview]]:
+        """Run the PEER_REVIEW phase: create reviewers, collect reviews, synthesize decision.
+
+        Args:
+            draft: Paper draft to review.
+
+        Returns:
+            Tuple of (decision string, list of PeerReview objects).
+        """
+        self._phase_manager.transition_to(ResearchPhase.PEER_REVIEW)
+        self._log_phase_transition(ResearchPhase.SUBMITTED, ResearchPhase.PEER_REVIEW)
+        self._messages = []
+        num_reviewers = self._config.orchestrator.num_reviewers
+        click.echo(f"Phase: PEER_REVIEW ({num_reviewers} reviewers)")
+
+        # Create fresh reviewer agents (not reusing team agents)
+        reviewer_roles = ["reviewer"] * num_reviewers
+        reviewer_agents = self._factory.create_team(reviewer_roles, skill_mode="default")
+
+        # Give each reviewer a unique ID to avoid collision with team IDs
+        for i, agent in enumerate(reviewer_agents):
+            agent.agent_id = f"peer-reviewer-{i}"
+
+        current_body = draft.assembled_body or draft.to_markdown()
+        template = _PHASE_INSTRUCTIONS[ResearchPhase.PEER_REVIEW]["review"]
+
+        reviews: list[PeerReview] = []
+        for agent in reviewer_agents:
+            prompt = template.format(
+                seed_prompt=self._seed_prompt,
+                current_draft=current_body[:8000],
+            )
+
+            try:
+                response = await agent.generate(prompt)
+            except Exception as e:
+                self._logger.log_error(e, agent_id=agent.agent_id, thread_id=self._thread_id)
+                click.echo(f"    [!] {agent.agent_id} review failed: {e}")
+                continue
+
+            self._log_agent_response(agent.agent_id, response, ResearchPhase.PEER_REVIEW, "review")
+
+            review = parse_peer_review(agent.agent_id, response.content)
+            reviews.append(review)
+            avg_score = sum(review.scores.values()) / len(review.scores) if review.scores else 0
+            click.echo(
+                f"    {agent.agent_id}: {review.recommendation} (avg score: {avg_score:.1f})"
+            )
+
+        # Synthesize decision
+        decision = synthesize_decision(reviews)
+        click.echo(f"  Decision: {decision}")
+
+        return decision, reviews
+
+    async def _run_revision_phase(self, draft: PaperDraft, reviews: list[PeerReview]) -> PaperDraft:
+        """Run the REVISION phase: writer revises based on peer feedback.
+
+        Args:
+            draft: Current paper draft.
+            reviews: Peer reviews with feedback.
+
+        Returns:
+            Updated PaperDraft with revised body.
+        """
+        self._phase_manager.transition_to(ResearchPhase.REVISION)
+        self._log_phase_transition(ResearchPhase.PEER_REVIEW, ResearchPhase.REVISION)
+        self._messages = []
+        click.echo("Phase: REVISION")
+
+        writer = self._find_agent_by_role("writer")
+        if writer is None:
+            click.echo("  [!] No writer agent found, skipping revision")
+            # Re-submit without changes
+            self._phase_manager.transition_to(ResearchPhase.SUBMITTED)
+            self._log_phase_transition(ResearchPhase.REVISION, ResearchPhase.SUBMITTED)
+            return draft
+
+        # Build review feedback text
+        review_parts = []
+        for review in reviews:
+            parts = [f"### Reviewer: {review.reviewer_id}"]
+            if review.summary:
+                parts.append(f"Summary: {review.summary}")
+            if review.weaknesses:
+                parts.append("Weaknesses:\n" + "\n".join(f"- {w}" for w in review.weaknesses))
+            if review.suggestions:
+                parts.append("Suggestions:\n" + "\n".join(f"- {s}" for s in review.suggestions))
+            if review.scores:
+                scores_str = ", ".join(f"{k}: {v}/10" for k, v in review.scores.items())
+                parts.append(f"Scores: {scores_str}")
+            parts.append(f"Recommendation: {review.recommendation}")
+            review_parts.append("\n".join(parts))
+        review_feedback = "\n\n".join(review_parts)
+
+        checkpoint_context = ""
+        if self._checkpoint:
+            checkpoint_context = self._checkpoint.to_context_string() + "\n\n"
+
+        current_body = draft.assembled_body or draft.to_markdown()
+        template = _PHASE_INSTRUCTIONS[ResearchPhase.REVISION]["revise"]
+        prompt = template.format(
+            seed_prompt=self._seed_prompt,
+            checkpoint_context=checkpoint_context,
+            current_draft=current_body[:8000],
+            review_feedback=review_feedback[:4000],
+        )
+
+        try:
+            response = await writer.generate(prompt)
+        except Exception as e:
+            self._logger.log_error(e, agent_id=writer.agent_id, thread_id=self._thread_id)
+            click.echo(f"  [!] Revision failed: {e}")
+            # Transition back to SUBMITTED so peer review can re-run
+            self._phase_manager.transition_to(ResearchPhase.SUBMITTED)
+            self._log_phase_transition(ResearchPhase.REVISION, ResearchPhase.SUBMITTED)
+            return draft
+
+        self._log_agent_response(writer.agent_id, response, ResearchPhase.REVISION, "revision")
+
+        # Update draft
+        draft.assembled_body = response.content
+
+        # Update paper in database and on disk
+        thread = self._db.get_thread(self._thread_id)
+        if thread and thread.get("current_draft_id"):
+            paper_id = thread["current_draft_id"]
+            self._db.update_paper(paper_id, body=response.content, status="revised")
+            self._save_paper_file(paper_id, response.content)
+
+        click.echo("  Revision complete")
+
+        # Transition back to SUBMITTED for re-review
+        self._phase_manager.transition_to(ResearchPhase.SUBMITTED)
+        self._log_phase_transition(ResearchPhase.REVISION, ResearchPhase.SUBMITTED)
+
+        return draft
+
+    def _save_paper_file(self, paper_id: str, body: str) -> None:
+        """Write paper markdown to the papers directory.
+
+        Args:
+            paper_id: Paper identifier (used as filename).
+            body: Paper markdown content.
+        """
+        papers_dir = self._config.storage.papers_dir
+        if papers_dir is None:
+            return
+        path = papers_dir / f"{paper_id}.md"
+        path.write_text(body)
 
     def _find_agent_by_role(self, role: str) -> Agent | None:
         """Find an agent by its skill profile / role.

@@ -50,6 +50,7 @@ class StorageConfig(BaseModel):
     data_dir: Path = Field(default_factory=lambda: Path("./data"))
     db_path: Path | None = None
     vector_db_path: Path | None = None
+    papers_dir: Path | None = None
     log_path: Path | None = None
 
     @field_validator("data_dir", mode="before")
@@ -68,6 +69,9 @@ class StorageConfig(BaseModel):
             self.db_path = self.data_dir / "paradigm.db"
         if self.vector_db_path is None:
             self.vector_db_path = self.data_dir / "vector_db"
+        if self.papers_dir is None:
+            self.papers_dir = self.data_dir / "papers"
+        self.papers_dir.mkdir(parents=True, exist_ok=True)
         if self.log_path is None:
             self.log_path = self.data_dir / "events.jsonl"
 
@@ -80,6 +84,9 @@ class OrchestratorConfig(BaseModel):
     checkpoint_interval: int = 5  # rounds
     enable_writing: bool = True
     max_review_iterations: int = 1
+    enable_peer_review: bool = True
+    num_reviewers: int = 2
+    max_revision_rounds: int = 2
 
 
 class SkillsConfig(BaseModel):

@@ -213,6 +213,7 @@ def mock_config(tmp_path):
             "enable_checkpointing": True,
             "enable_writing": True,
             "max_review_iterations": 1,
+            "enable_peer_review": False,
         },
     )
 
@@ -228,6 +229,7 @@ def mock_config_no_writing(tmp_path):
             "enable_checkpointing": True,
             "enable_writing": False,
             "max_review_iterations": 1,
+            "enable_peer_review": False,
         },
     )
 

@@ -300,3 +300,50 @@ Reviewed ROADMAP.md. Phases 0-4 complete. Remaining: Phase 5 (Peer Review + Publ
 > Can we test if what we have done so far works?
 
 Run the full pipeline live (SEEDING → IDEATION → PLANNING → WRITING → INTERNAL_REVIEW) with real Claude API calls, 1 round per phase to minimize cost.
+
+**Result:** Full cycle completed successfully. Paper generated: "Enhanced Convective Overshooting in Massive Stars" (17.5K chars, 380K tokens total). Thread `thread-9a80e2395c85`, paper `paper-cfda5f7cd61b`.
+
+### Prompt 32 — Where Is the Paper Stored?
+
+> where is the paper that was generated stored?
+
+Paper is in the SQLite database (`data/paradigm.db`, `papers` table). Exported a copy to `data/paper-cfda5f7cd61b.md`.
+
+### Prompt 33 — Wire Up Paper CLI Commands
+
+> yes, I think that would be a useful tool to have
+
+Implemented `paradigm papers` (list papers with status/title) and `paradigm paper <id>` (view paper, `--export` to save as markdown file).
+
+**Artifacts modified:** `src/paradigm/main.py`
+
+### Prompt 34 — Auto-Save Papers as Markdown Files
+
+> In general it would be good to have a folder where all the papers are stored as md files (beside the vector_db container)
+
+Added `data/papers/` directory for automatic markdown file storage. Papers are written to disk as `.md` files when created and when revised.
+
+**Artifacts modified:**
+- `src/paradigm/config.py` — Added `papers_dir` to `StorageConfig`
+- `src/paradigm/orchestrator/engine.py` — Added `_save_paper_file()`, called on paper creation and revision
+
+### Prompt 35 — Implement Phase 5: Peer Review + Publication
+
+> Implement the following plan: Phase 5: Peer Review + Publication
+
+Implementing the approved plan: peer review pipeline (SUBMITTED → PEER_REVIEW → PUBLISHED/REJECTED), structured review scoring, publication to corpus, graveyard for rejected papers.
+
+**Artifacts produced:**
+- `src/paradigm/journal/review.py` — PeerReview model, parse_peer_review(), synthesize_decision()
+- `src/paradigm/journal/publication.py` — publish_paper(), reject_paper()
+- `tests/test_peer_review.py` — Comprehensive tests for peer review pipeline
+
+**Artifacts modified:**
+- `src/paradigm/journal/__init__.py` — New exports
+- `src/paradigm/orchestrator/scheduler.py` — PEER_REVIEW/REVISION priorities
+- `src/paradigm/orchestrator/engine.py` — Submission, peer review, revision phases
+- `src/paradigm/config.py` — enable_peer_review, num_reviewers, max_revision_rounds
+- `configs/default.yaml` — Peer review config section
+- `src/paradigm/agents/prompts/reviewer.yaml` — Structured scoring instructions
+- `src/paradigm/literature/corpus.py` — ingest_internal_paper() method
+- `src/paradigm/orchestrator/phases.py` — SUBMITTED → REJECTED transition for desk rejection

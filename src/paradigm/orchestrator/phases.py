@@ -33,7 +33,7 @@ _TRANSITIONS: dict[ResearchPhase, list[ResearchPhase]] = {
     ResearchPhase.EXECUTION: [ResearchPhase.WRITING, ResearchPhase.PLANNING],
     ResearchPhase.WRITING: [ResearchPhase.INTERNAL_REVIEW],
     ResearchPhase.INTERNAL_REVIEW: [ResearchPhase.SUBMITTED, ResearchPhase.WRITING],
-    ResearchPhase.SUBMITTED: [ResearchPhase.PEER_REVIEW],
+    ResearchPhase.SUBMITTED: [ResearchPhase.PEER_REVIEW, ResearchPhase.REJECTED],
     ResearchPhase.PEER_REVIEW: [
         ResearchPhase.PUBLISHED,
         ResearchPhase.REVISION,
