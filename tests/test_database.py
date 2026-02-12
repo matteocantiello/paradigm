@@ -233,3 +233,73 @@ def test_graveyard(db):
     result = cursor.fetchone()
     assert result is not None
     assert result["type"] == "rejected_paper"
+
+
+# --- search_graveyard tests ---
+
+
+def _populate_graveyard(db):
+    """Add several graveyard entries for testing."""
+    db.add_to_graveyard(
+        graveyard_id="grave-001",
+        entry_type="rejected_paper",
+        content="Paper on stellar convection was rejected",
+        failure_reason="Lack of novelty in convection models",
+        lessons_learned="Need more original hypotheses about convection",
+    )
+    db.add_to_graveyard(
+        graveyard_id="grave-002",
+        entry_type="abandoned_thread",
+        content="Thread about dark matter halos abandoned",
+        failure_reason="Insufficient data",
+        lessons_learned="Ensure data availability before starting",
+    )
+    db.add_to_graveyard(
+        graveyard_id="grave-003",
+        entry_type="rejected_paper",
+        content="Paper on exoplanet atmospheres rejected",
+        failure_reason="Methodology issues",
+        lessons_learned="Use proper statistical tests for exoplanet data",
+    )
+
+
+def test_search_graveyard_keyword_match(db):
+    """search_graveyard finds entries matching a keyword."""
+    _populate_graveyard(db)
+
+    results = db.search_graveyard(keyword="convection")
+    assert len(results) == 1
+    assert results[0]["id"] == "grave-001"
+
+
+def test_search_graveyard_no_keyword(db):
+    """search_graveyard returns all entries when no keyword is given."""
+    _populate_graveyard(db)
+
+    results = db.search_graveyard()
+    assert len(results) == 3
+
+
+def test_search_graveyard_type_filter(db):
+    """search_graveyard filters by entry_type."""
+    _populate_graveyard(db)
+
+    results = db.search_graveyard(entry_type="abandoned_thread")
+    assert len(results) == 1
+    assert results[0]["id"] == "grave-002"
+
+
+def test_search_graveyard_limit(db):
+    """search_graveyard respects the limit parameter."""
+    _populate_graveyard(db)
+
+    results = db.search_graveyard(limit=2)
+    assert len(results) == 2
+
+
+def test_search_graveyard_empty_result(db):
+    """search_graveyard returns empty list when nothing matches."""
+    _populate_graveyard(db)
+
+    results = db.search_graveyard(keyword="nonexistent_topic_xyz")
+    assert results == []

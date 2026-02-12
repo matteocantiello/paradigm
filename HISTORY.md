@@ -400,3 +400,36 @@ Implementing the approved plan: peer review pipeline (SUBMITTED → PEER_REVIEW 
 **Artifacts produced/modified:**
 - `docs/MANUAL.md` — New comprehensive operations manual
 - `README.md` — Updated status, Quick Start, and links
+
+### Prompt 39 — Corpus Status Filtering + Graveyard Integration
+
+> Implement the following plan: Corpus Status Filtering + Graveyard Integration
+>
+> 1. Add `search_graveyard()` to Database (keyword + type filters, LIKE search)
+> 2. Add status filter to `corpus.search()` — only return published/external papers
+> 3. Inject graveyard context into seeding phase and agent prompts
+> 4. Write tests for all changes, run full suite
+
+**Key decisions:**
+- Filter corpus search results at SQLite level after ChromaDB hits (status must be "published" or "external")
+- Graveyard context injected on round 1 of IDEATION alongside literature context, clearly marked as "NOT citable"
+- `search_graveyard()` uses SQL LIKE across content, failure_reason, lessons_learned fields
+
+**Artifacts produced/modified:**
+- `src/paradigm/storage/database.py` — Added `search_graveyard()` method
+- `src/paradigm/literature/corpus.py` — Added status check in `search()`
+- `src/paradigm/orchestrator/engine.py` — Graveyard fetch in seeding, injection in prompt builder
+- `tests/test_database.py` — 5 graveyard read tests
+- `tests/test_corpus.py` — 2 status filtering tests
+- `tests/test_orchestrator.py` — 1 graveyard context test
+
+### Prompt 40 — Documentation Update: Graveyard Integration + Corpus Status Filtering
+
+> Implement the following plan: Documentation Update: Graveyard Integration + Corpus Status Filtering
+>
+> Update docs/MANUAL.md (6 targeted edits across sections 5, 8, 10, 13, 14) and README.md to document three recently implemented features: search_graveyard(), status filter in corpus.search(), and graveyard context injection in the seeding/ideation phases. Move Phase 6 from "In Progress" to "Completed" in README.
+
+**Artifacts modified:**
+- `docs/MANUAL.md` — 6 edits documenting graveyard integration, corpus status filtering, and failure learning
+- `README.md` — Phase 6 moved to completed
+- `HISTORY.md` — This prompt logged

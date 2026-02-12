@@ -343,3 +343,57 @@ async def test_search_mixes_internal_and_arxiv(corpus, db, mock_arxiv, embedding
     ids = [p.arxiv_id for p in results]
     assert "paper-aabbccddeeff" in ids
     assert "2401.001" in ids
+
+
+async def test_search_excludes_non_published_internal(corpus, db, embedding_store):
+    """Internal papers with non-published status are excluded from search results."""
+    # Create a draft paper (not published)
+    db.create_paper(
+        paper_id="paper-draft111222",
+        title="Draft Paper on Mixing",
+        abstract="A draft study about mixing processes.",
+        authors=["theorist-0"],
+        body="Draft body...",
+        status="draft",
+    )
+    # Ingest into ChromaDB (simulates a bug where draft gets into embeddings)
+    corpus.ingest_internal_paper(
+        paper_id="paper-draft111222",
+        title="Draft Paper on Mixing",
+        abstract="A draft study about mixing processes.",
+        authors=["theorist-0"],
+    )
+
+    # Also create a rejected paper
+    db.create_paper(
+        paper_id="paper-rejected333",
+        title="Rejected Mixing Paper",
+        abstract="A rejected paper about mixing.",
+        authors=["analyst-0"],
+        body="Rejected body...",
+        status="rejected",
+    )
+    corpus.ingest_internal_paper(
+        paper_id="paper-rejected333",
+        title="Rejected Mixing Paper",
+        abstract="A rejected paper about mixing.",
+        authors=["analyst-0"],
+    )
+
+    results = await corpus.search("mixing", include_arxiv=False)
+
+    found_ids = [p.arxiv_id for p in results]
+    assert "paper-draft111222" not in found_ids
+    assert "paper-rejected333" not in found_ids
+
+
+async def test_search_includes_external_papers(corpus, db, embedding_store):
+    """External (arXiv-ingested) papers with 'external' status are included."""
+    # Ingest via the normal arXiv path (sets status='external')
+    paper = _make_paper("2501.001", "External Mixing Study", "About stellar mixing processes")
+    await corpus.ingest_paper(paper)
+
+    results = await corpus.search("mixing", include_arxiv=False)
+
+    found_ids = [p.arxiv_id for p in results]
+    assert "2501.001" in found_ids

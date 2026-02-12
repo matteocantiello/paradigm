@@ -87,7 +87,7 @@ class Corpus:
                 else:
                     db_key = f"arxiv:{doc_id}"
                 db_paper = self._db.get_paper(db_key)
-                if db_paper:
+                if db_paper and db_paper.get("status") in ("published", "external"):
                     paper = self._db_row_to_paper(db_paper)
                     if paper:
                         seen[doc_id] = paper

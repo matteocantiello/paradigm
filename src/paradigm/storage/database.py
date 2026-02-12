@@ -526,6 +526,44 @@ class Database:
         )
         self.conn.commit()
 
+    def search_graveyard(
+        self,
+        keyword: str | None = None,
+        entry_type: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search the graveyard for past failures and lessons learned.
+
+        Args:
+            keyword: Optional keyword to search across content,
+                failure_reason, and lessons_learned fields.
+            entry_type: Optional filter by entry type (e.g. 'rejected_paper').
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of graveyard entry dicts, most recent first.
+        """
+        cursor = self.conn.cursor()
+        query = "SELECT * FROM graveyard WHERE 1=1"
+        params: list[Any] = []
+
+        if keyword:
+            query += (
+                " AND (content LIKE ? OR failure_reason LIKE ? OR lessons_learned LIKE ?)"
+            )
+            like_val = f"%{keyword}%"
+            params.extend([like_val, like_val, like_val])
+
+        if entry_type:
+            query += " AND type = ?"
+            params.append(entry_type)
+
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
     def close(self) -> None:
         """Close database connection."""
         self.conn.close()

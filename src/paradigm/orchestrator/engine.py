@@ -970,6 +970,34 @@ class OrchestrationEngine:
             click.echo(f"  [!] Literature search failed: {e}")
             self._literature_context = ""
 
+        # Fetch graveyard context (lessons from past failures)
+        try:
+            graveyard_entries = self._db.search_graveyard(
+                keyword=seed_prompt[:100], limit=5
+            )
+            if graveyard_entries:
+                lines = ["## Lessons from Failed Research Attempts\n"]
+                lines.append(
+                    "_The following are summaries of past failed research attempts. "
+                    "These are NOT citable papers — use them only to avoid repeating "
+                    "mistakes._\n"
+                )
+                for entry in graveyard_entries:
+                    lines.append(f"### {entry.get('type', 'unknown')}: {entry['id']}")
+                    lines.append(f"**Content:** {entry.get('content', 'N/A')}")
+                    if entry.get("failure_reason"):
+                        lines.append(f"**Failure reason:** {entry['failure_reason']}")
+                    if entry.get("lessons_learned"):
+                        lines.append(f"**Lessons learned:** {entry['lessons_learned']}")
+                    lines.append("")
+                self._graveyard_context = "\n".join(lines)
+            else:
+                self._graveyard_context = ""
+        except Exception as e:
+            self._logger.log_error(e, thread_id=thread_id)
+            click.echo(f"  [!] Graveyard search failed: {e}")
+            self._graveyard_context = ""
+
         return thread_id
 
     async def _run_phase(
@@ -1127,11 +1155,14 @@ class OrchestrationEngine:
             for m in recent
         )
 
-        # Add literature context if available (first round of ideation only)
+        # Add literature and graveyard context if available (first round of ideation only)
         if phase == ResearchPhase.IDEATION and round_num == 1:
             lit = getattr(self, "_literature_context", "")
             if lit:
                 checkpoint_context = lit + "\n\n" + checkpoint_context
+            graveyard = getattr(self, "_graveyard_context", "")
+            if graveyard:
+                checkpoint_context = checkpoint_context + graveyard + "\n\n"
 
         return template.format(
             seed_prompt=self._seed_prompt,

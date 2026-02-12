@@ -331,17 +331,17 @@ PUBLISHED  (paper enters internal corpus)
 
 #### SEEDING
 
-The orchestrator initializes a research thread, creates a unique thread ID, registers the agent team, and optionally searches the literature for relevant context.
+The orchestrator initializes a research thread, creates a unique thread ID, registers the agent team, and optionally searches the literature for relevant context. It also searches the graveyard for lessons from past failed or rejected research related to the seed prompt.
 
 **Input:** Seed prompt + mode
-**Output:** Thread ID, initial literature context
+**Output:** Thread ID, initial literature context, graveyard context (if any)
 **Agents:** None (orchestrator-only)
 
 #### IDEATION
 
-Agents propose and debate hypotheses through structured discussion rounds. In round 1, each agent proposes 1-2 concrete, testable hypotheses. In later rounds, agents critique, build on, and prioritize ideas.
+Agents propose and debate hypotheses through structured discussion rounds. In round 1, each agent proposes 1-2 concrete, testable hypotheses. If lessons from past failed research were found during seeding, they are also included in the round 1 prompt, clearly marked as non-citable context. In later rounds, agents critique, build on, and prioritize ideas.
 
-**Input:** Seed prompt + literature context
+**Input:** Seed prompt + literature context + graveyard lessons (if any)
 **Output:** Refined set of hypotheses
 **Agents:** Full team in round-robin order
 **Rounds:** Configurable via `max_rounds_per_phase` (default: 10)
@@ -513,6 +513,17 @@ The citation graph is stored in SQLite and can be queried to find:
 - Papers that cite a given paper
 - Most-cited papers in the corpus
 
+### Learning from Failures
+
+Paradigm learns from its own failures. When a paper is rejected (either at desk review or after peer review), it is stored in the **graveyard** table with:
+- The original content
+- The failure reason (e.g., "desk_reject", "peer_review_reject")
+- Lessons learned extracted from reviewer feedback
+
+During the **SEEDING** phase, the orchestrator searches the graveyard for past failures related to the current seed prompt. If relevant entries are found, these lessons are injected into the **IDEATION** round 1 prompt as non-citable context, helping agents avoid repeating past mistakes.
+
+**Corpus status filtering:** Only papers with status `published` or `external` appear in corpus search results. Draft, submitted, revised, and rejected papers are automatically filtered out, ensuring agents only cite finalized, peer-reviewed work.
+
 ### Example Multi-Cycle Workflow
 
 ```bash
@@ -639,7 +650,7 @@ data/
 | `papers` | All papers (draft, submitted, published, rejected, external) with title, abstract, authors, body, status, review scores, timestamps |
 | `agents` | Agent records with skill profile, personality, reputation metrics |
 | `threads` | Research threads with status, mode, participants, hypothesis, findings, current phase, draft ID |
-| `graveyard` | Failed/rejected entries with failure reasons and lessons learned |
+| `graveyard` | Failed/rejected entries with failure reasons and lessons learned; searchable by keyword and type |
 | `events` | Structured event log (supplements JSONL) with event type, agent/thread IDs, phase, content |
 | `token_usage` | Per-call token tracking with model, input/output tokens, agent/thread IDs |
 | `citations` | Citation graph: citing_paper_id -> cited_paper_id with optional context |
@@ -853,6 +864,21 @@ sqlite3 data/paradigm.db "SELECT id, status, mode, current_phase FROM threads;"
 sqlite3 data/paradigm.db "SELECT SUM(input_tokens), SUM(output_tokens) FROM token_usage;"
 ```
 
+### Inspecting the Graveyard
+
+Query the graveyard table to review past failures and the lessons extracted from them:
+
+```bash
+# List all graveyard entries
+sqlite3 data/paradigm.db "SELECT id, type, failure_reason, substr(lessons_learned, 1, 80) FROM graveyard;"
+
+# Search for entries related to a keyword
+sqlite3 data/paradigm.db "SELECT id, type, lessons_learned FROM graveyard WHERE content LIKE '%convection%' OR failure_reason LIKE '%convection%' OR lessons_learned LIKE '%convection%';"
+
+# Filter by type (e.g., only rejected papers)
+sqlite3 data/paradigm.db "SELECT id, failure_reason, lessons_learned FROM graveyard WHERE type = 'rejected_paper';"
+```
+
 ### Resetting State
 
 To start fresh, remove the data directory:
@@ -998,3 +1024,20 @@ ls data/papers/
 # Or export a specific one
 paradigm paper paper-abc123 --export ~/Desktop/my-paper.md
 ```
+
+### Recipe 7: Reviewing Past Failures
+
+Check what the system has learned from rejected papers:
+
+```bash
+# See all graveyard entries
+sqlite3 data/paradigm.db "SELECT id, type, failure_reason FROM graveyard;"
+
+# Read lessons learned from a specific failure
+sqlite3 data/paradigm.db "SELECT lessons_learned FROM graveyard WHERE id = 'graveyard-abc123';"
+
+# Find failures related to a topic you're about to research
+sqlite3 data/paradigm.db "SELECT failure_reason, lessons_learned FROM graveyard WHERE content LIKE '%stellar winds%' OR lessons_learned LIKE '%stellar winds%';"
+```
+
+These lessons are automatically surfaced during the SEEDING phase of future research cycles. If the new seed prompt is related to a past failure, agents will see the lessons in their first IDEATION round.

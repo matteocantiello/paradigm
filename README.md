@@ -20,9 +20,7 @@ Named after Thomas Kuhn --- paradigm shifts emerge from communities of researche
 - Phase 3: Computational sandbox (Docker-based code execution)
 - Phase 4: Writing + paper generation (section drafting, assembly, internal review)
 - Phase 5: Peer review + publication (structured review, revision loop, publish/reject)
-
-**In Progress:**
-- Phase 6: Multi-cycle + polish (multi-cycle discovery, operating modes, intervention hooks, prompt tuning)
+- Phase 6: Multi-cycle + polish (multi-cycle discovery, operating modes, intervention hooks, graveyard learning)
 
 See `ROADMAP.md` for the full implementation plan.
 

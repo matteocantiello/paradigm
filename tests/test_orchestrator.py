@@ -410,6 +410,44 @@ class TestOrchestrationEngine:
         mock_factory.create_team.assert_called_once_with(["writer", "editor"], skill_mode="default")
 
     @pytest.mark.asyncio
+    async def test_graveyard_context_in_seeding(
+        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """Graveyard entries matching seed prompt are loaded during seeding."""
+        # Add a matching graveyard entry (content contains the seed prompt substring)
+        tmp_db.add_to_graveyard(
+            graveyard_id="grave-test-001",
+            entry_type="rejected_paper",
+            content="Paper on Test stellar convection was rejected",
+            failure_reason="Lack of novelty",
+            lessons_learned="Need more original hypotheses about convection",
+        )
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test stellar convection",
+                mode="directed",
+            )
+
+        # Graveyard context should have been set on the engine
+        graveyard_ctx = getattr(engine, "_graveyard_context", "")
+        assert "Lessons from Failed Research Attempts" in graveyard_ctx
+        assert "Lack of novelty" in graveyard_ctx
+        assert "NOT citable" in graveyard_ctx
+
+    @pytest.mark.asyncio
     async def test_hook_continue(self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus):
         """Intervention hook returning 'continue' lets the cycle proceed normally."""
         hook_calls = []
