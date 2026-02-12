@@ -36,6 +36,8 @@ orchestrator:
   max_rounds_per_phase: 10
   enable_checkpointing: true
   checkpoint_interval: 5
+  enable_writing: true
+  max_review_iterations: 1
 
 # Scientific skills configuration
 skills:

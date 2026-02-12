@@ -36,6 +36,7 @@ def mock_config(tmp_path):
             "max_rounds_per_phase": 2,
             "checkpoint_interval": 1,
             "enable_checkpointing": True,
+            "enable_writing": False,
         },
     )
 
@@ -148,9 +149,9 @@ class TestOrchestrationEngine:
         # Phase was updated
         assert thread["current_phase"] == "planning"
 
-        # Agents were called (4 agents * 2 rounds * 2 phases = 16 calls)
+        # Agents were called (6 agents * 2 rounds * 2 phases = 24 calls)
         total_generate_calls = sum(a.generate.call_count for a in engine._agents.values())
-        assert total_generate_calls == 16  # 4 agents * 2 rounds * 2 phases
+        assert total_generate_calls == 24  # 6 agents * 2 rounds * 2 phases
 
         # Token usage was recorded
         usage = tmp_db.get_token_usage(thread_id=thread_id)

@@ -32,6 +32,22 @@ _PHASE_PRIORITIES: dict[ResearchPhase, list[str]] = {
         "skeptic",
         "writer",
     ],
+    ResearchPhase.WRITING: [
+        "writer",
+        "theorist",
+        "analyst",
+        "synthesizer",
+        "skeptic",
+        "editor",
+    ],
+    ResearchPhase.INTERNAL_REVIEW: [
+        "editor",
+        "skeptic",
+        "writer",
+        "theorist",
+        "analyst",
+        "synthesizer",
+    ],
 }
 
 

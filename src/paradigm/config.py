@@ -78,6 +78,8 @@ class OrchestratorConfig(BaseModel):
     max_rounds_per_phase: int = 10
     enable_checkpointing: bool = True
     checkpoint_interval: int = 5  # rounds
+    enable_writing: bool = True
+    max_review_iterations: int = 1
 
 
 class SkillsConfig(BaseModel):

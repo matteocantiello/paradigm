@@ -24,7 +24,11 @@ class ResearchPhase(StrEnum):
 _TRANSITIONS: dict[ResearchPhase, list[ResearchPhase]] = {
     ResearchPhase.SEEDING: [ResearchPhase.IDEATION],
     ResearchPhase.IDEATION: [ResearchPhase.PLANNING],
-    ResearchPhase.PLANNING: [ResearchPhase.LITERATURE, ResearchPhase.EXECUTION],
+    ResearchPhase.PLANNING: [
+        ResearchPhase.LITERATURE,
+        ResearchPhase.EXECUTION,
+        ResearchPhase.WRITING,
+    ],
     ResearchPhase.LITERATURE: [ResearchPhase.EXECUTION, ResearchPhase.PLANNING],
     ResearchPhase.EXECUTION: [ResearchPhase.WRITING, ResearchPhase.PLANNING],
     ResearchPhase.WRITING: [ResearchPhase.INTERNAL_REVIEW],

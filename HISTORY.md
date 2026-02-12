@@ -260,3 +260,43 @@ Docker Desktop installed via `brew install --cask docker` (required manual termi
 > let's test the full pipeline end to end
 
 Run the full CodeExecutor pipeline with real Docker — safety scan → execute in container → collect results.
+
+### Prompt 27 — Commit and Push Phase 3
+
+> let's commit and push
+
+Committed and pushed Phase 3 as `7b0aefa` (15 files, 1143 insertions).
+
+### Prompt 28 — Move to Phase 4
+
+> good catch. Just removed it. Let's move to the next phase
+
+Plan and implement Phase 4 — Writing + Paper Generation.
+
+### Prompt 29 — Implement Phase 4: Writing + Paper Generation
+
+> Implement the following plan: Phase 4: Writing + Paper Generation
+
+Implementing the approved plan: `journal/paper.py` (data models), phase transitions, scheduler priorities, config fields, engine writing/review phases, and tests.
+
+**Artifacts produced/modified:**
+- `src/paradigm/journal/paper.py` — PaperSection, SectionDraft, PaperDraft, ReviewFeedback, section assignment, parsing
+- `src/paradigm/journal/__init__.py` — Module exports
+- `src/paradigm/orchestrator/phases.py` — PLANNING → WRITING transition
+- `src/paradigm/orchestrator/scheduler.py` — WRITING/INTERNAL_REVIEW priorities
+- `src/paradigm/config.py` — enable_writing, max_review_iterations
+- `configs/default.yaml` — Writing config section
+- `src/paradigm/orchestrator/engine.py` — _run_writing_phase, _run_review_phase, updated team roles
+- `tests/test_writing.py` — Paper model + engine integration tests
+
+### Prompt 30 — What's Left To Do?
+
+> Ok. What's left to do?
+
+Reviewed ROADMAP.md. Phases 0-4 complete. Remaining: Phase 5 (Peer Review + Publication), Phase 6 (Multi-Cycle + Polish), plus future phases.
+
+### Prompt 31 — End-to-End Live Test
+
+> Can we test if what we have done so far works?
+
+Run the full pipeline live (SEEDING → IDEATION → PLANNING → WRITING → INTERNAL_REVIEW) with real Claude API calls, 1 round per phase to minimize cost.
