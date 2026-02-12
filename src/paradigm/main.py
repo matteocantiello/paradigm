@@ -1,11 +1,66 @@
 """CLI entry point for Paradigm."""
 
+import asyncio
 import sys
 from pathlib import Path
 
 import click
 
-from paradigm.config import load_config
+from paradigm.config import Config, load_config
+
+
+def _run_research(config: Config, seed_prompt: str, mode: str) -> None:
+    """Run a research cycle synchronously (wraps async engine).
+
+    Args:
+        config: Application configuration.
+        seed_prompt: Research prompt or topic.
+        mode: Operating mode.
+    """
+    from paradigm.agents.factory import AgentFactory
+    from paradigm.agents.skills import SkillRegistry
+    from paradigm.literature.corpus import Corpus
+    from paradigm.logging.events import EventLogger
+    from paradigm.orchestrator.engine import OrchestrationEngine
+    from paradigm.storage.database import Database
+
+    database = Database(config.storage.db_path)
+    logger = EventLogger(config.storage.log_path)
+
+    # Set up skill registry (optional, may not be available)
+    skill_registry = None
+    if config.skills.skills_dir.is_dir():
+        try:
+            skill_registry = SkillRegistry(config.skills.skills_dir)
+        except Exception:
+            pass
+
+    factory = AgentFactory(config, skill_registry=skill_registry)
+    corpus = Corpus(
+        database=database,
+        literature_config=config.literature,
+        storage_config=config.storage,
+        logger=logger,
+    )
+    engine = OrchestrationEngine(
+        config=config,
+        database=database,
+        corpus=corpus,
+        logger=logger,
+        agent_factory=factory,
+    )
+
+    try:
+        thread_id = asyncio.run(engine.run_research_cycle(seed_prompt=seed_prompt, mode=mode))
+        click.echo(f"Research cycle complete. Thread ID: {thread_id}")
+    except KeyboardInterrupt:
+        click.echo("\nResearch cycle interrupted.", err=True)
+        sys.exit(130)
+    except Exception as e:
+        click.echo(f"Error during research cycle: {e}", err=True)
+        sys.exit(1)
+    finally:
+        database.close()
 
 
 @click.group()
@@ -47,7 +102,7 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     help="Research topic (for exploratory mode)",
 )
 @click.pass_obj
-def run(config: object, mode: str, prompt: str | None, topic: str | None) -> None:
+def run(config: Config, mode: str, prompt: str | None, topic: str | None) -> None:
     """Run a research cycle.
 
     Examples:
@@ -62,16 +117,26 @@ def run(config: object, mode: str, prompt: str | None, topic: str | None) -> Non
         click.echo("Error: --topic required for exploratory mode", err=True)
         sys.exit(1)
 
+    seed_prompt = prompt or topic or ""
     click.echo(f"Starting {mode} research cycle...")
-    click.echo("(Implementation pending - Phase 2)")
+    _run_research(config, seed_prompt, mode)
 
 
 @cli.command()
 @click.pass_obj
-def status(config: object) -> None:
+def status(config: Config) -> None:
     """Show status of active research threads and system statistics."""
-    click.echo("System Status:")
-    click.echo("(Implementation pending - Phase 2)")
+    from paradigm.storage.database import Database
+
+    database = Database(config.storage.db_path)
+    try:
+        usage = database.get_token_usage()
+        click.echo("System Status:")
+        click.echo(f"  Total tokens used: {usage['total_tokens']:,}")
+        click.echo(f"  Input tokens: {usage['input_tokens']:,}")
+        click.echo(f"  Output tokens: {usage['output_tokens']:,}")
+    finally:
+        database.close()
 
 
 @cli.command()
@@ -82,18 +147,30 @@ def status(config: object) -> None:
     help="Thread ID to inspect",
 )
 @click.pass_obj
-def inspect(config: object, thread: str) -> None:
+def inspect(config: Config, thread: str) -> None:
     """Inspect a research thread checkpoint.
 
     Shows the current state, participants, findings, and next steps.
     """
-    click.echo(f"Inspecting thread: {thread}")
-    click.echo("(Implementation pending - Phase 2)")
+    from paradigm.storage.checkpoints import CheckpointManager
+    from paradigm.storage.database import Database
+
+    database = Database(config.storage.db_path)
+    try:
+        mgr = CheckpointManager(database, api_key=config.api_key or "")
+        checkpoint = mgr.load_checkpoint(thread)
+        if checkpoint:
+            click.echo(checkpoint.to_context_string())
+        else:
+            click.echo(f"No checkpoint found for thread: {thread}")
+    finally:
+        database.close()
 
 
 @cli.command()
 @click.option(
     "--status",
+    "paper_status",
     type=click.Choice(["draft", "submitted", "in_review", "published", "rejected"]),
     help="Filter by paper status",
 )
@@ -104,7 +181,7 @@ def inspect(config: object, thread: str) -> None:
     help="Maximum number of papers to show",
 )
 @click.pass_obj
-def papers(config: object, status: str | None, limit: int) -> None:
+def papers(config: Config, paper_status: str | None, limit: int) -> None:
     """List papers in the system."""
     click.echo("Papers:")
     click.echo("(Implementation pending - Phase 5)")
@@ -113,7 +190,7 @@ def papers(config: object, status: str | None, limit: int) -> None:
 @cli.command()
 @click.argument("paper_id")
 @click.pass_obj
-def paper(config: object, paper_id: str) -> None:
+def paper(config: Config, paper_id: str) -> None:
     """View a specific paper.
 
     Shows the full paper content, metadata, and review history.
@@ -124,7 +201,7 @@ def paper(config: object, paper_id: str) -> None:
 
 @cli.command()
 @click.pass_obj
-def agents(config: object) -> None:
+def agents(config: Config) -> None:
     """List agents and their statistics."""
     click.echo("Agents:")
     click.echo("(Implementation pending - Phase 2)")

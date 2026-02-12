@@ -66,3 +66,19 @@
 **Artifacts modified:**
 - `.planning/HISTORY.md` — added this prompt
 - `ROADMAP.md` — marked Phase 0 and Phase 1 complete, added skills integration to Phase 0
+
+### Prompt 7: Move to Phase 2
+
+> Let's move to the next phase
+
+**Key decisions:** Plan and implement Phase 2 — Orchestrator + Ideation Loop.
+
+## 2026-02-12
+
+### Prompt — Implement Phase 2: Orchestrator + Ideation Loop
+
+> Implement the following plan: Phase 2: Orchestrator + Ideation Loop — Implementation Plan. Create phases.py (phase state machine), scheduler.py (agent turn-taking), checkpoints.py (checkpoint compression), engine.py (main orchestration loop). Update main.py CLI to wire to engine. Write tests for all new modules.
+
+**Key decisions**: Follow the approved plan exactly. Implementation order: phases → scheduler → checkpoints → engine → main.py → tests → verification.
+
+**Artifacts**: New files: `orchestrator/phases.py`, `orchestrator/scheduler.py`, `storage/checkpoints.py`, `orchestrator/engine.py`. Modified: `main.py`, `__init__.py` files. Tests: `test_phases.py`, `test_scheduler.py`, `test_checkpoints.py`, `test_orchestrator.py`.
