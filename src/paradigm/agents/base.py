@@ -68,6 +68,8 @@ class Agent:
         self.max_tokens = max_tokens
         self.temperature = temperature
 
+        self.skills: list[str] = []
+
         self.client = Anthropic(api_key=api_key)
         self.total_input_tokens = 0
         self.total_output_tokens = 0

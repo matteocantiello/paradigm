@@ -35,3 +35,9 @@ orchestrator:
   max_rounds_per_phase: 10
   enable_checkpointing: true
   checkpoint_interval: 5
+
+# Scientific skills configuration
+skills:
+  skills_dir: "vendor/claude-scientific-skills/scientific-skills"
+  default_mode: "default"
+  max_skill_chars: null  # No truncation by default

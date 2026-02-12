@@ -76,6 +76,16 @@ class OrchestratorConfig(BaseModel):
     checkpoint_interval: int = 5  # rounds
 
 
+class SkillsConfig(BaseModel):
+    """Configuration for scientific skills integration."""
+
+    skills_dir: Path = Field(
+        default_factory=lambda: Path("vendor/claude-scientific-skills/scientific-skills")
+    )
+    default_mode: str = "default"  # "default", "all", "none"
+    max_skill_chars: int | None = None  # Per-skill truncation limit
+
+
 class Config(BaseModel):
     """Main configuration for Paradigm."""
 
@@ -84,6 +94,7 @@ class Config(BaseModel):
     literature: LiteratureConfig = Field(default_factory=LiteratureConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
     api_key: str | None = Field(default=None, validate_default=True)
 
     @field_validator("api_key", mode="before")

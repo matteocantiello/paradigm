@@ -34,3 +34,26 @@
 **Artifacts modified:**
 - `src/paradigm/config.py` — Fixed Pydantic v2 `validate_default=True` for api_key validator
 - `tests/test_config.py` — Fixed macOS path resolution in tests
+
+### Prompt 4: Integrate Scientific Skills from External Repo
+> I would like to implement in the plan the ability (for the agents) to acquire scientific skills from https://github.com/K-Dense-AI/claude-scientific-skills. I think it would be good to have the ability to either load all the agents with all the skills, or only load them with one skill, or assign a set of different skills, to mimic a diverse population of scientific expertise. Can we adapt the plan accordingly?
+
+**Key decisions:** Explore the external skills repo and design a flexible skill-loading system for agents.
+
+### Prompt 5: Implement Scientific Skills Integration
+
+> Implement the following plan: Scientific Skills Integration — Implementation Plan.
+> Full plan covering: git submodule, skill loader/registry, role prompts, agent factory, config updates, tests.
+
+**Key decisions**: Follow the approved plan exactly.
+**Artifacts produced or modified**:
+- `vendor/claude-scientific-skills/` — git submodule (142 scientific skills)
+- `src/paradigm/agents/skills.py` — SkillRegistry + compose_system_prompt
+- `src/paradigm/agents/factory.py` — AgentFactory with skill_mode support
+- `src/paradigm/agents/prompts/*.yaml` — 8 role prompts (theorist, analyst, synthesizer, experimentalist, writer, skeptic, editor, reviewer)
+- `src/paradigm/config.py` — Added SkillsConfig
+- `src/paradigm/agents/base.py` — Added skills attribute
+- `src/paradigm/agents/__init__.py` — Updated exports
+- `configs/default.yaml` — Added skills config section
+- `tests/test_skills.py` — 28 tests
+- `tests/test_factory.py` — 15 tests
