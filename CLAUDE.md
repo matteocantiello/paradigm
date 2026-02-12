@@ -2,7 +2,7 @@
 
 ## ⚠️ MANDATORY: Project History Logging
 
-**Every time the human gives you a prompt or instruction, you MUST append it to `.planning/HISTORY.md` before doing anything else.** This is non-negotiable.
+**Every time the human gives you a prompt or instruction, you MUST append it to `HISTORY.md` before doing anything else.** This is non-negotiable.
 
 Record:
 - The date (if a new day)
