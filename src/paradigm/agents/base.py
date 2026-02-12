@@ -3,11 +3,13 @@
 from typing import Any
 
 from anthropic import Anthropic
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Message(BaseModel):
     """Structured message for agent communication."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     from_agent: str = Field(..., alias="from")
     to: str  # "team", agent_id, or "editor"
@@ -17,11 +19,6 @@ class Message(BaseModel):
     content: str
     references: list[dict[str, str]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-    class Config:
-        """Pydantic config."""
-
-        populate_by_name = True
 
 
 class TokenUsage(BaseModel):

@@ -25,7 +25,7 @@ def test_database_creation(db):
 
     tables = ["papers", "agents", "threads", "graveyard", "events", "token_usage"]
     for table in tables:
-        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
         result = cursor.fetchone()
         assert result is not None, f"Table {table} should exist"
 

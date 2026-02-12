@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -462,7 +462,7 @@ class Database:
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 agent_id,
                 thread_id,
                 model,

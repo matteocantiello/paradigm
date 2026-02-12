@@ -1,15 +1,15 @@
 """Structured event logging system."""
 
 import json
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Types of events that can be logged."""
 
     AGENT_MESSAGE = "agent_message"
@@ -28,7 +28,7 @@ class EventType(str, Enum):
 class Event(BaseModel):
     """Structured event for logging."""
 
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     event_type: EventType
     agent_id: str | None = None
     thread_id: str | None = None
