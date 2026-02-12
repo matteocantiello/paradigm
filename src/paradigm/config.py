@@ -93,9 +93,7 @@ class Config(BaseModel):
         if v is None:
             v = os.getenv("ANTHROPIC_API_KEY")
         if not v:
-            raise ValueError(
-                "ANTHROPIC_API_KEY must be set in environment or config file"
-            )
+            raise ValueError("ANTHROPIC_API_KEY must be set in environment or config file")
         return v
 
 

@@ -124,21 +124,11 @@ class Database:
         """)
 
         # Create indices for common queries
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_papers_status ON papers(status)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_papers_published_at ON papers(published_at)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_threads_status ON threads(status)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_events_thread_id ON events(thread_id)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)"
-        )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_papers_status ON papers(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_papers_published_at ON papers(published_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_threads_status ON threads(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_thread_id ON events(thread_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)")
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_token_usage_thread_id ON token_usage(thread_id)"
         )

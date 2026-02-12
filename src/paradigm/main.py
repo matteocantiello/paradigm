@@ -32,9 +32,7 @@ def cli(ctx: click.Context, config: Path | None) -> None:
 @cli.command()
 @click.option(
     "--mode",
-    type=click.Choice(
-        ["directed", "explore", "hypothesis", "experimental", "replication"]
-    ),
+    type=click.Choice(["directed", "explore", "hypothesis", "experimental", "replication"]),
     default="directed",
     help="Research operating mode",
 )
