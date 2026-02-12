@@ -78,12 +78,14 @@ class Agent:
         self,
         prompt: str,
         context: list[dict[str, str]] | None = None,
+        max_tokens: int | None = None,
     ) -> AgentResponse:
         """Generate a response using Claude API.
 
         Args:
             prompt: User prompt
             context: Optional conversation context as list of {role, content} dicts
+            max_tokens: Override max tokens for this call (defaults to agent's max_tokens)
 
         Returns:
             AgentResponse with content and token usage
@@ -100,7 +102,7 @@ class Agent:
         # Call Claude API
         response = self.client.messages.create(
             model=self.model,
-            max_tokens=self.max_tokens,
+            max_tokens=max_tokens or self.max_tokens,
             temperature=self.temperature,
             system=self.system_prompt,
             messages=messages,

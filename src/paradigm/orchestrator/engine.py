@@ -167,6 +167,12 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
 # How many recent messages to include in agent context
 _RECENT_MESSAGES_LIMIT = 10
 
+# Max tokens for writing/assembly/revision calls (papers need much more than default 4096)
+_WRITING_MAX_TOKENS = 16384
+
+# Max characters of paper body to include in agent prompts
+_PAPER_CONTEXT_LIMIT = 50000
+
 
 class OrchestrationEngine:
     """Orchestrates multi-agent research cycles through structured phases."""
@@ -386,7 +392,7 @@ class OrchestrationEngine:
             )
 
             try:
-                response = await agent.generate(prompt)
+                response = await agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             except Exception as e:
                 self._logger.log_error(e, agent_id=agent_id, thread_id=self._thread_id)
                 click.echo(f"    [!] {agent_id} failed: {e}")
@@ -443,7 +449,7 @@ class OrchestrationEngine:
         )
 
         try:
-            response = await writer_agent.generate(prompt)
+            response = await writer_agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             self._log_agent_response(
                 writer_agent.agent_id, response, ResearchPhase.WRITING, "assembly"
             )
@@ -474,7 +480,7 @@ class OrchestrationEngine:
             template = _PHASE_INSTRUCTIONS[ResearchPhase.INTERNAL_REVIEW]["editor_review"]
             prompt = template.format(
                 seed_prompt=self._seed_prompt,
-                current_draft=current_body[:8000],  # Truncate for context window
+                current_draft=current_body[:_PAPER_CONTEXT_LIMIT],  # Truncate for context window
             )
 
             try:
@@ -546,12 +552,12 @@ class OrchestrationEngine:
         prompt = template.format(
             seed_prompt=self._seed_prompt,
             checkpoint_context=checkpoint_context,
-            current_draft=current_body[:8000],
-            review_feedback=review_text[:4000],
+            current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
+            review_feedback=review_text[:_PAPER_CONTEXT_LIMIT],
         )
 
         try:
-            response = await writer.generate(prompt)
+            response = await writer.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             self._log_agent_response(
                 writer.agent_id, response, ResearchPhase.INTERNAL_REVIEW, "revision"
             )
@@ -596,7 +602,7 @@ class OrchestrationEngine:
         template = _PHASE_INSTRUCTIONS[ResearchPhase.SUBMITTED]["desk_review"]
         prompt = template.format(
             seed_prompt=self._seed_prompt,
-            current_draft=current_body[:8000],
+            current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
         )
 
         try:
@@ -659,7 +665,7 @@ class OrchestrationEngine:
         for agent in reviewer_agents:
             prompt = template.format(
                 seed_prompt=self._seed_prompt,
-                current_draft=current_body[:8000],
+                current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
             )
 
             try:
@@ -733,12 +739,12 @@ class OrchestrationEngine:
         prompt = template.format(
             seed_prompt=self._seed_prompt,
             checkpoint_context=checkpoint_context,
-            current_draft=current_body[:8000],
-            review_feedback=review_feedback[:4000],
+            current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
+            review_feedback=review_feedback[:_PAPER_CONTEXT_LIMIT],
         )
 
         try:
-            response = await writer.generate(prompt)
+            response = await writer.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
         except Exception as e:
             self._logger.log_error(e, agent_id=writer.agent_id, thread_id=self._thread_id)
             click.echo(f"  [!] Revision failed: {e}")

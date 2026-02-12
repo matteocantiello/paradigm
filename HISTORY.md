@@ -347,3 +347,20 @@ Implementing the approved plan: peer review pipeline (SUBMITTED → PEER_REVIEW 
 - `src/paradigm/agents/prompts/reviewer.yaml` — Structured scoring instructions
 - `src/paradigm/literature/corpus.py` — ingest_internal_paper() method
 - `src/paradigm/orchestrator/phases.py` — SUBMITTED → REJECTED transition for desk rejection
+
+### Prompt 36 — Fix Truncated Paper Output
+
+> Something I noticed is that the papers (.md) all seem to be truncated, and missing the last part
+
+**Root cause:** Two issues causing truncation:
+1. `max_tokens: 4096` on agents — papers need much more than 4096 output tokens
+2. `current_body[:8000]` in revision prompts — the writer only saw the first 8000 chars when revising
+
+**Fix:**
+- Added `max_tokens` override parameter to `Agent.generate()` so callers can request more tokens per-call
+- Engine now uses `_WRITING_MAX_TOKENS = 16384` for all writing/assembly/revision calls
+- Increased paper context limit from 8000 chars to `_PAPER_CONTEXT_LIMIT = 50000` chars
+
+**Artifacts modified:**
+- `src/paradigm/agents/base.py` — Added `max_tokens` parameter to `generate()`
+- `src/paradigm/orchestrator/engine.py` — Added `_WRITING_MAX_TOKENS`, `_PAPER_CONTEXT_LIMIT` constants; used throughout writing pipeline
