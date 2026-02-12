@@ -9,24 +9,31 @@
 
 ---
 
-## Phase 0: Foundation (Week 1)
+## Phase 0: Foundation (Week 1) ✓ COMPLETE
 
 **Goal**: Project skeleton, configuration, database schema, basic agent abstraction.
 
 ### Tasks
 
-- [ ] Initialize Python project with `pyproject.toml`, deps, dev tooling (ruff, pytest)
-- [ ] Implement `config.py` — load YAML config, validate, provide defaults
-- [ ] Implement `storage/database.py` — SQLite schema creation (papers, agents, threads, graveyard, events)
-- [ ] Implement `agents/base.py` — Base agent class:
+- [x] Initialize Python project with `pyproject.toml`, deps, dev tooling (ruff, pytest)
+- [x] Implement `config.py` — load YAML config, validate, provide defaults
+- [x] Implement `storage/database.py` — SQLite schema creation (papers, agents, threads, graveyard, events)
+- [x] Implement `agents/base.py` — Base agent class:
   - Takes a system prompt + conversation context
   - Calls Claude API
   - Returns structured response
   - Tracks token usage
-- [ ] Implement `logging/events.py` — Structured JSON-lines event logger
-- [ ] Write initial agent system prompts (YAML templates) for: theorist, analyst, skeptic
-- [ ] Write default config YAML
-- [ ] Unit tests for database, config, base agent
+- [x] Implement `logging/events.py` — Structured JSON-lines event logger
+- [x] Write initial agent system prompts (YAML templates) for: theorist, analyst, skeptic
+- [x] Write default config YAML
+- [x] Unit tests for database, config, base agent
+- [x] GitHub Actions CI pipeline
+- [x] Scientific skills integration:
+  - Added `claude-scientific-skills` submodule (142 skills) under `vendor/`
+  - `agents/skills.py` — SkillRegistry for discovering, indexing, and composing skills
+  - `agents/factory.py` — AgentFactory for creating agents with role prompts + skills
+  - 8 role prompt YAML templates (theorist, analyst, synthesizer, experimentalist, writer, skeptic, editor, reviewer)
+  - Flexible skill_mode: "default", "all", "none", "custom"
 
 ### Exit Criteria
 
@@ -37,28 +44,28 @@
 
 ---
 
-## Phase 1: Literature Access (Week 2)
+## Phase 1: Literature Access (Week 2) ✓ COMPLETE
 
 **Goal**: Agents can search arXiv and retrieve papers.
 
 ### Tasks
 
-- [ ] Implement `literature/arxiv.py` — arXiv API client:
+- [x] Implement `literature/arxiv.py` — arXiv API client:
   - Search by query (keyword, category, date range)
   - Parse Atom feed response
   - Return structured results (id, title, authors, abstract, categories, date)
   - Rate limiting (1 req / 3s)
   - Optional: fetch full PDF → text extraction via PyMuPDF
-- [ ] Implement `literature/embeddings.py` — ChromaDB wrapper:
+- [x] Implement `literature/embeddings.py` — ChromaDB wrapper:
   - Embed paper abstracts using a sentence-transformer or Claude embeddings
   - Store and retrieve by semantic similarity
   - Upsert for both arXiv and internal papers
-- [ ] Implement `literature/corpus.py` — unified search interface:
+- [x] Implement `literature/corpus.py` — unified search interface:
   - Search arXiv (live)
   - Search internal corpus (ChromaDB + SQLite)
   - Merge and rank results
   - Return to agent as formatted context
-- [ ] Implement `literature/citations.py` — basic citation tracking:
+- [x] Implement `literature/citations.py` — basic citation tracking:
   - Record when a paper cites another
   - Query citation count
   - Simple citation graph traversal

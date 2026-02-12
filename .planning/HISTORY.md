@@ -57,3 +57,12 @@
 - `configs/default.yaml` — Added skills config section
 - `tests/test_skills.py` — 28 tests
 - `tests/test_factory.py` — 15 tests
+
+### Prompt 6: History Logging & Roadmap Update
+
+> It seems history.md has only prompts from phase 0. What about our recent prompts? Also did you adapt the roadmap to include that modification (addition of skills)?
+
+**Key decisions:** Update ROADMAP.md to reflect completed phases and the new skills integration step.
+**Artifacts modified:**
+- `.planning/HISTORY.md` — added this prompt
+- `ROADMAP.md` — marked Phase 0 and Phase 1 complete, added skills integration to Phase 0
