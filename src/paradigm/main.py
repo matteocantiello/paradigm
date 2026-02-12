@@ -197,20 +197,65 @@ def inspect(config: Config, thread: str) -> None:
 @click.pass_obj
 def papers(config: Config, paper_status: str | None, limit: int) -> None:
     """List papers in the system."""
-    click.echo("Papers:")
-    click.echo("(Implementation pending - Phase 5)")
+    from paradigm.storage.database import Database
+
+    database = Database(config.storage.db_path)
+    try:
+        results = database.list_papers(status=paper_status, limit=limit)
+        if not results:
+            click.echo("No papers found.")
+            return
+        click.echo(f"{'ID':<25} {'Status':<12} {'Title'}")
+        click.echo("-" * 80)
+        for p in results:
+            title = p["title"][:40] + "..." if len(p["title"]) > 40 else p["title"]
+            click.echo(f"{p['id']:<25} {p['status']:<12} {title}")
+    finally:
+        database.close()
 
 
 @cli.command()
 @click.argument("paper_id")
+@click.option(
+    "--export",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Export paper to a markdown file",
+)
 @click.pass_obj
-def paper(config: Config, paper_id: str) -> None:
-    """View a specific paper.
+def paper(config: Config, paper_id: str, export: Path | None) -> None:
+    """View a specific paper, or export it to a file.
 
-    Shows the full paper content, metadata, and review history.
+    Examples:
+        paradigm paper paper-abc123
+        paradigm paper paper-abc123 --export output.md
     """
-    click.echo(f"Paper: {paper_id}")
-    click.echo("(Implementation pending - Phase 5)")
+    import json
+
+    from paradigm.storage.database import Database
+
+    database = Database(config.storage.db_path)
+    try:
+        result = database.get_paper(paper_id)
+        if result is None:
+            click.echo(f"Paper not found: {paper_id}", err=True)
+            sys.exit(1)
+
+        if export:
+            export.write_text(result["body"])
+            click.echo(f"Exported to {export}")
+            return
+
+        # Display paper metadata + body
+        click.echo(f"Title:    {result['title']}")
+        click.echo(f"Status:   {result['status']}")
+        authors = json.loads(result["authors"]) if result["authors"] else []
+        click.echo(f"Authors:  {', '.join(authors)}")
+        click.echo(f"Created:  {result['created_at']}")
+        click.echo("-" * 80)
+        click.echo(result["body"])
+    finally:
+        database.close()
 
 
 @cli.command()
