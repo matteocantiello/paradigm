@@ -9,7 +9,7 @@ import click
 from paradigm.config import Config, load_config
 
 
-def _run_research(config: Config, seed_prompt: str, mode: str) -> None:
+def _run_research(config: Config, seed_prompt: str, mode: str, rounds: int | None = None) -> None:
     """Run a research cycle synchronously (wraps async engine).
 
     Args:
@@ -42,6 +42,10 @@ def _run_research(config: Config, seed_prompt: str, mode: str) -> None:
         storage_config=config.storage,
         logger=logger,
     )
+    # Override rounds per phase if specified
+    if rounds is not None:
+        config.orchestrator.max_rounds_per_phase = rounds
+
     engine = OrchestrationEngine(
         config=config,
         database=database,
@@ -101,8 +105,16 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     type=str,
     help="Research topic (for exploratory mode)",
 )
+@click.option(
+    "--rounds",
+    type=int,
+    default=None,
+    help="Rounds per phase (overrides config)",
+)
 @click.pass_obj
-def run(config: Config, mode: str, prompt: str | None, topic: str | None) -> None:
+def run(
+    config: Config, mode: str, prompt: str | None, topic: str | None, rounds: int | None
+) -> None:
     """Run a research cycle.
 
     Examples:
@@ -119,7 +131,9 @@ def run(config: Config, mode: str, prompt: str | None, topic: str | None) -> Non
 
     seed_prompt = prompt or topic or ""
     click.echo(f"Starting {mode} research cycle...")
-    _run_research(config, seed_prompt, mode)
+    if rounds is not None:
+        click.echo(f"Rounds per phase: {rounds} (override)")
+    _run_research(config, seed_prompt, mode, rounds=rounds)
 
 
 @cli.command()

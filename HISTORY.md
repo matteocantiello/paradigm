@@ -178,3 +178,85 @@ Added retroactive entries for the commit/push and confirmation prompts.
 > I see the issue. We have two history.md, one in paradigm/ and one in paradigm/.planning/ Could we merge the two files to paradigm/history.md ?
 
 **Action**: Merged `.planning/HISTORY.md` into `HISTORY.md` (root), renumbered prompts sequentially, removed the duplicate.
+
+### Prompt 17 — Commit and Push HISTORY.md Consolidation
+
+> great! Let's commit and push
+
+**Artifacts**: Committed and pushed as `1d5988c`.
+
+### Prompt 18 — Plan Next Step
+
+> Let's plan next step. Are we settled on what we need to do?
+
+Reviewed roadmap. Phase 2 complete, Phase 3 (Docker sandbox) is next. Offered choice: move to Phase 3, do real e2e test first, or something else.
+
+### Prompt 19 — Real End-to-End Test
+
+> 2
+
+User chose to do a real end-to-end test of Phase 2 with live Claude API calls before moving on.
+
+---
+
+## 2026-02-12
+
+### Prompt 20 — Implement E2E Test Hardening Plan
+
+> Implement the following plan: Real End-to-End Test of Phase 2
+
+Implementing the plan from the planning session: add error handling around agent API calls and checkpoint creation, add progress output to CLI, add `--rounds` CLI option, log literature search failures, and update ROADMAP.md to mark Phase 2 complete.
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Error handling, progress output
+- `src/paradigm/main.py` — `--rounds` CLI option
+- `ROADMAP.md` — Phase 2 marked complete
+
+### Prompt 21 — .env File for API Key
+
+> could you check that it is now in configs/default.yaml? [...] Yes, let's use a .env file that is not tracked by git
+
+Moved API key from `configs/default.yaml` to `.env` file, added `python-dotenv` dependency, added `.env` to `.gitignore`.
+
+**Artifacts modified:** `.env` (new), `configs/default.yaml`, `.gitignore`, `pyproject.toml`, `src/paradigm/config.py`
+
+### Prompt 22 — Fix data_dir Resolution
+
+> yes, fix that so data_dir resolves relative to the project root
+
+The `data_dir: "./data"` config was resolving relative to cwd, causing data to land in `configs/data/` when run from `configs/`. Fixed `load_config` to resolve relative paths against the project root (config file's parent directory).
+
+**Artifacts modified:** `src/paradigm/config.py`
+
+### Prompt 23 — Move to Phase 3: Computational Sandbox
+
+> Let's move on to phase 3 and build the sandbox
+
+Plan and implement Phase 3 — Docker-based code execution sandbox.
+
+### Prompt 24 — Implement Phase 3: Computational Sandbox
+
+> Implement the following plan: Phase 3: Computational Sandbox
+
+Implementing the approved plan: models.py (Pydantic models), safety.py (AST-based code scanner), docker.py (Docker SDK wrapper), executor.py (high-level pipeline), Dockerfile.sandbox, and tests.
+
+**Artifacts produced:**
+- `src/paradigm/sandbox/models.py` — ExecutionRequest, ExecutionResult, ExecutionStatus, SafetyVerdict, OutputFile
+- `src/paradigm/sandbox/safety.py` — SafetyScanner (AST + regex code scanning)
+- `src/paradigm/sandbox/docker.py` — ContainerManager (async Docker SDK wrapper)
+- `src/paradigm/sandbox/executor.py` — CodeExecutor (safety scan → Docker execute → log)
+- `src/paradigm/sandbox/__init__.py` — Module exports
+- `docker/Dockerfile.sandbox` — Python 3.12-slim sandbox image
+- `tests/test_sandbox.py` — ~27 tests with mocked Docker
+
+### Prompt 25 — Install Docker
+
+> Let's install docker
+
+Docker Desktop installed via `brew install --cask docker` (required manual terminal run for sudo). Image `paradigm-sandbox:latest` built and smoke-tested.
+
+### Prompt 26 — End-to-End Sandbox Test
+
+> let's test the full pipeline end to end
+
+Run the full CodeExecutor pipeline with real Docker — safety scan → execute in container → collect results.

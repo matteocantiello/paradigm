@@ -5,7 +5,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
+
+# Load .env file so ANTHROPIC_API_KEY is available via os.getenv
+load_dotenv()
 
 
 class AgentConfig(BaseModel):
@@ -134,8 +138,27 @@ def load_config(config_path: str | Path | None = None) -> Config:
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     # Load YAML
+    config_dir = config_path.resolve().parent
     with open(config_path) as f:
         config_dict = yaml.safe_load(f) or {}
+
+    # Resolve relative data_dir against the project root (config file's parent's parent)
+    # e.g. configs/default.yaml -> project root is configs/..
+    project_root = config_dir.parent
+    storage = config_dict.get("storage", {})
+    if "data_dir" in storage:
+        data_path = Path(storage["data_dir"])
+        if not data_path.is_absolute():
+            storage["data_dir"] = str(project_root / data_path)
+            config_dict["storage"] = storage
+
+    # Also resolve skills_dir relative to project root
+    skills = config_dict.get("skills", {})
+    if "skills_dir" in skills:
+        skills_path = Path(skills["skills_dir"])
+        if not skills_path.is_absolute():
+            skills["skills_dir"] = str(project_root / skills_path)
+            config_dict["skills"] = skills
 
     # Override with environment variables
     if data_dir := os.getenv("PARADIGM_DATA_DIR"):

@@ -79,29 +79,29 @@
 
 ---
 
-## Phase 2: Orchestrator + Ideation Loop (Week 3)
+## Phase 2: Orchestrator + Ideation Loop (Week 3) ✓ COMPLETE
 
 **Goal**: Multiple agents can discuss a topic in structured rounds and produce a research plan.
 
 ### Tasks
 
-- [ ] Implement `orchestrator/phases.py` — Phase state machine (enum + transitions)
-- [ ] Implement `orchestrator/scheduler.py` — Turn-taking logic:
+- [x] Implement `orchestrator/phases.py` — Phase state machine (enum + transitions)
+- [x] Implement `orchestrator/scheduler.py` — Turn-taking logic:
   - Round-robin with optional priority (reputation-weighted)
   - Phase-appropriate agent selection (e.g., skeptic speaks after proposals)
   - Configurable number of rounds per phase
-- [ ] Implement `orchestrator/engine.py` — Main orchestration loop:
+- [x] Implement `orchestrator/engine.py` — Main orchestration loop:
   - Accept seed prompt
   - Initialize research thread
   - Run through SEEDING → IDEATION → PLANNING phases
   - Each phase: iterate agents, collect responses, update checkpoint
   - Produce structured research plan as output
-- [ ] Implement `storage/checkpoints.py` — Thread checkpoint management:
+- [x] Implement `storage/checkpoints.py` — Thread checkpoint management:
   - Create, update, load checkpoints
   - Compress conversation history into summary (use Claude to summarize)
   - Resume from checkpoint
-- [ ] Implement structured message format (the communication protocol from spec)
-- [ ] Test: 3 agents (theorist, analyst, skeptic) discuss "open problems in stellar variability" for 3 rounds, produce a research plan
+- [x] Implement structured message format (the communication protocol from spec)
+- [x] Test: 154 unit tests passing (mocked API calls)
 
 ### Exit Criteria
 

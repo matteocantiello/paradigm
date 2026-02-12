@@ -22,8 +22,12 @@ wheels/
 
 # Virtual environments
 venv/
+.venv/
 env/
 ENV/
+
+# Claude Code
+.claude/
 
 # IDEs
 .vscode/
@@ -48,6 +52,9 @@ data/*
 # OS
 .DS_Store
 Thumbs.db
+
+# Environment
+.env
 
 # Ruff
 .ruff_cache/

@@ -1,4 +1,5 @@
 # Paradigm Default Configuration
+# API key is loaded from .env file (ANTHROPIC_API_KEY)
 
 # Agent configuration
 agent:
@@ -8,7 +9,7 @@ agent:
   temperature: 1.0
   token_budget_per_thread: 1000000
   token_budget_per_agent: 100000
-
+  
 # Sandbox configuration
 sandbox:
   enabled: true

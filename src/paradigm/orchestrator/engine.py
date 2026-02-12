@@ -3,6 +3,8 @@
 import uuid
 from typing import Any
 
+import click
+
 from paradigm.agents.base import Agent
 from paradigm.agents.factory import AgentFactory
 from paradigm.config import Config
@@ -137,9 +139,11 @@ class OrchestrationEngine:
         # Phase 2: IDEATION
         max_rounds = self._config.orchestrator.max_rounds_per_phase
         checkpoint_interval = self._config.orchestrator.checkpoint_interval
+        agent_count = len(self._agents)
 
         self._phase_manager.transition_to(ResearchPhase.IDEATION)
         self._log_phase_transition(ResearchPhase.SEEDING, ResearchPhase.IDEATION)
+        click.echo(f"Phase: IDEATION ({max_rounds} rounds, {agent_count} agents)")
         await self._run_phase(
             ResearchPhase.IDEATION,
             max_rounds=max_rounds,
@@ -150,6 +154,7 @@ class OrchestrationEngine:
         self._phase_manager.transition_to(ResearchPhase.PLANNING)
         self._log_phase_transition(ResearchPhase.IDEATION, ResearchPhase.PLANNING)
         self._messages = []  # Reset messages for new phase
+        click.echo(f"Phase: PLANNING ({max_rounds} rounds, {agent_count} agents)")
         await self._run_phase(
             ResearchPhase.PLANNING,
             max_rounds=max_rounds,
@@ -205,7 +210,9 @@ class OrchestrationEngine:
                 self._literature_context = lit_context
             else:
                 self._literature_context = ""
-        except Exception:
+        except Exception as e:
+            self._logger.log_error(e, thread_id=thread_id)
+            click.echo(f"  [!] Literature search failed: {e}")
             self._literature_context = ""
 
         return thread_id
@@ -226,6 +233,7 @@ class OrchestrationEngine:
         scheduler = Scheduler(list(self._agents.values()), mode="phase_appropriate")
 
         for round_num in range(1, max_rounds + 1):
+            click.echo(f"  Round {round_num}/{max_rounds}...")
             await self._run_round(phase, round_num, scheduler)
             scheduler.advance_round()
 
@@ -235,23 +243,33 @@ class OrchestrationEngine:
                 and round_num % checkpoint_interval == 0
             )
             if should_checkpoint:
-                self._checkpoint = await self._checkpoint_mgr.create_checkpoint(
-                    thread_id=self._thread_id,
-                    phase=str(phase),
-                    round_number=round_num,
-                    messages=self._messages,
-                    previous_checkpoint=self._checkpoint,
-                )
+                try:
+                    self._checkpoint = await self._checkpoint_mgr.create_checkpoint(
+                        thread_id=self._thread_id,
+                        phase=str(phase),
+                        round_number=round_num,
+                        messages=self._messages,
+                        previous_checkpoint=self._checkpoint,
+                    )
+                    click.echo(f"  Checkpoint saved (round {round_num})")
+                except Exception as e:
+                    self._logger.log_error(e, thread_id=self._thread_id)
+                    click.echo(f"  [!] Checkpoint failed: {e}")
 
         # Final checkpoint at end of phase
         if self._messages and self._config.orchestrator.enable_checkpointing:
-            self._checkpoint = await self._checkpoint_mgr.create_checkpoint(
-                thread_id=self._thread_id,
-                phase=str(phase),
-                round_number=max_rounds,
-                messages=self._messages,
-                previous_checkpoint=self._checkpoint,
-            )
+            try:
+                self._checkpoint = await self._checkpoint_mgr.create_checkpoint(
+                    thread_id=self._thread_id,
+                    phase=str(phase),
+                    round_number=max_rounds,
+                    messages=self._messages,
+                    previous_checkpoint=self._checkpoint,
+                )
+                click.echo("  Checkpoint saved (end of phase)")
+            except Exception as e:
+                self._logger.log_error(e, thread_id=self._thread_id)
+                click.echo(f"  [!] Final checkpoint failed: {e}")
 
     async def _run_round(
         self,
@@ -272,7 +290,12 @@ class OrchestrationEngine:
             agent = self._agents[agent_id]
             prompt = self._build_agent_prompt(agent, phase, round_num)
 
-            response = await agent.generate(prompt)
+            try:
+                response = await agent.generate(prompt)
+            except Exception as e:
+                self._logger.log_error(e, agent_id=agent_id, thread_id=self._thread_id)
+                click.echo(f"    [!] {agent_id} failed: {e}")
+                continue  # Skip this agent for this round
 
             # Create structured message
             msg = agent.format_message(
@@ -286,6 +309,9 @@ class OrchestrationEngine:
             # Store message
             msg_dict = msg.model_dump(by_alias=True)
             self._messages.append(msg_dict)
+
+            total_tokens = response.usage.input_tokens + response.usage.output_tokens
+            click.echo(f"    {agent_id}: {total_tokens} tokens")
 
             # Log message and token usage
             self._logger.log_agent_message(
