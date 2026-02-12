@@ -2,9 +2,45 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from paradigm.storage.database import Database
+
+# Patterns for citation extraction from paper text
+_ARXIV_CITATION_RE = re.compile(r"arXiv:(\d{4}\.\d{4,5}(?:v\d+)?)")
+_INTERNAL_CITATION_RE = re.compile(r"(paper-[a-f0-9]{12})")
+
+
+def extract_citations_from_text(text: str) -> list[str]:
+    """Extract cited paper IDs from paper body text.
+
+    Finds arXiv IDs (e.g., arXiv:2301.12345) and internal Paradigm paper IDs
+    (e.g., paper-abc123def456).
+
+    Args:
+        text: Paper body text to scan.
+
+    Returns:
+        Deduplicated list of cited paper IDs. arXiv IDs are returned with
+        the "arXiv:" prefix; internal IDs are returned as-is.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for match in _ARXIV_CITATION_RE.finditer(text):
+        arxiv_id = f"arXiv:{match.group(1)}"
+        if arxiv_id not in seen:
+            seen.add(arxiv_id)
+            result.append(arxiv_id)
+
+    for match in _INTERNAL_CITATION_RE.finditer(text):
+        paper_id = match.group(1)
+        if paper_id not in seen:
+            seen.add(paper_id)
+            result.append(paper_id)
+
+    return result
 
 
 class CitationTracker:

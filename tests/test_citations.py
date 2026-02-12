@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from paradigm.literature.citations import CitationTracker
+from paradigm.literature.citations import CitationTracker, extract_citations_from_text
 from paradigm.storage.database import Database
 
 
@@ -120,3 +120,45 @@ def test_no_citations(tracker):
     """Test getting citations for a paper with none."""
     citing = tracker.get_cited_by("uncited-paper")
     assert citing == []
+
+
+# --- Tests for extract_citations_from_text ---
+
+
+def test_extract_citations_arxiv():
+    """Extract arXiv IDs from text."""
+    text = "As shown by arXiv:2301.12345, and confirmed in arXiv:2305.00001v2."
+    result = extract_citations_from_text(text)
+    assert "arXiv:2301.12345" in result
+    assert "arXiv:2305.00001v2" in result
+    assert len(result) == 2
+
+
+def test_extract_citations_internal():
+    """Extract internal Paradigm paper IDs from text."""
+    text = "Building on paper-abc123def456, we extend the results of paper-111222333444."
+    result = extract_citations_from_text(text)
+    assert "paper-abc123def456" in result
+    assert "paper-111222333444" in result
+    assert len(result) == 2
+
+
+def test_extract_citations_mixed():
+    """Extract both arXiv and internal IDs from text."""
+    text = (
+        "Previous work (arXiv:2301.12345) established the baseline. "
+        "Our earlier paper paper-aabbccddeeff extended this. "
+        "See also arXiv:2302.67890."
+    )
+    result = extract_citations_from_text(text)
+    assert len(result) == 3
+    assert "arXiv:2301.12345" in result
+    assert "paper-aabbccddeeff" in result
+    assert "arXiv:2302.67890" in result
+
+
+def test_extract_citations_deduplicates():
+    """Duplicate citations are returned only once."""
+    text = "See arXiv:2301.12345. We confirm arXiv:2301.12345 again."
+    result = extract_citations_from_text(text)
+    assert result.count("arXiv:2301.12345") == 1

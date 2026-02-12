@@ -364,3 +364,39 @@ Implementing the approved plan: peer review pipeline (SUBMITTED → PEER_REVIEW 
 **Artifacts modified:**
 - `src/paradigm/agents/base.py` — Added `max_tokens` parameter to `generate()`
 - `src/paradigm/orchestrator/engine.py` — Added `_WRITING_MAX_TOKENS`, `_PAPER_CONTEXT_LIMIT` constants; used throughout writing pipeline
+
+### Prompt 37 — Implement Phase 6: Multi-Cycle + Polish
+
+> Implement the following plan: Phase 6: Multi-Cycle + Polish
+>
+> 4 steps: (1) Fix multi-cycle discovery in corpus.py — internal paper IDs weren't matched due to `arxiv:` prefix bug, (2) Citation recording — extract_citations_from_text() + wire into publish_paper(), (3) Operating modes — MODE_TEAM_ROLES dict + mode-specific prompts, (4) Intervention hooks — InterventionHook callback type + --interactive CLI flag.
+
+**Key decisions:**
+- Fix the critical `arxiv:` prefix bug that prevented internal papers from being discovered in search
+- Add `extract_citations_from_text()` as a standalone function in citations.py
+- MODE_TEAM_ROLES dict maps mode names to team compositions
+- InterventionHook is a simple callback type, not a class
+- Same-process pause/abort only; full cross-process resume deferred
+
+**Artifacts produced/modified:**
+- `src/paradigm/literature/corpus.py` — Fixed search for internal papers, enhanced build_literature_context, improved ingest_internal_paper
+- `src/paradigm/literature/citations.py` — Added `extract_citations_from_text()`
+- `src/paradigm/journal/publication.py` — Wired citation extraction into publish_paper
+- `src/paradigm/orchestrator/engine.py` — MODE_TEAM_ROLES, mode prompts, InterventionHook, _check_intervention
+- `src/paradigm/main.py` — Added `--interactive` flag to run command
+- `tests/test_corpus.py` — 3 new tests for internal paper discovery
+- `tests/test_citations.py` — 4 new tests for citation extraction
+- `tests/test_orchestrator.py` — ~7 new tests for modes + intervention hooks
+- `ROADMAP.md` — Phase 5 marked complete, Phase 6 updated
+
+### Prompt 38 — Operations Manual + README Update
+
+> Implement the following plan: Paradigm Operations Manual + README Update
+>
+> Create `docs/MANUAL.md` (~700-900 lines) as a comprehensive operations manual aimed at a scientist-operator. 14 sections covering: Overview, Quick Start, CLI Reference, Operating Modes, Research Cycle, Agent Team, Interactive Mode, Multi-Cycle Research, Configuration Reference, Data and Storage, Cost Management, Docker Sandbox, Troubleshooting, Recipes. Update `README.md` status to reflect Phases 0-5 complete, Phase 6 in progress. Add link to manual. Remove stale annotations.
+
+**Key decisions:** All documentation content derived from actual source code (main.py, config.py, engine.py, phases.py, factory.py, paper.py, default.yaml) to ensure accuracy.
+
+**Artifacts produced/modified:**
+- `docs/MANUAL.md` — New comprehensive operations manual
+- `README.md` — Updated status, Quick Start, and links

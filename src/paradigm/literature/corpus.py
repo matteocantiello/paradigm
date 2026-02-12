@@ -80,13 +80,17 @@ class Corpus:
         if include_local and self._embeddings.count() > 0:
             local_results = self._embeddings.search(query, n_results=max_results)
             for result in local_results:
-                arxiv_id = result["arxiv_id"]
-                # Try to get full paper from database
-                db_paper = self._db.get_paper(f"arxiv:{arxiv_id}")
+                doc_id = result["arxiv_id"]
+                # Internal papers use their ID directly; arXiv papers use "arxiv:" prefix
+                if doc_id.startswith("paper-"):
+                    db_key = doc_id
+                else:
+                    db_key = f"arxiv:{doc_id}"
+                db_paper = self._db.get_paper(db_key)
                 if db_paper:
                     paper = self._db_row_to_paper(db_paper)
                     if paper:
-                        seen[arxiv_id] = paper
+                        seen[doc_id] = paper
 
         # Search arXiv API
         if include_arxiv:
@@ -248,28 +252,39 @@ class Corpus:
         lines = [f"## Relevant Literature for: {topic}\n"]
 
         for i, paper in enumerate(papers, 1):
+            is_internal = paper.arxiv_id.startswith("paper-")
             authors_str = ", ".join(paper.authors[:3])
             if len(paper.authors) > 3:
                 authors_str += " et al."
 
             date_str = paper.published.strftime("%Y-%m-%d")
-            cats = ", ".join(paper.categories[:3])
 
             lines.append(f"### [{i}] {paper.title}")
             lines.append(f"**Authors:** {authors_str}")
-            lines.append(f"**Published:** {date_str} | **Categories:** {cats}")
-            lines.append(f"**arXiv:** {paper.arxiv_id}")
+            if is_internal:
+                lines.append(f"**Published:** {date_str} | **Source:** Paradigm internal")
+                lines.append(f"**ID:** {paper.arxiv_id}")
+            else:
+                cats = ", ".join(paper.categories[:3])
+                lines.append(f"**Published:** {date_str} | **Categories:** {cats}")
+                lines.append(f"**arXiv:** {paper.arxiv_id}")
             lines.append(f"\n{paper.abstract}\n")
             lines.append("---\n")
 
         # References section
         lines.append("## References\n")
         for i, paper in enumerate(papers, 1):
+            is_internal = paper.arxiv_id.startswith("paper-")
             authors_short = paper.authors[0] if paper.authors else "Unknown"
             if len(paper.authors) > 1:
                 authors_short += " et al."
             year = paper.published.strftime("%Y")
-            lines.append(f'[{i}] {authors_short} ({year}). "{paper.title}". arXiv:{paper.arxiv_id}')
+            if is_internal:
+                lines.append(f'[{i}] {authors_short} ({year}). "{paper.title}". {paper.arxiv_id}')
+            else:
+                lines.append(
+                    f'[{i}] {authors_short} ({year}). "{paper.title}". arXiv:{paper.arxiv_id}'
+                )
 
         return "\n".join(lines)
 
@@ -279,6 +294,7 @@ class Corpus:
         title: str,
         abstract: str,
         authors: list[str],
+        published_date: str | None = None,
     ) -> None:
         """Add an internally-produced paper to the ChromaDB embedding store.
 
@@ -290,16 +306,22 @@ class Corpus:
             title: Paper title.
             abstract: Paper abstract.
             authors: List of author agent IDs.
+            published_date: Optional ISO date string for when the paper was published.
         """
+        from datetime import UTC, datetime
+
+        metadata: dict[str, str] = {
+            "title": title,
+            "authors": ", ".join(authors),
+            "source": "paradigm",
+            "published": published_date or datetime.now(UTC).isoformat(),
+        }
+
         self._embeddings.add_paper(
             arxiv_id=paper_id,  # arxiv_id param is just a document ID, accepts any string
             title=title,
             abstract=abstract,
-            metadata={
-                "title": title,
-                "authors": ", ".join(authors),
-                "source": "paradigm",
-            },
+            metadata=metadata,
         )
 
     @property
@@ -317,18 +339,30 @@ class Corpus:
             ArxivPaper, or None if conversion fails.
         """
         paper_id = row.get("id", "")
-        arxiv_id = paper_id.removeprefix("arxiv:")
+        is_internal = paper_id.startswith("paper-")
+        arxiv_id = paper_id if is_internal else paper_id.removeprefix("arxiv:")
 
         try:
             import json
 
-            authors = row.get("authors", "[]")
-            if isinstance(authors, str):
-                authors = json.loads(authors)
+            authors_raw = row.get("authors") or "[]"
+            if isinstance(authors_raw, str):
+                authors = json.loads(authors_raw)
+            else:
+                authors = authors_raw
 
-            categories = row.get("keywords", "[]")
-            if isinstance(categories, str):
-                categories = json.loads(categories) or []
+            categories_raw = row.get("keywords") or "[]"
+            if isinstance(categories_raw, str):
+                categories = json.loads(categories_raw) or []
+            else:
+                categories = categories_raw or []
+
+            if is_internal:
+                pdf_url = ""
+                abs_url = ""
+            else:
+                pdf_url = f"http://arxiv.org/pdf/{arxiv_id}"
+                abs_url = f"http://arxiv.org/abs/{arxiv_id}"
 
             return ArxivPaper(
                 arxiv_id=arxiv_id,
@@ -339,8 +373,8 @@ class Corpus:
                 primary_category=categories[0] if categories else "",
                 published=row.get("created_at", "2000-01-01T00:00:00"),
                 updated=row.get("updated_at", "2000-01-01T00:00:00"),
-                pdf_url=f"http://arxiv.org/pdf/{arxiv_id}",
-                abs_url=f"http://arxiv.org/abs/{arxiv_id}",
+                pdf_url=pdf_url,
+                abs_url=abs_url,
                 body=row.get("body") or None,
             )
         except (json.JSONDecodeError, KeyError, ValueError):

@@ -8,7 +8,10 @@ import pytest
 from paradigm.agents.base import Agent, AgentResponse, TokenUsage
 from paradigm.config import Config
 from paradigm.logging.events import EventLogger, EventType
-from paradigm.orchestrator.engine import OrchestrationEngine
+from paradigm.orchestrator.engine import (
+    MODE_TEAM_ROLES,
+    OrchestrationEngine,
+)
 from paradigm.storage.database import Database
 
 
@@ -300,3 +303,226 @@ class TestOrchestrationEngine:
         mock_factory.create_team.assert_called_once_with(
             ["theorist", "skeptic"], skill_mode="default"
         )
+
+    @pytest.mark.asyncio
+    async def test_explore_mode_team(
+        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """Explore mode uses the correct team composition from MODE_TEAM_ROLES."""
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test exploration",
+                mode="explore",
+            )
+
+        expected_roles = MODE_TEAM_ROLES["explore"]
+        mock_factory.create_team.assert_called_once_with(expected_roles, skill_mode="default")
+
+    @pytest.mark.asyncio
+    async def test_directed_mode_team(
+        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """Directed mode uses the correct team composition."""
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test directed",
+                mode="directed",
+            )
+
+        expected_roles = MODE_TEAM_ROLES["directed"]
+        mock_factory.create_team.assert_called_once_with(expected_roles, skill_mode="default")
+
+    @pytest.mark.asyncio
+    async def test_hypothesis_mode_team(
+        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """Hypothesis mode uses a smaller, focused team."""
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test hypothesis",
+                mode="hypothesis",
+            )
+
+        expected_roles = MODE_TEAM_ROLES["hypothesis"]
+        mock_factory.create_team.assert_called_once_with(expected_roles, skill_mode="default")
+
+    @pytest.mark.asyncio
+    async def test_custom_team_overrides_mode(
+        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """Explicit team_roles overrides mode-based defaults."""
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test custom",
+                mode="hypothesis",
+                team_roles=["writer", "editor"],
+            )
+
+        # Should use the explicit roles, not hypothesis defaults
+        mock_factory.create_team.assert_called_once_with(["writer", "editor"], skill_mode="default")
+
+    @pytest.mark.asyncio
+    async def test_hook_continue(self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus):
+        """Intervention hook returning 'continue' lets the cycle proceed normally."""
+        hook_calls = []
+
+        def hook(thread_id, from_phase, to_phase):
+            hook_calls.append((from_phase, to_phase))
+            return "continue"
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+                intervention_hook=hook,
+            )
+
+            thread_id = await engine.run_research_cycle(
+                seed_prompt="Test hook",
+                mode="directed",
+            )
+
+        thread = tmp_db.get_thread(thread_id)
+        assert thread["status"] == "planning_complete"
+        # Hook was called at least for ideation→planning
+        assert ("ideation", "planning") in hook_calls
+
+    @pytest.mark.asyncio
+    async def test_hook_abort(self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus):
+        """Intervention hook returning 'abort' stops the cycle."""
+
+        def hook(thread_id, from_phase, to_phase):
+            return "abort"
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+                intervention_hook=hook,
+            )
+
+            thread_id = await engine.run_research_cycle(
+                seed_prompt="Test abort",
+                mode="directed",
+            )
+
+        thread = tmp_db.get_thread(thread_id)
+        assert thread["status"] == "aborted"
+
+    @pytest.mark.asyncio
+    async def test_hook_pause(self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus):
+        """Intervention hook returning 'pause' pauses the cycle."""
+
+        def hook(thread_id, from_phase, to_phase):
+            return "pause"
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+                intervention_hook=hook,
+            )
+
+            thread_id = await engine.run_research_cycle(
+                seed_prompt="Test pause",
+                mode="directed",
+            )
+
+        thread = tmp_db.get_thread(thread_id)
+        assert thread["status"] == "paused"
+
+    @pytest.mark.asyncio
+    async def test_no_hook_default(
+        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """Without a hook, cycle proceeds normally (same as 'continue')."""
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+                # No intervention_hook
+            )
+
+            thread_id = await engine.run_research_cycle(
+                seed_prompt="Test no hook",
+                mode="directed",
+            )
+
+        thread = tmp_db.get_thread(thread_id)
+        assert thread["status"] == "planning_complete"

@@ -1,6 +1,7 @@
 """Main orchestration engine for research cycles."""
 
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 import click
@@ -25,8 +26,48 @@ from paradigm.orchestrator.scheduler import Scheduler
 from paradigm.storage.checkpoints import Checkpoint, CheckpointManager
 from paradigm.storage.database import Database
 
+# Intervention hook type: called with (thread_id, from_phase, to_phase) → "continue"|"pause"|"abort"
+InterventionHook = Callable[[str, str, str], str]
+
 # Default team composition
 DEFAULT_TEAM_ROLES = ["theorist", "analyst", "synthesizer", "skeptic", "writer", "editor"]
+
+# Mode-specific team compositions
+MODE_TEAM_ROLES: dict[str, list[str]] = {
+    "directed": ["theorist", "analyst", "synthesizer", "skeptic", "writer", "editor"],
+    "explore": ["theorist", "analyst", "synthesizer", "skeptic", "writer", "editor"],
+    "hypothesis": ["theorist", "skeptic", "analyst", "writer", "editor"],
+    "experimental": ["experimentalist", "analyst", "theorist", "writer", "editor"],
+    "replication": ["analyst", "experimentalist", "skeptic", "writer", "editor"],
+}
+
+# Mode-specific IDEATION prompt overrides (round_1 only)
+_MODE_PROMPT_OVERRIDES: dict[str, dict[str, str]] = {
+    "explore": {
+        "round_1": (
+            "You are participating in an open-ended exploratory research session.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "This is an exploration session — there is no single hypothesis to test. "
+            "Instead, survey the landscape of this topic broadly. Identify interesting "
+            "open questions, unexplored connections between subfields, and surprising "
+            "gaps in the literature. Propose 2-3 diverse research directions worth pursuing."
+        ),
+    },
+    "hypothesis": {
+        "round_1": (
+            "You are participating in a rigorous hypothesis-testing session.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "Focus on formulating precise, falsifiable hypotheses. For each hypothesis:\n"
+            "1. State it clearly and unambiguously\n"
+            "2. Describe what evidence would confirm or refute it\n"
+            "3. Identify potential confounding factors\n"
+            "4. Propose the simplest experiment that could test it\n\n"
+            "Rigor over creativity — every hypothesis must be testable."
+        ),
+    },
+}
 
 # Phase-specific prompt templates
 _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
@@ -184,6 +225,7 @@ class OrchestrationEngine:
         corpus: Corpus,
         logger: EventLogger,
         agent_factory: AgentFactory,
+        intervention_hook: InterventionHook | None = None,
     ) -> None:
         """Initialize the orchestration engine.
 
@@ -193,12 +235,15 @@ class OrchestrationEngine:
             corpus: Literature corpus for context.
             logger: Event logger.
             agent_factory: Factory for creating agents.
+            intervention_hook: Optional callback invoked before certain phase transitions.
+                Returns "continue", "pause", or "abort".
         """
         self._config = config
         self._db = database
         self._corpus = corpus
         self._logger = logger
         self._factory = agent_factory
+        self._intervention_hook = intervention_hook
         self._checkpoint_mgr = CheckpointManager(
             database=database,
             api_key=config.api_key or "",
@@ -208,6 +253,7 @@ class OrchestrationEngine:
         # State set during run
         self._thread_id: str = ""
         self._seed_prompt: str = ""
+        self._mode: str = "directed"
         self._agents: dict[str, Agent] = {}
         self._messages: list[dict[str, Any]] = []
         self._phase_manager: PhaseManager | None = None
@@ -229,8 +275,9 @@ class OrchestrationEngine:
         Returns:
             Thread ID of the completed cycle.
         """
+        self._mode = mode
         if team_roles is None:
-            team_roles = list(DEFAULT_TEAM_ROLES)
+            team_roles = list(MODE_TEAM_ROLES.get(mode, DEFAULT_TEAM_ROLES))
 
         self._seed_prompt = seed_prompt
         self._messages = []
@@ -259,7 +306,17 @@ class OrchestrationEngine:
             checkpoint_interval=checkpoint_interval,
         )
 
-        # Phase 3: PLANNING
+        # Phase 3: PLANNING (intervention check)
+        intervention = self._check_intervention("ideation", "planning")
+        if intervention == "abort":
+            self._db.update_thread(self._thread_id, status="aborted")
+            click.echo("Research cycle aborted by intervention hook.")
+            return self._thread_id
+        if intervention == "pause":
+            self._db.update_thread(self._thread_id, status="paused")
+            click.echo("Research cycle paused by intervention hook.")
+            return self._thread_id
+
         self._phase_manager.transition_to(ResearchPhase.PLANNING)
         self._log_phase_transition(ResearchPhase.IDEATION, ResearchPhase.PLANNING)
         self._messages = []  # Reset messages for new phase
@@ -272,6 +329,17 @@ class OrchestrationEngine:
 
         # Phase 4: WRITING (optional, controlled by config)
         if self._config.orchestrator.enable_writing:
+            # Intervention check before WRITING
+            intervention = self._check_intervention("planning", "writing")
+            if intervention == "abort":
+                self._db.update_thread(self._thread_id, status="aborted")
+                click.echo("Research cycle aborted by intervention hook.")
+                return self._thread_id
+            if intervention == "pause":
+                self._db.update_thread(self._thread_id, status="paused")
+                click.echo("Research cycle paused by intervention hook.")
+                return self._thread_id
+
             self._phase_manager.transition_to(ResearchPhase.WRITING)
             self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.WRITING)
             self._messages = []
@@ -287,6 +355,17 @@ class OrchestrationEngine:
 
             # Phase 6: PEER REVIEW PIPELINE (optional)
             if self._config.orchestrator.enable_peer_review:
+                # Intervention check before SUBMITTED
+                intervention = self._check_intervention("internal", "submitted")
+                if intervention == "abort":
+                    self._db.update_thread(self._thread_id, status="aborted")
+                    click.echo("Research cycle aborted by intervention hook.")
+                    return self._thread_id
+                if intervention == "pause":
+                    self._db.update_thread(self._thread_id, status="paused")
+                    click.echo("Research cycle paused by intervention hook.")
+                    return self._thread_id
+
                 accepted = await self._run_submission_phase(paper_draft)
                 if accepted:
                     decision, reviews = await self._run_peer_review_phase(paper_draft)
@@ -1030,6 +1109,11 @@ class OrchestrationEngine:
         template_key = "round_1" if round_num == 1 else "later_rounds"
         template = templates.get(template_key, "Contribute to the research discussion.")
 
+        # Apply mode-specific overrides if available
+        mode_overrides = _MODE_PROMPT_OVERRIDES.get(self._mode, {})
+        if template_key in mode_overrides:
+            template = mode_overrides[template_key]
+
         # Build checkpoint context
         checkpoint_context = ""
         if self._checkpoint:
@@ -1054,6 +1138,23 @@ class OrchestrationEngine:
             checkpoint_context=checkpoint_context,
             recent_messages=recent_messages,
         )
+
+    def _check_intervention(self, from_phase: str, to_phase: str) -> str:
+        """Check intervention hook before a phase transition.
+
+        Args:
+            from_phase: Phase transitioning from.
+            to_phase: Phase transitioning to.
+
+        Returns:
+            "continue", "pause", or "abort".
+        """
+        if self._intervention_hook is None:
+            return "continue"
+        result = self._intervention_hook(self._thread_id, from_phase, to_phase)
+        if result not in ("continue", "pause", "abort"):
+            return "continue"
+        return result
 
     def _log_phase_transition(self, from_phase: ResearchPhase, to_phase: ResearchPhase) -> None:
         """Log a phase transition event."""

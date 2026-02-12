@@ -9,19 +9,27 @@ import click
 from paradigm.config import Config, load_config
 
 
-def _run_research(config: Config, seed_prompt: str, mode: str, rounds: int | None = None) -> None:
+def _run_research(
+    config: Config,
+    seed_prompt: str,
+    mode: str,
+    rounds: int | None = None,
+    interactive: bool = False,
+) -> None:
     """Run a research cycle synchronously (wraps async engine).
 
     Args:
         config: Application configuration.
         seed_prompt: Research prompt or topic.
         mode: Operating mode.
+        rounds: Optional rounds-per-phase override.
+        interactive: Whether to prompt for confirmation before phase transitions.
     """
     from paradigm.agents.factory import AgentFactory
     from paradigm.agents.skills import SkillRegistry
     from paradigm.literature.corpus import Corpus
     from paradigm.logging.events import EventLogger
-    from paradigm.orchestrator.engine import OrchestrationEngine
+    from paradigm.orchestrator.engine import InterventionHook, OrchestrationEngine
     from paradigm.storage.database import Database
 
     database = Database(config.storage.db_path)
@@ -46,12 +54,26 @@ def _run_research(config: Config, seed_prompt: str, mode: str, rounds: int | Non
     if rounds is not None:
         config.orchestrator.max_rounds_per_phase = rounds
 
+    # Build intervention hook for interactive mode
+    hook: InterventionHook | None = None
+    if interactive:
+
+        def _interactive_hook(thread_id: str, from_phase: str, to_phase: str) -> str:
+            if click.confirm(f"Proceed from {from_phase} to {to_phase}?", default=True):
+                return "continue"
+            if click.confirm("Abort the research cycle entirely?", default=False):
+                return "abort"
+            return "pause"
+
+        hook = _interactive_hook
+
     engine = OrchestrationEngine(
         config=config,
         database=database,
         corpus=corpus,
         logger=logger,
         agent_factory=factory,
+        intervention_hook=hook,
     )
 
     try:
@@ -111,9 +133,20 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     default=None,
     help="Rounds per phase (overrides config)",
 )
+@click.option(
+    "--interactive",
+    is_flag=True,
+    default=False,
+    help="Pause for confirmation before each major phase transition",
+)
 @click.pass_obj
 def run(
-    config: Config, mode: str, prompt: str | None, topic: str | None, rounds: int | None
+    config: Config,
+    mode: str,
+    prompt: str | None,
+    topic: str | None,
+    rounds: int | None,
+    interactive: bool,
 ) -> None:
     """Run a research cycle.
 
@@ -133,7 +166,9 @@ def run(
     click.echo(f"Starting {mode} research cycle...")
     if rounds is not None:
         click.echo(f"Rounds per phase: {rounds} (override)")
-    _run_research(config, seed_prompt, mode, rounds=rounds)
+    if interactive:
+        click.echo("Interactive mode: will pause before major phase transitions")
+    _run_research(config, seed_prompt, mode, rounds=rounds, interactive=interactive)
 
 
 @cli.command()

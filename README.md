@@ -7,17 +7,22 @@
 
 An agentic science platform where AI agents collaborate to advance scientific knowledge through hypothesis generation, computational experiments, peer-reviewed publication, and iterative research.
 
-Named after Thomas Kuhn — paradigm shifts emerge from communities of researchers, not individuals.
+Named after Thomas Kuhn --- paradigm shifts emerge from communities of researchers, not individuals.
 
 ## Status
 
-🚧 **Pre-alpha** — Phase 0 complete. Core infrastructure and database ready.
+**Alpha** --- The full research loop works end-to-end: seed question to published, peer-reviewed paper.
 
 **Completed:**
-- ✅ Phase 0: Project skeleton, configuration, database, base agent class, event logging
+- Phase 0: Foundation (project skeleton, config, database, base agent class, event logging)
+- Phase 1: Literature access (arXiv API, embeddings, corpus, citations)
+- Phase 2: Orchestrator + ideation loop (phases, scheduler, checkpoints, engine)
+- Phase 3: Computational sandbox (Docker-based code execution)
+- Phase 4: Writing + paper generation (section drafting, assembly, internal review)
+- Phase 5: Peer review + publication (structured review, revision loop, publish/reject)
 
 **In Progress:**
-- 🔄 Phase 1: Literature access (arXiv API, embeddings, corpus)
+- Phase 6: Multi-cycle + polish (multi-cycle discovery, operating modes, intervention hooks, prompt tuning)
 
 See `ROADMAP.md` for the full implementation plan.
 
@@ -25,95 +30,68 @@ See `ROADMAP.md` for the full implementation plan.
 
 ```bash
 # Clone and install
+git clone https://github.com/matteocantiello/paradigm.git
 cd paradigm
-
-# Verify Phase 0 setup
-python3 verify_setup.py
-
-# Install dependencies (requires Python 3.11+)
 pip install -e ".[dev]"
 
 # Set your API key
-export ANTHROPIC_API_KEY="your-key-here"
+export ANTHROPIC_API_KEY="sk-ant-..."
 
-# Verify installation
-python -m paradigm --help
+# Run a directed research cycle (1 round per phase for a quick test)
+paradigm run --mode directed --prompt "Explain the period-luminosity relation for Cepheids" --rounds 1
 
-# Run tests
-pytest tests/
+# List produced papers
+paradigm papers
 
-# (Future) Run a directed research session
-paradigm run --mode directed --prompt "Develop a model to explain long-range dependence in stellar variability"
+# View a paper
+paradigm paper <paper-id>
 ```
 
-## Installation
-
-### Requirements
-
-- Python 3.11 or higher (3.12+ recommended)
-- Docker (for computational sandbox in Phase 3)
-- Anthropic API key
-
-### Dependencies
-
-Core dependencies:
-- `anthropic` — Claude API SDK
-- `chromadb` — Vector search for literature
-- `pydantic` — Data validation
-- `pyyaml` — Configuration files
-- `docker` — Container management (Phase 3)
-- `httpx` — HTTP client for arXiv API
-- `pymupdf` — PDF text extraction
-- `click` — CLI framework
-
-Development dependencies:
-- `pytest`, `pytest-asyncio` — Testing
-- `ruff` — Linting and formatting
-
-### Verify Setup
-
-After installation, run the verification script:
-
-```bash
-python3 verify_setup.py
-```
-
-This checks that all directories, files, and basic imports are working correctly.
+See `INSTALL.md` for detailed installation instructions and `docs/MANUAL.md` for the full operations manual.
 
 ## How It Works
 
-1. **You provide a seed** — a research question, a topic to explore, or a hypothesis to test
-2. **A team of agents** (theorist, data analyst, literature synthesizer, experimentalist, skeptic, writer) discusses the topic, searches the literature, and forms a research plan
-3. **Agents execute the plan** — running computational experiments in sandboxed Docker containers, analyzing results, and building arguments
-4. **A paper is drafted** collaboratively by the team
-5. **Separate journal agents** (editor, reviewers) evaluate the paper through peer review
-6. **Published papers** enter the internal corpus, where future research cycles can cite and build upon them
+1. **You provide a seed** --- a research question, a topic to explore, or a hypothesis to test
+2. **A team of agents** (theorist, analyst, synthesizer, experimentalist, skeptic, writer) discusses the topic, searches the literature, and forms a research plan
+3. **Agents draft a paper** collaboratively, with each agent writing sections matching their expertise
+4. **Separate journal agents** (editor, reviewers) evaluate the paper through structured peer review
+5. **Published papers** enter the internal corpus, where future research cycles can cite and build upon them
 
 ## Architecture
 
-See `.planning/SPEC.md` for the full specification.
-
 ```
 Human Operator
-      │
-      ▼
-  Orchestrator (Python) ──── Literature Service (arXiv API + Internal Corpus)
-      │
-      ├── Research Agents (Claude API × N)
-      │       │
-      │       └── Sandbox (Docker containers, --network=none)
-      │
-      └── Journal Agents (Editor + Reviewers)
-              │
-              └── Publication Pipeline → Internal Corpus (SQLite + ChromaDB)
+      |
+  Orchestrator (Python) ---- Literature Service (arXiv API + Internal Corpus)
+      |
+      |-- Research Agents (Claude API x N)
+      |       |
+      |       +-- Sandbox (Docker containers, --network=none)
+      |
+      +-- Journal Agents (Editor + Reviewers)
+              |
+              +-- Publication Pipeline -> Internal Corpus (SQLite + ChromaDB)
 ```
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `paradigm run` | Run a research cycle (modes: directed, explore, hypothesis, experimental, replication) |
+| `paradigm status` | Show system statistics and token usage |
+| `paradigm inspect --thread ID` | Inspect a research thread checkpoint |
+| `paradigm papers` | List papers (filter by `--status`, limit with `--limit`) |
+| `paradigm paper ID` | View a paper (export with `--export path.md`) |
 
 ## Documentation
 
-- `.planning/SPEC.md` — Full system specification
-- `.planning/ROADMAP.md` — Phased implementation plan with milestones
-- `.planning/DECISIONS.md` — Architecture decision log
-- `CLAUDE.md` — Instructions for Claude Code
+- `docs/MANUAL.md` --- **Operations manual** (comprehensive guide for running the system)
+- `INSTALL.md` --- Installation guide
+- `ROADMAP.md` --- Implementation roadmap and phase status
+- `.planning/SPEC.md` --- Full system specification
+- `.planning/ARCHITECTURE.md` --- Component diagrams and data flows
+- `.planning/DECISIONS.md` --- Architecture decision records
+- `HISTORY.md` --- Complete development history (every prompt and decision)
 
 ## License
 

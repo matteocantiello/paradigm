@@ -360,6 +360,36 @@ class TestPublishPaper:
         assert scores[0]["scores"]["novelty"] == 8
 
     @pytest.mark.asyncio
+    async def test_publish_records_citations(self, tmp_db, tmp_logger, mock_corpus):
+        """Publishing a paper that cites arXiv and internal papers records citations."""
+        body = (
+            "We build on the results of arXiv:2301.12345 and paper-aabbccddeeff. "
+            "See also arXiv:2305.00001."
+        )
+        tmp_db.create_paper(
+            paper_id="paper-citer000001",
+            title="Citing Paper",
+            abstract="Cites others",
+            authors=["writer-0"],
+            body=body,
+            status="submitted",
+        )
+
+        # Set up mock_corpus.citations as a real CitationTracker
+        from paradigm.literature.citations import CitationTracker
+
+        citation_tracker = CitationTracker(tmp_db)
+        mock_corpus.citations = citation_tracker
+
+        await publish_paper("paper-citer000001", tmp_db, mock_corpus, tmp_logger)
+
+        refs = citation_tracker.get_references("paper-citer000001")
+        cited_ids = {r["cited_paper_id"] for r in refs}
+        assert "arXiv:2301.12345" in cited_ids
+        assert "paper-aabbccddeeff" in cited_ids
+        assert "arXiv:2305.00001" in cited_ids
+
+    @pytest.mark.asyncio
     async def test_publish_nonexistent_paper(self, tmp_db, tmp_logger, mock_corpus):
         with pytest.raises(ValueError, match="Paper not found"):
             await publish_paper("nonexistent", tmp_db, mock_corpus, tmp_logger)

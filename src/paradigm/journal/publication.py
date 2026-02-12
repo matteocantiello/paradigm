@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 from paradigm.journal.review import PeerReview
+from paradigm.literature.citations import extract_citations_from_text
 from paradigm.literature.corpus import Corpus
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.storage.database import Database
@@ -66,6 +67,13 @@ async def publish_paper(
         abstract=paper.get("abstract", ""),
         authors=authors,
     )
+
+    # Extract and record citations from paper body
+    body = paper.get("body", "")
+    if body:
+        cited_ids = extract_citations_from_text(body)
+        for cited_id in cited_ids:
+            corpus.citations.add_citation(paper_id, cited_id)
 
     # Update author reputation (papers_published++)
     for author_id in authors:

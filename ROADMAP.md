@@ -181,32 +181,19 @@
 
 ---
 
-## Phase 5: Peer Review + Publication (Week 6)
+## Phase 5: Peer Review + Publication (Week 6) ✓ COMPLETE
 
 **Goal**: Complete the loop — papers are reviewed and published to the corpus.
 
 ### Tasks
 
-- [ ] Implement `agents/journal.py`:
-  - Editor agent: desk review, assign reviewers, make decisions
-  - Reviewer agents: structured review with scores + feedback
-  - Different reviewer personalities via system prompts
-- [ ] Implement `journal/submission.py`:
-  - Submit paper → change status to submitted
-  - Editor desk review
-  - Reviewer assignment (exclude team members, match by keyword)
-- [ ] Implement `journal/review.py`:
-  - Collect reviews
-  - Editor synthesizes decision
-  - Handle revision cycles (max 2 rounds)
-- [ ] Implement `journal/publication.py`:
-  - On acceptance: status → published, add to ChromaDB, update citation graph
-  - Generate paper metadata (summary, keywords) for discoverability
-  - On rejection: add to graveyard with feedback and lessons
-- [ ] Implement reputation updates:
-  - Update author reputation on publication
-  - Update citation counts when new papers cite existing ones
-- [ ] End-to-end test: seed prompt → ideation → literature → experiment → paper → review → publication
+- [x] Implement structured peer review (`journal/review.py`): PeerReview model, parse_peer_review(), synthesize_decision()
+- [x] Implement publication pipeline (`journal/publication.py`): publish_paper(), reject_paper()
+- [x] Engine integration: SUBMITTED → PEER_REVIEW → REVISION loop → PUBLISHED/REJECTED
+- [x] Desk review gate: editor-in-chief desk_reject/send_to_review
+- [x] Reputation updates on publication
+- [x] Graveyard storage for rejected papers with lessons learned
+- [x] Add to ChromaDB on publish for future discoverability
 
 ### Exit Criteria
 
@@ -217,25 +204,22 @@
 
 ---
 
-## Phase 6: Multi-Cycle + Polish (Week 7-8)
+## Phase 6: Multi-Cycle + Polish (Week 7-8) — IN PROGRESS
 
 **Goal**: Run multiple research cycles. Papers cite each other. System produces useful output.
 
 ### Tasks
 
-- [ ] Run a second research cycle that builds on the first published paper
-- [ ] Verify citation graph grows correctly
-- [ ] Implement the operating modes (directed, exploratory, hypothesis generator, etc.)
-- [ ] Add CLI commands:
-  - `paradigm run --mode directed --prompt "..."`
-  - `paradigm run --mode explore --topic "..."`
-  - `paradigm status` — show active threads, published papers, agent stats
-  - `paradigm inspect --thread <id>` — view thread checkpoint
-  - `paradigm papers` — list published papers
-  - `paradigm paper <id>` — view a published paper
+- [x] Fix multi-cycle discovery: internal papers found by corpus.search() (was broken by `arxiv:` prefix bug)
+- [x] Citation extraction from paper body text (arXiv + internal IDs)
+- [x] Citation recording on publish (auto-populate citation graph)
+- [x] Operating modes: MODE_TEAM_ROLES dict (directed, explore, hypothesis, experimental, replication)
+- [x] Mode-specific IDEATION prompts (explore, hypothesis)
+- [x] Intervention hooks (pause, abort, continue) with `--interactive` CLI flag
+- [x] All CLI commands implemented (run, status, inspect, papers, paper)
 - [ ] Tune agent prompts based on output quality
-- [ ] Add intervention hooks (pause, inspect, override)
-- [ ] Documentation: README, setup guide, configuration reference
+- [x] Documentation: README, operations manual (`docs/MANUAL.md`), configuration reference
+- [ ] Live multi-cycle test: cycle 1 → publish → cycle 2 discovers cycle 1 paper
 
 ### Exit Criteria
 

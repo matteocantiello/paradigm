@@ -258,3 +258,88 @@ async def test_citations_accessible(corpus):
     corpus.citations.add_citation("paper-A", "paper-B")
     count = corpus.citations.get_citation_count("paper-B")
     assert count == 1
+
+
+async def test_search_finds_internal_papers(corpus, db, embedding_store):
+    """Internal papers ingested via ingest_internal_paper() are found by search()."""
+    # Create the paper in the database first (as publish_paper does)
+    db.create_paper(
+        paper_id="paper-abc123def456",
+        title="Internal Stellar Paper",
+        abstract="A study of stellar oscillations produced by Paradigm.",
+        authors=["theorist-0", "analyst-0"],
+        body="Full paper body...",
+        status="published",
+    )
+    # Ingest into ChromaDB
+    corpus.ingest_internal_paper(
+        paper_id="paper-abc123def456",
+        title="Internal Stellar Paper",
+        abstract="A study of stellar oscillations produced by Paradigm.",
+        authors=["theorist-0", "analyst-0"],
+    )
+
+    results = await corpus.search("stellar oscillations", include_arxiv=False)
+
+    assert len(results) >= 1
+    found_ids = [p.arxiv_id for p in results]
+    assert "paper-abc123def456" in found_ids
+    # Internal paper should not have arXiv URLs
+    internal = [p for p in results if p.arxiv_id == "paper-abc123def456"][0]
+    assert internal.pdf_url == ""
+    assert internal.abs_url == ""
+
+
+async def test_build_literature_context_includes_internal(corpus, db, mock_arxiv):
+    """build_literature_context() annotates internal papers as 'Paradigm internal'."""
+    db.create_paper(
+        paper_id="paper-111222333444",
+        title="Paradigm Paper on Convection",
+        abstract="We study convective mixing.",
+        authors=["writer-0"],
+        body="...",
+        status="published",
+    )
+    corpus.ingest_internal_paper(
+        paper_id="paper-111222333444",
+        title="Paradigm Paper on Convection",
+        abstract="We study convective mixing.",
+        authors=["writer-0"],
+    )
+    mock_arxiv.search.return_value = []
+
+    context = await corpus.build_literature_context("convective mixing", include_arxiv=False)
+
+    assert "Paradigm internal" in context
+    assert "paper-111222333444" in context
+    # Should NOT have "arXiv:" prefix for internal papers
+    assert "arXiv:paper-" not in context
+
+
+async def test_search_mixes_internal_and_arxiv(corpus, db, mock_arxiv, embedding_store):
+    """Search results can contain both internal and arXiv papers."""
+    # Internal paper
+    db.create_paper(
+        paper_id="paper-aabbccddeeff",
+        title="Internal Results",
+        abstract="Internal abstract about mixing.",
+        authors=["analyst-0"],
+        body="...",
+        status="published",
+    )
+    corpus.ingest_internal_paper(
+        paper_id="paper-aabbccddeeff",
+        title="Internal Results",
+        abstract="Internal abstract about mixing.",
+        authors=["analyst-0"],
+    )
+
+    # arXiv paper
+    arxiv_paper = _make_paper("2401.001", "External Mixing Study", "About stellar mixing")
+    mock_arxiv.search.return_value = [arxiv_paper]
+
+    results = await corpus.search("mixing", include_arxiv=True)
+
+    ids = [p.arxiv_id for p in results]
+    assert "paper-aabbccddeeff" in ids
+    assert "2401.001" in ids
