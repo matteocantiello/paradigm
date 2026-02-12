@@ -1,5 +1,10 @@
 # Paradigm
 
+[![CI](https://github.com/matteocantiello/paradigm/workflows/CI/badge.svg)](https://github.com/matteocantiello/paradigm/actions/workflows/ci.yml)
+[![Lint](https://github.com/matteocantiello/paradigm/workflows/Lint/badge.svg)](https://github.com/matteocantiello/paradigm/actions/workflows/lint.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 An agentic science platform where AI agents collaborate to advance scientific knowledge through hypothesis generation, computational experiments, peer-reviewed publication, and iterative research.
 
 Named after Thomas Kuhn — paradigm shifts emerge from communities of researchers, not individuals.
