@@ -43,7 +43,7 @@ orchestrator:
   max_revision_rounds: 2
   enable_experimentation: true
   max_experiment_rounds: 3
-  max_searches_per_round: 3
+  max_searches_per_round: 10
 
 # Scientific skills configuration
 skills:
