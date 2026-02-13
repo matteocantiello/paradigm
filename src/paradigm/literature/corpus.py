@@ -8,6 +8,7 @@ from paradigm.config import LiteratureConfig, StorageConfig
 from paradigm.literature.arxiv import ArxivClient, ArxivPaper
 from paradigm.literature.citations import CitationTracker
 from paradigm.literature.embeddings import EmbeddingStore
+from paradigm.literature.prompt_utils import make_external_paper
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.storage.database import Database
 
@@ -193,6 +194,23 @@ class Corpus:
             await self.ingest_paper(paper, fetch_pdf=fetch_pdfs)
 
         return papers
+
+    async def fetch_and_ingest_url(self, url: str) -> ArxivPaper | None:
+        """Fetch a PDF from a URL and ingest it as an external paper.
+
+        Args:
+            url: URL pointing to a PDF document.
+
+        Returns:
+            The ingested ArxivPaper, or None if fetching/extraction fails.
+        """
+        pdf_text = await self._arxiv.fetch_pdf_from_url(url)
+        if not pdf_text:
+            return None
+
+        paper = make_external_paper(url, pdf_text)
+        await self.ingest_paper(paper, fetch_pdf=False)
+        return paper
 
     async def semantic_search(self, query: str, n_results: int = 10) -> list[dict[str, Any]]:
         """Search local corpus by semantic similarity only.

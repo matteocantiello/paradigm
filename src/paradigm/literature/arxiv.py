@@ -140,17 +140,17 @@ class ArxivClient:
             return result.papers[0]
         return None
 
-    async def fetch_pdf_text(self, paper: ArxivPaper) -> str | None:
-        """Download and extract text from a paper's PDF.
+    async def fetch_pdf_from_url(self, url: str) -> str | None:
+        """Download and extract text from a PDF at the given URL.
 
         Args:
-            paper: ArxivPaper with a valid pdf_url.
+            url: Direct URL to a PDF file.
 
         Returns:
             Extracted text content, or None if extraction fails.
         """
         try:
-            response = await self._rate_limited_get(paper.pdf_url)
+            response = await self._rate_limited_get(url)
             pdf_bytes = response.content
             doc = pymupdf.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
             text_parts = []
@@ -163,9 +163,20 @@ class ArxivClient:
                 self._logger.log_error(
                     e,
                     metadata_key="pdf_extraction",
-                    arxiv_id=paper.arxiv_id,
+                    url=url,
                 )
             return None
+
+    async def fetch_pdf_text(self, paper: ArxivPaper) -> str | None:
+        """Download and extract text from a paper's PDF.
+
+        Args:
+            paper: ArxivPaper with a valid pdf_url.
+
+        Returns:
+            Extracted text content, or None if extraction fails.
+        """
+        return await self.fetch_pdf_from_url(paper.pdf_url)
 
     async def _rate_limited_get(
         self,

@@ -94,6 +94,7 @@ def mock_corpus():
     """Create a mock Corpus."""
     corpus = MagicMock()
     corpus.build_literature_context = AsyncMock(return_value="## Literature\nNo papers found.")
+    corpus.search = AsyncMock(return_value=[])
     return corpus
 
 
@@ -564,3 +565,52 @@ class TestOrchestrationEngine:
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "planning_complete"
+
+    @pytest.mark.asyncio
+    async def test_search_requests_processed(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """Agent responses with [SEARCH: ...] markers trigger corpus.search()."""
+        # Create a factory that returns agents whose responses contain search markers
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                # First agent includes a search marker in its response
+                if role == roles[0]:
+                    search_response = AgentResponse(
+                        content=(
+                            f"Response from {role}-0: [SEARCH: Cepheid period-luminosity relation]"
+                        ),
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=search_response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test search",
+                mode="directed",
+            )
+
+        # corpus.search should have been called with the extracted query
+        mock_corpus.search.assert_called()
+        search_calls = mock_corpus.search.call_args_list
+        queries = [call.args[0] if call.args else call.kwargs.get("query") for call in search_calls]
+        assert any("Cepheid" in q for q in queries if q)

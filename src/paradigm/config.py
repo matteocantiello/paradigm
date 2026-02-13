@@ -89,6 +89,7 @@ class OrchestratorConfig(BaseModel):
     max_revision_rounds: int = 2
     enable_experimentation: bool = True
     max_experiment_rounds: int = 3
+    max_searches_per_round: int = 3
 
 
 class SkillsConfig(BaseModel):

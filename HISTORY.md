@@ -536,3 +536,30 @@ Resuming Cycle 1 after API credits replenished.
 **Changes:**
 - `docs/MANUAL.md`: Added `--prompt-file` to CLI reference, added prompt file examples, added Prompt Files subsection, added EXECUTION phase details section, updated phase flow diagram, added experimentation config to orchestrator table, updated data directory layout for figures, updated cost estimates, updated interactive mode intervention points, added Recipe 8 for experimental mode with prompt file
 - `HISTORY.md`: Logged prompts 48-49
+
+### Prompt 50 — Implement Smart Prompt Preprocessing for Literature Search
+
+> Implement the following plan: Smart Prompt Preprocessing for Literature Search - adding prompt preprocessing to extract clean search keywords and fetch referenced PDFs from user prompts. New module prompt_utils.py, updates to arxiv.py, corpus.py, engine.py, and new tests.
+
+**Artifacts:** `src/paradigm/literature/prompt_utils.py` (new), `src/paradigm/literature/arxiv.py`, `src/paradigm/literature/corpus.py`, `src/paradigm/orchestrator/engine.py`, `tests/test_prompt_utils.py` (new)
+
+### Prompt 51 — Implement Agent-Driven Literature Search
+
+> Implement the following plan: Agent-Driven Literature Search
+>
+> Replace the one-shot prompt→arXiv pipeline with an agent-driven, ongoing search capability using the `[SEARCH: query]` text-parsing pattern. Agents drive search by writing `[SEARCH: query]` in their responses. The orchestrator parses these markers, executes searches, and feeds results back as accumulated literature context.
+
+**Key decisions:**
+- Prompt is context for agents, NOT a search query — agents decide what to search for
+- Text parsing pattern (`[SEARCH: query]`) consistent with code execution via fenced blocks
+- Search enabled in all deliberation phases (IDEATION through REVISION)
+- Accumulated context grows throughout the cycle, available to all subsequent agents
+- Configurable budget: `max_searches_per_round` prevents runaway costs
+
+**Artifacts modified:**
+- `src/paradigm/config.py` — Added `max_searches_per_round` to OrchestratorConfig
+- `configs/default.yaml` — Added `max_searches_per_round: 3`
+- `src/paradigm/literature/prompt_utils.py` — Added `parse_search_requests()`, `format_search_results()`
+- `src/paradigm/orchestrator/engine.py` — Removed arXiv call from seeding, added `_process_search_requests()`, integrated search into all phases, updated prompt building
+- `tests/test_prompt_utils.py` — Tests for new functions
+- `tests/test_orchestrator.py` — Updated mock_corpus, added search integration test

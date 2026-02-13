@@ -23,6 +23,11 @@ from paradigm.journal.paper import (
 from paradigm.journal.publication import publish_paper, reject_paper
 from paradigm.journal.review import PeerReview, parse_peer_review, synthesize_decision
 from paradigm.literature.corpus import Corpus
+from paradigm.literature.prompt_utils import (
+    extract_urls,
+    format_search_results,
+    parse_search_requests,
+)
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
 from paradigm.orchestrator.scheduler import Scheduler
@@ -253,6 +258,26 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
 # How many recent messages to include in agent context
 _RECENT_MESSAGES_LIMIT = 10
 
+# Search instruction appended to agent prompts in search-enabled phases
+_SEARCH_INSTRUCTION = (
+    "\n\n## Literature Search\n"
+    "You may request literature searches at any time by writing:\n"
+    "  [SEARCH: your query here]\n\n"
+    "You may include multiple search requests. Be specific to get relevant results "
+    "(e.g., [SEARCH: Cepheid period-luminosity relation metallicity dependence]).\n"
+)
+
+# Phases where agents can request literature searches
+_SEARCH_ENABLED_PHASES: set[ResearchPhase] = {
+    ResearchPhase.IDEATION,
+    ResearchPhase.PLANNING,
+    ResearchPhase.EXECUTION,
+    ResearchPhase.WRITING,
+    ResearchPhase.INTERNAL_REVIEW,
+    ResearchPhase.PEER_REVIEW,
+    ResearchPhase.REVISION,
+}
+
 # Max tokens for writing/assembly/revision calls (papers need much more than default 4096)
 _WRITING_MAX_TOKENS = 32768
 
@@ -370,6 +395,7 @@ class OrchestrationEngine:
         self._checkpoint: Checkpoint | None = None
         self._execution_context: str = ""
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
+        self._search_count_this_round: int = 0
 
     async def run_research_cycle(
         self,
@@ -591,6 +617,7 @@ class OrchestrationEngine:
         Args:
             draft: PaperDraft to populate with section drafts.
         """
+        self._search_count_this_round = 0
         checkpoint_context = ""
         if self._checkpoint:
             checkpoint_context = self._checkpoint.to_context_string() + "\n\n"
@@ -646,6 +673,7 @@ class OrchestrationEngine:
                     )
 
             self._log_agent_response(agent_id, response, ResearchPhase.WRITING, "section_draft")
+            await self._process_search_requests(agent_id, response.content, ResearchPhase.WRITING)
 
     async def _run_assembly(self, draft: PaperDraft) -> str:
         """Round 2 of writing: writer assembles all sections into a coherent paper.
@@ -720,6 +748,7 @@ class OrchestrationEngine:
         try:
             for round_num in range(1, max_rounds + 1):
                 click.echo(f"  Experiment round {round_num}/{max_rounds}...")
+                self._search_count_this_round = 0
 
                 # Find experimenter (prefer experimentalist, fallback to analyst)
                 experimenter = self._find_agent_by_role("experimentalist")
@@ -762,6 +791,10 @@ class OrchestrationEngine:
 
                 self._log_agent_response(
                     experimenter.agent_id, response, ResearchPhase.EXECUTION, "experiment_proposal"
+                )
+
+                await self._process_search_requests(
+                    experimenter.agent_id, response.content, ResearchPhase.EXECUTION
                 )
 
                 # Extract code blocks
@@ -898,6 +931,7 @@ class OrchestrationEngine:
 
         for iteration in range(1, max_iterations + 1):
             click.echo(f"  Review iteration {iteration}/{max_iterations}...")
+            self._search_count_this_round = 0
 
             # Editor reviews
             editor = self._find_agent_by_role("editor")
@@ -920,6 +954,9 @@ class OrchestrationEngine:
 
             self._log_agent_response(
                 editor.agent_id, response, ResearchPhase.INTERNAL_REVIEW, "review"
+            )
+            await self._process_search_requests(
+                editor.agent_id, response.content, ResearchPhase.INTERNAL_REVIEW
             )
 
             # Parse review feedback
@@ -988,6 +1025,9 @@ class OrchestrationEngine:
             response = await writer.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             self._log_agent_response(
                 writer.agent_id, response, ResearchPhase.INTERNAL_REVIEW, "revision"
+            )
+            await self._process_search_requests(
+                writer.agent_id, response.content, ResearchPhase.INTERNAL_REVIEW
             )
             return response.content
         except Exception as e:
@@ -1089,6 +1129,7 @@ class OrchestrationEngine:
         current_body = draft.assembled_body or draft.to_markdown()
         template = _PHASE_INSTRUCTIONS[ResearchPhase.PEER_REVIEW]["review"]
 
+        self._search_count_this_round = 0
         reviews: list[PeerReview] = []
         for agent in reviewer_agents:
             prompt = template.format(
@@ -1104,6 +1145,9 @@ class OrchestrationEngine:
                 continue
 
             self._log_agent_response(agent.agent_id, response, ResearchPhase.PEER_REVIEW, "review")
+            await self._process_search_requests(
+                agent.agent_id, response.content, ResearchPhase.PEER_REVIEW
+            )
 
             review = parse_peer_review(agent.agent_id, response.content)
             reviews.append(review)
@@ -1131,6 +1175,7 @@ class OrchestrationEngine:
         self._phase_manager.transition_to(ResearchPhase.REVISION)
         self._log_phase_transition(ResearchPhase.PEER_REVIEW, ResearchPhase.REVISION)
         self._messages = []
+        self._search_count_this_round = 0
         click.echo("Phase: REVISION")
 
         writer = self._find_agent_by_role("writer")
@@ -1182,6 +1227,9 @@ class OrchestrationEngine:
             return draft
 
         self._log_agent_response(writer.agent_id, response, ResearchPhase.REVISION, "revision")
+        await self._process_search_requests(
+            writer.agent_id, response.content, ResearchPhase.REVISION
+        )
 
         # Update draft
         draft.assembled_body = response.content
@@ -1305,6 +1353,62 @@ class OrchestrationEngine:
             thread_id=self._thread_id,
         )
 
+    async def _process_search_requests(
+        self, agent_id: str, response_text: str, phase: ResearchPhase
+    ) -> None:
+        """Parse [SEARCH: query] markers from an agent's response and execute searches.
+
+        Results are appended to self._literature_context for all subsequent agents.
+        Respects the per-round budget from config.
+
+        Args:
+            agent_id: ID of the agent whose response contains search requests.
+            response_text: The agent's response text.
+            phase: Current research phase.
+        """
+        if phase not in _SEARCH_ENABLED_PHASES:
+            return
+
+        max_searches = self._config.orchestrator.max_searches_per_round
+        queries = parse_search_requests(response_text)
+        if not queries:
+            return
+
+        for query in queries:
+            if self._search_count_this_round >= max_searches:
+                click.echo(
+                    f"    [!] Search budget exhausted ({max_searches}/round), "
+                    f"skipping: {query[:60]}"
+                )
+                break
+
+            try:
+                papers = await self._corpus.search(query, max_results=5)
+            except Exception as e:
+                self._logger.log_error(e, agent_id=agent_id, thread_id=self._thread_id)
+                click.echo(f"    [!] Search failed for '{query[:60]}': {e}")
+                continue
+
+            formatted = format_search_results(query, papers)
+            lit = getattr(self, "_literature_context", "")
+            self._literature_context = lit + "\n" + formatted if lit else formatted
+            self._search_count_this_round += 1
+
+            click.echo(f"    {agent_id} searched: '{query[:60]}' → {len(papers)} results")
+
+            self._logger.log(
+                EventType.LITERATURE_SEARCH,
+                content={
+                    "query": query,
+                    "agent_id": agent_id,
+                    "results": len(papers),
+                    "phase": str(phase),
+                    "search_num": self._search_count_this_round,
+                },
+                thread_id=self._thread_id,
+                phase=str(phase),
+            )
+
     async def _run_seeding_phase(self, seed_prompt: str, mode: str) -> str:
         """Initialize the research thread. No agent calls.
 
@@ -1335,24 +1439,21 @@ class OrchestrationEngine:
             phase="seeding",
         )
 
-        # Optionally fetch literature context
-        try:
-            lit_context = await self._corpus.build_literature_context(
-                seed_prompt, max_papers=5, include_arxiv=True
-            )
-            if lit_context and "No relevant papers found" not in lit_context:
-                self._db.update_thread(
-                    thread_id,
-                    literature_reviewed=[seed_prompt],
-                )
-                # Store literature context for later use in agent prompts
-                self._literature_context = lit_context
-            else:
-                self._literature_context = ""
-        except Exception as e:
-            self._logger.log_error(e, thread_id=thread_id)
-            click.echo(f"  [!] Literature search failed: {e}")
-            self._literature_context = ""
+        # Extract and ingest any URLs referenced in the prompt
+        prompt_urls = extract_urls(seed_prompt)
+        for url in prompt_urls:
+            try:
+                paper = await self._corpus.fetch_and_ingest_url(url)
+                if paper:
+                    click.echo(f"  Ingested external paper: {paper.title[:80]}")
+                else:
+                    click.echo(f"  [!] Could not extract PDF from: {url}")
+            except Exception as e:
+                self._logger.log_error(e, thread_id=thread_id)
+                click.echo(f"  [!] Failed to fetch URL: {url} ({e})")
+
+        # Literature context starts empty — agents populate it via [SEARCH:] requests
+        self._literature_context = ""
 
         # Fetch graveyard context (lessons from past failures)
         try:
@@ -1449,6 +1550,7 @@ class OrchestrationEngine:
             round_num: Current round number.
             scheduler: Scheduler for speaker order.
         """
+        self._search_count_this_round = 0
         speaker_order = scheduler.get_speaker_order(phase)
 
         for agent_id in speaker_order:
@@ -1499,6 +1601,9 @@ class OrchestrationEngine:
                 thread_id=self._thread_id,
             )
 
+            # Process any [SEARCH: ...] requests in the agent's response
+            await self._process_search_requests(agent_id, response.content, phase)
+
     def _build_agent_prompt(
         self,
         agent: Agent,
@@ -1537,20 +1642,28 @@ class OrchestrationEngine:
             for m in recent
         )
 
-        # Add literature and graveyard context if available (first round of ideation only)
+        # Include accumulated literature context (all phases)
+        lit = getattr(self, "_literature_context", "")
+        if lit:
+            checkpoint_context = "## Literature Context\n" + lit + "\n\n" + checkpoint_context
+
+        # Graveyard context stays IDEATION round 1 only
         if phase == ResearchPhase.IDEATION and round_num == 1:
-            lit = getattr(self, "_literature_context", "")
-            if lit:
-                checkpoint_context = lit + "\n\n" + checkpoint_context
             graveyard = getattr(self, "_graveyard_context", "")
             if graveyard:
                 checkpoint_context = checkpoint_context + graveyard + "\n\n"
 
-        return template.format(
+        formatted = template.format(
             seed_prompt=self._seed_prompt,
             checkpoint_context=checkpoint_context,
             recent_messages=recent_messages,
         )
+
+        # Append search instructions for search-enabled phases
+        if phase in _SEARCH_ENABLED_PHASES:
+            formatted += _SEARCH_INSTRUCTION
+
+        return formatted
 
     def _check_intervention(self, from_phase: str, to_phase: str) -> str:
         """Check intervention hook before a phase transition.
