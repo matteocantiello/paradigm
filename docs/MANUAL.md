@@ -98,7 +98,8 @@ paradigm run [OPTIONS]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--mode` | Choice | `directed` | Operating mode: `directed`, `explore`, `hypothesis`, `experimental`, `replication` |
-| `--prompt` | Text | --- | Research prompt or question. **Required** for `directed` mode. |
+| `--prompt` | Text | --- | Research prompt or question. **Required** for `directed` mode (unless `--prompt-file` is used). |
+| `--prompt-file` | Path | --- | Read research prompt from a file (e.g., `prompt.md`). Mutually exclusive with `--prompt`. |
 | `--topic` | Text | --- | Research topic. **Required** for `explore` mode. |
 | `--rounds` | Integer | config value (10) | Rounds per phase. Overrides `orchestrator.max_rounds_per_phase`. |
 | `--interactive` | Flag | off | Pause for confirmation before each major phase transition. |
@@ -108,6 +109,12 @@ paradigm run [OPTIONS]
 ```bash
 # Directed research with specific question
 paradigm run --mode directed --prompt "What causes the Blazhko effect in RR Lyrae stars?"
+
+# Read a detailed prompt from a file
+paradigm run --mode directed --prompt-file prompt.md
+
+# Experimental mode with prompt file
+paradigm run --mode experimental --prompt-file prompt.md --rounds 2
 
 # Open-ended exploration
 paradigm run --mode explore --topic "massive star variability"
@@ -121,6 +128,16 @@ paradigm run --mode directed --prompt "Explain stellar convection" --rounds 1
 # Interactive mode with human oversight
 paradigm run --mode directed --prompt "Dark matter distribution in dwarf galaxies" --interactive
 ```
+
+#### Prompt Files
+
+For complex research prompts that include detailed instructions, paper references, or multi-paragraph descriptions, use `--prompt-file` to read the prompt from a markdown file:
+
+```bash
+paradigm run --mode experimental --prompt-file prompt.md --rounds 1
+```
+
+The entire file content is used as the seed prompt. This is especially useful for prompts that include URLs to papers, structured instructions, or multi-step research plans that would be unwieldy as a command-line argument.
 
 ### `paradigm status`
 
@@ -308,7 +325,16 @@ IDEATION  (N rounds of structured agent discussion)
    |
 PLANNING  (N rounds of research plan development)
    |
+   +--[experimentalist on team + sandbox enabled]--+
+   |                                               |
+   |                                         EXECUTION
+   |                                         (propose code, run in Docker,
+   |                                          retry on failure, collect results)
+   |                                               |
+   +-----------------------------------------------+
+   |
 WRITING   (section drafting -> assembly -> optional refinement)
+   |        (execution results injected into RESULTS/METHODS sections)
    |
 INTERNAL_REVIEW  (editor reviews, writer revises if needed)
    |
@@ -355,19 +381,41 @@ Agents develop a concrete research plan: experiments to run, data needs, success
 **Agents:** Full team
 **Rounds:** Same as ideation
 
+#### EXECUTION (conditional)
+
+Runs only when all three conditions are met: `enable_experimentation` is `true`, the Docker sandbox is enabled, and an `experimentalist` agent is on the team (i.e., `experimental` or `replication` mode). Otherwise this phase is skipped automatically.
+
+Agents propose Python code in fenced ` ```python ` blocks with a `# EXPERIMENT: name` header comment. The orchestrator extracts and executes each block in the Docker sandbox.
+
+**Loop** (up to `max_experiment_rounds` rounds):
+1. Round 1: the experimentalist proposes initial experiments based on the research plan.
+2. Round 2+: the agent reviews previous results and either proposes follow-up experiments or signals completion (by responding without code blocks).
+3. Each code block is safety-scanned, then executed in Docker. If the code is rejected by the safety scanner or fails at runtime, the agent receives error feedback and can retry (up to 2 retries per experiment).
+
+**Available libraries:** NumPy, SciPy, Matplotlib, Pandas, scikit-learn, SymPy, Astropy.
+
+**Safety constraints:** No `os`, `subprocess`, `open()`, network calls, or sandbox escape patterns. Code is scanned via AST analysis before execution.
+
+**Output files:** Figures saved as `.png` or `.pdf` by the experiment code are tracked and later copied to a `figures/` subdirectory alongside the paper markdown.
+
+**Input:** Planning checkpoint
+**Output:** Execution context (formatted results + figure paths), injected into WRITING phase
+**Agents:** Experimentalist (fallback to analyst)
+**Rounds:** Configurable via `max_experiment_rounds` (default: 3)
+
 #### WRITING
 
 Three-step process:
 
 1. **Section Drafting** --- Each agent drafts their assigned sections:
    - **Writer:** Abstract, Introduction, Conclusion
-   - **Theorist:** Methods
-   - **Analyst:** Results
+   - **Theorist:** Methods (with experiment descriptions if EXECUTION ran)
+   - **Analyst:** Results (with computational results if EXECUTION ran)
    - **Synthesizer:** Discussion
-2. **Assembly** --- The writer agent combines all sections into a coherent paper, harmonizing style and adding transitions.
+2. **Assembly** --- The writer agent combines all sections into a coherent paper, harmonizing style and adding transitions. If figures were generated during EXECUTION, they are referenced as `![Figure N](figures/filename.png)`.
 3. **Refinement** (optional) --- Additional rounds of polishing.
 
-**Output:** Complete paper draft saved as `paper-<id>` in the database and as a `.md` file in `data/papers/`.
+**Output:** Complete paper draft saved as `paper-<id>` in the database and as a `.md` file in `data/papers/`. Papers with figures use a subdirectory layout: `data/papers/<paper-id>/<paper-id>.md` with a `figures/` subdirectory.
 
 #### INTERNAL_REVIEW
 
@@ -460,10 +508,11 @@ paradigm run --mode directed --prompt "Your question" --interactive
 
 ### Intervention Points
 
-The system pauses at three transition points:
+The system pauses at these transition points:
 1. **IDEATION -> PLANNING** --- After ideation completes, before planning begins
-2. **PLANNING -> WRITING** --- After the research plan is finalized, before paper drafting
-3. **INTERNAL_REVIEW -> SUBMITTED** --- After internal review, before submission to peer review
+2. **PLANNING -> EXECUTION** --- (experimental/replication modes only) After the research plan is finalized, before computational experiments
+3. **EXECUTION -> WRITING** or **PLANNING -> WRITING** --- Before paper drafting begins
+4. **INTERNAL_REVIEW -> SUBMITTED** --- After internal review, before submission to peer review
 
 ### At Each Pause
 
@@ -572,6 +621,8 @@ Configuration is loaded from a YAML file (default: `configs/default.yaml`). Over
 | `enable_peer_review` | bool | `true` | Enable the peer review pipeline after internal review |
 | `num_reviewers` | int | `2` | Number of independent peer reviewers |
 | `max_revision_rounds` | int | `2` | Max peer-review revision loops before final decision |
+| `enable_experimentation` | bool | `true` | Enable EXECUTION phase for modes with an experimentalist |
+| `max_experiment_rounds` | int | `3` | Max rounds of experiment proposal/execution in EXECUTION phase |
 
 ### `literature` --- Literature Search
 
@@ -639,8 +690,12 @@ data/
   events.jsonl         # Structured event log (JSON lines)
   vector_db/           # ChromaDB embeddings for semantic search
   papers/              # Published paper markdown files
-    paper-abc123.md
-    paper-def456.md
+    paper-abc123.md              # Papers without figures: flat file
+    paper-def456/                # Papers with figures: subdirectory layout
+      paper-def456.md            #   Paper markdown
+      figures/                   #   Generated figures from EXECUTION phase
+        experiment-name_plot.png
+        experiment-name_data.png
 ```
 
 ### Database Tables
@@ -688,7 +743,7 @@ Events are stored as JSON lines in `data/events.jsonl`. Each line is a JSON obje
 
 ### Paper Files
 
-Published papers are automatically saved as markdown files in `data/papers/`. Each file is named `<paper-id>.md` and contains the full paper text. Papers are also written to disk when revised, so the file always reflects the latest version.
+Published papers are automatically saved as markdown files in `data/papers/`. Papers without figures are saved as flat files (`<paper-id>.md`). Papers with figures from the EXECUTION phase use a subdirectory layout (`<paper-id>/<paper-id>.md` with a `figures/` subdirectory). Papers are also written to disk when revised, so the file always reflects the latest version.
 
 ---
 
@@ -705,6 +760,7 @@ Paradigm uses Claude API calls extensively. A full research cycle with default s
 | SEEDING | ~5K (literature search only) |
 | IDEATION | ~100K-150K |
 | PLANNING | ~100K-150K |
+| EXECUTION | ~30K-60K (experimental/replication modes only) |
 | WRITING | ~50K-80K |
 | INTERNAL_REVIEW | ~20K-30K |
 | PEER_REVIEW | ~20K-40K |
@@ -731,8 +787,9 @@ Costs depend on the model. Check [Anthropic pricing](https://www.anthropic.com/p
 3. **Disable optional phases:**
    ```yaml
    orchestrator:
-     enable_writing: false      # Stop after PLANNING (no paper generated)
-     enable_peer_review: false  # Stop after INTERNAL_REVIEW (no peer review)
+     enable_writing: false          # Stop after PLANNING (no paper generated)
+     enable_peer_review: false      # Stop after INTERNAL_REVIEW (no peer review)
+     enable_experimentation: false  # Skip EXECUTION phase even in experimental mode
    ```
 
 4. **Reduce reviewers:**
@@ -1041,3 +1098,30 @@ sqlite3 data/paradigm.db "SELECT failure_reason, lessons_learned FROM graveyard 
 ```
 
 These lessons are automatically surfaced during the SEEDING phase of future research cycles. If the new seed prompt is related to a past failure, agents will see the lessons in their first IDEATION round.
+
+### Recipe 8: Computational Experiments with Prompt File
+
+Run an experimental cycle with a detailed prompt from a file:
+
+```bash
+# Create a detailed prompt file
+cat > prompt.md << 'EOF'
+Investigate red noise (stochastic low-frequency variability) in massive stars.
+
+Use the following approach:
+1. Generate synthetic light curves with injected red noise following a power-law PSD
+2. Analyze the frequency spectra using Lomb-Scargle periodograms
+3. Fit power-law models to characterize the noise properties
+4. Compare results across different stellar parameters
+
+Reference: Bowman et al. 2019 (arXiv:1903.09534)
+EOF
+
+# Run with Docker sandbox enabled
+paradigm run --mode experimental --prompt-file prompt.md --rounds 2
+
+# Papers with figures will be in data/papers/<paper-id>/
+ls data/papers/
+```
+
+The EXECUTION phase will propose and run Python experiments in Docker, and the results (including figures) will be automatically incorporated into the paper's Results and Methods sections.

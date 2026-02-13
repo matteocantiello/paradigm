@@ -517,3 +517,22 @@ Resuming Cycle 1 after API credits replenished.
 > Fix ruff format failures in CI for base.py, engine.py, database.py, test_experimentation.py
 
 **Goal:** Run `ruff format` on the 4 files that CI flagged.
+
+### Prompt 48 — Add Prompt File Support
+
+> Next we should add the ability to pass a prompt to paradigm via the file prompt.md (I already created one in the repo)
+
+**Goal:** Add `--prompt-file` CLI option to read research prompts from a markdown file.
+
+**Changes:**
+- `src/paradigm/main.py`: Added `--prompt-file` option (mutually exclusive with `--prompt`, validates file not empty)
+
+### Prompt 49 — Update Manual and History
+
+> Let's update the manual and history
+
+**Goal:** Update `docs/MANUAL.md` to document the `--prompt-file` feature and EXECUTION phase; update `HISTORY.md`.
+
+**Changes:**
+- `docs/MANUAL.md`: Added `--prompt-file` to CLI reference, added prompt file examples, added Prompt Files subsection, added EXECUTION phase details section, updated phase flow diagram, added experimentation config to orchestrator table, updated data directory layout for figures, updated cost estimates, updated interactive mode intervention points, added Recipe 8 for experimental mode with prompt file
+- `HISTORY.md`: Logged prompts 48-49

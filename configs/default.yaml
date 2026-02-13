@@ -23,7 +23,7 @@ sandbox:
 # Literature search configuration
 literature:
   arxiv_rate_limit: 3.0
-  max_results_per_search: 20
+  max_results_per_search: 200
   enable_pdf_fetch: true
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
 

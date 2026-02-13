@@ -123,6 +123,11 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     help="Research prompt or question (for directed mode)",
 )
 @click.option(
+    "--prompt-file",
+    type=click.Path(exists=True, path_type=Path),
+    help="Read research prompt from a file (e.g. prompt.md)",
+)
+@click.option(
     "--topic",
     type=str,
     help="Research topic (for exploratory mode)",
@@ -144,6 +149,7 @@ def run(
     config: Config,
     mode: str,
     prompt: str | None,
+    prompt_file: Path | None,
     topic: str | None,
     rounds: int | None,
     interactive: bool,
@@ -152,10 +158,22 @@ def run(
 
     Examples:
         paradigm run --mode directed --prompt "Explain the period-luminosity relation"
+        paradigm run --mode directed --prompt-file prompt.md
         paradigm run --mode explore --topic "massive star variability"
     """
+    # Read prompt from file if provided
+    if prompt_file:
+        if prompt:
+            click.echo("Error: --prompt and --prompt-file are mutually exclusive", err=True)
+            sys.exit(1)
+        prompt = prompt_file.read_text().strip()
+        if not prompt:
+            click.echo(f"Error: prompt file is empty: {prompt_file}", err=True)
+            sys.exit(1)
+        click.echo(f"Loaded prompt from {prompt_file} ({len(prompt)} chars)")
+
     if mode == "directed" and not prompt:
-        click.echo("Error: --prompt required for directed mode", err=True)
+        click.echo("Error: --prompt or --prompt-file required for directed mode", err=True)
         sys.exit(1)
 
     if mode == "explore" and not topic:
