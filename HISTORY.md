@@ -613,3 +613,24 @@ Resuming Cycle 1 after API credits replenished.
 **Artifacts modified:**
 - `src/paradigm/literature/arxiv.py` — Retry with exponential backoff on 429 in `_rate_limited_get()`
 - `src/paradigm/orchestrator/engine.py` — Added `_searched_queries` set for global dedup, reset at cycle start
+
+### Prompt 55 — Implement Paper Artifact Files (Search Log + Review Report)
+
+> Implement the following plan: Paper Artifact Files (Search Log + Review Report)
+>
+> After a research cycle, save two human-readable files alongside each paper:
+> 1. `literature_searches.md` — All search queries, which agent made them, which phase, and the papers returned
+> 2. `reviews.md` — Full peer review text, scores, internal review, and final decision
+>
+> Both files live in `papers/{paper_id}/`. Always use subdirectory layout. Accumulate search and review data in engine state, write at end of cycle.
+
+**Key decisions:**
+- Always use subdirectory layout for papers (not conditional on figures)
+- Accumulate `_search_log` and `_review_log` as lists of dicts in engine state
+- Write files at end of cycle in a common exit path
+- Search log captures query, agent_id, phase, and paper metadata
+- Review log captures all review types: internal, desk, peer, decision, revision
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Added `_search_log` + `_review_log` state, accumulation, save methods, subdirectory layout
+- `tests/test_orchestrator.py` — Tests for search log, review log, and file writing

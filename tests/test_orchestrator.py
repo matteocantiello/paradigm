@@ -614,3 +614,253 @@ class TestOrchestrationEngine:
         search_calls = mock_corpus.search.call_args_list
         queries = [call.args[0] if call.args else call.kwargs.get("query") for call in search_calls]
         assert any("Cepheid" in q for q in queries if q)
+
+    @pytest.mark.asyncio
+    async def test_search_log_populated(self, mock_config, tmp_db, tmp_logger):
+        """_search_log accumulates entries when agents make [SEARCH:] requests."""
+        from datetime import UTC, datetime
+
+        from paradigm.literature.arxiv import ArxivPaper
+
+        # Mock corpus that returns actual ArxivPaper objects
+        corpus = MagicMock()
+        now = datetime.now(UTC)
+        mock_paper = ArxivPaper(
+            arxiv_id="2401.12345",
+            title="Test Paper on Cepheids",
+            abstract="Abstract text",
+            authors=["Author One", "Author Two"],
+            categories=["astro-ph.SR"],
+            primary_category="astro-ph.SR",
+            published=now,
+            updated=now,
+            pdf_url="https://arxiv.org/pdf/2401.12345",
+            abs_url="https://arxiv.org/abs/2401.12345",
+        )
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[mock_paper])
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+                    response = AgentResponse(
+                        content="Ideas [SEARCH: Cepheid period-luminosity]",
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test search log",
+                mode="directed",
+            )
+
+        # _search_log should have entries
+        assert len(engine._search_log) >= 1
+        entry = engine._search_log[0]
+        assert entry["query"] == "Cepheid period-luminosity"
+        assert entry["phase"] is not None
+        assert len(entry["papers"]) == 1
+        assert entry["papers"][0]["arxiv_id"] == "2401.12345"
+        assert entry["papers"][0]["title"] == "Test Paper on Cepheids"
+
+    @pytest.mark.asyncio
+    async def test_save_search_log_writes_file(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """_save_search_log writes a literature_searches.md file."""
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=MagicMock(),
+            )
+            engine._thread_id = "thread-test123"
+
+            # Manually populate search log
+            engine._search_log = [
+                {
+                    "query": "Cepheid metallicity",
+                    "agent_id": "theorist-0",
+                    "phase": "ResearchPhase.IDEATION",
+                    "papers": [
+                        {
+                            "arxiv_id": "2401.12345",
+                            "title": "Cepheid PLR",
+                            "authors": ["Smith", "Jones"],
+                            "year": "2024",
+                        },
+                    ],
+                },
+                {
+                    "query": "RR Lyrae distance scale",
+                    "agent_id": "analyst-0",
+                    "phase": "ResearchPhase.PLANNING",
+                    "papers": [],
+                },
+            ]
+
+            # Ensure papers dir exists
+            papers_dir = mock_config.storage.papers_dir
+            papers_dir.mkdir(parents=True, exist_ok=True)
+
+            engine._save_search_log("paper-test001")
+
+        path = papers_dir / "paper-test001" / "literature_searches.md"
+        assert path.exists()
+        content = path.read_text()
+        assert "# Literature Searches" in content
+        assert "Total searches: 2" in content
+        assert "Cepheid metallicity" in content
+        assert "theorist-0" in content
+        assert "IDEATION" in content
+        assert "2401.12345" in content
+        assert "RR Lyrae distance scale" in content
+        assert "No results found." in content
+
+    @pytest.mark.asyncio
+    async def test_save_review_log_writes_file(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """_save_review_log writes a reviews.md file."""
+        from paradigm.journal.review import PeerReview
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=MagicMock(),
+            )
+            engine._thread_id = "thread-test456"
+
+            # Manually populate review log
+            engine._review_log = [
+                {
+                    "type": "internal_review",
+                    "reviewer_id": "editor-0",
+                    "text": "The paper needs more rigor in Section 3.",
+                    "iteration": 1,
+                },
+                {
+                    "type": "desk_review",
+                    "reviewer_id": "editor-0",
+                    "text": "Paper is suitable for review.",
+                    "decision": "send_to_review",
+                },
+                {
+                    "type": "peer_review",
+                    "reviewer_id": "peer-reviewer-0",
+                    "text": "Good paper with minor issues.",
+                    "review": PeerReview(
+                        reviewer_id="peer-reviewer-0",
+                        recommendation="minor_revision",
+                        scores={"novelty": 7, "rigor": 6, "clarity": 8, "significance": 7},
+                    ),
+                },
+                {
+                    "type": "decision",
+                    "decision": "minor_revision",
+                },
+                {
+                    "type": "revision",
+                    "reviewer_id": "writer-0",
+                },
+            ]
+
+            papers_dir = mock_config.storage.papers_dir
+            papers_dir.mkdir(parents=True, exist_ok=True)
+
+            engine._save_review_log("paper-test002")
+
+        path = papers_dir / "paper-test002" / "reviews.md"
+        assert path.exists()
+        content = path.read_text()
+        assert "# Review Report" in content
+        assert "paper-test002" in content
+        assert "Internal Review" in content
+        assert "needs more rigor" in content
+        assert "Desk Review" in content
+        assert "send_to_review" in content
+        assert "peer-reviewer-0" in content
+        assert "minor_revision" in content
+        assert "Novelty: 7/10" in content
+        assert "Final decision:" in content
+        assert "Revision" in content
+
+    @pytest.mark.asyncio
+    async def test_subdirectory_layout_always_used(
+        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """Paper files always use subdirectory layout (papers/id/id.md)."""
+        # Enable writing to trigger paper save
+        mock_config_writing = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(mock_config.storage.data_dir)},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "checkpoint_interval": 1,
+                "enable_checkpointing": False,
+                "enable_writing": True,
+                "enable_peer_review": False,
+            },
+        )
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config_writing,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            thread_id = await engine.run_research_cycle(
+                seed_prompt="Test subdirectory layout",
+                mode="directed",
+            )
+
+        # Find the paper_id from the thread
+        thread = tmp_db.get_thread(thread_id)
+        paper_id = thread.get("current_draft_id")
+        assert paper_id is not None
+
+        # Verify subdirectory layout
+        papers_dir = mock_config_writing.storage.papers_dir
+        paper_dir = papers_dir / paper_id
+        assert paper_dir.is_dir()
+        assert (paper_dir / f"{paper_id}.md").exists()
+        # Flat file should NOT exist
+        assert not (papers_dir / f"{paper_id}.md").exists()

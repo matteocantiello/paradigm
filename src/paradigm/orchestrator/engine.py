@@ -397,6 +397,8 @@ class OrchestrationEngine:
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
         self._search_count_this_round: int = 0
         self._searched_queries: set[str] = set()  # Global dedup across entire cycle
+        self._search_log: list[dict[str, Any]] = []
+        self._review_log: list[dict[str, Any]] = []
 
     async def run_research_cycle(
         self,
@@ -423,6 +425,8 @@ class OrchestrationEngine:
         self._execution_context = ""
         self._execution_figures = []
         self._searched_queries = set()
+        self._search_log = []
+        self._review_log = []
 
         # Create agent team
         agents = self._factory.create_team(team_roles, skill_mode="default")
@@ -564,6 +568,12 @@ class OrchestrationEngine:
                 self._db.update_thread(self._thread_id, status="reviewed")
         else:
             self._db.update_thread(self._thread_id, status="planning_complete")
+
+        # Save auxiliary files (search log, review report)
+        thread = self._db.get_thread(self._thread_id)
+        paper_id = thread.get("current_draft_id") if thread else None
+        if paper_id:
+            self._save_auxiliary_files(paper_id)
 
         return self._thread_id
 
@@ -960,6 +970,14 @@ class OrchestrationEngine:
             await self._process_search_requests(
                 editor.agent_id, response.content, ResearchPhase.INTERNAL_REVIEW
             )
+            self._review_log.append(
+                {
+                    "type": "internal_review",
+                    "reviewer_id": editor.agent_id,
+                    "text": response.content,
+                    "iteration": iteration,
+                }
+            )
 
             # Parse review feedback
             feedback = parse_review_feedback(response.content)
@@ -1084,6 +1102,22 @@ class OrchestrationEngine:
 
         self._log_agent_response(editor.agent_id, response, ResearchPhase.SUBMITTED, "desk_review")
 
+        # Determine desk review decision for logging
+        _desk_lower = response.content.lower()
+        _desk_decision = (
+            "desk_reject"
+            if "desk_reject" in _desk_lower or "desk reject" in _desk_lower
+            else "send_to_review"
+        )
+        self._review_log.append(
+            {
+                "type": "desk_review",
+                "reviewer_id": editor.agent_id,
+                "text": response.content,
+                "decision": _desk_decision,
+            }
+        )
+
         # Parse decision
         response_lower = response.content.lower()
         if "desk_reject" in response_lower or "desk reject" in response_lower:
@@ -1153,6 +1187,14 @@ class OrchestrationEngine:
 
             review = parse_peer_review(agent.agent_id, response.content)
             reviews.append(review)
+            self._review_log.append(
+                {
+                    "type": "peer_review",
+                    "reviewer_id": agent.agent_id,
+                    "text": response.content,
+                    "review": review,
+                }
+            )
             avg_score = sum(review.scores.values()) / len(review.scores) if review.scores else 0
             click.echo(
                 f"    {agent.agent_id}: {review.recommendation} (avg score: {avg_score:.1f})"
@@ -1160,6 +1202,12 @@ class OrchestrationEngine:
 
         # Synthesize decision
         decision = synthesize_decision(reviews)
+        self._review_log.append(
+            {
+                "type": "decision",
+                "decision": decision,
+            }
+        )
         click.echo(f"  Decision: {decision}")
 
         return decision, reviews
@@ -1232,6 +1280,12 @@ class OrchestrationEngine:
         await self._process_search_requests(
             writer.agent_id, response.content, ResearchPhase.REVISION
         )
+        self._review_log.append(
+            {
+                "type": "revision",
+                "reviewer_id": writer.agent_id,
+            }
+        )
 
         # Update draft
         draft.assembled_body = response.content
@@ -1254,8 +1308,8 @@ class OrchestrationEngine:
     def _save_paper_file(self, paper_id: str, body: str) -> None:
         """Write paper markdown to the papers directory.
 
-        When figures exist, saves into a subdirectory structure:
-        papers/paper_id/paper_id.md + papers/paper_id/figures/
+        Always uses subdirectory layout: papers/paper_id/paper_id.md
+        Figures (if any) go into papers/paper_id/figures/
 
         Args:
             paper_id: Paper identifier (used as filename).
@@ -1265,16 +1319,12 @@ class OrchestrationEngine:
         if papers_dir is None:
             return
 
+        paper_dir = papers_dir / paper_id
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        path = paper_dir / f"{paper_id}.md"
+        path.write_text(body)
         if self._execution_figures:
-            # Use subdirectory layout for papers with figures
-            paper_dir = papers_dir / paper_id
-            paper_dir.mkdir(parents=True, exist_ok=True)
-            path = paper_dir / f"{paper_id}.md"
-            path.write_text(body)
             self._copy_figures_to_paper_dir(paper_id)
-        else:
-            path = papers_dir / f"{paper_id}.md"
-            path.write_text(body)
 
     def _copy_figures_to_paper_dir(self, paper_id: str) -> None:
         """Copy execution output figures to the paper's figures/ directory.
@@ -1298,6 +1348,121 @@ class OrchestrationEngine:
             dest_path = figures_dir / dest_name
             shutil.copy2(src_path, dest_path)
             click.echo(f"  Figure copied: {dest_path.name}")
+
+    def _save_search_log(self, paper_id: str) -> None:
+        """Write literature_searches.md to the paper directory.
+
+        Args:
+            paper_id: Paper identifier.
+        """
+        papers_dir = self._config.storage.papers_dir
+        if papers_dir is None:
+            return
+
+        lines = ["# Literature Searches\n"]
+        lines.append(f"Thread: {self._thread_id}")
+        lines.append(f"Total searches: {len(self._search_log)}\n")
+        lines.append("---\n")
+
+        for i, entry in enumerate(self._search_log, 1):
+            phase = entry["phase"].upper().replace("RESEARCHPHASE.", "")
+            agent_id = entry["agent_id"]
+            query = entry["query"]
+            papers = entry["papers"]
+
+            lines.append(f"## Search {i} — {phase} ({agent_id})")
+            lines.append(f"**Query:** {query}\n")
+
+            if papers:
+                for j, p in enumerate(papers, 1):
+                    authors_str = ", ".join(p["authors"][:2])
+                    if len(p["authors"]) > 2:
+                        authors_str += " et al."
+                    lines.append(
+                        f"{j}. **{p['title']}** — {authors_str} ({p['year']}) [{p['arxiv_id']}]"
+                    )
+            else:
+                lines.append("No results found.")
+
+            lines.append("\n---\n")
+
+        paper_dir = papers_dir / paper_id
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        path = paper_dir / "literature_searches.md"
+        path.write_text("\n".join(lines))
+
+    def _save_review_log(self, paper_id: str) -> None:
+        """Write reviews.md to the paper directory.
+
+        Args:
+            paper_id: Paper identifier.
+        """
+        papers_dir = self._config.storage.papers_dir
+        if papers_dir is None:
+            return
+
+        lines = ["# Review Report\n"]
+        lines.append(f"Thread: {self._thread_id}")
+        lines.append(f"Paper: {paper_id}\n")
+        lines.append("---\n")
+
+        for entry in self._review_log:
+            entry_type = entry["type"]
+
+            if entry_type == "internal_review":
+                iteration = entry.get("iteration", "")
+                reviewer = entry["reviewer_id"]
+                lines.append(f"## Internal Review — Iteration {iteration} ({reviewer})\n")
+                lines.append(entry["text"])
+                lines.append("\n---\n")
+
+            elif entry_type == "desk_review":
+                reviewer = entry["reviewer_id"]
+                decision = entry.get("decision", "unknown")
+                lines.append(f"## Desk Review ({reviewer})\n")
+                lines.append(f"**Decision:** {decision}\n")
+                lines.append(entry["text"])
+                lines.append("\n---\n")
+
+            elif entry_type == "peer_review":
+                reviewer = entry["reviewer_id"]
+                review: PeerReview = entry["review"]
+                lines.append(f"### Reviewer: {reviewer}")
+                lines.append(f"**Recommendation:** {review.recommendation}")
+                if review.scores:
+                    scores_str = ", ".join(f"{k.title()}: {v}/10" for k, v in review.scores.items())
+                    lines.append(f"**Scores:** {scores_str}")
+                lines.append("")
+                lines.append(entry["text"])
+                lines.append("\n---\n")
+
+            elif entry_type == "decision":
+                decision = entry["decision"]
+                lines.append("## Decision\n")
+                lines.append(f"**Final decision:** {decision}")
+                lines.append("\n---\n")
+
+            elif entry_type == "revision":
+                reviewer = entry["reviewer_id"]
+                lines.append(f"## Revision ({reviewer})\n")
+                lines.append("Paper revised based on reviewer feedback.")
+                lines.append("\n---\n")
+
+        paper_dir = papers_dir / paper_id
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        path = paper_dir / "reviews.md"
+        path.write_text("\n".join(lines))
+
+    def _save_auxiliary_files(self, paper_id: str) -> None:
+        """Save search log and review log alongside the paper.
+
+        Args:
+            paper_id: Paper identifier.
+        """
+        if self._search_log:
+            self._save_search_log(paper_id)
+        if self._review_log:
+            self._save_review_log(paper_id)
 
     def _find_agent_by_role(self, role: str) -> Agent | None:
         """Find an agent by its skill profile / role.
@@ -1397,6 +1562,22 @@ class OrchestrationEngine:
                 continue
 
             self._searched_queries.add(query_key)
+            self._search_log.append(
+                {
+                    "query": query,
+                    "agent_id": agent_id,
+                    "phase": str(phase),
+                    "papers": [
+                        {
+                            "arxiv_id": p.arxiv_id,
+                            "title": p.title,
+                            "authors": p.authors[:3],
+                            "year": p.published.strftime("%Y"),
+                        }
+                        for p in papers
+                    ],
+                }
+            )
             formatted = format_search_results(query, papers)
             lit = getattr(self, "_literature_context", "")
             self._literature_context = lit + "\n" + formatted if lit else formatted
