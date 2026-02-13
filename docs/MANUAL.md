@@ -139,6 +139,8 @@ paradigm run --mode experimental --prompt-file prompt.md --rounds 1
 
 The entire file content is used as the seed prompt. This is especially useful for prompts that include URLs to papers, structured instructions, or multi-step research plans that would be unwieldy as a command-line argument.
 
+**PDF ingestion from URLs:** Any URLs in the prompt pointing to PDF files are automatically fetched, extracted, and ingested into the local corpus during the SEEDING phase. Supported sources include arXiv, A&A (aanda.org), Nature, IOP Science (ApJ, ApJS, MNRAS), and most other journal sites that serve direct PDF links. Sites with aggressive bot protection (e.g., TLS fingerprinting) are handled via a curl fallback.
+
 ### `paradigm status`
 
 Show system statistics (total token usage).
@@ -357,17 +359,38 @@ PUBLISHED  (paper enters internal corpus)
 
 #### SEEDING
 
-The orchestrator initializes a research thread, creates a unique thread ID, registers the agent team, and optionally searches the literature for relevant context. It also searches the graveyard for lessons from past failed or rejected research related to the seed prompt.
+The orchestrator initializes a research thread, creates a unique thread ID, and registers the agent team. If the seed prompt contains URLs to papers (e.g., A&A, Nature, IOP Science PDFs), the orchestrator fetches and ingests them into the local corpus as external papers. It also searches the graveyard for lessons from past failed or rejected research related to the seed prompt.
+
+Literature search is **not** performed during seeding — instead, agents drive their own literature searches during deliberation phases (see [Agent-Driven Literature Search](#agent-driven-literature-search) below).
 
 **Input:** Seed prompt + mode
-**Output:** Thread ID, initial literature context, graveyard context (if any)
+**Output:** Thread ID, ingested external papers (if URLs present), graveyard context (if any)
 **Agents:** None (orchestrator-only)
+
+#### Agent-Driven Literature Search
+
+Rather than sending the raw prompt to arXiv (which fails on long prompts), agents request literature searches themselves by writing `[SEARCH: query]` markers in their responses — the same text-parsing pattern used for code execution via fenced Python blocks.
+
+The orchestrator parses these markers, executes searches via `corpus.search()` (which queries both the local ChromaDB and arXiv API), formats the results, and appends them to an accumulated literature context. This context is included in all subsequent agent prompts, growing throughout the research cycle.
+
+**Search-enabled phases:** IDEATION, PLANNING, EXECUTION, WRITING, INTERNAL_REVIEW, PEER_REVIEW, REVISION.
+
+**Budget:** Each round allows up to `max_searches_per_round` (default: 3) search requests to prevent runaway API costs. The counter resets at the start of each round.
+
+**Example agent output:**
+```
+Based on the discussion, I'd like to look into the metallicity dependence:
+[SEARCH: Cepheid period-luminosity relation metallicity dependence]
+
+I also want to check recent asteroseismology results:
+[SEARCH: delta Scuti asteroseismology mixed modes]
+```
 
 #### IDEATION
 
-Agents propose and debate hypotheses through structured discussion rounds. In round 1, each agent proposes 1-2 concrete, testable hypotheses. If lessons from past failed research were found during seeding, they are also included in the round 1 prompt, clearly marked as non-citable context. In later rounds, agents critique, build on, and prioritize ideas.
+Agents propose and debate hypotheses through structured discussion rounds. In round 1, each agent proposes 1-2 concrete, testable hypotheses. If lessons from past failed research were found during seeding, they are also included in the round 1 prompt, clearly marked as non-citable context. In later rounds, agents critique, build on, and prioritize ideas. Agents may request literature searches at any time via `[SEARCH: query]` markers.
 
-**Input:** Seed prompt + literature context + graveyard lessons (if any)
+**Input:** Seed prompt + graveyard lessons (if any) + accumulated literature context
 **Output:** Refined set of hypotheses
 **Agents:** Full team in round-robin order
 **Rounds:** Configurable via `max_rounds_per_phase` (default: 10)
@@ -623,6 +646,7 @@ Configuration is loaded from a YAML file (default: `configs/default.yaml`). Over
 | `max_revision_rounds` | int | `2` | Max peer-review revision loops before final decision |
 | `enable_experimentation` | bool | `true` | Enable EXECUTION phase for modes with an experimentalist |
 | `max_experiment_rounds` | int | `3` | Max rounds of experiment proposal/execution in EXECUTION phase |
+| `max_searches_per_round` | int | `3` | Max `[SEARCH: ...]` requests processed per round (resets each round) |
 
 ### `literature` --- Literature Search
 
@@ -893,6 +917,14 @@ The error is printed to the console and logged in `events.jsonl`.
 The thread ID does not exist or no checkpoint was saved. Check:
 - The thread ID is correct (look in the console output from the `run` command)
 - Checkpointing is enabled (`orchestrator.enable_checkpointing: true`)
+
+#### PDF fetch failures (`[!] Could not extract PDF from: ...`)
+
+The orchestrator could not download or parse a PDF from a URL in your prompt. Common causes:
+- **HTML article page instead of PDF link** --- Use the direct PDF URL (e.g., `https://www.nature.com/articles/s41586-020-2649-2.pdf`, not the `.html` article page)
+- **Paywall or institutional access required** --- Some journals restrict access. Use the arXiv preprint link instead if available
+- **Bot protection (captcha)** --- Some sites use TLS fingerprint detection. Paradigm falls back to `curl` automatically, but if `curl` is also blocked, the fetch will fail
+- **Timeout** --- Large PDFs from slow servers may time out (30s limit). Try again or download the PDF manually
 
 #### Docker sandbox errors
 

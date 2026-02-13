@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import subprocess
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -149,15 +150,20 @@ class ArxivClient:
     async def fetch_pdf_from_url(self, url: str) -> str | None:
         """Download and extract text from a PDF at the given URL.
 
+        Tries httpx first; falls back to curl if the response is not a PDF
+        (some sites block Python HTTP clients via TLS fingerprinting).
+
         Args:
             url: Direct URL to a PDF file.
 
         Returns:
             Extracted text content, or None if extraction fails.
         """
+        pdf_bytes = await self._fetch_pdf_bytes(url)
+        if pdf_bytes is None:
+            return None
+
         try:
-            response = await self._rate_limited_get(url)
-            pdf_bytes = response.content
             doc = pymupdf.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
             text_parts = []
             for page in doc:
@@ -166,12 +172,61 @@ class ArxivClient:
             return "\n".join(text_parts).strip() or None
         except Exception as e:
             if self._logger:
-                self._logger.log_error(
-                    e,
-                    metadata_key="pdf_extraction",
-                    url=url,
-                )
+                self._logger.log_error(e, metadata_key="pdf_extraction", url=url)
             return None
+
+    async def _fetch_pdf_bytes(self, url: str) -> bytes | None:
+        """Fetch raw PDF bytes from a URL, with curl fallback.
+
+        Args:
+            url: URL to fetch.
+
+        Returns:
+            PDF file bytes, or None on failure.
+        """
+        # Try httpx first
+        try:
+            response = await self._rate_limited_get(url)
+            if response.status_code == 200:
+                content_type = response.headers.get("content-type", "")
+                if "pdf" in content_type or "octet-stream" in content_type:
+                    return response.content
+        except Exception:
+            pass  # Fall through to curl
+
+        # Fallback: curl (bypasses TLS fingerprint-based bot detection)
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [
+                    "curl",
+                    "-sL",
+                    "-A",
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                    "--max-time",
+                    "30",
+                    "-o",
+                    "-",
+                    url,
+                ],
+                capture_output=True,
+                timeout=35,
+            )
+            if result.returncode == 0 and len(result.stdout) > 100:
+                # Verify it's actually a PDF (starts with %PDF)
+                if result.stdout[:5] == b"%PDF-":
+                    return result.stdout
+        except Exception as e:
+            if self._logger:
+                self._logger.log_error(e, metadata_key="pdf_fetch_curl", url=url)
+
+        if self._logger:
+            self._logger.log_error(
+                Exception("All fetch methods failed"),
+                metadata_key="pdf_fetch",
+                url=url,
+            )
+        return None
 
     async def fetch_pdf_text(self, paper: ArxivPaper) -> str | None:
         """Download and extract text from a paper's PDF.
