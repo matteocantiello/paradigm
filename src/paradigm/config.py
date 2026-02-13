@@ -87,6 +87,8 @@ class OrchestratorConfig(BaseModel):
     enable_peer_review: bool = True
     num_reviewers: int = 2
     max_revision_rounds: int = 2
+    enable_experimentation: bool = True
+    max_experiment_rounds: int = 3
 
 
 class SkillsConfig(BaseModel):

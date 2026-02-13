@@ -1,7 +1,10 @@
 """Main orchestration engine for research cycles."""
 
+import re
+import shutil
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import click
@@ -23,6 +26,8 @@ from paradigm.literature.corpus import Corpus
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
 from paradigm.orchestrator.scheduler import Scheduler
+from paradigm.sandbox.executor import CodeExecutor
+from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, ExecutionStatus
 from paradigm.storage.checkpoints import Checkpoint, CheckpointManager
 from paradigm.storage.database import Database
 
@@ -108,6 +113,46 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Refine the plan: challenge assumptions, identify dependencies between "
             "experiments, suggest controls, and ensure the plan is feasible. "
             "Focus on making the plan actionable."
+        ),
+    },
+    ResearchPhase.EXECUTION: {
+        "propose_experiment": (
+            "You are designing and running computational experiments.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "{previous_results}"
+            "Write Python code to test the hypotheses and plans from prior discussion. "
+            "Wrap each experiment in a fenced ```python block with a "
+            "`# EXPERIMENT: <name>` comment on the first line.\n\n"
+            "**Available libraries:** numpy, scipy, matplotlib, pandas, scikit-learn, "
+            "sympy, astropy.\n"
+            "**Safety constraints:** Do NOT use os, subprocess, open() for writing, "
+            "or network access. Read-only file access is allowed via provided shared data.\n"
+            "**Output:** Print results to stdout. Save figures as .png files using "
+            "matplotlib (plt.savefig('figure_name.png')). All .png/.pdf files in the "
+            "working directory will be collected.\n\n"
+            "Focus on producing clear, reproducible computational results."
+        ),
+        "analyze_results": (
+            "You are reviewing computational experiment results.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "## Previous Experiment Results\n{previous_results}\n\n"
+            "Analyze the results above. You may either:\n"
+            "1. Propose a follow-up experiment by writing a ```python block "
+            "(with `# EXPERIMENT: <name>` header)\n"
+            "2. Declare experiments sufficient by NOT including any code block "
+            "(just provide your analysis)\n\n"
+            "If proposing follow-up experiments, explain what additional question "
+            "they address."
+        ),
+        "retry_after_failure": (
+            "Your previous experiment failed or was rejected.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "## Error Feedback\n{error_feedback}\n\n"
+            "Fix the code and resubmit in a ```python block with "
+            "`# EXPERIMENT: <name>` header. Address the specific error above."
         ),
     },
     ResearchPhase.WRITING: {
@@ -209,10 +254,75 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
 _RECENT_MESSAGES_LIMIT = 10
 
 # Max tokens for writing/assembly/revision calls (papers need much more than default 4096)
-_WRITING_MAX_TOKENS = 16384
+_WRITING_MAX_TOKENS = 32768
 
 # Max characters of paper body to include in agent prompts
 _PAPER_CONTEXT_LIMIT = 50000
+
+# Execution phase limits
+_EXECUTION_OUTPUT_LIMIT = 4000
+_EXECUTION_STDERR_LIMIT = 2000
+_MAX_RETRIES_PER_EXPERIMENT = 2
+
+# Regex to extract fenced python code blocks
+_CODE_BLOCK_RE = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
+_EXPERIMENT_NAME_RE = re.compile(r"^#\s*EXPERIMENT:\s*(.+)", re.MULTILINE)
+
+
+def _extract_code_blocks(text: str) -> list[tuple[str, str]]:
+    """Extract Python code blocks from agent response text.
+
+    Looks for fenced ```python blocks. Extracts experiment name from
+    a ``# EXPERIMENT: name`` comment on the first line.
+
+    Args:
+        text: Agent response text.
+
+    Returns:
+        List of (experiment_name, code) tuples.
+    """
+    blocks: list[tuple[str, str]] = []
+    for match in _CODE_BLOCK_RE.finditer(text):
+        code = match.group(1).strip()
+        if not code:
+            continue
+        # Try to extract experiment name from first line
+        name_match = _EXPERIMENT_NAME_RE.match(code)
+        name = name_match.group(1).strip() if name_match else "unnamed_experiment"
+        blocks.append((name, code))
+    return blocks
+
+
+def _format_execution_result(experiment_name: str, result: ExecutionResult) -> str:
+    """Format an execution result as markdown for agent context.
+
+    Args:
+        experiment_name: Name of the experiment.
+        result: Execution result.
+
+    Returns:
+        Markdown-formatted result string.
+    """
+    parts = [f"### Experiment: {experiment_name}"]
+    parts.append(f"**Status:** {result.status.value}")
+    if result.duration_seconds is not None:
+        parts.append(f"**Duration:** {result.duration_seconds:.1f}s")
+    if result.stdout:
+        stdout = result.stdout[:_EXECUTION_OUTPUT_LIMIT]
+        if len(result.stdout) > _EXECUTION_OUTPUT_LIMIT:
+            stdout += "\n... (output truncated)"
+        parts.append(f"**Output:**\n```\n{stdout}\n```")
+    if result.stderr:
+        stderr = result.stderr[:_EXECUTION_STDERR_LIMIT]
+        if len(result.stderr) > _EXECUTION_STDERR_LIMIT:
+            stderr += "\n... (stderr truncated)"
+        parts.append(f"**Errors:**\n```\n{stderr}\n```")
+    if result.error_message:
+        parts.append(f"**Error:** {result.error_message}")
+    if result.output_files:
+        file_list = ", ".join(f"`{f.filename}`" for f in result.output_files)
+        parts.append(f"**Output files:** {file_list}")
+    return "\n\n".join(parts)
 
 
 class OrchestrationEngine:
@@ -258,6 +368,8 @@ class OrchestrationEngine:
         self._messages: list[dict[str, Any]] = []
         self._phase_manager: PhaseManager | None = None
         self._checkpoint: Checkpoint | None = None
+        self._execution_context: str = ""
+        self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
 
     async def run_research_cycle(
         self,
@@ -281,6 +393,8 @@ class OrchestrationEngine:
 
         self._seed_prompt = seed_prompt
         self._messages = []
+        self._execution_context = ""
+        self._execution_figures = []
 
         # Create agent team
         agents = self._factory.create_team(team_roles, skill_mode="default")
@@ -327,10 +441,36 @@ class OrchestrationEngine:
             checkpoint_interval=checkpoint_interval,
         )
 
+        # Phase 3.5: EXECUTION (optional — only when experimentalist present + sandbox enabled)
+        should_experiment = (
+            self._config.orchestrator.enable_experimentation
+            and self._config.sandbox.enabled
+            and self._find_agent_by_role("experimentalist") is not None
+        )
+        if should_experiment:
+            intervention = self._check_intervention("planning", "execution")
+            if intervention == "abort":
+                self._db.update_thread(self._thread_id, status="aborted")
+                click.echo("Research cycle aborted by intervention hook.")
+                return self._thread_id
+            if intervention == "pause":
+                self._db.update_thread(self._thread_id, status="paused")
+                click.echo("Research cycle paused by intervention hook.")
+                return self._thread_id
+
+            self._phase_manager.transition_to(ResearchPhase.EXECUTION)
+            self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
+            self._messages = []
+            click.echo("Phase: EXECUTION")
+            await self._run_experimentation_phase()
+
         # Phase 4: WRITING (optional, controlled by config)
         if self._config.orchestrator.enable_writing:
+            from_phase = ResearchPhase.EXECUTION if should_experiment else ResearchPhase.PLANNING
+            from_label = "execution" if should_experiment else "planning"
+
             # Intervention check before WRITING
-            intervention = self._check_intervention("planning", "writing")
+            intervention = self._check_intervention(from_label, "writing")
             if intervention == "abort":
                 self._db.update_thread(self._thread_id, status="aborted")
                 click.echo("Research cycle aborted by intervention hook.")
@@ -341,7 +481,7 @@ class OrchestrationEngine:
                 return self._thread_id
 
             self._phase_manager.transition_to(ResearchPhase.WRITING)
-            self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.WRITING)
+            self._log_phase_transition(from_phase, ResearchPhase.WRITING)
             self._messages = []
             click.echo("Phase: WRITING")
             paper_draft = await self._run_writing_phase()
@@ -470,6 +610,21 @@ class OrchestrationEngine:
                 assigned_sections=section_list,
             )
 
+            # Inject execution context for RESULTS and METHODS sections
+            if self._execution_context and any(
+                s in (PaperSection.RESULTS, PaperSection.METHODS) for s in assigned
+            ):
+                exec_label = (
+                    "computational results" if PaperSection.RESULTS in assigned
+                    else "computational methods"
+                )
+                prompt += (
+                    f"\n\n## Computational Experiment Results\n"
+                    f"The following {exec_label} were produced during the "
+                    f"EXECUTION phase. Incorporate them into your section:\n\n"
+                    f"{self._execution_context}"
+                )
+
             try:
                 response = await agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             except Exception as e:
@@ -527,6 +682,18 @@ class OrchestrationEngine:
             section_drafts=section_drafts_text,
         )
 
+        # Add figure references if experiments produced output files
+        if self._execution_figures:
+            fig_lines = ["\n\n## Figures from Computational Experiments"]
+            fig_lines.append(
+                "Include these figures in the paper using the markdown syntax shown:"
+            )
+            for i, (exp_name, fpath) in enumerate(self._execution_figures, 1):
+                fig_lines.append(
+                    f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{fpath.name})`"
+                )
+            prompt += "\n".join(fig_lines)
+
         try:
             response = await writer_agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             self._log_agent_response(
@@ -537,6 +704,197 @@ class OrchestrationEngine:
             self._logger.log_error(e, agent_id=writer_agent.agent_id, thread_id=self._thread_id)
             click.echo(f"    [!] Writer assembly failed: {e}")
             return draft.to_markdown()
+
+    async def _run_experimentation_phase(self) -> None:
+        """Run the EXECUTION phase: agents propose and run computational experiments."""
+        max_rounds = self._config.orchestrator.max_experiment_rounds
+
+        executor = CodeExecutor(
+            config=self._config.sandbox,
+            logger=self._logger,
+            data_dir=self._config.storage.data_dir,
+        )
+
+        all_results: list[str] = []
+        self._execution_figures = []
+
+        try:
+            for round_num in range(1, max_rounds + 1):
+                click.echo(f"  Experiment round {round_num}/{max_rounds}...")
+
+                # Find experimenter (prefer experimentalist, fallback to analyst)
+                experimenter = self._find_agent_by_role("experimentalist")
+                if experimenter is None:
+                    experimenter = self._find_agent_by_role("analyst")
+                if experimenter is None:
+                    click.echo("    [!] No experimentalist or analyst found, skipping")
+                    break
+
+                # Build prompt
+                checkpoint_context = ""
+                if self._checkpoint:
+                    checkpoint_context = self._checkpoint.to_context_string() + "\n\n"
+
+                previous_results = "\n\n".join(all_results) if all_results else ""
+
+                if round_num == 1:
+                    template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["propose_experiment"]
+                    prompt = template.format(
+                        seed_prompt=self._seed_prompt,
+                        checkpoint_context=checkpoint_context,
+                        previous_results=previous_results,
+                    )
+                else:
+                    template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
+                    prompt = template.format(
+                        seed_prompt=self._seed_prompt,
+                        checkpoint_context=checkpoint_context,
+                        previous_results=previous_results,
+                    )
+
+                try:
+                    response = await experimenter.generate(
+                        prompt, max_tokens=_WRITING_MAX_TOKENS
+                    )
+                except Exception as e:
+                    self._logger.log_error(
+                        e, agent_id=experimenter.agent_id, thread_id=self._thread_id
+                    )
+                    click.echo(f"    [!] {experimenter.agent_id} failed: {e}")
+                    break
+
+                self._log_agent_response(
+                    experimenter.agent_id, response, ResearchPhase.EXECUTION, "experiment_proposal"
+                )
+
+                # Extract code blocks
+                code_blocks = _extract_code_blocks(response.content)
+                if not code_blocks and round_num > 1:
+                    click.echo("    Agent declared experiments sufficient")
+                    break
+                if not code_blocks:
+                    click.echo("    No code blocks proposed, skipping execution")
+                    continue
+
+                # Execute each code block
+                for exp_name, code in code_blocks:
+                    click.echo(f"    Running: {exp_name}")
+                    result = await self._execute_with_retry(
+                        executor, experimenter, exp_name, code, checkpoint_context
+                    )
+                    formatted = _format_execution_result(exp_name, result)
+                    all_results.append(formatted)
+
+                    # Track output figures
+                    for output_file in result.output_files:
+                        if output_file.filename.endswith((".png", ".pdf")):
+                            self._execution_figures.append(
+                                (exp_name, Path(output_file.path))
+                            )
+
+                    status_str = result.status.value
+                    click.echo(f"    {exp_name}: {status_str}")
+
+            # Build execution context for WRITING phase
+            self._execution_context = "\n\n".join(all_results) if all_results else ""
+
+            # Checkpoint at end of execution
+            if self._config.orchestrator.enable_checkpointing:
+                try:
+                    self._checkpoint = await self._checkpoint_mgr.create_checkpoint(
+                        thread_id=self._thread_id,
+                        phase=str(ResearchPhase.EXECUTION),
+                        round_number=max_rounds,
+                        messages=self._messages,
+                        previous_checkpoint=self._checkpoint,
+                    )
+                    click.echo("  Checkpoint saved (end of execution)")
+                except Exception as e:
+                    self._logger.log_error(e, thread_id=self._thread_id)
+                    click.echo(f"  [!] Checkpoint failed: {e}")
+
+        finally:
+            await executor.cleanup()
+
+    async def _execute_with_retry(
+        self,
+        executor: CodeExecutor,
+        experimenter: Agent,
+        experiment_name: str,
+        code: str,
+        checkpoint_context: str,
+    ) -> ExecutionResult:
+        """Execute code with retry on failure/rejection.
+
+        Args:
+            executor: CodeExecutor instance.
+            experimenter: Agent that proposed the code.
+            experiment_name: Name of the experiment.
+            code: Python code to execute.
+            checkpoint_context: Checkpoint context string.
+
+        Returns:
+            Final ExecutionResult.
+        """
+        current_code = code
+        for attempt in range(_MAX_RETRIES_PER_EXPERIMENT + 1):
+            request = ExecutionRequest(
+                code=current_code,
+                agent_id=experimenter.agent_id,
+                thread_id=self._thread_id,
+            )
+            result = await executor.execute(request)
+
+            # Success or timeout — return immediately
+            if result.status in (ExecutionStatus.SUCCESS, ExecutionStatus.TIMEOUT):
+                return result
+
+            # Last attempt — return whatever we got
+            if attempt == _MAX_RETRIES_PER_EXPERIMENT:
+                return result
+
+            # Build error feedback for retry
+            error_parts = []
+            if result.status == ExecutionStatus.REJECTED:
+                error_parts.append(f"**Safety rejection:** {result.error_message}")
+            else:
+                error_parts.append(f"**Execution failed** (status: {result.status.value})")
+                if result.stderr:
+                    error_parts.append(f"```\n{result.stderr[:_EXECUTION_STDERR_LIMIT]}\n```")
+                if result.error_message:
+                    error_parts.append(f"Error: {result.error_message}")
+
+            error_feedback = "\n\n".join(error_parts)
+            click.echo(f"    Retry {attempt + 1}/{_MAX_RETRIES_PER_EXPERIMENT}...")
+
+            template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
+            retry_prompt = template.format(
+                seed_prompt=self._seed_prompt,
+                checkpoint_context=checkpoint_context,
+                error_feedback=error_feedback,
+            )
+
+            try:
+                response = await experimenter.generate(
+                    retry_prompt, max_tokens=_WRITING_MAX_TOKENS
+                )
+            except Exception as e:
+                self._logger.log_error(
+                    e, agent_id=experimenter.agent_id, thread_id=self._thread_id
+                )
+                return result  # Return last failed result
+
+            self._log_agent_response(
+                experimenter.agent_id, response, ResearchPhase.EXECUTION, "retry"
+            )
+
+            # Extract corrected code
+            blocks = _extract_code_blocks(response.content)
+            if not blocks:
+                return result  # Agent didn't provide corrected code
+            current_code = blocks[0][1]  # Use first block
+
+        return result  # Should not reach here, but type-safety
 
     async def _run_review_phase(self, draft: PaperDraft) -> None:
         """Run the INTERNAL_REVIEW phase: editor reviews, optionally loop back.
@@ -855,6 +1213,9 @@ class OrchestrationEngine:
     def _save_paper_file(self, paper_id: str, body: str) -> None:
         """Write paper markdown to the papers directory.
 
+        When figures exist, saves into a subdirectory structure:
+        papers/paper_id/paper_id.md + papers/paper_id/figures/
+
         Args:
             paper_id: Paper identifier (used as filename).
             body: Paper markdown content.
@@ -862,8 +1223,40 @@ class OrchestrationEngine:
         papers_dir = self._config.storage.papers_dir
         if papers_dir is None:
             return
-        path = papers_dir / f"{paper_id}.md"
-        path.write_text(body)
+
+        if self._execution_figures:
+            # Use subdirectory layout for papers with figures
+            paper_dir = papers_dir / paper_id
+            paper_dir.mkdir(parents=True, exist_ok=True)
+            path = paper_dir / f"{paper_id}.md"
+            path.write_text(body)
+            self._copy_figures_to_paper_dir(paper_id)
+        else:
+            path = papers_dir / f"{paper_id}.md"
+            path.write_text(body)
+
+    def _copy_figures_to_paper_dir(self, paper_id: str) -> None:
+        """Copy execution output figures to the paper's figures/ directory.
+
+        Args:
+            paper_id: Paper identifier.
+        """
+        papers_dir = self._config.storage.papers_dir
+        if papers_dir is None:
+            return
+
+        figures_dir = papers_dir / paper_id / "figures"
+        figures_dir.mkdir(parents=True, exist_ok=True)
+
+        for exp_name, src_path in self._execution_figures:
+            if not src_path.exists():
+                continue
+            # Prefix with experiment name to avoid collisions
+            safe_name = re.sub(r"[^\w\-.]", "_", exp_name)
+            dest_name = f"{safe_name}_{src_path.name}"
+            dest_path = figures_dir / dest_name
+            shutil.copy2(src_path, dest_path)
+            click.echo(f"  Figure copied: {dest_path.name}")
 
     def _find_agent_by_role(self, role: str) -> Agent | None:
         """Find an agent by its skill profile / role.

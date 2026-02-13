@@ -74,6 +74,9 @@ class Agent:
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
+    # Threshold above which we use streaming to avoid Anthropic's 10-minute timeout
+    _STREAMING_THRESHOLD = 8192
+
     async def generate(
         self,
         prompt: str,
@@ -81,6 +84,9 @@ class Agent:
         max_tokens: int | None = None,
     ) -> AgentResponse:
         """Generate a response using Claude API.
+
+        Uses streaming automatically for large max_tokens to avoid
+        Anthropic's 10-minute request timeout.
 
         Args:
             prompt: User prompt
@@ -99,26 +105,69 @@ class Agent:
         # Add current prompt
         messages.append({"role": "user", "content": prompt})
 
-        # Call Claude API
+        effective_max_tokens = max_tokens or self.max_tokens
+
+        if effective_max_tokens >= self._STREAMING_THRESHOLD:
+            return self._generate_streaming(messages, effective_max_tokens)
+        else:
+            return self._generate_sync(messages, effective_max_tokens)
+
+    def _generate_sync(
+        self, messages: list[dict[str, str]], max_tokens: int
+    ) -> AgentResponse:
+        """Non-streaming API call for small responses."""
         response = self.client.messages.create(
             model=self.model,
-            max_tokens=max_tokens or self.max_tokens,
+            max_tokens=max_tokens,
             temperature=self.temperature,
             system=self.system_prompt,
             messages=messages,
         )
 
-        # Extract content
         content = ""
         for block in response.content:
             if hasattr(block, "text"):
                 content += block.text
 
-        # Track token usage
         usage = TokenUsage(
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
             total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+        )
+
+        self.total_input_tokens += usage.input_tokens
+        self.total_output_tokens += usage.output_tokens
+
+        return AgentResponse(content=content, usage=usage, model=self.model)
+
+    def _generate_streaming(
+        self, messages: list[dict[str, str]], max_tokens: int
+    ) -> AgentResponse:
+        """Streaming API call for large responses (avoids 10-min timeout)."""
+        content_parts: list[str] = []
+        input_tokens = 0
+        output_tokens = 0
+
+        with self.client.messages.stream(
+            model=self.model,
+            max_tokens=max_tokens,
+            temperature=self.temperature,
+            system=self.system_prompt,
+            messages=messages,
+        ) as stream:
+            for text in stream.text_stream:
+                content_parts.append(text)
+
+            # Get final message for usage stats
+            final_message = stream.get_final_message()
+            input_tokens = final_message.usage.input_tokens
+            output_tokens = final_message.usage.output_tokens
+
+        content = "".join(content_parts)
+        usage = TokenUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
         )
 
         self.total_input_tokens += usage.input_tokens

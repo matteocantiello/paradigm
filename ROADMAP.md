@@ -112,34 +112,41 @@
 
 ---
 
-## Phase 3: Computational Sandbox (Week 4)
+## Phase 3: Computational Sandbox (Week 4) ✓ COMPLETE
 
 **Goal**: Agents can write and execute Python code in isolated Docker containers.
 
 ### Tasks
 
-- [ ] Create `docker/Dockerfile.sandbox`:
+- [x] Create `docker/Dockerfile.sandbox`:
   - Python 3.12 base
   - Pre-install: numpy, scipy, matplotlib, pandas, scikit-learn, sympy, astropy
   - Non-root user
   - No network access at runtime
-- [ ] Implement `sandbox/docker.py` — Container lifecycle management:
+- [x] Implement `sandbox/docker.py` — Container lifecycle management:
   - Build image (one-time)
   - Create container with resource limits (CPU, memory, timeout)
   - --network=none
   - Mount volumes (shared data R/O, results R/W)
   - Clean up after execution
-- [ ] Implement `sandbox/executor.py` — Code execution pipeline:
+- [x] Implement `sandbox/executor.py` — Code execution pipeline:
   - Receive code string from agent
   - Log code before execution
   - Write to container, execute, capture stdout/stderr/files
   - Return structured result to agent
   - Handle timeouts gracefully
-- [ ] Implement `sandbox/safety.py` — Pre-execution checks:
+- [x] Implement `sandbox/safety.py` — Pre-execution checks:
   - Scan for obvious dangerous patterns (os.system, subprocess, network calls)
   - Reject code that tries to escape sandbox
   - File size limits on outputs
-- [ ] Integration test: agent proposes an experiment → generates code → code runs in container → results returned
+- [x] Integration test: agent proposes an experiment → generates code → code runs in container → results returned
+- [x] Wire sandbox into orchestration engine (EXECUTION phase handler)
+  - Code extraction from agent responses (```python blocks with `# EXPERIMENT: name`)
+  - Retry logic on safety rejection or execution failure (max 2 retries)
+  - Results formatted and injected into WRITING phase (RESULTS/METHODS sections)
+  - Figure tracking and copying to paper directory
+  - EXECUTION phase only runs for modes with experimentalist (experimental, replication)
+  - 13 tests covering extraction, formatting, skipping, retry, context injection, figures
 
 ### Exit Criteria
 
@@ -147,6 +154,7 @@
 - Code executes in isolation with no network access
 - Results (stdout, files) are captured and returned
 - Resource limits are enforced
+- EXECUTION phase runs automatically in experimental/replication modes
 - Dangerous code patterns are caught
 
 ---
@@ -219,7 +227,7 @@
 - [x] All CLI commands implemented (run, status, inspect, papers, paper)
 - [ ] Tune agent prompts based on output quality
 - [x] Documentation: README, operations manual (`docs/MANUAL.md`), configuration reference
-- [ ] Live multi-cycle test: cycle 1 → publish → cycle 2 discovers cycle 1 paper
+- [x] Live multi-cycle test: cycle 1 → publish → cycle 2 discovers cycle 1 paper
 
 ### Exit Criteria
 
