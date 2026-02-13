@@ -243,26 +243,38 @@ class ArxivClient:
         self,
         url: str,
         params: dict[str, Any] | None = None,
+        max_retries: int = 3,
     ) -> httpx.Response:
-        """Make a rate-limited GET request.
+        """Make a rate-limited GET request with retry on 429.
 
         Args:
             url: Request URL.
             params: Optional query parameters.
+            max_retries: Maximum retries on 429 rate-limit responses.
 
         Returns:
             HTTP response.
 
         Raises:
-            httpx.HTTPStatusError: On non-2xx responses.
+            httpx.HTTPStatusError: On non-2xx responses (after retries exhausted for 429).
         """
-        async with self._lock:
-            elapsed = time.monotonic() - self._last_request_time
-            if elapsed < self._rate_limit:
-                await asyncio.sleep(self._rate_limit - elapsed)
+        for attempt in range(max_retries + 1):
+            async with self._lock:
+                elapsed = time.monotonic() - self._last_request_time
+                if elapsed < self._rate_limit:
+                    await asyncio.sleep(self._rate_limit - elapsed)
 
-            response = await self._client.get(url, params=params)
-            self._last_request_time = time.monotonic()
+                response = await self._client.get(url, params=params)
+                self._last_request_time = time.monotonic()
+
+            if response.status_code != 429:
+                response.raise_for_status()
+                return response
+
+            # Exponential backoff on 429: 5s, 10s, 20s
+            if attempt < max_retries:
+                backoff = self._rate_limit * 2 ** (attempt + 1)
+                await asyncio.sleep(backoff)
 
         response.raise_for_status()
         return response

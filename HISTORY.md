@@ -597,3 +597,19 @@ Resuming Cycle 1 after API credits replenished.
 **Artifacts modified:**
 - `src/paradigm/literature/arxiv.py` — Added `_fetch_pdf_bytes()` with curl fallback, content-type validation, `%PDF-` magic bytes check
 - `docs/MANUAL.md` — Updated SEEDING phase docs, added agent-driven search docs, added `max_searches_per_round` config, added PDF troubleshooting
+
+### Prompt 54 — Fix arXiv Rate Limiting and Duplicate Searches
+
+> I'm running a full cycle, and I'm seeing a number of fails at retrieving from the arxiv. Wondering if this is a timeout issue with their API or something else
+
+**Root cause:** Two issues:
+1. arXiv returns 429 (rate limit) when too many searches fire in rapid succession — the 3s per-request rate limit isn't enough when agents request dozens of searches per round
+2. Agents repeat identical queries across rounds (e.g., "subsurface convection zones intermediate mass stars" appears in round 1, 2, 3...), wasting budget and API calls
+
+**Fix:**
+1. Added retry with exponential backoff on 429 in `_rate_limited_get()` (backoff: 6s, 12s, 24s)
+2. Added global query dedup (`_searched_queries` set) in `_process_search_requests()` — queries already executed in the cycle are silently skipped
+
+**Artifacts modified:**
+- `src/paradigm/literature/arxiv.py` — Retry with exponential backoff on 429 in `_rate_limited_get()`
+- `src/paradigm/orchestrator/engine.py` — Added `_searched_queries` set for global dedup, reset at cycle start

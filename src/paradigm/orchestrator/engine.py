@@ -396,6 +396,7 @@ class OrchestrationEngine:
         self._execution_context: str = ""
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
         self._search_count_this_round: int = 0
+        self._searched_queries: set[str] = set()  # Global dedup across entire cycle
 
     async def run_research_cycle(
         self,
@@ -421,6 +422,7 @@ class OrchestrationEngine:
         self._messages = []
         self._execution_context = ""
         self._execution_figures = []
+        self._searched_queries = set()
 
         # Create agent team
         agents = self._factory.create_team(team_roles, skill_mode="default")
@@ -1375,6 +1377,11 @@ class OrchestrationEngine:
             return
 
         for query in queries:
+            # Global dedup: skip queries already executed in this cycle
+            query_key = query.lower().strip()
+            if query_key in self._searched_queries:
+                continue
+
             if self._search_count_this_round >= max_searches:
                 click.echo(
                     f"    [!] Search budget exhausted ({max_searches}/round), "
@@ -1389,6 +1396,7 @@ class OrchestrationEngine:
                 click.echo(f"    [!] Search failed for '{query[:60]}': {e}")
                 continue
 
+            self._searched_queries.add(query_key)
             formatted = format_search_results(query, papers)
             lit = getattr(self, "_literature_context", "")
             self._literature_context = lit + "\n" + formatted if lit else formatted
