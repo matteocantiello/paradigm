@@ -68,7 +68,13 @@ class ArxivClient:
         """
         self._rate_limit = rate_limit
         self._logger = logger
-        self._client = httpx.AsyncClient(timeout=timeout, follow_redirects=True)
+        self._client = httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Paradigm/1.0 (scientific research; +https://github.com/matteocantiello/paradigm)",
+            },
+        )
         self._last_request_time: float = 0.0
         self._lock = asyncio.Lock()
 

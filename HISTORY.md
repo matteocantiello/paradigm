@@ -563,3 +563,14 @@ Resuming Cycle 1 after API credits replenished.
 - `src/paradigm/orchestrator/engine.py` — Removed arXiv call from seeding, added `_process_search_requests()`, integrated search into all phases, updated prompt building
 - `tests/test_prompt_utils.py` — Tests for new functions
 - `tests/test_orchestrator.py` — Updated mock_corpus, added search integration test
+
+### Prompt 52 — Fix External PDF Fetching (403 Forbidden)
+
+> We're still having issues with link extractions — A&A URLs returning "Could not extract PDF"
+
+**Root cause:** The httpx client had no `User-Agent` header. Journal sites like A&A (aanda.org) block requests with the default httpx user agent, returning 403 Forbidden.
+
+**Fix:** Added a descriptive `User-Agent` header to the `ArxivClient` httpx client.
+
+**Artifacts modified:**
+- `src/paradigm/literature/arxiv.py` — Added User-Agent header to httpx.AsyncClient
