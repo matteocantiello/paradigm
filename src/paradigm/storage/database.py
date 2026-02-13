@@ -548,9 +548,7 @@ class Database:
         params: list[Any] = []
 
         if keyword:
-            query += (
-                " AND (content LIKE ? OR failure_reason LIKE ? OR lessons_learned LIKE ?)"
-            )
+            query += " AND (content LIKE ? OR failure_reason LIKE ? OR lessons_learned LIKE ?)"
             like_val = f"%{keyword}%"
             params.extend([like_val, like_val, like_val])
 

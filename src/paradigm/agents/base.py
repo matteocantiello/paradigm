@@ -112,9 +112,7 @@ class Agent:
         else:
             return self._generate_sync(messages, effective_max_tokens)
 
-    def _generate_sync(
-        self, messages: list[dict[str, str]], max_tokens: int
-    ) -> AgentResponse:
+    def _generate_sync(self, messages: list[dict[str, str]], max_tokens: int) -> AgentResponse:
         """Non-streaming API call for small responses."""
         response = self.client.messages.create(
             model=self.model,
@@ -140,9 +138,7 @@ class Agent:
 
         return AgentResponse(content=content, usage=usage, model=self.model)
 
-    def _generate_streaming(
-        self, messages: list[dict[str, str]], max_tokens: int
-    ) -> AgentResponse:
+    def _generate_streaming(self, messages: list[dict[str, str]], max_tokens: int) -> AgentResponse:
         """Streaming API call for large responses (avoids 10-min timeout)."""
         content_parts: list[str] = []
         input_tokens = 0

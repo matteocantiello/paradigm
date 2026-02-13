@@ -505,3 +505,15 @@ Resuming Cycle 1 after API credits replenished.
 > figure copying), and 13 tests.
 
 **Goal:** Wire the Docker sandbox into the orchestration engine so `experimental` and `replication` modes run code and produce figures during the EXECUTION phase.
+
+### Prompt 46 — Test Docker Functionality
+
+> Can we test the docker functionality?
+
+**Goal:** Live test the EXECUTION phase with Docker running to verify agents can propose code, execute it in the sandbox, and produce results/figures.
+
+### Prompt 47 — Fix CI Formatting Failures
+
+> Fix ruff format failures in CI for base.py, engine.py, database.py, test_experimentation.py
+
+**Goal:** Run `ruff format` on the 4 files that CI flagged.

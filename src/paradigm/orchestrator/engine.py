@@ -615,7 +615,8 @@ class OrchestrationEngine:
                 s in (PaperSection.RESULTS, PaperSection.METHODS) for s in assigned
             ):
                 exec_label = (
-                    "computational results" if PaperSection.RESULTS in assigned
+                    "computational results"
+                    if PaperSection.RESULTS in assigned
                     else "computational methods"
                 )
                 prompt += (
@@ -685,9 +686,7 @@ class OrchestrationEngine:
         # Add figure references if experiments produced output files
         if self._execution_figures:
             fig_lines = ["\n\n## Figures from Computational Experiments"]
-            fig_lines.append(
-                "Include these figures in the paper using the markdown syntax shown:"
-            )
+            fig_lines.append("Include these figures in the paper using the markdown syntax shown:")
             for i, (exp_name, fpath) in enumerate(self._execution_figures, 1):
                 fig_lines.append(
                     f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{fpath.name})`"
@@ -753,9 +752,7 @@ class OrchestrationEngine:
                     )
 
                 try:
-                    response = await experimenter.generate(
-                        prompt, max_tokens=_WRITING_MAX_TOKENS
-                    )
+                    response = await experimenter.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
                 except Exception as e:
                     self._logger.log_error(
                         e, agent_id=experimenter.agent_id, thread_id=self._thread_id
@@ -788,9 +785,7 @@ class OrchestrationEngine:
                     # Track output figures
                     for output_file in result.output_files:
                         if output_file.filename.endswith((".png", ".pdf")):
-                            self._execution_figures.append(
-                                (exp_name, Path(output_file.path))
-                            )
+                            self._execution_figures.append((exp_name, Path(output_file.path)))
 
                     status_str = result.status.value
                     click.echo(f"    {exp_name}: {status_str}")
@@ -875,13 +870,9 @@ class OrchestrationEngine:
             )
 
             try:
-                response = await experimenter.generate(
-                    retry_prompt, max_tokens=_WRITING_MAX_TOKENS
-                )
+                response = await experimenter.generate(retry_prompt, max_tokens=_WRITING_MAX_TOKENS)
             except Exception as e:
-                self._logger.log_error(
-                    e, agent_id=experimenter.agent_id, thread_id=self._thread_id
-                )
+                self._logger.log_error(e, agent_id=experimenter.agent_id, thread_id=self._thread_id)
                 return result  # Return last failed result
 
             self._log_agent_response(
@@ -1365,9 +1356,7 @@ class OrchestrationEngine:
 
         # Fetch graveyard context (lessons from past failures)
         try:
-            graveyard_entries = self._db.search_graveyard(
-                keyword=seed_prompt[:100], limit=5
-            )
+            graveyard_entries = self._db.search_graveyard(keyword=seed_prompt[:100], limit=5)
             if graveyard_entries:
                 lines = ["## Lessons from Failed Research Attempts\n"]
                 lines.append(

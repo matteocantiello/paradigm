@@ -467,9 +467,7 @@ class TestExecutionPhaseIntegration:
             mock_anthropic.return_value = mock_client
 
             mock_executor_instance = AsyncMock()
-            mock_executor_instance.execute = AsyncMock(
-                side_effect=[failure_result, success_result]
-            )
+            mock_executor_instance.execute = AsyncMock(side_effect=[failure_result, success_result])
             mock_executor_instance.cleanup = AsyncMock()
             mock_code_executor.return_value = mock_executor_instance
 
