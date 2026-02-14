@@ -21,7 +21,6 @@ _PHASE_PRIORITIES: dict[ResearchPhase, list[str]] = {
         "synthesizer",
         "analyst",
         "experimentalist",
-        "writer",
         "skeptic",
     ],
     ResearchPhase.PLANNING: [
@@ -30,7 +29,6 @@ _PHASE_PRIORITIES: dict[ResearchPhase, list[str]] = {
         "theorist",
         "synthesizer",
         "skeptic",
-        "writer",
     ],
     ResearchPhase.WRITING: [
         "writer",

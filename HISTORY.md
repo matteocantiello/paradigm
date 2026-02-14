@@ -634,3 +634,50 @@ Resuming Cycle 1 after API credits replenished.
 **Artifacts modified:**
 - `src/paradigm/orchestrator/engine.py` — Added `_search_log` + `_review_log` state, accumulation, save methods, subdirectory layout
 - `tests/test_orchestrator.py` — Tests for search log, review log, and file writing
+
+### Prompt 56 — Plan Resource-Aware Prompt Preprocessing
+
+> I want to be able to provide not just pdf to read in the prompt, but also links to tools and datasets. For example I might suggest paradigm to look for a python routine to make plots, or a repository of stellar models. The agents should be able to resolve these links, look into them, and extract any useful data or tools which can be then used during the next phases. So prompt.md should be a very generic container. Do you think this is possible? Or should we have different starting files for prompt, links to literature, data, code etc? Let's plan!
+
+**Goal:** Plan how to make the prompt a generic container that can reference literature PDFs, code repositories, datasets, and tools — all resolved during SEEDING and made available to agents in later phases.
+
+### Prompt 57 — Implement Resource-Aware Prompt Preprocessing
+
+> Implement the following plan: Resource-Aware Prompt Preprocessing
+>
+> New module `resources.py` with URL classification (paper/code_repo/code_file/data/reference),
+> type-specific async handlers (git clone for repos, httpx download for files, HTML scraping for references),
+> context builders for agent prompts. Update `engine.py` to classify+resolve URLs during SEEDING,
+> inject code/data/reference contexts into agent prompts, pass repo paths as PYTHONPATH to sandbox.
+> Update `docker.py` and `executor.py` to accept environment variables. New tests for all.
+
+**Key decisions:**
+- Resolve all resources during SEEDING only (no mid-cycle fetching)
+- GitHub repos: shallow clone into `data/shared/repos/`
+- PYTHONPATH injection via `environment` dict on container create (avoids DENIED_MODULES for sys)
+- `prompt.md` stays a single generic container file
+
+**Artifacts produced/modified:**
+- `src/paradigm/literature/resources.py` — NEW: ResourceType, ResolvedResource, classify_resource(), resolve_resource(), context builders
+- `src/paradigm/orchestrator/engine.py` — Resource state, seeding classification+resolution, context injection in prompts, PYTHONPATH for sandbox
+- `src/paradigm/sandbox/docker.py` — `environment` parameter on execute()
+- `src/paradigm/sandbox/executor.py` — `repo_paths` parameter, PYTHONPATH building
+- `tests/test_resources.py` — NEW: ~15+ tests
+- `tests/test_orchestrator.py` — Tests for resource-aware seeding and context injection
+
+### Prompt 58 — Phase-Appropriate Agent Filtering
+
+> Implement the following plan: Phase-Appropriate Agent Filtering
+>
+> Currently all agents speak during every round of IDEATION and PLANNING — including the editor and writer, who consume ~50-55K tokens each per round without adding phase-appropriate value. Exclude editor from IDEATION and PLANNING (only participates from INTERNAL_REVIEW onward), exclude writer from IDEATION and PLANNING (only participates from WRITING onward). Use a data-driven filtering approach via a _PHASE_ACTIVE_ROLES dict.
+
+**Key decisions:**
+- Editor excluded from IDEATION and PLANNING — only participates from INTERNAL_REVIEW onward
+- Writer excluded from IDEATION and PLANNING — only participates from WRITING onward
+- Data-driven filtering via `_PHASE_ACTIVE_ROLES` dict (not hardcoded per-phase logic)
+- ~33% fewer API calls in deliberation phases (~1M tokens saved per cycle)
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Added `_PHASE_ACTIVE_ROLES` constant, filter in `_run_round()`, updated CLI phase output
+- `src/paradigm/orchestrator/scheduler.py` — Removed `"writer"` from IDEATION and PLANNING in `_PHASE_PRIORITIES`
+- `tests/test_orchestrator.py` — Tests for editor/writer exclusion from IDEATION/PLANNING

@@ -66,6 +66,7 @@ class ContainerManager:
         request: ExecutionRequest,
         results_dir: Path,
         shared_dir: Path | None = None,
+        environment: dict[str, str] | None = None,
     ) -> ExecutionResult:
         """Execute code in an isolated Docker container.
 
@@ -73,6 +74,7 @@ class ContainerManager:
             request: The execution request with code and metadata.
             results_dir: Directory where output files will be written.
             shared_dir: Optional read-only shared data directory.
+            environment: Optional environment variables to set in the container.
 
         Returns:
             ExecutionResult with execution outcome.
@@ -107,6 +109,7 @@ class ContainerManager:
                 nano_cpus=int(self.config.cpu_limit * 1e9),
                 user="sandbox",
                 working_dir="/data/results",
+                environment=environment or {},
                 detach=True,
             )
 

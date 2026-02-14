@@ -9,6 +9,7 @@ from paradigm.agents.base import Agent, AgentResponse, TokenUsage
 from paradigm.config import Config
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.engine import (
+    _PHASE_ACTIVE_ROLES,
     MODE_TEAM_ROLES,
     OrchestrationEngine,
 )
@@ -153,9 +154,10 @@ class TestOrchestrationEngine:
         # Phase was updated
         assert thread["current_phase"] == "planning"
 
-        # Agents were called (6 agents * 2 rounds * 2 phases = 24 calls)
+        # Agents were called (4 active agents * 2 rounds * 2 phases = 16 calls)
+        # Writer and editor are excluded from IDEATION and PLANNING phases
         total_generate_calls = sum(a.generate.call_count for a in engine._agents.values())
-        assert total_generate_calls == 24  # 6 agents * 2 rounds * 2 phases
+        assert total_generate_calls == 16  # 4 agents * 2 rounds * 2 phases
 
         # Token usage was recorded
         usage = tmp_db.get_token_usage(thread_id=thread_id)
@@ -815,6 +817,232 @@ class TestOrchestrationEngine:
         assert "Novelty: 7/10" in content
         assert "Final decision:" in content
         assert "Revision" in content
+
+    @pytest.mark.asyncio
+    async def test_seeding_with_mixed_urls(
+        self,
+        mock_config,
+        tmp_db,
+        tmp_logger,
+        mock_factory,
+    ):
+        """Seeding classifies URLs: papers go to corpus, others to resolve_resource."""
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])
+        corpus.fetch_and_ingest_url = AsyncMock(return_value=MagicMock(title="Test Paper"))
+
+        with (
+            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
+            patch(
+                "paradigm.orchestrator.engine.resolve_resource",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+        ):
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            # resolve_resource returns a successful repo resource
+            from paradigm.literature.resources import ResolvedResource, ResourceType
+
+            mock_resolve.return_value = ResolvedResource(
+                url="https://github.com/owner/mesa",
+                resource_type=ResourceType.CODE_REPO,
+                name="mesa",
+                local_path="/tmp/repos/mesa",
+                sandbox_path="/data/shared/repos/mesa",
+                summary="Cloned mesa",
+            )
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            # Prompt with a paper URL and a repo URL
+            prompt = (
+                "Study convection using https://arxiv.org/abs/2401.12345 "
+                "and tools from https://github.com/owner/mesa"
+            )
+            await engine.run_research_cycle(seed_prompt=prompt, mode="directed")
+
+        # Paper URL went to corpus
+        corpus.fetch_and_ingest_url.assert_called_once_with("https://arxiv.org/abs/2401.12345")
+        # Repo URL went to resolve_resource
+        mock_resolve.assert_called_once()
+        call_args = mock_resolve.call_args
+        assert call_args[0][0] == "https://github.com/owner/mesa"
+        assert call_args[0][1] == ResourceType.CODE_REPO
+
+    @pytest.mark.asyncio
+    async def test_resource_contexts_injected_in_prompt(
+        self,
+        mock_config,
+        tmp_db,
+        tmp_logger,
+        mock_factory,
+        mock_corpus,
+    ):
+        """Resource contexts are included in agent prompts."""
+        from paradigm.literature.resources import ResolvedResource, ResourceType
+
+        with (
+            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
+            patch(
+                "paradigm.orchestrator.engine.resolve_resource",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+        ):
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            # Return a repo, a data file, and a reference for each URL type
+            async def _mock_resolve(url, rtype, shared_dir, logger):
+                if rtype == ResourceType.CODE_REPO:
+                    return ResolvedResource(
+                        url=url,
+                        resource_type=rtype,
+                        name="mesa",
+                        sandbox_path="/data/shared/repos/mesa",
+                        summary="Cloned mesa",
+                    )
+                elif rtype == ResourceType.DATA:
+                    return ResolvedResource(
+                        url=url,
+                        resource_type=rtype,
+                        name="data.csv",
+                        sandbox_path="/data/shared/data/data.csv",
+                        size_bytes=2048,
+                    )
+                else:
+                    return ResolvedResource(
+                        url=url,
+                        resource_type=rtype,
+                        name="docs.example.com",
+                        content="Astropy documentation text",
+                    )
+
+            mock_resolve.side_effect = _mock_resolve
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            # Prompt includes URLs that classify to each non-paper type
+            prompt = (
+                "Study convection using https://github.com/owner/mesa "
+                "and data from https://example.com/data.csv "
+                "and docs at https://docs.example.com/guide"
+            )
+            await engine.run_research_cycle(seed_prompt=prompt, mode="directed")
+
+        # Check that agents received prompts with all three contexts
+        first_agent = list(engine._agents.values())[0]
+        prompt_text = first_agent.generate.call_args_list[0][0][0]
+        assert "Available Code Resources" in prompt_text
+        assert "Available Data Files" in prompt_text
+        assert "Web Reference Materials" in prompt_text
+
+    @pytest.mark.asyncio
+    async def test_editor_writer_excluded_from_ideation_planning(
+        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """Editor and writer are excluded from IDEATION and PLANNING phases."""
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test filtering",
+                mode="directed",
+            )
+
+        # Editor and writer should never have been called (IDEATION + PLANNING only)
+        for agent in engine._agents.values():
+            if agent.skill_profile in ("editor", "writer"):
+                assert agent.generate.call_count == 0, (
+                    f"{agent.skill_profile} should not speak in IDEATION/PLANNING"
+                )
+            else:
+                # 2 rounds * 2 phases = 4 calls per active agent
+                assert agent.generate.call_count == 4, (
+                    f"{agent.skill_profile} should speak 4 times (2 rounds * 2 phases)"
+                )
+
+    @pytest.mark.asyncio
+    async def test_editor_active_in_review(self, tmp_db, tmp_logger, mock_factory, mock_corpus):
+        """Editor is active during INTERNAL_REVIEW phase."""
+        config_writing = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_db.db_path.parent / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "checkpoint_interval": 1,
+                "enable_checkpointing": False,
+                "enable_writing": True,
+                "enable_peer_review": False,
+            },
+        )
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=config_writing,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test editor in review",
+                mode="directed",
+            )
+
+        # Editor should have been called during INTERNAL_REVIEW
+        editor = None
+        for agent in engine._agents.values():
+            if agent.skill_profile == "editor":
+                editor = agent
+                break
+        assert editor is not None
+        assert editor.generate.call_count > 0, "Editor should speak during INTERNAL_REVIEW"
+
+    @pytest.mark.asyncio
+    async def test_phase_active_roles_constant(self):
+        """_PHASE_ACTIVE_ROLES excludes writer and editor from early phases."""
+        from paradigm.orchestrator.phases import ResearchPhase
+
+        # IDEATION and PLANNING should not include writer or editor
+        for phase in (ResearchPhase.IDEATION, ResearchPhase.PLANNING):
+            active = _PHASE_ACTIVE_ROLES[phase]
+            assert "writer" not in active, f"writer should not be in {phase}"
+            assert "editor" not in active, f"editor should not be in {phase}"
+            assert "theorist" in active
+            assert "analyst" in active
+            assert "synthesizer" in active
+            assert "skeptic" in active
 
     @pytest.mark.asyncio
     async def test_subdirectory_layout_always_used(

@@ -28,6 +28,15 @@ from paradigm.literature.prompt_utils import (
     format_search_results,
     parse_search_requests,
 )
+from paradigm.literature.resources import (
+    ResolvedResource,
+    ResourceType,
+    build_code_context,
+    build_data_context,
+    build_reference_context,
+    classify_resource,
+    resolve_resource,
+)
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
 from paradigm.orchestrator.scheduler import Scheduler
@@ -133,6 +142,9 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "sympy, astropy.\n"
             "**Safety constraints:** Do NOT use os, subprocess, open() for writing, "
             "or network access. Read-only file access is allowed via provided shared data.\n"
+            "**Shared resources:** Code repositories and data files from the research prompt "
+            "are available under /data/shared/. See 'Available Code Resources' and 'Available "
+            "Data Files' sections above for paths.\n"
             "**Output:** Print results to stdout. Save figures as .png files using "
             "matplotlib (plt.savefig('figure_name.png')). All .png/.pdf files in the "
             "working directory will be collected.\n\n"
@@ -278,6 +290,14 @@ _SEARCH_ENABLED_PHASES: set[ResearchPhase] = {
     ResearchPhase.REVISION,
 }
 
+# Roles allowed to speak during _run_round() phases.
+# Phases not listed have no filtering (all agents speak).
+# Specialized phases (WRITING, INTERNAL_REVIEW, etc.) have their own role logic.
+_PHASE_ACTIVE_ROLES: dict[ResearchPhase, set[str]] = {
+    ResearchPhase.IDEATION: {"theorist", "analyst", "synthesizer", "skeptic", "experimentalist"},
+    ResearchPhase.PLANNING: {"theorist", "analyst", "synthesizer", "skeptic", "experimentalist"},
+}
+
 # Max tokens for writing/assembly/revision calls (papers need much more than default 4096)
 _WRITING_MAX_TOKENS = 32768
 
@@ -399,6 +419,10 @@ class OrchestrationEngine:
         self._searched_queries: set[str] = set()  # Global dedup across entire cycle
         self._search_log: list[dict[str, Any]] = []
         self._review_log: list[dict[str, Any]] = []
+        self._code_context: str = ""
+        self._data_context: str = ""
+        self._reference_context: str = ""
+        self._resolved_resources: list[ResolvedResource] = []
 
     async def run_research_cycle(
         self,
@@ -427,6 +451,10 @@ class OrchestrationEngine:
         self._searched_queries = set()
         self._search_log = []
         self._review_log = []
+        self._code_context = ""
+        self._data_context = ""
+        self._reference_context = ""
+        self._resolved_resources = []
 
         # Create agent team
         agents = self._factory.create_team(team_roles, skill_mode="default")
@@ -445,7 +473,15 @@ class OrchestrationEngine:
 
         self._phase_manager.transition_to(ResearchPhase.IDEATION)
         self._log_phase_transition(ResearchPhase.SEEDING, ResearchPhase.IDEATION)
-        click.echo(f"Phase: IDEATION ({max_rounds} rounds, {agent_count} agents)")
+        active_ideation = _PHASE_ACTIVE_ROLES.get(ResearchPhase.IDEATION)
+        active_ideation_count = (
+            sum(1 for a in self._agents.values() if a.skill_profile in active_ideation)
+            if active_ideation
+            else agent_count
+        )
+        click.echo(
+            f"Phase: IDEATION ({max_rounds} rounds, {active_ideation_count}/{agent_count} agents active)"
+        )
         await self._run_phase(
             ResearchPhase.IDEATION,
             max_rounds=max_rounds,
@@ -466,7 +502,15 @@ class OrchestrationEngine:
         self._phase_manager.transition_to(ResearchPhase.PLANNING)
         self._log_phase_transition(ResearchPhase.IDEATION, ResearchPhase.PLANNING)
         self._messages = []  # Reset messages for new phase
-        click.echo(f"Phase: PLANNING ({max_rounds} rounds, {agent_count} agents)")
+        active_planning = _PHASE_ACTIVE_ROLES.get(ResearchPhase.PLANNING)
+        active_planning_count = (
+            sum(1 for a in self._agents.values() if a.skill_profile in active_planning)
+            if active_planning
+            else agent_count
+        )
+        click.echo(
+            f"Phase: PLANNING ({max_rounds} rounds, {active_planning_count}/{agent_count} agents active)"
+        )
         await self._run_phase(
             ResearchPhase.PLANNING,
             max_rounds=max_rounds,
@@ -748,6 +792,13 @@ class OrchestrationEngine:
         """Run the EXECUTION phase: agents propose and run computational experiments."""
         max_rounds = self._config.orchestrator.max_experiment_rounds
 
+        # Collect sandbox paths for cloned repos (PYTHONPATH injection)
+        repo_paths = [
+            r.sandbox_path
+            for r in self._resolved_resources
+            if r.resource_type == ResourceType.CODE_REPO and r.sandbox_path and r.error is None
+        ]
+
         executor = CodeExecutor(
             config=self._config.sandbox,
             logger=self._logger,
@@ -822,7 +873,12 @@ class OrchestrationEngine:
                 for exp_name, code in code_blocks:
                     click.echo(f"    Running: {exp_name}")
                     result = await self._execute_with_retry(
-                        executor, experimenter, exp_name, code, checkpoint_context
+                        executor,
+                        experimenter,
+                        exp_name,
+                        code,
+                        checkpoint_context,
+                        repo_paths=repo_paths,
                     )
                     formatted = _format_execution_result(exp_name, result)
                     all_results.append(formatted)
@@ -863,6 +919,7 @@ class OrchestrationEngine:
         experiment_name: str,
         code: str,
         checkpoint_context: str,
+        repo_paths: list[str] | None = None,
     ) -> ExecutionResult:
         """Execute code with retry on failure/rejection.
 
@@ -883,7 +940,7 @@ class OrchestrationEngine:
                 agent_id=experimenter.agent_id,
                 thread_id=self._thread_id,
             )
-            result = await executor.execute(request)
+            result = await executor.execute(request, repo_paths=repo_paths)
 
             # Success or timeout — return immediately
             if result.status in (ExecutionStatus.SUCCESS, ExecutionStatus.TIMEOUT):
@@ -1628,18 +1685,39 @@ class OrchestrationEngine:
             phase="seeding",
         )
 
-        # Extract and ingest any URLs referenced in the prompt
+        # Extract and classify URLs referenced in the prompt
         prompt_urls = extract_urls(seed_prompt)
+        shared_dir = self._config.storage.data_dir / "shared"
+        resolved: list[ResolvedResource] = []
+
         for url in prompt_urls:
-            try:
-                paper = await self._corpus.fetch_and_ingest_url(url)
-                if paper:
-                    click.echo(f"  Ingested external paper: {paper.title[:80]}")
+            rtype = classify_resource(url)
+            click.echo(f"  Resource: {url} → {rtype.value}")
+
+            if rtype == ResourceType.PAPER:
+                # Papers go through the existing corpus pipeline
+                try:
+                    paper = await self._corpus.fetch_and_ingest_url(url)
+                    if paper:
+                        click.echo(f"  Ingested external paper: {paper.title[:80]}")
+                    else:
+                        click.echo(f"  [!] Could not extract PDF from: {url}")
+                except Exception as e:
+                    self._logger.log_error(e, thread_id=thread_id)
+                    click.echo(f"  [!] Failed to fetch URL: {url} ({e})")
+            else:
+                # Non-paper resources: clone, download, or scrape
+                resource = await resolve_resource(url, rtype, shared_dir, self._logger)
+                if resource.error:
+                    click.echo(f"  [!] Resource error: {resource.error}")
                 else:
-                    click.echo(f"  [!] Could not extract PDF from: {url}")
-            except Exception as e:
-                self._logger.log_error(e, thread_id=thread_id)
-                click.echo(f"  [!] Failed to fetch URL: {url} ({e})")
+                    click.echo(f"  Resolved: {resource.name} ({rtype.value})")
+                resolved.append(resource)
+
+        self._resolved_resources = resolved
+        self._code_context = build_code_context(resolved)
+        self._data_context = build_data_context(resolved)
+        self._reference_context = build_reference_context(resolved)
 
         # Literature context starts empty — agents populate it via [SEARCH:] requests
         self._literature_context = ""
@@ -1742,6 +1820,13 @@ class OrchestrationEngine:
         self._search_count_this_round = 0
         speaker_order = scheduler.get_speaker_order(phase)
 
+        # Phase-appropriate filtering: skip roles not active in this phase
+        active_roles = _PHASE_ACTIVE_ROLES.get(phase)
+        if active_roles is not None:
+            speaker_order = [
+                aid for aid in speaker_order if self._agents[aid].skill_profile in active_roles
+            ]
+
         for agent_id in speaker_order:
             agent = self._agents[agent_id]
             prompt = self._build_agent_prompt(agent, phase, round_num)
@@ -1835,6 +1920,14 @@ class OrchestrationEngine:
         lit = getattr(self, "_literature_context", "")
         if lit:
             checkpoint_context = "## Literature Context\n" + lit + "\n\n" + checkpoint_context
+
+        # Inject resource contexts (code repos, data files, web references)
+        if self._reference_context:
+            checkpoint_context = self._reference_context + "\n\n" + checkpoint_context
+        if self._data_context:
+            checkpoint_context = self._data_context + "\n\n" + checkpoint_context
+        if self._code_context:
+            checkpoint_context = self._code_context + "\n\n" + checkpoint_context
 
         # Graveyard context stays IDEATION round 1 only
         if phase == ResearchPhase.IDEATION and round_num == 1:

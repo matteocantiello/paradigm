@@ -31,11 +31,17 @@ class CodeExecutor:
         self.scanner = SafetyScanner()
         self.container_manager = ContainerManager(config)
 
-    async def execute(self, request: ExecutionRequest) -> ExecutionResult:
+    async def execute(
+        self,
+        request: ExecutionRequest,
+        repo_paths: list[str] | None = None,
+    ) -> ExecutionResult:
         """Execute code through the full safety + Docker pipeline.
 
         Args:
             request: The code execution request.
+            repo_paths: Optional list of sandbox paths to include in PYTHONPATH,
+                allowing sandbox code to import from cloned repositories.
 
         Returns:
             ExecutionResult with the outcome.
@@ -81,10 +87,16 @@ class CodeExecutor:
         shared_dir = self.data_dir / "shared"
         shared_dir.mkdir(parents=True, exist_ok=True)
 
+        # Build environment for PYTHONPATH injection (cloned repos)
+        environment: dict[str, str] = {}
+        if repo_paths:
+            environment["PYTHONPATH"] = ":".join(repo_paths)
+
         result = await self.container_manager.execute(
             request=request,
             results_dir=results_dir,
             shared_dir=shared_dir,
+            environment=environment,
         )
         result.safety_verdict = verdict
 
