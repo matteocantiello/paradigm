@@ -290,7 +290,7 @@ class TestExecutionPhaseIntegration:
     async def test_execution_skipped_no_experimentalist(
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
-        """Directed mode has no experimentalist, so EXECUTION is skipped."""
+        """Team without experimentalist skips EXECUTION phase."""
         with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
             mock_client = MagicMock()
             mock_client.messages.create.return_value = _mock_checkpoint_response()
@@ -304,9 +304,11 @@ class TestExecutionPhaseIntegration:
                 agent_factory=mock_factory,
             )
 
+            # Use explicit team without experimentalist
             thread_id = await engine.run_research_cycle(
                 seed_prompt="Test directed mode",
                 mode="directed",
+                team_roles=["theorist", "analyst", "synthesizer", "skeptic", "writer", "editor"],
             )
 
         thread = tmp_db.get_thread(thread_id)

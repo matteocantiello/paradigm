@@ -464,6 +464,7 @@ def mock_config(tmp_path):
             "checkpoint_interval": 1,
             "enable_checkpointing": True,
             "enable_writing": True,
+            "enable_experimentation": False,
             "max_review_iterations": 1,
             "enable_peer_review": True,
             "num_reviewers": 2,
@@ -482,6 +483,7 @@ def mock_config_no_peer_review(tmp_path):
             "checkpoint_interval": 1,
             "enable_checkpointing": True,
             "enable_writing": True,
+            "enable_experimentation": False,
             "max_review_iterations": 1,
             "enable_peer_review": False,
         },
@@ -543,13 +545,29 @@ def _make_writing_factory(
 
     section_responses = {
         "writer": (
-            "## Abstract\n\nThis paper studies stellar convection.\n\n"
-            "## Introduction\n\nStars exhibit convective motions...\n\n"
-            "## Conclusion\n\nWe conclude that convection is important."
+            "# Convective Overshooting in Stellar Interiors\n\n"
+            "## Abstract\n\nThis paper presents a comprehensive study of convective "
+            "overshooting in intermediate-mass stars using one-dimensional stellar "
+            "evolution models. We investigate how overshooting affects the main-sequence "
+            "width and core hydrogen burning lifetime.\n\n"
+            "## Introduction\n\nStellar convection is a fundamental process governing "
+            "energy transport and chemical mixing in stellar interiors. Understanding "
+            "convective processes is essential for accurate stellar evolution modeling.\n\n"
+            "## Conclusion\n\nWe conclude that convective overshooting plays a critical "
+            "role in determining the main-sequence width of intermediate-mass stars."
         ),
-        "theorist": "## Methods\n\nWe use mixing-length theory to model convection.",
-        "analyst": "## Results\n\nOur analysis shows a correlation between...",
-        "synthesizer": "## Discussion\n\nThese results suggest that convective overshooting...",
+        "theorist": (
+            "## Methods\n\nWe use mixing-length theory to model convection in our "
+            "stellar evolution calculations. The models span masses from 1.5 to 8 solar masses."
+        ),
+        "analyst": (
+            "## Results\n\nOur analysis shows a strong correlation between the overshooting "
+            "parameter and the main-sequence lifetime for stars above 2 solar masses."
+        ),
+        "synthesizer": (
+            "## Discussion\n\nThese results suggest that convective overshooting extends "
+            "the main-sequence lifetime by up to 25 percent for the most massive models."
+        ),
         "editor": editor_desk_response,
         "skeptic": "The methodology looks sound but I have concerns about...",
     }
