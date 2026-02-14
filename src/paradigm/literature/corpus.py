@@ -62,6 +62,10 @@ class Corpus:
     ) -> list[ArxivPaper]:
         """Search both local corpus and arXiv, deduplicate, and return.
 
+        Builds local and arXiv result lists independently, then merges them
+        (local first, then arXiv-only papers) capped at max_results. This
+        ensures arXiv results are not crowded out by local duplicates.
+
         Args:
             query: Search query text.
             max_results: Maximum results (defaults to config value).
@@ -75,7 +79,10 @@ class Corpus:
         if max_results is None:
             max_results = self._config.max_results_per_search
 
-        seen: dict[str, ArxivPaper] = {}
+        local_papers: list[ArxivPaper] = []
+        local_ids: set[str] = set()
+        arxiv_only: list[ArxivPaper] = []
+        num_arxiv_results = 0
 
         # Search local embeddings
         if include_local and self._embeddings.count() > 0:
@@ -90,8 +97,9 @@ class Corpus:
                 db_paper = self._db.get_paper(db_key)
                 if db_paper and db_paper.get("status") in ("published", "external"):
                     paper = self._db_row_to_paper(db_paper)
-                    if paper:
-                        seen[doc_id] = paper
+                    if paper and doc_id not in local_ids:
+                        local_papers.append(paper)
+                        local_ids.add(doc_id)
 
         # Search arXiv API
         if include_arxiv:
@@ -100,18 +108,22 @@ class Corpus:
                 max_results=max_results,
                 categories=categories,
             )
+            num_arxiv_results = len(arxiv_results)
             for paper in arxiv_results:
-                if paper.arxiv_id not in seen:
-                    seen[paper.arxiv_id] = paper
+                if paper.arxiv_id not in local_ids:
+                    arxiv_only.append(paper)
 
-        papers = list(seen.values())[:max_results]
+        # Merge: local first, then arXiv-only, capped at max_results
+        papers = (local_papers + arxiv_only)[:max_results]
 
         if self._logger:
             self._logger.log(
                 EventType.LITERATURE_SEARCH,
                 content={
                     "query": query,
-                    "local_results": len(seen) - len(papers) + len(papers),
+                    "local_results": len(local_papers),
+                    "arxiv_results": num_arxiv_results,
+                    "arxiv_new": len(arxiv_only),
                     "total_results": len(papers),
                     "sources": {
                         "local": include_local,

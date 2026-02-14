@@ -397,3 +397,46 @@ async def test_search_includes_external_papers(corpus, db, embedding_store):
 
     found_ids = [p.arxiv_id for p in results]
     assert "2501.001" in found_ids
+
+
+async def test_search_interleaves_local_and_arxiv(corpus, db, mock_arxiv, embedding_store):
+    """Search returns both local and arXiv results without local crowding out arXiv."""
+    # Ingest 3 local papers
+    for i in range(3):
+        paper = _make_paper(f"local.{i:03d}", f"Local Paper {i}", f"About local topic {i}")
+        await corpus.ingest_paper(paper)
+
+    # arXiv returns 3 different papers
+    arxiv_papers = [
+        _make_paper(f"arxiv.{i:03d}", f"ArXiv Paper {i}", f"About arxiv topic {i}")
+        for i in range(3)
+    ]
+    mock_arxiv.search.return_value = arxiv_papers
+
+    # Search with max_results=5 — should get locals + arXiv, not just locals
+    results = await corpus.search("topic", max_results=5)
+
+    arxiv_ids = {p.arxiv_id for p in results}
+
+    # Should have at least some arXiv papers (not all crowded out by local)
+    arxiv_count = sum(1 for pid in arxiv_ids if pid.startswith("arxiv."))
+    local_count = sum(1 for pid in arxiv_ids if pid.startswith("local."))
+
+    assert arxiv_count > 0, "arXiv results should not be crowded out by local results"
+    assert local_count > 0, "local results should be present"
+    assert len(results) <= 5
+
+
+async def test_search_arxiv_only_no_local_crowding(corpus, mock_arxiv, embedding_store):
+    """With no local papers, arXiv results fill the entire result list."""
+    arxiv_papers = [
+        _make_paper(f"2401.{i:03d}", f"ArXiv Paper {i}", f"Abstract {i}") for i in range(7)
+    ]
+    mock_arxiv.search.return_value = arxiv_papers
+
+    results = await corpus.search("topic", max_results=5)
+
+    assert len(results) == 5
+    # All should be arXiv papers
+    for p in results:
+        assert p.arxiv_id.startswith("2401.")

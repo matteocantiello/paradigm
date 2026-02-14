@@ -681,3 +681,31 @@ Resuming Cycle 1 after API credits replenished.
 - `src/paradigm/orchestrator/engine.py` — Added `_PHASE_ACTIVE_ROLES` constant, filter in `_run_round()`, updated CLI phase output
 - `src/paradigm/orchestrator/scheduler.py` — Removed `"writer"` from IDEATION and PLANNING in `_PHASE_PRIORITIES`
 - `tests/test_orchestrator.py` — Tests for editor/writer exclusion from IDEATION/PLANNING
+
+### Prompt 59 — Fix Three Critical Bugs from Live Test
+
+> Implement the following plan: Fix Three Critical Bugs from Live Test
+>
+> A live research cycle on red noise in massive stars revealed three bugs:
+> 1. Searches return same ~7 papers — 71 searches executed, zero arXiv results. Local ChromaDB papers fill all result slots before arXiv papers are added.
+> 2. No Docker execution — "directed" mode team has no experimentalist, so EXECUTION phase is skipped entirely.
+> 3. Empty paper saved and submitted — ConnectionErrors during WRITING phase caused all agents to fail silently. An empty paper (0 bytes) was saved, then sent through review/peer-review, wasting API calls.
+
+**Key decisions:**
+- Bug 1: Rewrite corpus.search() to build local/arXiv lists independently then merge; increase max_results 5→10; add _seen_paper_ids for cross-query dedup; add _LITERATURE_CONTEXT_LIMIT=15000
+- Bug 2: Add experimentalist to directed/explore/hypothesis mode teams
+- Bug 3: Add _MIN_PAPER_LENGTH=500 guard in writing phase; skip review/submission if paper is empty
+
+**Artifacts modified:**
+- `src/paradigm/literature/corpus.py` — Rewrite search() to separate local/arXiv lists then merge
+- `src/paradigm/orchestrator/engine.py` — All three bug fixes
+- `tests/test_orchestrator.py` — Updated call counts, new tests
+- `tests/test_corpus.py` — New test for interleaved results
+
+### Prompt 60 — Display Total Token Usage at End of Run
+
+> Can we also display the total number of tokens utilized by paradigm at the end of the run. And maybe store it in the paper log
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Token summary at end of cycle + stored in paper metadata
+- `tests/test_orchestrator.py` — Test for token summary

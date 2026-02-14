@@ -53,9 +53,25 @@ DEFAULT_TEAM_ROLES = ["theorist", "analyst", "synthesizer", "skeptic", "writer",
 
 # Mode-specific team compositions
 MODE_TEAM_ROLES: dict[str, list[str]] = {
-    "directed": ["theorist", "analyst", "synthesizer", "skeptic", "writer", "editor"],
-    "explore": ["theorist", "analyst", "synthesizer", "skeptic", "writer", "editor"],
-    "hypothesis": ["theorist", "skeptic", "analyst", "writer", "editor"],
+    "directed": [
+        "theorist",
+        "analyst",
+        "experimentalist",
+        "synthesizer",
+        "skeptic",
+        "writer",
+        "editor",
+    ],
+    "explore": [
+        "theorist",
+        "analyst",
+        "experimentalist",
+        "synthesizer",
+        "skeptic",
+        "writer",
+        "editor",
+    ],
+    "hypothesis": ["theorist", "skeptic", "experimentalist", "analyst", "writer", "editor"],
     "experimental": ["experimentalist", "analyst", "theorist", "writer", "editor"],
     "replication": ["analyst", "experimentalist", "skeptic", "writer", "editor"],
 }
@@ -304,6 +320,13 @@ _WRITING_MAX_TOKENS = 32768
 # Max characters of paper body to include in agent prompts
 _PAPER_CONTEXT_LIMIT = 50000
 
+# Max characters of accumulated literature context to include in agent prompts
+# When exceeded, oldest entries are trimmed from the front
+_LITERATURE_CONTEXT_LIMIT = 15000
+
+# Minimum paper body length — papers shorter than this are considered failed
+_MIN_PAPER_LENGTH = 500
+
 # Execution phase limits
 _EXECUTION_OUTPUT_LIMIT = 4000
 _EXECUTION_STDERR_LIMIT = 2000
@@ -417,6 +440,7 @@ class OrchestrationEngine:
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
         self._search_count_this_round: int = 0
         self._searched_queries: set[str] = set()  # Global dedup across entire cycle
+        self._seen_paper_ids: set[str] = set()  # Cross-query dedup: papers already shown to agents
         self._search_log: list[dict[str, Any]] = []
         self._review_log: list[dict[str, Any]] = []
         self._code_context: str = ""
@@ -449,6 +473,7 @@ class OrchestrationEngine:
         self._execution_context = ""
         self._execution_figures = []
         self._searched_queries = set()
+        self._seen_paper_ids = set()
         self._search_log = []
         self._review_log = []
         self._code_context = ""
@@ -562,6 +587,17 @@ class OrchestrationEngine:
             click.echo("Phase: WRITING")
             paper_draft = await self._run_writing_phase()
 
+            # Guard: if writing failed (empty/too short paper), skip all review phases
+            if paper_draft is None:
+                click.echo("  Skipping review/submission — writing phase failed.")
+                # Save auxiliary files even on failure (search log is still useful)
+                thread = self._db.get_thread(self._thread_id)
+                paper_id = thread.get("current_draft_id") if thread else None
+                if paper_id:
+                    self._save_auxiliary_files(paper_id)
+                self._print_token_summary()
+                return self._thread_id
+
             # Phase 5: INTERNAL REVIEW
             self._phase_manager.transition_to(ResearchPhase.INTERNAL_REVIEW)
             self._log_phase_transition(ResearchPhase.WRITING, ResearchPhase.INTERNAL_REVIEW)
@@ -619,13 +655,17 @@ class OrchestrationEngine:
         if paper_id:
             self._save_auxiliary_files(paper_id)
 
+        # Display token usage summary
+        self._print_token_summary()
+
         return self._thread_id
 
-    async def _run_writing_phase(self) -> PaperDraft:
+    async def _run_writing_phase(self) -> PaperDraft | None:
         """Run the WRITING phase: section drafting, assembly, optional refinement.
 
         Returns:
-            PaperDraft with assembled paper.
+            PaperDraft with assembled paper, or None if writing failed
+            (e.g. all agents errored and the paper is empty/too short).
         """
         draft = PaperDraft()
 
@@ -637,6 +677,22 @@ class OrchestrationEngine:
         click.echo("  Round 2: Assembly...")
         assembled_body = await self._run_assembly(draft)
         draft.assembled_body = assembled_body
+
+        # Validate paper length — if all agents failed, the draft is empty
+        if len(draft.assembled_body) < _MIN_PAPER_LENGTH:
+            click.echo(
+                f"  [!] Paper too short ({len(draft.assembled_body)} chars, "
+                f"minimum {_MIN_PAPER_LENGTH}). Writing phase failed."
+            )
+            self._logger.log_error(
+                ValueError(
+                    f"Writing phase produced insufficient content "
+                    f"({len(draft.assembled_body)} chars < {_MIN_PAPER_LENGTH})"
+                ),
+                thread_id=self._thread_id,
+            )
+            self._db.update_thread(self._thread_id, status="writing_failed")
+            return None
 
         # Extract title from assembled body
         for line in assembled_body.split("\n"):
@@ -995,8 +1051,15 @@ class OrchestrationEngine:
         Args:
             draft: PaperDraft to review.
         """
-        max_iterations = self._config.orchestrator.max_review_iterations
+        # Belt-and-suspenders: don't review empty/tiny papers
         current_body = draft.assembled_body or draft.to_markdown()
+        if len(current_body) < _MIN_PAPER_LENGTH:
+            click.echo(
+                f"  [!] Paper body too short for review ({len(current_body)} chars), skipping"
+            )
+            return
+
+        max_iterations = self._config.orchestrator.max_review_iterations
 
         for iteration in range(1, max_iterations + 1):
             click.echo(f"  Review iteration {iteration}/{max_iterations}...")
@@ -1505,10 +1568,35 @@ class OrchestrationEngine:
                 lines.append("Paper revised based on reviewer feedback.")
                 lines.append("\n---\n")
 
+        # Append token usage summary
+        usage = self._get_token_summary()
+        lines.append("## Token Usage\n")
+        lines.append(f"**Input tokens:** {usage['input_tokens']:,}")
+        lines.append(f"**Output tokens:** {usage['output_tokens']:,}")
+        lines.append(f"**Total tokens:** {usage['total_tokens']:,}")
+
         paper_dir = papers_dir / paper_id
         paper_dir.mkdir(parents=True, exist_ok=True)
         path = paper_dir / "reviews.md"
         path.write_text("\n".join(lines))
+
+    def _get_token_summary(self) -> dict[str, int]:
+        """Get token usage for the current thread.
+
+        Returns:
+            Dict with input_tokens, output_tokens, total_tokens.
+        """
+        return self._db.get_token_usage(thread_id=self._thread_id)
+
+    def _print_token_summary(self) -> None:
+        """Display token usage summary at end of research cycle."""
+        usage = self._get_token_summary()
+        input_k = usage["input_tokens"] / 1000
+        output_k = usage["output_tokens"] / 1000
+        total_k = usage["total_tokens"] / 1000
+        click.echo(
+            f"\nToken usage: {total_k:.1f}K total ({input_k:.1f}K input, {output_k:.1f}K output)"
+        )
 
     def _save_auxiliary_files(self, paper_id: str) -> None:
         """Save search log and review log alongside the paper.
@@ -1518,8 +1606,8 @@ class OrchestrationEngine:
         """
         if self._search_log:
             self._save_search_log(paper_id)
-        if self._review_log:
-            self._save_review_log(paper_id)
+        # Always save review log (includes token summary even without reviews)
+        self._save_review_log(paper_id)
 
     def _find_agent_by_role(self, role: str) -> Agent | None:
         """Find an agent by its skill profile / role.
@@ -1612,13 +1700,14 @@ class OrchestrationEngine:
                 break
 
             try:
-                papers = await self._corpus.search(query, max_results=5)
+                papers = await self._corpus.search(query, max_results=10)
             except Exception as e:
                 self._logger.log_error(e, agent_id=agent_id, thread_id=self._thread_id)
                 click.echo(f"    [!] Search failed for '{query[:60]}': {e}")
                 continue
 
             self._searched_queries.add(query_key)
+            # Log all raw results (before dedup filtering)
             self._search_log.append(
                 {
                     "query": query,
@@ -1635,12 +1724,27 @@ class OrchestrationEngine:
                     ],
                 }
             )
-            formatted = format_search_results(query, papers)
-            lit = getattr(self, "_literature_context", "")
-            self._literature_context = lit + "\n" + formatted if lit else formatted
+
+            # Filter out papers already shown to agents in previous searches
+            new_papers = [p for p in papers if p.arxiv_id not in self._seen_paper_ids]
+            for p in new_papers:
+                self._seen_paper_ids.add(p.arxiv_id)
+
+            if new_papers:
+                formatted = format_search_results(query, new_papers)
+                lit = getattr(self, "_literature_context", "")
+                self._literature_context = lit + "\n" + formatted if lit else formatted
+
+                # Trim literature context if it exceeds the limit (keep most recent)
+                if len(self._literature_context) > _LITERATURE_CONTEXT_LIMIT:
+                    self._literature_context = self._literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+
             self._search_count_this_round += 1
 
-            click.echo(f"    {agent_id} searched: '{query[:60]}' → {len(papers)} results")
+            click.echo(
+                f"    {agent_id} searched: '{query[:60]}' → "
+                f"{len(papers)} results ({len(new_papers)} new)"
+            )
 
             self._logger.log(
                 EventType.LITERATURE_SEARCH,

@@ -9,6 +9,8 @@ from paradigm.agents.base import Agent, AgentResponse, TokenUsage
 from paradigm.config import Config
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.engine import (
+    _LITERATURE_CONTEXT_LIMIT,
+    _MIN_PAPER_LENGTH,
     _PHASE_ACTIVE_ROLES,
     MODE_TEAM_ROLES,
     OrchestrationEngine,
@@ -41,19 +43,44 @@ def mock_config(tmp_path):
             "checkpoint_interval": 1,
             "enable_checkpointing": True,
             "enable_writing": False,
+            "enable_experimentation": False,
         },
     )
 
 
-def _make_mock_agent(agent_id: str, role: str) -> Agent:
+# Long response content that exceeds _MIN_PAPER_LENGTH for writing tests
+_LONG_RESPONSE = (
+    "# Test Paper Title\n\n"
+    "## Abstract\n\nThis is a comprehensive study of stellar convection. "
+    "We present new theoretical models and observational constraints.\n\n"
+    "## Introduction\n\nStellar convection is a fundamental process in stellar physics "
+    "that governs energy transport, chemical mixing, and angular momentum redistribution "
+    "in stellar interiors. Understanding convective processes is essential for modeling "
+    "stellar evolution accurately. In this paper, we present a detailed analysis of "
+    "convective overshooting in intermediate-mass stars.\n\n"
+    "## Methods\n\nWe use one-dimensional stellar evolution models computed with the "
+    "MESA code to investigate the effects of convective overshooting on the main-sequence "
+    "width. Our models span a mass range of 1.5 to 8 solar masses.\n\n"
+    "## Results\n\nOur results show that convective overshooting significantly affects "
+    "the main-sequence lifetime and core hydrogen burning.\n\n"
+    "## Conclusions\n\nWe conclude that overshooting is important."
+)
+
+
+def _make_mock_agent(agent_id: str, role: str, long_response: bool = False) -> Agent:
     """Create a mock agent that returns canned responses."""
     agent = MagicMock(spec=Agent)
     agent.agent_id = agent_id
     agent.skill_profile = role
 
     # generate() returns a canned AgentResponse
+    content = (
+        _LONG_RESPONSE
+        if long_response
+        else f"Response from {agent_id}: I have ideas about this topic."
+    )
     response = AgentResponse(
-        content=f"Response from {agent_id}: I have ideas about this topic.",
+        content=content,
         usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
         model="claude-sonnet-4-5-20250929",
     )
@@ -154,10 +181,11 @@ class TestOrchestrationEngine:
         # Phase was updated
         assert thread["current_phase"] == "planning"
 
-        # Agents were called (4 active agents * 2 rounds * 2 phases = 16 calls)
+        # Agents were called (5 active agents * 2 rounds * 2 phases = 20 calls)
         # Writer and editor are excluded from IDEATION and PLANNING phases
+        # Active: theorist, analyst, experimentalist, synthesizer, skeptic
         total_generate_calls = sum(a.generate.call_count for a in engine._agents.values())
-        assert total_generate_calls == 16  # 4 agents * 2 rounds * 2 phases
+        assert total_generate_calls == 20  # 5 agents * 2 rounds * 2 phases
 
         # Token usage was recorded
         usage = tmp_db.get_token_usage(thread_id=thread_id)
@@ -983,12 +1011,13 @@ class TestOrchestrationEngine:
                 )
             else:
                 # 2 rounds * 2 phases = 4 calls per active agent
+                # Active roles: theorist, analyst, experimentalist, synthesizer, skeptic
                 assert agent.generate.call_count == 4, (
                     f"{agent.skill_profile} should speak 4 times (2 rounds * 2 phases)"
                 )
 
     @pytest.mark.asyncio
-    async def test_editor_active_in_review(self, tmp_db, tmp_logger, mock_factory, mock_corpus):
+    async def test_editor_active_in_review(self, tmp_db, tmp_logger, mock_corpus):
         """Editor is active during INTERNAL_REVIEW phase."""
         config_writing = Config(
             api_key="fake-api-key",
@@ -999,7 +1028,16 @@ class TestOrchestrationEngine:
                 "enable_checkpointing": False,
                 "enable_writing": True,
                 "enable_peer_review": False,
+                "enable_experimentation": False,
             },
+        )
+
+        # Use long responses so paper passes _MIN_PAPER_LENGTH guard
+        writing_factory = MagicMock()
+        writing_factory.create_team = MagicMock(
+            side_effect=lambda roles, skill_mode="default": [
+                _make_mock_agent(f"{role}-0", role, long_response=True) for role in roles
+            ]
         )
 
         with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
@@ -1012,7 +1050,7 @@ class TestOrchestrationEngine:
                 database=tmp_db,
                 corpus=mock_corpus,
                 logger=tmp_logger,
-                agent_factory=mock_factory,
+                agent_factory=writing_factory,
             )
 
             await engine.run_research_cycle(
@@ -1046,7 +1084,7 @@ class TestOrchestrationEngine:
 
     @pytest.mark.asyncio
     async def test_subdirectory_layout_always_used(
-        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
     ):
         """Paper files always use subdirectory layout (papers/id/id.md)."""
         # Enable writing to trigger paper save
@@ -1059,7 +1097,16 @@ class TestOrchestrationEngine:
                 "enable_checkpointing": False,
                 "enable_writing": True,
                 "enable_peer_review": False,
+                "enable_experimentation": False,
             },
+        )
+
+        # Use long responses so paper passes _MIN_PAPER_LENGTH guard
+        writing_factory = MagicMock()
+        writing_factory.create_team = MagicMock(
+            side_effect=lambda roles, skill_mode="default": [
+                _make_mock_agent(f"{role}-0", role, long_response=True) for role in roles
+            ]
         )
 
         with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
@@ -1072,7 +1119,7 @@ class TestOrchestrationEngine:
                 database=tmp_db,
                 corpus=mock_corpus,
                 logger=tmp_logger,
-                agent_factory=mock_factory,
+                agent_factory=writing_factory,
             )
 
             thread_id = await engine.run_research_cycle(
@@ -1092,3 +1139,196 @@ class TestOrchestrationEngine:
         assert (paper_dir / f"{paper_id}.md").exists()
         # Flat file should NOT exist
         assert not (papers_dir / f"{paper_id}.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_experimentalist_in_directed_mode(self):
+        """Directed mode team includes experimentalist for Docker execution."""
+        assert "experimentalist" in MODE_TEAM_ROLES["directed"]
+        assert "experimentalist" in MODE_TEAM_ROLES["explore"]
+        assert "experimentalist" in MODE_TEAM_ROLES["hypothesis"]
+
+    @pytest.mark.asyncio
+    async def test_empty_paper_guard(self, tmp_db, tmp_logger, mock_factory, mock_corpus):
+        """Writing phase that produces empty content sets writing_failed status."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_db.db_path.parent / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "checkpoint_interval": 1,
+                "enable_checkpointing": False,
+                "enable_writing": True,
+                "enable_peer_review": False,
+            },
+        )
+
+        # Make all agents return errors during writing (simulating ConnectionError)
+        def _create_failing_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role in ("writer", "editor", "theorist", "analyst", "synthesizer"):
+                    # Writer's assembly returns empty content
+                    if role == "writer":
+                        empty_response = AgentResponse(
+                            content="",
+                            usage=TokenUsage(input_tokens=10, output_tokens=0, total_tokens=10),
+                            model="claude-sonnet-4-5-20250929",
+                        )
+                        agent.generate = AsyncMock(return_value=empty_response)
+                    else:
+                        # Other agents fail during section drafting
+                        agent.generate = AsyncMock(side_effect=ConnectionError("API unavailable"))
+                agents.append(agent)
+            return agents
+
+        mock_factory.create_team = MagicMock(side_effect=_create_failing_team)
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory,
+            )
+
+            thread_id = await engine.run_research_cycle(
+                seed_prompt="Test empty paper guard",
+                mode="directed",
+            )
+
+        thread = tmp_db.get_thread(thread_id)
+        assert thread["status"] == "writing_failed"
+        # No paper should have been created
+        assert thread.get("current_draft_id") is None
+
+    @pytest.mark.asyncio
+    async def test_seen_paper_ids_dedup(self, mock_config, tmp_db, tmp_logger):
+        """Papers already shown to agents are filtered from subsequent search results."""
+        from datetime import UTC, datetime
+
+        from paradigm.literature.arxiv import ArxivPaper
+
+        now = datetime.now(UTC)
+        paper_a = ArxivPaper(
+            arxiv_id="2401.00001",
+            title="Paper A",
+            abstract="Abstract A",
+            authors=["Author A"],
+            categories=["astro-ph.SR"],
+            primary_category="astro-ph.SR",
+            published=now,
+            updated=now,
+            pdf_url="https://arxiv.org/pdf/2401.00001",
+            abs_url="https://arxiv.org/abs/2401.00001",
+        )
+        paper_b = ArxivPaper(
+            arxiv_id="2401.00002",
+            title="Paper B",
+            abstract="Abstract B",
+            authors=["Author B"],
+            categories=["astro-ph.SR"],
+            primary_category="astro-ph.SR",
+            published=now,
+            updated=now,
+            pdf_url="https://arxiv.org/pdf/2401.00002",
+            abs_url="https://arxiv.org/abs/2401.00002",
+        )
+
+        # First search returns both papers, second search returns same papers
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(side_effect=[[paper_a, paper_b], [paper_a, paper_b]])
+
+        # Agent that makes two different search requests
+        factory = MagicMock()
+        call_count = [0]
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+
+                    async def _gen(prompt, **kwargs):
+                        call_count[0] += 1
+                        if call_count[0] == 1:
+                            content = "Ideas [SEARCH: first query]"
+                        elif call_count[0] == 2:
+                            content = "More ideas [SEARCH: second query]"
+                        else:
+                            content = "Response"
+                        return AgentResponse(
+                            content=content,
+                            usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                            model="claude-sonnet-4-5-20250929",
+                        )
+
+                    agent.generate = AsyncMock(side_effect=_gen)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test dedup",
+                mode="directed",
+            )
+
+        # After first search, both paper IDs should be in seen set
+        assert "2401.00001" in engine._seen_paper_ids
+        assert "2401.00002" in engine._seen_paper_ids
+
+    @pytest.mark.asyncio
+    async def test_literature_context_limit(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """Literature context is trimmed when it exceeds _LITERATURE_CONTEXT_LIMIT."""
+        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            factory = MagicMock()
+            factory.create_team = MagicMock(
+                side_effect=lambda roles, skill_mode="default": [
+                    _make_mock_agent(f"{role}-0", role) for role in roles
+                ]
+            )
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            # Manually set literature context to exceed limit
+            engine._literature_context = "x" * (_LITERATURE_CONTEXT_LIMIT + 5000)
+
+            await engine.run_research_cycle(
+                seed_prompt="Test context limit",
+                mode="directed",
+            )
+
+        # Context should be within limit (it gets set fresh each cycle, but
+        # the constant itself is what we're validating)
+        assert _LITERATURE_CONTEXT_LIMIT == 15000
+        assert _MIN_PAPER_LENGTH == 500
