@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import json
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -13,6 +14,23 @@ from paradigm.logging.events import EventLogger
 from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.orchestrator.phases import ResearchPhase
 from paradigm.storage.database import Database
+
+
+def _build_checkpoint_response(summary="The team discussed", hypothesis="Test hypothesis"):
+    return (
+        json.dumps(
+            {
+                "hypothesis": hypothesis,
+                "key_findings": ["finding"],
+                "open_questions": ["question"],
+                "next_steps": ["step"],
+                "conversation_summary": summary,
+            }
+        ),
+        100,
+        50,
+    )
+
 
 # ---------------------------------------------------------------------------
 # parse_challenge_requests tests
@@ -133,7 +151,7 @@ def tmp_logger(tmp_path):
 
 @pytest.fixture
 def mock_config(tmp_path):
-    return Config(
+    config = Config(
         api_key="fake-api-key",
         storage={"data_dir": str(tmp_path / "data")},
         orchestrator={
@@ -147,6 +165,16 @@ def mock_config(tmp_path):
             "max_debates_per_phase": 2,
         },
     )
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = _build_checkpoint_response()
+    mock_provider.default_model = "claude-sonnet-4-5-20250929"
+    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+    object.__setattr__(
+        config,
+        "get_provider_and_model_for_role",
+        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+    )
+    return config
 
 
 @pytest.fixture
@@ -161,14 +189,13 @@ def _build_engine(config, db, logger, corpus, agents: dict[str, Agent]) -> Orche
     factory = MagicMock()
     factory.create_team = MagicMock(return_value=list(agents.values()))
 
-    with patch("paradigm.storage.checkpoints.Anthropic"):
-        engine = OrchestrationEngine(
-            config=config,
-            database=db,
-            corpus=corpus,
-            logger=logger,
-            agent_factory=factory,
-        )
+    engine = OrchestrationEngine(
+        config=config,
+        database=db,
+        corpus=corpus,
+        logger=logger,
+        agent_factory=factory,
+    )
 
     engine._agents = dict(agents)
     engine._thread_id = "thread-test123"
@@ -321,6 +348,15 @@ class TestProcessChallengeRequests:
                 "enable_writing": False,
                 "enable_experimentation": False,
             },
+        )
+        mock_provider = MagicMock()
+        mock_provider.complete.return_value = _build_checkpoint_response()
+        mock_provider.default_model = "claude-sonnet-4-5-20250929"
+        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+        object.__setattr__(
+            config,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
         )
         theorist = _make_mock_agent("theorist-0", "theorist")
         skeptic = _make_mock_agent("skeptic-0", "skeptic")
@@ -681,6 +717,15 @@ class TestBuildAgentPromptDebate:
                 "enable_writing": False,
                 "enable_experimentation": False,
             },
+        )
+        mock_provider = MagicMock()
+        mock_provider.complete.return_value = _build_checkpoint_response()
+        mock_provider.default_model = "claude-sonnet-4-5-20250929"
+        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+        object.__setattr__(
+            config,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
         )
         theorist = _make_mock_agent("theorist-0", "theorist")
         engine = _build_engine(config, tmp_db, tmp_logger, mock_corpus, {"theorist-0": theorist})

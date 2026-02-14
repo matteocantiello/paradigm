@@ -3,20 +3,17 @@
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from paradigm.agents.memory import (
     AgentMemoryStore,
     Memory,
-    ReflectionResult,
     _parse_reflection_response,
     compute_recency_weight,
     format_memory_context,
     rank_memories_with_recency,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -42,7 +42,7 @@ def tmp_logger(tmp_path):
 @pytest.fixture
 def mock_config(tmp_path):
     """Create a config with experimentation enabled and small round counts."""
-    return Config(
+    config = Config(
         api_key="fake-api-key",
         storage={"data_dir": str(tmp_path / "data")},
         orchestrator={
@@ -55,12 +55,22 @@ def mock_config(tmp_path):
         },
         sandbox={"enabled": True},
     )
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = _build_checkpoint_response()
+    mock_provider.default_model = "claude-sonnet-4-5-20250929"
+    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+    object.__setattr__(
+        config,
+        "get_provider_and_model_for_role",
+        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+    )
+    return config
 
 
 @pytest.fixture
 def mock_config_no_sandbox(tmp_path):
     """Config with sandbox disabled."""
-    return Config(
+    config = Config(
         api_key="fake-api-key",
         storage={"data_dir": str(tmp_path / "data")},
         orchestrator={
@@ -73,6 +83,16 @@ def mock_config_no_sandbox(tmp_path):
         },
         sandbox={"enabled": False},
     )
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = _build_checkpoint_response()
+    mock_provider.default_model = "claude-sonnet-4-5-20250929"
+    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+    object.__setattr__(
+        config,
+        "get_provider_and_model_for_role",
+        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+    )
+    return config
 
 
 def _make_mock_agent(agent_id: str, role: str) -> Agent:
@@ -182,24 +202,21 @@ def mock_corpus():
     return corpus
 
 
-def _mock_checkpoint_response():
-    """Build a mock Anthropic response for checkpoint compression."""
-    response = MagicMock()
-    response.content = [
-        MagicMock(
-            text=json.dumps(
-                {
-                    "hypothesis": "Test hypothesis",
-                    "key_findings": ["Finding 1"],
-                    "open_questions": ["Question 1"],
-                    "next_steps": ["Next step 1"],
-                    "conversation_summary": "Agents discussed the topic.",
-                }
-            )
-        )
-    ]
-    response.usage = MagicMock(input_tokens=200, output_tokens=100)
-    return response
+def _build_checkpoint_response(summary="Agents discussed the topic.", hypothesis="Test hypothesis"):
+    """Build a mock provider response for checkpoint compression."""
+    return (
+        json.dumps(
+            {
+                "hypothesis": hypothesis,
+                "key_findings": ["Finding 1"],
+                "open_questions": ["Question 1"],
+                "next_steps": ["Next step 1"],
+                "conversation_summary": summary,
+            }
+        ),
+        200,
+        100,
+    )
 
 
 # --- Unit tests: code extraction ---
@@ -292,25 +309,20 @@ class TestExecutionPhaseIntegration:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Team without experimentalist skips EXECUTION phase."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            # Use explicit team without experimentalist
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test directed mode",
-                mode="directed",
-                team_roles=["theorist", "analyst", "synthesizer", "skeptic", "writer", "editor"],
-            )
+        # Use explicit team without experimentalist
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test directed mode",
+            mode="directed",
+            team_roles=["theorist", "analyst", "synthesizer", "skeptic", "writer", "editor"],
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "planning_complete"
@@ -322,23 +334,18 @@ class TestExecutionPhaseIntegration:
         self, mock_config_no_sandbox, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Even with experimentalist, sandbox disabled means no execution."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config_no_sandbox,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config_no_sandbox,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test sandbox disabled",
-                mode="experimental",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test sandbox disabled",
+            mode="experimental",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "planning_complete"
@@ -356,14 +363,7 @@ class TestExecutionPhaseIntegration:
             duration_seconds=0.5,
         )
 
-        with (
-            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
-            patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor,
-        ):
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
-
+        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
             mock_executor_instance.cleanup = AsyncMock()
@@ -409,14 +409,7 @@ class TestExecutionPhaseIntegration:
             stdout="safe output\n",
         )
 
-        with (
-            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
-            patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor,
-        ):
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
-
+        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             # First call: rejected, second call: success
             mock_executor_instance.execute = AsyncMock(
@@ -461,14 +454,7 @@ class TestExecutionPhaseIntegration:
             stdout="fixed output\n",
         )
 
-        with (
-            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
-            patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor,
-        ):
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
-
+        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(side_effect=[failure_result, success_result])
             mock_executor_instance.cleanup = AsyncMock()
@@ -543,14 +529,7 @@ class TestExecutionPhaseIntegration:
             error_message="Process exited with code 1",
         )
 
-        with (
-            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
-            patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor,
-        ):
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
-
+        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             # All executions fail (including retries)
             mock_executor_instance.execute = AsyncMock(return_value=failure_result)
@@ -601,6 +580,15 @@ class TestExecutionPhaseIntegration:
             },
             sandbox={"enabled": True},
         )
+        mock_provider = MagicMock()
+        mock_provider.complete.return_value = _build_checkpoint_response()
+        mock_provider.default_model = "claude-sonnet-4-5-20250929"
+        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+        object.__setattr__(
+            config,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+        )
 
         mock_exec_result = ExecutionResult(
             request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
@@ -609,14 +597,7 @@ class TestExecutionPhaseIntegration:
             duration_seconds=1.0,
         )
 
-        with (
-            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
-            patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor,
-        ):
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
-
+        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
             mock_executor_instance.cleanup = AsyncMock()
@@ -659,6 +640,15 @@ class TestExecutionPhaseIntegration:
             },
             sandbox={"enabled": True},
         )
+        mock_provider = MagicMock()
+        mock_provider.complete.return_value = _build_checkpoint_response()
+        mock_provider.default_model = "claude-sonnet-4-5-20250929"
+        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+        object.__setattr__(
+            config,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+        )
 
         # Create a fake figure file
         figures_src = tmp_path / "data" / "executions"
@@ -676,14 +666,7 @@ class TestExecutionPhaseIntegration:
             ],
         )
 
-        with (
-            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
-            patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor,
-        ):
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
-
+        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
             mock_executor_instance.cleanup = AsyncMock()
@@ -731,6 +714,15 @@ class TestEmbedFiguresInline:
             api_key="fake",
             storage={"data_dir": str(tmp_path / "data")},
             orchestrator={"max_rounds_per_phase": 1},
+        )
+        mock_provider = MagicMock()
+        mock_provider.complete.return_value = _build_checkpoint_response()
+        mock_provider.default_model = "claude-sonnet-4-5-20250929"
+        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+        object.__setattr__(
+            config,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
         )
         db = Database(tmp_path / "test.db")
         logger = EventLogger(tmp_path / "events.jsonl")

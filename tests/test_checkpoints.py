@@ -1,7 +1,7 @@
 """Tests for checkpoint compression."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -15,6 +15,15 @@ def tmp_db(tmp_path):
     db = Database(tmp_path / "test.db")
     yield db
     db.close()
+
+
+@pytest.fixture
+def mock_provider():
+    """Create a mock LLM provider for checkpoint tests."""
+    provider = MagicMock()
+    provider.complete.return_value = ("", 100, 50)
+    provider.default_model = "claude-sonnet-4-5-20250929"
+    return provider
 
 
 class TestCheckpoint:
@@ -110,12 +119,12 @@ class TestCheckpointManagerParseSummary:
 class TestCheckpointManagerRoundTrip:
     """Test save/load round-trip via database."""
 
-    def test_save_and_load(self, tmp_db):
+    def test_save_and_load(self, tmp_db, mock_provider):
         """Checkpoint data persists through save/load cycle."""
         # Create a thread first
         tmp_db.create_thread("t1", "Test Thread", "directed", ["agent-0"])
 
-        mgr = CheckpointManager(tmp_db, api_key="fake-key")
+        mgr = CheckpointManager(tmp_db, provider=mock_provider)
 
         # Simulate what create_checkpoint does to the DB
         tmp_db.update_thread(
@@ -139,55 +148,45 @@ class TestCheckpointManagerRoundTrip:
         assert loaded.next_steps == ["step 1"]
         assert loaded.conversation_summary == "The team discussed things."
 
-    def test_load_nonexistent_thread(self, tmp_db):
+    def test_load_nonexistent_thread(self, tmp_db, mock_provider):
         """Loading a nonexistent thread returns None."""
-        mgr = CheckpointManager(tmp_db, api_key="fake-key")
+        mgr = CheckpointManager(tmp_db, provider=mock_provider)
         assert mgr.load_checkpoint("nonexistent") is None
 
-    def test_load_thread_without_checkpoint(self, tmp_db):
+    def test_load_thread_without_checkpoint(self, tmp_db, mock_provider):
         """Thread with no checkpoint data returns None."""
         tmp_db.create_thread("t2", "Empty Thread", "directed", ["agent-0"])
-        mgr = CheckpointManager(tmp_db, api_key="fake-key")
+        mgr = CheckpointManager(tmp_db, provider=mock_provider)
         assert mgr.load_checkpoint("t2") is None
 
 
 class TestCheckpointManagerCreateCheckpoint:
-    """Test create_checkpoint with mocked API."""
+    """Test create_checkpoint with mocked provider."""
 
     @pytest.mark.asyncio
-    async def test_create_checkpoint_mocked(self, tmp_db):
-        """create_checkpoint calls Claude and persists result."""
+    async def test_create_checkpoint_mocked(self, tmp_db, mock_provider):
+        """create_checkpoint calls provider and persists result."""
         tmp_db.create_thread("t1", "Test", "directed", ["agent-0"])
 
-        # Mock the Anthropic client
-        mock_response = MagicMock()
-        mock_response.content = [
-            MagicMock(
-                text=json.dumps(
-                    {
-                        "hypothesis": "H1",
-                        "key_findings": ["f1"],
-                        "open_questions": ["q1"],
-                        "next_steps": ["s1"],
-                        "conversation_summary": "Summary",
-                    }
-                )
-            )
-        ]
-        mock_response.usage = MagicMock(input_tokens=100, output_tokens=50)
+        # Configure mock provider response
+        checkpoint_json = json.dumps(
+            {
+                "hypothesis": "H1",
+                "key_findings": ["f1"],
+                "open_questions": ["q1"],
+                "next_steps": ["s1"],
+                "conversation_summary": "Summary",
+            }
+        )
+        mock_provider.complete.return_value = (checkpoint_json, 100, 50)
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = mock_response
-            mock_anthropic.return_value = mock_client
-
-            mgr = CheckpointManager(tmp_db, api_key="fake-key")
-            cp = await mgr.create_checkpoint(
-                thread_id="t1",
-                phase="ideation",
-                round_number=5,
-                messages=[{"from": "agent-0", "content": "Test message"}],
-            )
+        mgr = CheckpointManager(tmp_db, provider=mock_provider)
+        cp = await mgr.create_checkpoint(
+            thread_id="t1",
+            phase="ideation",
+            round_number=5,
+            messages=[{"from": "agent-0", "content": "Test message"}],
+        )
 
         assert cp.hypothesis == "H1"
         assert cp.key_findings == ["f1"]

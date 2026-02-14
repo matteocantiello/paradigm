@@ -504,7 +504,7 @@ class OrchestrationEngine:
         self._memory_store = memory_store
         self._checkpoint_mgr = CheckpointManager(
             database=database,
-            api_key=config.api_key or "",
+            provider=config.get_provider(),
             event_logger=logger,
         )
 
@@ -757,7 +757,7 @@ class OrchestrationEngine:
                     seed_prompt=self._seed_prompt,
                     thread_id=self._thread_id,
                     outcome_summary=f"Research cycle ended with status: {outcome}",
-                    api_key=self._config.api_key or "",
+                    provider=self._config.get_provider(),
                     model=self._config.memory.reflection_model,
                     database=self._db,
                 )

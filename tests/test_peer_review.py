@@ -1,7 +1,7 @@
 """Tests for peer review pipeline: review models, parsing, decision synthesis, publication, engine integration."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -456,7 +456,7 @@ class TestRejectPaper:
 
 @pytest.fixture
 def mock_config(tmp_path):
-    return Config(
+    config = Config(
         api_key="fake-api-key",
         storage={"data_dir": str(tmp_path / "data")},
         orchestrator={
@@ -471,11 +471,21 @@ def mock_config(tmp_path):
             "max_revision_rounds": 2,
         },
     )
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = _build_checkpoint_response()
+    mock_provider.default_model = "claude-sonnet-4-5-20250929"
+    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+    object.__setattr__(
+        config,
+        "get_provider_and_model_for_role",
+        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+    )
+    return config
 
 
 @pytest.fixture
 def mock_config_no_peer_review(tmp_path):
-    return Config(
+    config = Config(
         api_key="fake-api-key",
         storage={"data_dir": str(tmp_path / "data")},
         orchestrator={
@@ -488,6 +498,16 @@ def mock_config_no_peer_review(tmp_path):
             "enable_peer_review": False,
         },
     )
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = _build_checkpoint_response()
+    mock_provider.default_model = "claude-sonnet-4-5-20250929"
+    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+    object.__setattr__(
+        config,
+        "get_provider_and_model_for_role",
+        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+    )
+    return config
 
 
 def _make_mock_agent(agent_id: str, role: str, content: str | None = None):
@@ -602,23 +622,20 @@ def _make_writing_factory(
     return factory
 
 
-def _mock_checkpoint_response():
-    response = MagicMock()
-    response.content = [
-        MagicMock(
-            text=json.dumps(
-                {
-                    "hypothesis": "Test hypothesis",
-                    "key_findings": ["Finding 1"],
-                    "open_questions": ["Question 1"],
-                    "next_steps": ["Next step 1"],
-                    "conversation_summary": "Agents discussed the topic.",
-                }
-            )
-        )
-    ]
-    response.usage = MagicMock(input_tokens=200, output_tokens=100)
-    return response
+def _build_checkpoint_response(summary="The team discussed", hypothesis="Test hypothesis"):
+    return (
+        json.dumps(
+            {
+                "hypothesis": hypothesis,
+                "key_findings": ["finding"],
+                "open_questions": ["question"],
+                "next_steps": ["step"],
+                "conversation_summary": summary,
+            }
+        ),
+        100,
+        50,
+    )
 
 
 class TestEnginePublishedPath:
@@ -629,23 +646,18 @@ class TestEnginePublishedPath:
         """Full cycle through PUBLISHED with high-scoring reviews."""
         factory = _make_writing_factory()
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test stellar convection",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test stellar convection",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "published"
@@ -674,23 +686,18 @@ class TestEngineRejectedPath:
         ]
         factory = _make_writing_factory(reviewer_texts=low_score_reviews)
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Bad research topic",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Bad research topic",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "rejected"
@@ -715,23 +722,18 @@ class TestEngineDeskRejection:
             editor_desk_response="## Decision\ndesk_reject\n\n## Reason\nIncoherent paper."
         )
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Incoherent topic",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Incoherent topic",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "rejected"
@@ -767,23 +769,18 @@ class TestEngineRevisionLoop:
         all_review_texts = revision_reviews + accept_reviews
         factory = _make_writing_factory(reviewer_texts=all_review_texts)
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Topic needing revision",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Topic needing revision",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "published"
@@ -799,23 +796,18 @@ class TestEnginePeerReviewDisabled:
         """When enable_peer_review=False, cycle stops at 'reviewed' status."""
         factory = _make_writing_factory()
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config_no_peer_review,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config_no_peer_review,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test topic",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test topic",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "reviewed"

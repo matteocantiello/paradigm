@@ -109,13 +109,16 @@ class AgentFactory:
             max_skill_chars=max_skill_chars,
         )
 
+        # Resolve provider + model for this role
+        provider, resolved_model = self._config.get_provider_and_model_for_role(role)
+
         # Build Agent kwargs
         agent_kwargs: dict[str, Any] = {
             "agent_id": agent_id,
             "skill_profile": role,
             "system_prompt": system_prompt,
-            "api_key": self._config.api_key or "",
-            "model": kwargs.pop("model", self._config.agent.default_model),
+            "provider": provider,
+            "model": kwargs.pop("model", resolved_model),
             "max_tokens": kwargs.pop("max_tokens", self._config.agent.max_tokens),
             "temperature": kwargs.pop("temperature", self._config.agent.temperature),
         }

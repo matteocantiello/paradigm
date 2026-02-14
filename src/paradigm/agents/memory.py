@@ -413,7 +413,7 @@ async def generate_reflections(
     seed_prompt: str,
     thread_id: str,
     outcome_summary: str,
-    api_key: str,
+    provider: Any,
     model: str = "claude-sonnet-4-5-20250929",
     database: Any | None = None,
 ) -> list[ReflectionResult]:
@@ -425,16 +425,13 @@ async def generate_reflections(
         seed_prompt: The original research prompt.
         thread_id: Thread identifier.
         outcome_summary: Brief description of cycle outcome.
-        api_key: Anthropic API key.
+        provider: LLMProvider instance for reflection calls.
         model: Model to use for reflection calls.
         database: Optional Database for token tracking.
 
     Returns:
         List of ReflectionResult (one per agent that contributed).
     """
-    from anthropic import Anthropic
-
-    client = Anthropic(api_key=api_key)
     results: list[ReflectionResult] = []
 
     for agent_id, agent in agents.items():
@@ -460,10 +457,11 @@ async def generate_reflections(
         )
 
         try:
-            response = client.messages.create(
+            text, input_tokens, output_tokens = provider.complete(
                 model=model,
                 max_tokens=1024,
                 temperature=0.3,
+                system="",
                 messages=[{"role": "user", "content": prompt}],
             )
 
@@ -471,13 +469,12 @@ async def generate_reflections(
             if database is not None:
                 database.record_token_usage(
                     model=model,
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
                     agent_id=agent_id,
                     thread_id=thread_id,
                 )
 
-            text = response.content[0].text if response.content else ""
             result = _parse_reflection_response(text, agent_id, thread_id)
             results.append(result)
 

@@ -1,6 +1,12 @@
 # Paradigm Default Configuration
 # API key is loaded from .env file (ANTHROPIC_API_KEY)
 
+# LLM provider registry
+providers:
+  anthropic:
+    type: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+
 # Agent configuration
 agent:
   default_model: "claude-sonnet-4-5-20250929"
@@ -9,7 +15,13 @@ agent:
   temperature: 1.0
   token_budget_per_thread: 1000000
   token_budget_per_agent: 100000
-  
+  default_provider: anthropic
+  # Per-role provider/model overrides (uncomment to use):
+  # overrides:
+  #   skeptic:
+  #     provider: together
+  #     model: deepseek-ai/DeepSeek-R1
+
 # Sandbox configuration
 sandbox:
   enabled: true

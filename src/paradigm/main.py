@@ -235,7 +235,7 @@ def inspect(config: Config, thread: str) -> None:
 
     database = Database(config.storage.db_path)
     try:
-        mgr = CheckpointManager(database, api_key=config.api_key or "")
+        mgr = CheckpointManager(database, provider=config.get_provider())
         checkpoint = mgr.load_checkpoint(thread)
         if checkpoint:
             click.echo(checkpoint.to_context_string())

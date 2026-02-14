@@ -1,6 +1,6 @@
 """Tests for agent base class."""
 
-import os
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -8,24 +8,21 @@ from paradigm.agents.base import Agent, Message
 
 
 @pytest.fixture
-def mock_api_key():
-    """Set a mock API key for testing."""
-    original_key = os.environ.get("ANTHROPIC_API_KEY")
-    os.environ["ANTHROPIC_API_KEY"] = "test-api-key"
-    yield "test-api-key"
-    if original_key:
-        os.environ["ANTHROPIC_API_KEY"] = original_key
-    else:
-        del os.environ["ANTHROPIC_API_KEY"]
+def mock_provider():
+    """Create a mock LLM provider for testing."""
+    provider = MagicMock()
+    provider.complete.return_value = ("test response", 10, 20)
+    provider.default_model = "claude-sonnet-4-5-20250929"
+    return provider
 
 
-def test_agent_initialization(mock_api_key):
+def test_agent_initialization(mock_provider):
     """Test agent initialization."""
     agent = Agent(
         agent_id="test-agent",
         skill_profile="theorist",
         system_prompt="You are a theorist.",
-        api_key=mock_api_key,
+        provider=mock_provider,
     )
 
     assert agent.agent_id == "test-agent"
@@ -35,13 +32,13 @@ def test_agent_initialization(mock_api_key):
     assert agent.total_output_tokens == 0
 
 
-def test_agent_custom_model(mock_api_key):
+def test_agent_custom_model(mock_provider):
     """Test agent with custom model."""
     agent = Agent(
         agent_id="test-agent",
         skill_profile="theorist",
         system_prompt="You are a theorist.",
-        api_key=mock_api_key,
+        provider=mock_provider,
         model="claude-opus-4-6",
         max_tokens=8192,
         temperature=0.5,
@@ -52,13 +49,13 @@ def test_agent_custom_model(mock_api_key):
     assert agent.temperature == 0.5
 
 
-def test_format_message(mock_api_key):
+def test_format_message(mock_provider):
     """Test message formatting."""
     agent = Agent(
         agent_id="test-agent",
         skill_profile="theorist",
         system_prompt="You are a theorist.",
-        api_key=mock_api_key,
+        provider=mock_provider,
     )
 
     message = agent.format_message(
@@ -103,13 +100,13 @@ def test_message_model():
     assert "type" in message_dict
 
 
-def test_get_total_usage(mock_api_key):
+def test_get_total_usage(mock_provider):
     """Test getting total token usage."""
     agent = Agent(
         agent_id="test-agent",
         skill_profile="theorist",
         system_prompt="You are a theorist.",
-        api_key=mock_api_key,
+        provider=mock_provider,
     )
 
     # Manually set token counts (simulating API calls)
@@ -122,13 +119,13 @@ def test_get_total_usage(mock_api_key):
     assert usage.total_tokens == 3000
 
 
-def test_reset_usage(mock_api_key):
+def test_reset_usage(mock_provider):
     """Test resetting token usage."""
     agent = Agent(
         agent_id="test-agent",
         skill_profile="theorist",
         system_prompt="You are a theorist.",
-        api_key=mock_api_key,
+        provider=mock_provider,
     )
 
     agent.total_input_tokens = 1000

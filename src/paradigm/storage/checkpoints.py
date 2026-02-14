@@ -1,13 +1,18 @@
 """Checkpoint compression for research threads."""
 
+from __future__ import annotations
+
 import json
 import logging
+from typing import TYPE_CHECKING
 
-from anthropic import Anthropic
 from pydantic import BaseModel, Field
 
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.storage.database import Database
+
+if TYPE_CHECKING:
+    from paradigm.agents.providers import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +89,7 @@ class CheckpointManager:
     def __init__(
         self,
         database: Database,
-        api_key: str,
+        provider: LLMProvider,
         event_logger: EventLogger | None = None,
         compression_model: str = "claude-sonnet-4-5-20250929",
     ) -> None:
@@ -92,12 +97,12 @@ class CheckpointManager:
 
         Args:
             database: Database for persistence.
-            api_key: Anthropic API key for compression calls.
+            provider: LLM provider for compression calls.
             event_logger: Optional event logger.
             compression_model: Model to use for compression.
         """
         self._db = database
-        self._client = Anthropic(api_key=api_key)
+        self._provider = provider
         self._logger = event_logger
         self._model = compression_model
 
@@ -109,7 +114,7 @@ class CheckpointManager:
         messages: list[dict[str, str]],
         previous_checkpoint: Checkpoint | None = None,
     ) -> Checkpoint:
-        """Compress conversation into a checkpoint via Claude.
+        """Compress conversation into a checkpoint via LLM.
 
         Args:
             thread_id: Research thread ID.
@@ -137,18 +142,14 @@ class CheckpointManager:
             messages_text=messages_text,
         )
 
-        # Call Claude for compression
-        response = self._client.messages.create(
+        # Call LLM for compression
+        raw, input_tokens, output_tokens = self._provider.complete(
             model=self._model,
             max_tokens=2048,
             temperature=0.3,
+            system="",
             messages=[{"role": "user", "content": prompt}],
         )
-
-        raw = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                raw += block.text
 
         # Parse JSON response
         summary = self._parse_summary(raw)
@@ -191,8 +192,8 @@ class CheckpointManager:
         # Track token usage for compression call
         self._db.record_token_usage(
             model=self._model,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             agent_id="checkpoint_compressor",
             thread_id=thread_id,
         )

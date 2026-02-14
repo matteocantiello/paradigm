@@ -1,9 +1,13 @@
 """Base agent implementation."""
 
-from typing import Any
+from __future__ import annotations
 
-from anthropic import Anthropic
+from typing import TYPE_CHECKING, Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from paradigm.agents.providers import LLMProvider
 
 
 class Message(BaseModel):
@@ -38,14 +42,14 @@ class AgentResponse(BaseModel):
 
 
 class Agent:
-    """Base agent class that calls Claude API."""
+    """Base agent class that calls an LLM provider."""
 
     def __init__(
         self,
         agent_id: str,
         skill_profile: str,
         system_prompt: str,
-        api_key: str,
+        provider: LLMProvider,
         model: str = "claude-sonnet-4-5-20250929",
         max_tokens: int = 4096,
         temperature: float = 1.0,
@@ -56,8 +60,8 @@ class Agent:
             agent_id: Unique agent identifier
             skill_profile: Agent skill type (theorist, analyst, etc.)
             system_prompt: System prompt defining agent behavior
-            api_key: Anthropic API key
-            model: Claude model to use
+            provider: LLM provider for API calls
+            model: Model to use
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature
         """
@@ -70,7 +74,7 @@ class Agent:
 
         self.skills: list[str] = []
 
-        self.client = Anthropic(api_key=api_key)
+        self._provider = provider
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
@@ -83,7 +87,7 @@ class Agent:
         context: list[dict[str, str]] | None = None,
         max_tokens: int | None = None,
     ) -> AgentResponse:
-        """Generate a response using Claude API.
+        """Generate a response using the LLM provider.
 
         Uses streaming automatically for large max_tokens to avoid
         Anthropic's 10-minute request timeout.
@@ -114,23 +118,18 @@ class Agent:
 
     def _generate_sync(self, messages: list[dict[str, str]], max_tokens: int) -> AgentResponse:
         """Non-streaming API call for small responses."""
-        response = self.client.messages.create(
+        content, input_tokens, output_tokens = self._provider.complete(
             model=self.model,
-            max_tokens=max_tokens,
-            temperature=self.temperature,
             system=self.system_prompt,
             messages=messages,
+            max_tokens=max_tokens,
+            temperature=self.temperature,
         )
 
-        content = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                content += block.text
-
         usage = TokenUsage(
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
         )
 
         self.total_input_tokens += usage.input_tokens
@@ -144,20 +143,18 @@ class Agent:
         input_tokens = 0
         output_tokens = 0
 
-        with self.client.messages.stream(
+        for chunk, in_tok, out_tok in self._provider.complete_streaming(
             model=self.model,
-            max_tokens=max_tokens,
-            temperature=self.temperature,
             system=self.system_prompt,
             messages=messages,
-        ) as stream:
-            for text in stream.text_stream:
-                content_parts.append(text)
-
-            # Get final message for usage stats
-            final_message = stream.get_final_message()
-            input_tokens = final_message.usage.input_tokens
-            output_tokens = final_message.usage.output_tokens
+            max_tokens=max_tokens,
+            temperature=self.temperature,
+        ):
+            if chunk:
+                content_parts.append(chunk)
+            if in_tok or out_tok:
+                input_tokens = in_tok
+                output_tokens = out_tok
 
         content = "".join(content_parts)
         usage = TokenUsage(

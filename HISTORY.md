@@ -801,3 +801,79 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 ### Prompt — Add total execution time to session output
 
 > Together with the total number of tokens, it would be great to print and log the total execution time for a paradigm session
+
+### Prompt — Refactor test_orchestrator.py for multi-provider LLM abstraction
+
+> Refactor test_orchestrator.py to use multi-provider LLM abstraction: change _mock_checkpoint_response() to return (json_text, input_tokens, output_tokens) tuple, add mock provider to mock_config fixture, remove all `patch("paradigm.storage.checkpoints.Anthropic")` and `patch("paradigm.agents.memory.Anthropic")` wrappers, change Agent constructors from api_key to provider=MagicMock().
+
+**Key decisions**: Only change mocking patterns, not test logic or assertions.
+
+**Artifacts modified**: `tests/test_orchestrator.py`
+
+### Prompt — Refactor test_peer_review.py for multi-provider LLM abstraction
+
+> Update tests/test_peer_review.py: add mock provider to mock_config fixtures, add _build_checkpoint_response() helper returning (json_text, input_tokens, output_tokens) tuple, remove all `patch("paradigm.storage.checkpoints.Anthropic")` wrappers and associated mock_client setup, change Agent constructors from api_key to provider=MagicMock().
+
+**Key decisions**: Only change mocking patterns, not test logic or assertions.
+
+**Artifacts modified**: `tests/test_peer_review.py`
+
+### Prompt — Refactor test_experimentation.py for multi-provider LLM abstraction
+
+> Update tests/test_experimentation.py: change _mock_checkpoint_response() to return (json_text, input_tokens, output_tokens) tuple, add mock provider to mock_config and mock_config_no_sandbox fixtures, remove all `patch("paradigm.storage.checkpoints.Anthropic")` wrappers and associated mock_client setup, change Agent constructors from api_key to provider=MagicMock(). Keep combined `with` statements that patch other things besides checkpoints.Anthropic but remove only the checkpoints.Anthropic part.
+
+**Key decisions**: Only change mocking patterns, not test logic or assertions.
+
+**Artifacts modified**: `tests/test_experimentation.py`
+
+### Prompt — Refactor test_writing.py for multi-provider LLM abstraction
+
+> Refactor test_writing.py to use multi-provider LLM abstraction: add _build_checkpoint_response() returning (json_text, input_tokens, output_tokens) tuple, add mock provider to mock_config and mock_config_no_writing fixtures, remove all `patch("paradigm.storage.checkpoints.Anthropic")` wrappers and un-indent, change Agent constructors from api_key to provider=MagicMock().
+
+**Key decisions**: Only change mocking patterns, not test logic or assertions.
+
+**Artifacts modified**: `tests/test_writing.py`
+
+### Prompt — Refactor test_debate.py for multi-provider LLM abstraction
+
+> Update tests/test_debate.py: add _build_checkpoint_response() helper returning (json_text, input_tokens, output_tokens) tuple, add mock provider to mock_config fixture, remove `patch("paradigm.storage.checkpoints.Anthropic")` wrapper in _build_engine and un-indent, add mock provider to inline Config() usages, add `import json`.
+
+**Key decisions**: Only change mocking patterns, not test logic or assertions.
+
+**Artifacts modified**: `tests/test_debate.py`
+
+### Prompt — Multi-Provider LLM Refactoring
+
+> Implement the following plan: [Multi-Provider LLM Refactoring plan]
+
+**Goal**: Introduce an LLM provider abstraction layer enabling multi-backend support (Anthropic, OpenAI-compatible APIs like Together.ai, Fireworks, DeepInfra) while maintaining backward compatibility.
+
+**Key decisions**:
+- LLMProvider Protocol with AnthropicProvider and OpenAICompatibleProvider implementations
+- Config-driven provider registry with per-role overrides
+- Provider + model resolved per agent role via Config helper methods
+- openai package is an optional dependency
+- Backward compatible: auto-creates anthropic provider if providers dict is empty
+
+**Artifacts produced**:
+- NEW: `src/paradigm/agents/providers.py` — LLMProvider Protocol, AnthropicProvider, OpenAICompatibleProvider, create_provider() factory
+- NEW: `tests/test_providers.py` — 26 unit tests for providers, config integration
+
+**Artifacts modified**:
+- `src/paradigm/config.py` — Added ProviderConfigEntry, AgentOverrideConfig, provider registry, get_provider(), get_provider_and_model_for_role()
+- `configs/default.yaml` — Added providers section
+- `src/paradigm/agents/base.py` — Replaced api_key with LLMProvider
+- `src/paradigm/agents/factory.py` — Uses get_provider_and_model_for_role()
+- `src/paradigm/storage/checkpoints.py` — Replaced api_key with LLMProvider
+- `src/paradigm/agents/memory.py` — Replaced api_key with LLMProvider
+- `src/paradigm/orchestrator/engine.py` — Updated 2 call sites
+- `pyproject.toml` — Added openai optional dependency
+- All test files updated to use mock providers with object.__setattr__() for Pydantic v2 compatibility
+
+**Final result**: 477 tests passing, lint clean, format clean
+
+### Prompt 66 — Update README.md
+
+> Let's also update the readme.md, which is what is shown on github and is the first description of paradigm. Let's make it informative, useful to get started, and exciting!
+
+**Status**: In progress — planning README update to make it compelling for GitHub visitors and useful for getting started with Paradigm.

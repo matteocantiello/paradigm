@@ -1,7 +1,7 @@
 """Tests for paper models, writing phase, and review pipeline."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -275,9 +275,25 @@ def tmp_logger(tmp_path):
     return EventLogger(tmp_path / "events.jsonl")
 
 
+def _build_checkpoint_response(summary="The team discussed", hypothesis="Test hypothesis"):
+    return (
+        json.dumps(
+            {
+                "hypothesis": hypothesis,
+                "key_findings": ["finding"],
+                "open_questions": ["question"],
+                "next_steps": ["step"],
+                "conversation_summary": summary,
+            }
+        ),
+        100,
+        50,
+    )
+
+
 @pytest.fixture
 def mock_config(tmp_path):
-    return Config(
+    config = Config(
         api_key="fake-api-key",
         storage={"data_dir": str(tmp_path / "data")},
         orchestrator={
@@ -290,11 +306,21 @@ def mock_config(tmp_path):
             "enable_peer_review": False,
         },
     )
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = _build_checkpoint_response()
+    mock_provider.default_model = "claude-sonnet-4-5-20250929"
+    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+    object.__setattr__(
+        config,
+        "get_provider_and_model_for_role",
+        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+    )
+    return config
 
 
 @pytest.fixture
 def mock_config_no_writing(tmp_path):
-    return Config(
+    config = Config(
         api_key="fake-api-key",
         storage={"data_dir": str(tmp_path / "data")},
         orchestrator={
@@ -307,6 +333,16 @@ def mock_config_no_writing(tmp_path):
             "enable_peer_review": False,
         },
     )
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = _build_checkpoint_response()
+    mock_provider.default_model = "claude-sonnet-4-5-20250929"
+    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+    object.__setattr__(
+        config,
+        "get_provider_and_model_for_role",
+        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+    )
+    return config
 
 
 def _make_mock_agent(agent_id: str, role: str, content: str | None = None):
@@ -398,48 +434,24 @@ def mock_corpus():
     return corpus
 
 
-def _mock_checkpoint_response():
-    response = MagicMock()
-    response.content = [
-        MagicMock(
-            text=json.dumps(
-                {
-                    "hypothesis": "Test hypothesis",
-                    "key_findings": ["Finding 1"],
-                    "open_questions": ["Question 1"],
-                    "next_steps": ["Next step 1"],
-                    "conversation_summary": "Agents discussed the topic.",
-                }
-            )
-        )
-    ]
-    response.usage = MagicMock(input_tokens=200, output_tokens=100)
-    return response
-
-
 class TestWritingPhaseEngine:
     @pytest.mark.asyncio
     async def test_full_cycle_with_writing(self, mock_config, tmp_db, tmp_logger, mock_corpus):
         """Full cycle SEEDING -> IDEATION -> PLANNING -> WRITING -> REVIEW."""
         factory = _make_writing_factory()
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test stellar convection",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test stellar convection",
+            mode="directed",
+        )
 
         # Thread completed
         thread = tmp_db.get_thread(thread_id)
@@ -458,23 +470,18 @@ class TestWritingPhaseEngine:
         """When enable_writing=False, cycle stops after PLANNING."""
         factory = _make_writing_factory()
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config_no_writing,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config_no_writing,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test topic",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test topic",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "planning_complete"
@@ -485,23 +492,18 @@ class TestWritingPhaseEngine:
         """Paper is persisted to the papers table."""
         factory = _make_writing_factory()
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Convection in massive stars",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Convection in massive stars",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         paper_id = thread["current_draft_id"]
@@ -520,23 +522,18 @@ class TestWritingPhaseEngine:
         """Phase transitions include WRITING and INTERNAL_REVIEW."""
         factory = _make_writing_factory()
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test",
+            mode="directed",
+        )
 
         from paradigm.logging.events import EventType
 
@@ -553,23 +550,18 @@ class TestWritingPhaseEngine:
         """When editor recommends accept, no revision round occurs."""
         factory = _make_writing_factory()
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test",
+            mode="directed",
+        )
 
         # Editor's default response recommends "Accept" so paper should be "reviewed"
         thread = tmp_db.get_thread(thread_id)

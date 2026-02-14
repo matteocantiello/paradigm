@@ -35,7 +35,7 @@ def tmp_logger(tmp_path):
 @pytest.fixture
 def mock_config(tmp_path):
     """Create a config with small round counts for testing."""
-    return Config(
+    config = Config(
         api_key="fake-api-key",
         storage={"data_dir": str(tmp_path / "data")},
         orchestrator={
@@ -46,6 +46,16 @@ def mock_config(tmp_path):
             "enable_experimentation": False,
         },
     )
+    mock_provider = MagicMock()
+    mock_provider.complete.return_value = _build_checkpoint_response()
+    mock_provider.default_model = "claude-sonnet-4-5-20250929"
+    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+    object.__setattr__(
+        config,
+        "get_provider_and_model_for_role",
+        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+    )
+    return config
 
 
 # Long response content that exceeds _MIN_PAPER_LENGTH for writing tests
@@ -126,24 +136,21 @@ def mock_corpus():
     return corpus
 
 
-def _mock_checkpoint_response():
-    """Build a mock Anthropic response for checkpoint compression."""
-    response = MagicMock()
-    response.content = [
-        MagicMock(
-            text=json.dumps(
-                {
-                    "hypothesis": "Test hypothesis from checkpoint",
-                    "key_findings": ["Finding 1"],
-                    "open_questions": ["Question 1"],
-                    "next_steps": ["Next step 1"],
-                    "conversation_summary": "Agents discussed the topic.",
-                }
-            )
-        )
-    ]
-    response.usage = MagicMock(input_tokens=200, output_tokens=100)
-    return response
+def _build_checkpoint_response():
+    """Build a mock provider.complete() response for checkpoint compression."""
+    return (
+        json.dumps(
+            {
+                "hypothesis": "Test hypothesis from checkpoint",
+                "key_findings": ["Finding 1"],
+                "open_questions": ["Question 1"],
+                "next_steps": ["Next step 1"],
+                "conversation_summary": "Agents discussed the topic.",
+            }
+        ),
+        200,
+        100,
+    )
 
 
 class TestOrchestrationEngine:
@@ -152,23 +159,18 @@ class TestOrchestrationEngine:
     @pytest.mark.asyncio
     async def test_full_cycle(self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus):
         """Full SEEDING -> IDEATION -> PLANNING cycle with mocked agents."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test stellar convection",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test stellar convection",
+            mode="directed",
+        )
 
         # Thread was created
         assert thread_id.startswith("thread-")
@@ -196,24 +198,19 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Thread is created with correct metadata."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test topic",
-                mode="directed",
-                team_roles=["theorist", "analyst"],
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test topic",
+            mode="directed",
+            team_roles=["theorist", "analyst"],
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["mode"] == "directed"
@@ -227,23 +224,18 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Phase transitions are logged as events."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test",
+            mode="directed",
+        )
 
         events = tmp_logger.read_events(event_type=EventType.PHASE_TRANSITION)
         # seeding + ideation + planning = 3 phase transition events
@@ -254,23 +246,18 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Checkpoints are created and saved to DB."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["checkpoint_summary"] is not None
@@ -285,23 +272,18 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Agent messages are collected during rounds."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test",
+            mode="directed",
+        )
 
         # Agent message events were logged
         events = tmp_logger.read_events(event_type=EventType.AGENT_MESSAGE)
@@ -312,24 +294,19 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Custom team roles are respected."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test",
-                mode="directed",
-                team_roles=["theorist", "skeptic"],
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test",
+            mode="directed",
+            team_roles=["theorist", "skeptic"],
+        )
 
         mock_factory.create_team.assert_called_once_with(
             ["theorist", "skeptic"], skill_mode="default"
@@ -340,23 +317,18 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Explore mode uses the correct team composition from MODE_TEAM_ROLES."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test exploration",
-                mode="explore",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test exploration",
+            mode="explore",
+        )
 
         expected_roles = MODE_TEAM_ROLES["explore"]
         mock_factory.create_team.assert_called_once_with(expected_roles, skill_mode="default")
@@ -366,23 +338,18 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Directed mode uses the correct team composition."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test directed",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test directed",
+            mode="directed",
+        )
 
         expected_roles = MODE_TEAM_ROLES["directed"]
         mock_factory.create_team.assert_called_once_with(expected_roles, skill_mode="default")
@@ -392,23 +359,18 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Hypothesis mode uses a smaller, focused team."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test hypothesis",
-                mode="hypothesis",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test hypothesis",
+            mode="hypothesis",
+        )
 
         expected_roles = MODE_TEAM_ROLES["hypothesis"]
         mock_factory.create_team.assert_called_once_with(expected_roles, skill_mode="default")
@@ -418,24 +380,19 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Explicit team_roles overrides mode-based defaults."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test custom",
-                mode="hypothesis",
-                team_roles=["writer", "editor"],
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test custom",
+            mode="hypothesis",
+            team_roles=["writer", "editor"],
+        )
 
         # Should use the explicit roles, not hypothesis defaults
         mock_factory.create_team.assert_called_once_with(["writer", "editor"], skill_mode="default")
@@ -454,23 +411,18 @@ class TestOrchestrationEngine:
             lessons_learned="Need more original hypotheses about convection",
         )
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test stellar convection",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test stellar convection",
+            mode="directed",
+        )
 
         # Graveyard context should have been set on the engine
         graveyard_ctx = getattr(engine, "_graveyard_context", "")
@@ -487,24 +439,19 @@ class TestOrchestrationEngine:
             hook_calls.append((from_phase, to_phase))
             return "continue"
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+            intervention_hook=hook,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-                intervention_hook=hook,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test hook",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test hook",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "planning_complete"
@@ -518,24 +465,19 @@ class TestOrchestrationEngine:
         def hook(thread_id, from_phase, to_phase):
             return "abort"
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+            intervention_hook=hook,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-                intervention_hook=hook,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test abort",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test abort",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "aborted"
@@ -547,24 +489,19 @@ class TestOrchestrationEngine:
         def hook(thread_id, from_phase, to_phase):
             return "pause"
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+            intervention_hook=hook,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-                intervention_hook=hook,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test pause",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test pause",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "paused"
@@ -574,24 +511,19 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Without a hook, cycle proceeds normally (same as 'continue')."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+            # No intervention_hook
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-                # No intervention_hook
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test no hook",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test no hook",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "planning_complete"
@@ -621,23 +553,18 @@ class TestOrchestrationEngine:
 
         factory.create_team = MagicMock(side_effect=_create_team)
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test search",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test search",
+            mode="directed",
+        )
 
         # corpus.search should have been called with the extracted query
         mock_corpus.search.assert_called()
@@ -688,23 +615,18 @@ class TestOrchestrationEngine:
 
         factory.create_team = MagicMock(side_effect=_create_team)
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test search log",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test search log",
+            mode="directed",
+        )
 
         # _search_log should have entries
         assert len(engine._search_log) >= 1
@@ -718,48 +640,43 @@ class TestOrchestrationEngine:
     @pytest.mark.asyncio
     async def test_save_search_log_writes_file(self, mock_config, tmp_db, tmp_logger, mock_corpus):
         """_save_search_log writes a literature_searches.md file."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        engine._thread_id = "thread-test123"
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=MagicMock(),
-            )
-            engine._thread_id = "thread-test123"
+        # Manually populate search log
+        engine._search_log = [
+            {
+                "query": "Cepheid metallicity",
+                "agent_id": "theorist-0",
+                "phase": "ResearchPhase.IDEATION",
+                "papers": [
+                    {
+                        "arxiv_id": "2401.12345",
+                        "title": "Cepheid PLR",
+                        "authors": ["Smith", "Jones"],
+                        "year": "2024",
+                    },
+                ],
+            },
+            {
+                "query": "RR Lyrae distance scale",
+                "agent_id": "analyst-0",
+                "phase": "ResearchPhase.PLANNING",
+                "papers": [],
+            },
+        ]
 
-            # Manually populate search log
-            engine._search_log = [
-                {
-                    "query": "Cepheid metallicity",
-                    "agent_id": "theorist-0",
-                    "phase": "ResearchPhase.IDEATION",
-                    "papers": [
-                        {
-                            "arxiv_id": "2401.12345",
-                            "title": "Cepheid PLR",
-                            "authors": ["Smith", "Jones"],
-                            "year": "2024",
-                        },
-                    ],
-                },
-                {
-                    "query": "RR Lyrae distance scale",
-                    "agent_id": "analyst-0",
-                    "phase": "ResearchPhase.PLANNING",
-                    "papers": [],
-                },
-            ]
+        # Ensure papers dir exists
+        papers_dir = mock_config.storage.papers_dir
+        papers_dir.mkdir(parents=True, exist_ok=True)
 
-            # Ensure papers dir exists
-            papers_dir = mock_config.storage.papers_dir
-            papers_dir.mkdir(parents=True, exist_ok=True)
-
-            engine._save_search_log("paper-test001")
+        engine._save_search_log("paper-test001")
 
         path = papers_dir / "paper-test001" / "literature_searches.md"
         assert path.exists()
@@ -778,58 +695,53 @@ class TestOrchestrationEngine:
         """_save_review_log writes a reviews.md file."""
         from paradigm.journal.review import PeerReview
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        engine._thread_id = "thread-test456"
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=MagicMock(),
-            )
-            engine._thread_id = "thread-test456"
+        # Manually populate review log
+        engine._review_log = [
+            {
+                "type": "internal_review",
+                "reviewer_id": "editor-0",
+                "text": "The paper needs more rigor in Section 3.",
+                "iteration": 1,
+            },
+            {
+                "type": "desk_review",
+                "reviewer_id": "editor-0",
+                "text": "Paper is suitable for review.",
+                "decision": "send_to_review",
+            },
+            {
+                "type": "peer_review",
+                "reviewer_id": "peer-reviewer-0",
+                "text": "Good paper with minor issues.",
+                "review": PeerReview(
+                    reviewer_id="peer-reviewer-0",
+                    recommendation="minor_revision",
+                    scores={"novelty": 7, "rigor": 6, "clarity": 8, "significance": 7},
+                ),
+            },
+            {
+                "type": "decision",
+                "decision": "minor_revision",
+            },
+            {
+                "type": "revision",
+                "reviewer_id": "writer-0",
+            },
+        ]
 
-            # Manually populate review log
-            engine._review_log = [
-                {
-                    "type": "internal_review",
-                    "reviewer_id": "editor-0",
-                    "text": "The paper needs more rigor in Section 3.",
-                    "iteration": 1,
-                },
-                {
-                    "type": "desk_review",
-                    "reviewer_id": "editor-0",
-                    "text": "Paper is suitable for review.",
-                    "decision": "send_to_review",
-                },
-                {
-                    "type": "peer_review",
-                    "reviewer_id": "peer-reviewer-0",
-                    "text": "Good paper with minor issues.",
-                    "review": PeerReview(
-                        reviewer_id="peer-reviewer-0",
-                        recommendation="minor_revision",
-                        scores={"novelty": 7, "rigor": 6, "clarity": 8, "significance": 7},
-                    ),
-                },
-                {
-                    "type": "decision",
-                    "decision": "minor_revision",
-                },
-                {
-                    "type": "revision",
-                    "reviewer_id": "writer-0",
-                },
-            ]
+        papers_dir = mock_config.storage.papers_dir
+        papers_dir.mkdir(parents=True, exist_ok=True)
 
-            papers_dir = mock_config.storage.papers_dir
-            papers_dir.mkdir(parents=True, exist_ok=True)
-
-            engine._save_review_log("paper-test002")
+        engine._save_review_log("paper-test002")
 
         path = papers_dir / "paper-test002" / "reviews.md"
         assert path.exists()
@@ -860,17 +772,10 @@ class TestOrchestrationEngine:
         corpus.search = AsyncMock(return_value=[])
         corpus.fetch_and_ingest_url = AsyncMock(return_value=MagicMock(title="Test Paper"))
 
-        with (
-            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
-            patch(
-                "paradigm.orchestrator.engine.resolve_resource",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-        ):
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
-
+        with patch(
+            "paradigm.orchestrator.engine.resolve_resource",
+            new_callable=AsyncMock,
+        ) as mock_resolve:
             # resolve_resource returns a successful repo resource
             from paradigm.literature.resources import ResolvedResource, ResourceType
 
@@ -918,17 +823,10 @@ class TestOrchestrationEngine:
         """Resource contexts are included in agent prompts."""
         from paradigm.literature.resources import ResolvedResource, ResourceType
 
-        with (
-            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
-            patch(
-                "paradigm.orchestrator.engine.resolve_resource",
-                new_callable=AsyncMock,
-            ) as mock_resolve,
-        ):
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
-
+        with patch(
+            "paradigm.orchestrator.engine.resolve_resource",
+            new_callable=AsyncMock,
+        ) as mock_resolve:
             # Return a repo, a data file, and a reference for each URL type
             async def _mock_resolve(url, rtype, shared_dir, logger):
                 if rtype == ResourceType.CODE_REPO:
@@ -985,23 +883,18 @@ class TestOrchestrationEngine:
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
         """Editor and writer are excluded from IDEATION and PLANNING phases."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test filtering",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test filtering",
+            mode="directed",
+        )
 
         # Editor and writer should never have been called (IDEATION + PLANNING only)
         for agent in engine._agents.values():
@@ -1031,6 +924,15 @@ class TestOrchestrationEngine:
                 "enable_experimentation": False,
             },
         )
+        mock_provider = MagicMock()
+        mock_provider.complete.return_value = _build_checkpoint_response()
+        mock_provider.default_model = "claude-sonnet-4-5-20250929"
+        object.__setattr__(config_writing, "get_provider", MagicMock(return_value=mock_provider))
+        object.__setattr__(
+            config_writing,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+        )
 
         # Use long responses so paper passes _MIN_PAPER_LENGTH guard
         writing_factory = MagicMock()
@@ -1040,23 +942,18 @@ class TestOrchestrationEngine:
             ]
         )
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=config_writing,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=writing_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=config_writing,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=writing_factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test editor in review",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test editor in review",
+            mode="directed",
+        )
 
         # Editor should have been called during INTERNAL_REVIEW
         editor = None
@@ -1100,6 +997,17 @@ class TestOrchestrationEngine:
                 "enable_experimentation": False,
             },
         )
+        mock_provider = MagicMock()
+        mock_provider.complete.return_value = _build_checkpoint_response()
+        mock_provider.default_model = "claude-sonnet-4-5-20250929"
+        object.__setattr__(
+            mock_config_writing, "get_provider", MagicMock(return_value=mock_provider)
+        )
+        object.__setattr__(
+            mock_config_writing,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+        )
 
         # Use long responses so paper passes _MIN_PAPER_LENGTH guard
         writing_factory = MagicMock()
@@ -1109,23 +1017,18 @@ class TestOrchestrationEngine:
             ]
         )
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config_writing,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=writing_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config_writing,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=writing_factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test subdirectory layout",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test subdirectory layout",
+            mode="directed",
+        )
 
         # Find the paper_id from the thread
         thread = tmp_db.get_thread(thread_id)
@@ -1161,6 +1064,15 @@ class TestOrchestrationEngine:
                 "enable_peer_review": False,
             },
         )
+        mock_provider = MagicMock()
+        mock_provider.complete.return_value = _build_checkpoint_response()
+        mock_provider.default_model = "claude-sonnet-4-5-20250929"
+        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
+        object.__setattr__(
+            config,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+        )
 
         # Make all agents return errors during writing (simulating ConnectionError)
         def _create_failing_team(roles, skill_mode="default"):
@@ -1184,23 +1096,18 @@ class TestOrchestrationEngine:
 
         mock_factory.create_team = MagicMock(side_effect=_create_failing_team)
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=mock_factory,
-            )
-
-            thread_id = await engine.run_research_cycle(
-                seed_prompt="Test empty paper guard",
-                mode="directed",
-            )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test empty paper guard",
+            mode="directed",
+        )
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "writing_failed"
@@ -1275,23 +1182,18 @@ class TestOrchestrationEngine:
 
         factory.create_team = MagicMock(side_effect=_create_team)
 
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
-
-            await engine.run_research_cycle(
-                seed_prompt="Test dedup",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test dedup",
+            mode="directed",
+        )
 
         # After first search, both paper IDs should be in seen set
         assert "2401.00001" in engine._seen_paper_ids
@@ -1300,33 +1202,28 @@ class TestOrchestrationEngine:
     @pytest.mark.asyncio
     async def test_literature_context_limit(self, mock_config, tmp_db, tmp_logger, mock_corpus):
         """Literature context is trimmed when it exceeds _LITERATURE_CONTEXT_LIMIT."""
-        with patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = _mock_checkpoint_response()
-            mock_anthropic.return_value = mock_client
+        factory = MagicMock()
+        factory.create_team = MagicMock(
+            side_effect=lambda roles, skill_mode="default": [
+                _make_mock_agent(f"{role}-0", role) for role in roles
+            ]
+        )
 
-            factory = MagicMock()
-            factory.create_team = MagicMock(
-                side_effect=lambda roles, skill_mode="default": [
-                    _make_mock_agent(f"{role}-0", role) for role in roles
-                ]
-            )
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
 
-            engine = OrchestrationEngine(
-                config=mock_config,
-                database=tmp_db,
-                corpus=mock_corpus,
-                logger=tmp_logger,
-                agent_factory=factory,
-            )
+        # Manually set literature context to exceed limit
+        engine._literature_context = "x" * (_LITERATURE_CONTEXT_LIMIT + 5000)
 
-            # Manually set literature context to exceed limit
-            engine._literature_context = "x" * (_LITERATURE_CONTEXT_LIMIT + 5000)
-
-            await engine.run_research_cycle(
-                seed_prompt="Test context limit",
-                mode="directed",
-            )
+        await engine.run_research_cycle(
+            seed_prompt="Test context limit",
+            mode="directed",
+        )
 
         # Context should be within limit (it gets set fresh each cycle, but
         # the constant itself is what we're validating)

@@ -1,15 +1,24 @@
 """Configuration management for Paradigm."""
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Load .env file so ANTHROPIC_API_KEY is available via os.getenv
 load_dotenv()
+
+
+class AgentOverrideConfig(BaseModel):
+    """Per-role provider and model override."""
+
+    provider: str | None = None  # name from providers registry
+    model: str | None = None
 
 
 class AgentConfig(BaseModel):
@@ -21,6 +30,8 @@ class AgentConfig(BaseModel):
     temperature: float = 1.0
     token_budget_per_thread: int = 1_000_000
     token_budget_per_agent: int = 100_000
+    default_provider: str = "anthropic"
+    overrides: dict[str, AgentOverrideConfig] = Field(default_factory=dict)
 
 
 class SandboxConfig(BaseModel):
@@ -116,6 +127,15 @@ class MemoryConfig(BaseModel):
     max_memory_chars: int = 2000
 
 
+class ProviderConfigEntry(BaseModel):
+    """Configuration for a single LLM provider in the registry."""
+
+    type: str  # "anthropic" or "openai_compatible"
+    api_key_env: str  # env var name, NOT the key itself
+    base_url: str | None = None  # required for openai_compatible
+    default_model: str | None = None
+
+
 class Config(BaseModel):
     """Main configuration for Paradigm."""
 
@@ -126,6 +146,7 @@ class Config(BaseModel):
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    providers: dict[str, ProviderConfigEntry] = Field(default_factory=dict)
     api_key: str | None = Field(default=None, validate_default=True)
 
     @field_validator("api_key", mode="before")
@@ -137,6 +158,91 @@ class Config(BaseModel):
         if not v:
             raise ValueError("ANTHROPIC_API_KEY must be set in environment or config file")
         return v
+
+    @model_validator(mode="after")
+    def _ensure_providers(self) -> Config:
+        """Auto-create default anthropic provider if providers is empty."""
+        if not self.providers:
+            self.providers["anthropic"] = ProviderConfigEntry(
+                type="anthropic",
+                api_key_env="ANTHROPIC_API_KEY",
+            )
+
+        # Validate default_provider exists
+        if self.agent.default_provider not in self.providers:
+            raise ValueError(
+                f"agent.default_provider '{self.agent.default_provider}' "
+                f"not found in providers: {list(self.providers.keys())}"
+            )
+
+        # Validate override provider names exist
+        for role, override in self.agent.overrides.items():
+            if override.provider and override.provider not in self.providers:
+                raise ValueError(
+                    f"Override for role '{role}' references provider '{override.provider}' "
+                    f"not found in providers: {list(self.providers.keys())}"
+                )
+
+        return self
+
+    def get_provider(self, name: str | None = None) -> Any:
+        """Get an instantiated LLMProvider by name.
+
+        Args:
+            name: Provider name from the registry. If None, uses agent.default_provider.
+
+        Returns:
+            LLMProvider instance.
+        """
+        from paradigm.agents.providers import ProviderConfig, create_provider
+
+        if name is None:
+            name = self.agent.default_provider
+
+        entry = self.providers.get(name)
+        if entry is None:
+            raise ValueError(
+                f"Provider '{name}' not found in providers: {list(self.providers.keys())}"
+            )
+
+        return create_provider(
+            ProviderConfig(
+                type=entry.type,
+                api_key_env=entry.api_key_env,
+                base_url=entry.base_url,
+                default_model=entry.default_model,
+            )
+        )
+
+    def get_provider_and_model_for_role(self, role: str) -> tuple[Any, str]:
+        """Resolve provider + model for a given agent role.
+
+        Override chain: role override → agent defaults → provider defaults.
+
+        Args:
+            role: Agent role name (e.g. "theorist", "skeptic").
+
+        Returns:
+            (LLMProvider, model_name) tuple.
+        """
+        override = self.agent.overrides.get(role)
+
+        # Determine provider name
+        provider_name = self.agent.default_provider
+        if override and override.provider:
+            provider_name = override.provider
+
+        provider = self.get_provider(provider_name)
+
+        # Determine model: role override → agent default → provider default
+        if override and override.model:
+            model = override.model
+        elif self.agent.default_model:
+            model = self.agent.default_model
+        else:
+            model = provider.default_model
+
+        return provider, model
 
 
 def load_config(config_path: str | Path | None = None) -> Config:
