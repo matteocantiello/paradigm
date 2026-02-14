@@ -502,9 +502,11 @@ class OrchestrationEngine:
         self._factory = agent_factory
         self._intervention_hook = intervention_hook
         self._memory_store = memory_store
+        _default_provider = config.get_provider()
         self._checkpoint_mgr = CheckpointManager(
             database=database,
-            provider=config.get_provider(),
+            provider=_default_provider,
+            compression_model=_default_provider.default_model,
             event_logger=logger,
         )
 
@@ -751,14 +753,15 @@ class OrchestrationEngine:
                 all_messages = self._collect_all_messages()
                 thread = self._db.get_thread(self._thread_id)
                 outcome = thread.get("status", "completed") if thread else "completed"
+                _reflection_provider = self._config.get_provider()
                 reflections = await generate_reflections(
                     agents=self._agents,
                     messages=all_messages,
                     seed_prompt=self._seed_prompt,
                     thread_id=self._thread_id,
                     outcome_summary=f"Research cycle ended with status: {outcome}",
-                    provider=self._config.get_provider(),
-                    model=self._config.memory.reflection_model,
+                    provider=_reflection_provider,
+                    model=_reflection_provider.default_model,
                     database=self._db,
                 )
                 total = sum(len(r.memories) for r in reflections)

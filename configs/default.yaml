@@ -6,6 +6,7 @@ providers:
   anthropic:
     type: anthropic
     api_key_env: ANTHROPIC_API_KEY
+    default_model: claude-sonnet-4-5-20250929
   together:
     type: openai_compatible
     api_key_env: TOGETHER_API_KEY
@@ -20,11 +21,14 @@ agent:
   temperature: 1.0
   token_budget_per_thread: 1000000
   token_budget_per_agent: 100000
-  default_provider: anthropic
+  default_provider: together
   overrides:
+    theorist:
+      provider: anthropic
+      model: claude-opus-4-6-20250514
     skeptic:
-      provider: together
-      model: deepseek-ai/DeepSeek-R1
+      provider: anthropic
+      model: claude-opus-4-6-20250514
 
 # Sandbox configuration
 sandbox:

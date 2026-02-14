@@ -842,6 +842,14 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 
 **Artifacts modified**: `tests/test_debate.py`
 
+### Prompt — Route frontier models to Anthropic, open models to Together.ai
+
+> Theorist and skeptic should be the ones running frontier models (Opus or Sonnet). Everything else should be outsourced to together.ai / open models. The roles that have to do the heavy lifting in terms of thinking should be on Claude API (Opus 4.6 possibly). Other agents use open models to save tokens.
+
+**Key decisions**: Flip default_provider to together, override theorist+skeptic to anthropic/opus, fix model resolution to use provider.default_model when no role override exists, update checkpoint/memory to use provider-appropriate models.
+
+**Artifacts modified**: `src/paradigm/config.py`, `configs/default.yaml`, `src/paradigm/orchestrator/engine.py`
+
 ### Prompt — Fix Desk Review Decision Parsing Bug
 
 > Implement the following plan: Fix Desk Review Decision Parsing Bug

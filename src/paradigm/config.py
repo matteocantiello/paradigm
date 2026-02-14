@@ -234,13 +234,13 @@ class Config(BaseModel):
 
         provider = self.get_provider(provider_name)
 
-        # Determine model: role override → agent default → provider default
+        # Determine model: role override → provider default → agent default
         if override and override.model:
             model = override.model
-        elif self.agent.default_model:
-            model = self.agent.default_model
-        else:
+        elif hasattr(provider, "default_model") and provider.default_model:
             model = provider.default_model
+        else:
+            model = self.agent.default_model
 
         return provider, model
 
