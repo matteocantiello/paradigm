@@ -6,6 +6,11 @@ providers:
   anthropic:
     type: anthropic
     api_key_env: ANTHROPIC_API_KEY
+  together:
+    type: openai_compatible
+    api_key_env: TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    default_model: deepseek-ai/DeepSeek-R1
 
 # Agent configuration
 agent:
@@ -16,11 +21,10 @@ agent:
   token_budget_per_thread: 1000000
   token_budget_per_agent: 100000
   default_provider: anthropic
-  # Per-role provider/model overrides (uncomment to use):
-  # overrides:
-  #   skeptic:
-  #     provider: together
-  #     model: deepseek-ai/DeepSeek-R1
+  overrides:
+    skeptic:
+      provider: together
+      model: deepseek-ai/DeepSeek-R1
 
 # Sandbox configuration
 sandbox:

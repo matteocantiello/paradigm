@@ -877,3 +877,17 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 > Let's also update the readme.md, which is what is shown on github and is the first description of paradigm. Let's make it informative, useful to get started, and exciting!
 
 **Status**: In progress — planning README update to make it compelling for GitHub visitors and useful for getting started with Paradigm.
+
+### Prompt: Configure Together.ai Provider
+
+> What steps do we need to follow to configure https://www.together.ai/ ? I will create an API key and add it to the .env file (?). What else is needed?
+> (followed by: yes — to apply the config changes)
+
+**Key decisions:**
+- Install `openai` optional dependency for OpenAI-compatible provider support
+- Add Together.ai provider to default.yaml with DeepSeek-R1 as default model
+- Route the skeptic agent through Together.ai/DeepSeek-R1 for epistemic diversity
+
+**Artifacts modified:**
+- `configs/default.yaml` — added Together provider + skeptic override
+- `pyproject.toml` — openai dependency already present from previous commit
