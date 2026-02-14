@@ -2,6 +2,7 @@
 
 import re
 import shutil
+import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -527,6 +528,7 @@ class OrchestrationEngine:
         self._reference_context: str = ""
         self._resolved_resources: list[ResolvedResource] = []
         self._debate_counts: dict[str, int] = {}  # phase_key → count
+        self._start_time: float = time.monotonic()
 
     async def run_research_cycle(
         self,
@@ -561,6 +563,7 @@ class OrchestrationEngine:
         self._reference_context = ""
         self._resolved_resources = []
         self._debate_counts = {}
+        self._start_time = time.monotonic()
 
         # Create agent team
         agents = self._factory.create_team(team_roles, skill_mode="default")
@@ -1785,12 +1788,23 @@ class OrchestrationEngine:
                 lines.append("Paper revised based on reviewer feedback.")
                 lines.append("\n---\n")
 
-        # Append token usage summary
+        # Append token usage and timing summary
         usage = self._get_token_summary()
-        lines.append("## Token Usage\n")
+        elapsed = time.monotonic() - self._start_time
+        minutes, seconds = divmod(int(elapsed), 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            time_str = f"{hours}h {minutes}m {seconds}s"
+        elif minutes:
+            time_str = f"{minutes}m {seconds}s"
+        else:
+            time_str = f"{seconds}s"
+
+        lines.append("## Session Summary\n")
         lines.append(f"**Input tokens:** {usage['input_tokens']:,}")
         lines.append(f"**Output tokens:** {usage['output_tokens']:,}")
         lines.append(f"**Total tokens:** {usage['total_tokens']:,}")
+        lines.append(f"**Elapsed time:** {time_str}")
 
         paper_dir = papers_dir / paper_id
         paper_dir.mkdir(parents=True, exist_ok=True)
@@ -1818,13 +1832,37 @@ class OrchestrationEngine:
         return [e.content for e in events if isinstance(e.content, dict)]
 
     def _print_token_summary(self) -> None:
-        """Display token usage summary at end of research cycle."""
+        """Display token usage and elapsed time at end of research cycle."""
         usage = self._get_token_summary()
         input_k = usage["input_tokens"] / 1000
         output_k = usage["output_tokens"] / 1000
         total_k = usage["total_tokens"] / 1000
+
+        elapsed = time.monotonic() - self._start_time
+        minutes, seconds = divmod(int(elapsed), 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            time_str = f"{hours}h {minutes}m {seconds}s"
+        elif minutes:
+            time_str = f"{minutes}m {seconds}s"
+        else:
+            time_str = f"{seconds}s"
+
         click.echo(
             f"\nToken usage: {total_k:.1f}K total ({input_k:.1f}K input, {output_k:.1f}K output)"
+        )
+        click.echo(f"Elapsed time: {time_str}")
+
+        self._logger.log(
+            EventType.STATE_CHANGE,
+            content={
+                "event": "cycle_complete",
+                "elapsed_seconds": round(elapsed, 1),
+                "total_tokens": usage["total_tokens"],
+                "input_tokens": usage["input_tokens"],
+                "output_tokens": usage["output_tokens"],
+            },
+            thread_id=self._thread_id,
         )
 
     def _save_auxiliary_files(self, paper_id: str) -> None:

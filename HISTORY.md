@@ -793,3 +793,11 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 ### Prompt — Fix SyntaxWarning from LaTeX escape sequences in sandbox
 
 > I am running a paradigm loop with the version with the new docker settings, and it looks like is encountering some errors: [SyntaxWarning: invalid escape sequence '\o' from `<unknown>` source during EXECUTION phase, causing retries and failures across multiple experiments]
+
+**Key decisions**: Suppress SyntaxWarning during ast.parse() in safety scanner; add raw-string hint to EXECUTION prompt.
+
+**Artifacts**: `src/paradigm/sandbox/safety.py`, `src/paradigm/orchestrator/engine.py`
+
+### Prompt — Add total execution time to session output
+
+> Together with the total number of tokens, it would be great to print and log the total execution time for a paradigm session
