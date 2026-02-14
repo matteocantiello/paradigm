@@ -26,6 +26,12 @@
 │  │                  Checkpoint Manager                           │    │
 │  │  Compress conversation → summary, save/load thread state     │    │
 │  └──────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐    │
+│  │                  Agent Memory Store                            │    │
+│  │  Episodic memories: inject at start, reflect at end           │    │
+│  │  ChromaDB "agent_memories" collection, recency × similarity   │    │
+│  └──────────────────────────────────────────────────────────────┘    │
 └──┬──────────┬──────────┬──────────┬──────────┬──────────────────────┘
    │          │          │          │          │
    ▼          ▼          ▼          ▼          ▼
@@ -72,11 +78,12 @@
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
 │  │   SQLite      │  │   ChromaDB   │  │   Event Log (JSONL)      │   │
 │  │              │  │              │  │                          │   │
-│  │ - papers     │  │ - embeddings │  │ - all agent messages     │   │
-│  │ - agents     │  │ - semantic   │  │ - API calls              │   │
-│  │ - threads    │  │   search     │  │ - code executions        │   │
-│  │ - graveyard  │  │              │  │ - state changes          │   │
+│  │ - papers     │  │ - paper      │  │ - all agent messages     │   │
+│  │ - agents     │  │   embeddings │  │ - API calls              │   │
+│  │ - threads    │  │ - agent      │  │ - code executions        │   │
+│  │ - graveyard  │  │   memories   │  │ - state changes          │   │
 │  │ - citations  │  │              │  │ - errors                 │   │
+│  │ - tokens     │  │              │  │ - memory reflections     │   │
 │  └──────────────┘  └──────────────┘  └──────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 
@@ -101,60 +108,59 @@
 ```
 1. SEED
    Human provides prompt → Orchestrator creates thread → Phase: SEEDING
+   ↳ Agent episodic memories retrieved from ChromaDB (per-agent, recency-ranked)
+   ↳ Graveyard lessons loaded (dead-end avoidance)
 
-2. IDEATION (3 rounds, all research agents)
-   Round 1: Each agent proposes ideas/hypotheses
-   Round 2: Agents respond to each other's proposals
-   Round 3: Convergence — agents vote/prioritize
-   Output: Ranked list of hypotheses
+2. IDEATION (configurable rounds, research agents — writer/editor excluded)
+   Round 1: Each agent proposes ideas/hypotheses (with memory context)
+   Round N: Agents respond, critique, refine
+   Live literature search: agents embed [SEARCH: ...] tags, orchestrator fetches arXiv
+   Output: Ranked hypotheses + literature context
 
-3. PLANNING (2 rounds, all research agents)
+3. PLANNING (configurable rounds, research agents — writer/editor excluded)
    Round 1: Propose research plan (tasks, assignments, timeline)
-   Round 2: Refine and finalize
+   Round N: Refine and finalize, with continued literature search
    Output: Research plan checkpoint
 
-4. LITERATURE (synthesizer leads, all contribute)
-   Orchestrator calls arXiv API based on agent queries
-   Agents review and summarize relevant papers
-   Output: Literature review checkpoint
+4. EXECUTION (experimentalist leads, analyst + theorist support)
+   Agents generate Python code for experiments (```python blocks)
+   Code runs in Docker sandbox (--network=none)
+   Results captured, figures extracted
+   Multi-round: propose → execute → analyze → retry on failure
+   Circuit breaker: halt if failure rate exceeds threshold
+   Output: Experimental results + figures
 
-5. EXECUTION (experimentalist leads, theorist supports)
-   Agents generate Python code for experiments
-   Code runs in Docker sandbox
-   Results captured and returned to agents
-   Agents interpret results
-   Output: Experimental results checkpoint
-
-6. WRITING (writer leads, all contribute sections)
-   Sections assigned by skill:
-     - Writer: abstract, introduction, conclusion
-     - Theorist: methods/theory section
-     - Analyst: results section
-     - Synthesizer: discussion section
+5. WRITING (writer leads, all contribute sections)
+   Section drafting: each role assigned specific sections
    Writer assembles and edits for coherence
-   Skeptic does internal review
-   Output: Paper draft
+   Editor does internal review → accept or revise
+   Figures embedded inline from execution phase
+   Output: Paper draft (markdown)
 
-7. SUBMISSION
+6. SUBMISSION
    Paper submitted to Editor agent
    Editor does desk review (reject if below threshold)
    Editor assigns 2 Reviewer agents
 
-8. PEER REVIEW (2 reviewers, independent)
+7. PEER REVIEW (2 reviewers, independent)
    Each reviewer produces structured review
    Editor synthesizes decision
 
-9. DECISION
+8. DECISION
    Accept → Publication pipeline
-   Revise → Feedback to team, return to WRITING
+   Revise → Feedback to team, revision cycle (up to max_revision_rounds)
    Reject → Graveyard with lessons learned
 
-10. PUBLICATION
-    Paper status → published
-    Abstract + sections embedded in ChromaDB
-    Citation graph updated
-    Author reputations updated
-    Paper discoverable by future research cycles
+9. PUBLICATION
+   Paper status → published
+   Abstract + sections embedded in ChromaDB
+   Citation graph updated
+   Paper discoverable by future research cycles
+
+10. REFLECTION (post-cycle)
+    Each agent that contributed undergoes a reflection call (Sonnet, temp=0.3)
+    3-5 episodic memories extracted per agent (insight/mistake/strategy/collaboration)
+    Memories stored in ChromaDB for retrieval in future cycles
 ```
 
 ## Agent Interaction Model
@@ -209,6 +215,39 @@ Phase N checkpoint (typically 2-5k tokens)
         ▼
 Phase N+1 starts with checkpoint as context
 ```
+
+## Agent Episodic Memory
+
+Cross-cycle learning that persists between research runs.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    MEMORY LIFECYCLE                       │
+│                                                          │
+│  Cycle N end:                                            │
+│    engine → generate_reflections()                       │
+│         ↓ (one Claude call per agent, Sonnet, temp=0.3)  │
+│    parse [type] content lines → Memory objects           │
+│         ↓                                                │
+│    AgentMemoryStore.add_memories() → ChromaDB            │
+│                                                          │
+│  Cycle N+1 start:                                        │
+│    _build_agent_prompt(agent, phase, round)               │
+│         ↓                                                │
+│    AgentMemoryStore.search(seed_prompt, agent_id)        │
+│         ↓                                                │
+│    rank_memories_with_recency(results, half_life=30d)    │
+│         ↓ (top 5 by similarity × recency)                │
+│    format_memory_context() → inject into prompt          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key properties:**
+- Per-agent isolation: each agent sees only their own memories
+- Recency decay: `score = similarity × 0.5^(age_days / half_life_days)`
+- Bounded: max 5 memories, max 2000 chars injected per prompt
+- Non-fatal: reflection failure doesn't block the cycle
+- Stored alongside paper embeddings in the same ChromaDB path (different collection)
 
 ## Reputation & Incentives
 

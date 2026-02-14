@@ -106,10 +106,11 @@ python -m paradigm --config /path/to/your/config.yaml run ...
 See `configs/default.yaml` for all available options. Key settings:
 
 - **Agent**: Model selection, token budgets, temperature
-- **Sandbox**: Docker settings, resource limits (Phase 3)
+- **Sandbox**: Docker settings, resource limits
 - **Literature**: arXiv rate limits, embedding model
 - **Storage**: Data directory, database paths
 - **Orchestrator**: Max rounds per phase, checkpointing
+- **Memory**: Agent episodic memory (enable/disable, recency half-life, max memories per prompt)
 
 ## Environment Variables
 
@@ -205,4 +206,4 @@ Once installed:
 3. Check `HISTORY.md` to see the development history
 4. Explore the codebase in `src/paradigm/`
 
-The system is currently at **Phase 0 (Foundation)** — the next phases will add literature access, orchestration, sandbox execution, paper writing, and peer review.
+The system implements the full research cycle: literature search, multi-agent orchestration, sandbox code execution, paper writing, peer review, and agent episodic memory.

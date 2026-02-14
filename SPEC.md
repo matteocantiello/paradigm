@@ -106,6 +106,29 @@ Each research agent is a Claude API call with a differentiated system prompt. Di
 }
 ```
 
+### 4.4 Agent Episodic Memory
+
+Agents accumulate **episodic memories** — persistent lessons that survive across research cycles. At the end of each cycle, a reflection call extracts 3-5 memories per agent, categorized as:
+
+| Type | Description |
+|------|-------------|
+| **insight** | A factual discovery or key finding |
+| **mistake** | An approach that failed or was unproductive |
+| **strategy** | A methodological approach that worked well |
+| **collaboration** | A lesson about working with other agents |
+
+Memories are stored in ChromaDB (separate collection from paper embeddings) and retrieved via **semantic search with recency decay** at the start of each cycle. Each agent sees only their own memories, injected at the top of their prompt context.
+
+**Recency scoring**: `combined_score = similarity × 0.5^(age_days / half_life_days)`. Default half-life is 30 days, so memories naturally fade unless they remain topically relevant.
+
+**Bounded injection**: At most `max_memories_per_prompt` (default 5) memories are injected, capped at `max_memory_chars` (default 2000) to avoid crowding out literature and checkpoint context.
+
+```
+End of cycle:   engine → generate_reflections() → AgentMemoryStore.add_memories()
+                                ↓ Claude reflection call (per agent, Sonnet, temp=0.3)
+Start of cycle: engine._build_agent_prompt() → AgentMemoryStore.search() → recency rank → inject
+```
+
 ## 5. Literature & Knowledge Infrastructure
 
 ### 5.1 External Literature Access
@@ -141,7 +164,8 @@ Each research agent is a Claude API call with a differentiated system prompt. Di
     citation_count INTEGER DEFAULT 0
   );
   ```
-- **Embeddings**: Abstract + section summaries embedded in ChromaDB for semantic retrieval
+- **Embeddings**: Abstract + section summaries embedded in ChromaDB (`paradigm_papers` collection) for semantic retrieval
+- **Agent memories**: Episodic memories stored in a separate ChromaDB collection (`agent_memories`) — see §4.4
 - **Citation graph**: Stored in SQLite, queryable for influence metrics
 
 ### 5.3 Research Thread Checkpoints
@@ -368,7 +392,7 @@ All events written to structured log (JSON lines):
 ```json
 {
   "timestamp": "...",
-  "event_type": "agent_message" | "api_call" | "code_execution" | "state_change" | "error",
+  "event_type": "agent_message | api_call | code_execution | state_change | error | phase_transition | literature_search | checkpoint_created | paper_submitted | review_completed | publication | memory_generated",
   "agent_id": "...",
   "thread_id": "...",
   "phase": "...",
@@ -403,69 +427,49 @@ All events written to structured log (JSON lines):
 
 ```
 paradigm/
-├── .planning/
-│   ├── SPEC.md              ← This file
-│   ├── ARCHITECTURE.md      ← Detailed architecture diagrams
-│   ├── ROADMAP.md           ← Phased implementation plan
-│   └── DECISIONS.md         ← Architecture decision log
-├── CLAUDE.md                ← Claude Code instructions
-├── README.md
+├── SPEC.md                   ← This file
+├── ARCHITECTURE.md           ← System diagrams and data flow
+├── DECISIONS.md              ← Architecture decision log
+├── CLAUDE.md                 ← Claude Code instructions
+├── HISTORY.md                ← Development prompt log
 ├── pyproject.toml
 ├── src/
 │   └── paradigm/
 │       ├── __init__.py
-│       ├── main.py           ← CLI entry point
-│       ├── config.py         ← Configuration management
+│       ├── __main__.py
+│       ├── main.py           ← CLI entry point (click)
+│       ├── config.py         ← YAML config loader + Pydantic models
 │       ├── orchestrator/
-│       │   ├── __init__.py
 │       │   ├── engine.py     ← Main orchestration loop
 │       │   ├── phases.py     ← Phase state machine
 │       │   └── scheduler.py  ← Agent turn-taking logic
 │       ├── agents/
-│       │   ├── __init__.py
-│       │   ├── base.py       ← Base agent class
-│       │   ├── research.py   ← Research agent implementations
-│       │   ├── journal.py    ← Editor + reviewer agents
-│       │   ├── prompts/      ← System prompt templates
-│       │   │   ├── theorist.yaml
-│       │   │   ├── analyst.yaml
-│       │   │   ├── synthesizer.yaml
-│       │   │   ├── experimentalist.yaml
-│       │   │   ├── writer.yaml
-│       │   │   ├── skeptic.yaml
-│       │   │   ├── editor.yaml
-│       │   │   └── reviewer.yaml
-│       │   └── skills.py     ← Skill taxonomy definitions
+│       │   ├── base.py       ← Base agent class (Claude API)
+│       │   ├── factory.py    ← Agent team creation
+│       │   ├── memory.py     ← Episodic memory store + reflection
+│       │   └── skills.py     ← Skill taxonomy + scientific skills registry
 │       ├── literature/
-│       │   ├── __init__.py
 │       │   ├── arxiv.py      ← arXiv API client
 │       │   ├── corpus.py     ← Internal corpus management
-│       │   ├── embeddings.py ← Embedding + vector search
-│       │   └── citations.py  ← Citation graph management
+│       │   ├── embeddings.py ← ChromaDB paper embeddings
+│       │   ├── citations.py  ← Citation graph management
+│       │   ├── prompt_utils.py ← Search request parsing + formatting
+│       │   └── resources.py  ← Code/data/reference resource resolution
 │       ├── sandbox/
-│       │   ├── __init__.py
 │       │   ├── docker.py     ← Docker container management
 │       │   ├── executor.py   ← Code execution pipeline
+│       │   ├── models.py     ← Execution request/result models
 │       │   └── safety.py     ← Safety checks and limits
 │       ├── journal/
-│       │   ├── __init__.py
-│       │   ├── submission.py ← Submission pipeline
-│       │   ├── review.py     ← Review process
+│       │   ├── paper.py      ← Paper models, section drafting
+│       │   ├── review.py     ← Peer review process
 │       │   └── publication.py← Publication to corpus
 │       ├── storage/
-│       │   ├── __init__.py
 │       │   ├── database.py   ← SQLite schema + operations
-│       │   ├── checkpoints.py← Thread checkpoint management
-│       │   └── graveyard.py  ← Failed research storage
+│       │   └── checkpoints.py← Thread checkpoint management
 │       └── logging/
-│           ├── __init__.py
 │           └── events.py     ← Structured event logging
-├── tests/
-│   ├── test_orchestrator.py
-│   ├── test_agents.py
-│   ├── test_literature.py
-│   ├── test_sandbox.py
-│   └── test_journal.py
+├── tests/                    ← pytest test suite (22 test files)
 ├── docker/
 │   └── Dockerfile.sandbox    ← Container image for code execution
 ├── configs/

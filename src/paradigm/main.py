@@ -67,6 +67,16 @@ def _run_research(
 
         hook = _interactive_hook
 
+    # Set up agent memory store (optional)
+    memory_store = None
+    if config.memory.enabled:
+        from paradigm.agents.memory import AgentMemoryStore
+
+        memory_store = AgentMemoryStore(
+            vector_db_path=config.storage.vector_db_path,
+            collection_name=config.memory.collection_name,
+        )
+
     engine = OrchestrationEngine(
         config=config,
         database=database,
@@ -74,6 +84,7 @@ def _run_research(
         logger=logger,
         agent_factory=factory,
         intervention_hook=hook,
+        memory_store=memory_store,
     )
 
     try:
@@ -317,6 +328,126 @@ def agents(config: Config) -> None:
     """List agents and their statistics."""
     click.echo("Agents:")
     click.echo("(Implementation pending - Phase 2)")
+
+
+# ---------------------------------------------------------------------------
+# Memory CLI group
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def memory() -> None:
+    """Manage agent episodic memories."""
+
+
+@memory.command("list")
+@click.option("--agent", "agent_id", type=str, required=True, help="Agent ID (e.g. theorist-0)")
+@click.option("--limit", type=int, default=20, help="Max memories to show")
+@click.pass_obj
+def memory_list(config: Config, agent_id: str, limit: int) -> None:
+    """List memories for an agent, newest first."""
+    from paradigm.agents.memory import AgentMemoryStore
+
+    store = AgentMemoryStore(
+        vector_db_path=config.storage.vector_db_path,
+        collection_name=config.memory.collection_name,
+    )
+    memories = store.get_memories_for_agent(agent_id, limit=limit)
+    if not memories:
+        click.echo(f"No memories found for agent: {agent_id}")
+        return
+
+    click.echo(f"Memories for {agent_id} ({len(memories)} shown):\n")
+    for m in memories:
+        meta = m.get("metadata", {})
+        mem_type = meta.get("memory_type", "?")
+        created = meta.get("created_at", "")[:10]
+        doc = m.get("document", "")
+        # Strip type prefix from document
+        content = doc
+        if doc.startswith("[") and "] " in doc:
+            content = doc.split("] ", 1)[1]
+        click.echo(f"  [{mem_type}] ({created}) {content}")
+
+
+@memory.command("search")
+@click.option("--query", type=str, required=True, help="Search query")
+@click.option("--agent", "agent_id", type=str, default=None, help="Filter by agent ID")
+@click.option("--limit", type=int, default=10, help="Max results")
+@click.pass_obj
+def memory_search(config: Config, query: str, agent_id: str | None, limit: int) -> None:
+    """Semantic search across agent memories with recency re-ranking."""
+    from paradigm.agents.memory import AgentMemoryStore, rank_memories_with_recency
+
+    store = AgentMemoryStore(
+        vector_db_path=config.storage.vector_db_path,
+        collection_name=config.memory.collection_name,
+    )
+    raw = store.search(query=query, agent_id=agent_id, n_results=limit * 4)
+    ranked = rank_memories_with_recency(
+        raw,
+        half_life_days=config.memory.recency_half_life_days,
+        top_k=limit,
+    )
+    if not ranked:
+        click.echo("No matching memories found.")
+        return
+
+    click.echo(f"Search results for '{query}':\n")
+    for r in ranked:
+        meta = r.get("metadata", {})
+        agent = meta.get("agent_id", "?")
+        mem_type = meta.get("memory_type", "?")
+        created = meta.get("created_at", "")[:10]
+        score = r.get("combined_score", 0.0)
+        doc = r.get("document", "")
+        content = doc
+        if doc.startswith("[") and "] " in doc:
+            content = doc.split("] ", 1)[1]
+        click.echo(f"  {score:.3f} [{agent}/{mem_type}] ({created}) {content}")
+
+
+@memory.command("clear")
+@click.option(
+    "--older-than",
+    type=str,
+    required=True,
+    help="Delete memories older than this (e.g. 30d, 90d)",
+)
+@click.option("--yes", is_flag=True, default=False, help="Skip confirmation")
+@click.pass_obj
+def memory_clear(config: Config, older_than: str, yes: bool) -> None:
+    """Prune old memories."""
+    from datetime import UTC, datetime, timedelta
+
+    from paradigm.agents.memory import AgentMemoryStore
+
+    # Parse duration string (e.g. "30d")
+    if not older_than.endswith("d"):
+        click.echo("Error: --older-than must be in days (e.g. 30d)", err=True)
+        sys.exit(1)
+    try:
+        days = int(older_than[:-1])
+    except ValueError:
+        click.echo(f"Error: invalid duration: {older_than}", err=True)
+        sys.exit(1)
+
+    store = AgentMemoryStore(
+        vector_db_path=config.storage.vector_db_path,
+        collection_name=config.memory.collection_name,
+    )
+
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    total = store.count()
+    click.echo(f"Total memories: {total}")
+    click.echo(f"Will delete memories older than {days} days (before {cutoff.date()})")
+
+    if not yes and not click.confirm("Proceed?"):
+        click.echo("Aborted.")
+        return
+
+    deleted = store.delete_older_than(cutoff)
+    click.echo(f"Deleted {deleted} memories. Remaining: {store.count()}")
 
 
 if __name__ == "__main__":

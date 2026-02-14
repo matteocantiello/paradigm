@@ -102,3 +102,48 @@
 **Rationale**: LLMs generate markdown far more reliably than LaTeX. Markdown is easy to parse, display, and convert. LaTeX compilation would add complexity for no MVP benefit. Math expressions can use `$...$` inline and `$$...$$` display mode, which most renderers support.
 
 **Consequences**: Papers won't look as polished as LaTeX-typeset documents. Acceptable — the content matters more than the formatting for the MVP. LaTeX export can be added later.
+
+---
+
+## ADR-008: ChromaDB for Agent Episodic Memory (not SQLite)
+
+**Status**: Accepted
+**Date**: 2026-02-14
+
+**Context**: Agents are stateless Claude API calls — they have no persistent memory across research cycles. A theorist that discovers a dead-end approach will repeat the same mistake. We need cross-cycle learning. Options: (a) store memories in SQLite and retrieve by keyword/agent, (b) store in ChromaDB and retrieve by semantic similarity, (c) append to agent system prompts directly.
+
+**Decision**: ChromaDB with a separate `agent_memories` collection (same `vector_db_path` as paper embeddings). Semantic search with recency × similarity re-ranking.
+
+**Rationale**: Memories need to be retrieved by topical relevance to the *current* research prompt, not by exact keyword match. A memory about "bimodal pulsation structure" should surface when studying "stellar oscillation modes" even though the words differ. ChromaDB already exists in the stack (ADR-003), using a second collection is zero new infrastructure. SQLite would require building a keyword extraction pipeline for no benefit.
+
+**Consequences**: Memory retrieval has a semantic search step (cheap — local embeddings). All memories for all agents live in one ChromaDB collection, filtered by `agent_id` metadata. Per-agent isolation is enforced at query time, not at storage time.
+
+---
+
+## ADR-009: Recency × Similarity Scoring for Memory Retrieval
+
+**Status**: Accepted
+**Date**: 2026-02-14
+
+**Context**: Raw semantic similarity alone would surface old, potentially obsolete memories forever. Options: (a) hard cutoff (delete after N days), (b) recency weighting with exponential decay, (c) manual curation by operators.
+
+**Decision**: Exponential half-life decay combined multiplicatively with similarity score: `combined = similarity × 0.5^(age / half_life)`. Default half-life: 30 days.
+
+**Rationale**: Hard cutoffs are brittle — a 31-day-old insight might be critical. Manual curation doesn't scale. Exponential decay is smooth, tunable, and self-correcting: memories that keep matching current research stay relevant, while stale memories naturally fade. The half-life is configurable per deployment. A `paradigm memory clear --older-than 90d` command exists for manual pruning when needed.
+
+**Consequences**: Very old memories with high similarity can still surface (0.5^(90/30) = 0.125 weight). This is intentional — some lessons are timeless. The bounded injection (top 5 memories, max 2000 chars) prevents context pollution regardless.
+
+---
+
+## ADR-010: Non-Fatal Reflection (Memory Generation)
+
+**Status**: Accepted
+**Date**: 2026-02-14
+
+**Context**: At the end of each cycle, a Claude call per agent generates episodic memories. This call could fail (API error, rate limit, malformed response). Should failure block the cycle?
+
+**Decision**: Reflection is wrapped in try/except. Failure is logged but the cycle completes successfully. Memory is additive, never blocking.
+
+**Rationale**: The research output (paper, checkpoint, graveyard entry) is the primary deliverable. Memories are an optimization for future cycles, not a requirement for the current one. Making reflection fatal would mean transient API issues could prevent a completed cycle from returning its results.
+
+**Consequences**: Some cycles may produce no memories (e.g., if API quota is exhausted at the end). The system degrades gracefully — agents without memories still function, they just don't benefit from cross-cycle learning.

@@ -50,3 +50,11 @@ skills:
   skills_dir: "vendor/claude-scientific-skills/scientific-skills"
   default_mode: "default"
   max_skill_chars: null  # No truncation by default
+
+# Agent episodic memory
+memory:
+  enabled: true
+  max_memories_per_prompt: 5
+  recency_half_life_days: 30.0
+  collection_name: "agent_memories"
+  max_memory_chars: 2000

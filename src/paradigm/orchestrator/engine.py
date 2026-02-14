@@ -416,6 +416,7 @@ class OrchestrationEngine:
         logger: EventLogger,
         agent_factory: AgentFactory,
         intervention_hook: InterventionHook | None = None,
+        memory_store: Any | None = None,
     ) -> None:
         """Initialize the orchestration engine.
 
@@ -427,6 +428,7 @@ class OrchestrationEngine:
             agent_factory: Factory for creating agents.
             intervention_hook: Optional callback invoked before certain phase transitions.
                 Returns "continue", "pause", or "abort".
+            memory_store: Optional AgentMemoryStore for cross-cycle episodic memory.
         """
         self._config = config
         self._db = database
@@ -434,6 +436,7 @@ class OrchestrationEngine:
         self._logger = logger
         self._factory = agent_factory
         self._intervention_hook = intervention_hook
+        self._memory_store = memory_store
         self._checkpoint_mgr = CheckpointManager(
             database=database,
             api_key=config.api_key or "",
@@ -669,6 +672,41 @@ class OrchestrationEngine:
 
         # Display token usage summary
         self._print_token_summary()
+
+        # Generate agent episodic memories via reflection
+        if self._memory_store is not None and self._config.memory.enabled:
+            try:
+                from paradigm.agents.memory import generate_reflections
+
+                click.echo("Generating agent memories via reflection...")
+                all_messages = self._collect_all_messages()
+                thread = self._db.get_thread(self._thread_id)
+                outcome = thread.get("status", "completed") if thread else "completed"
+                reflections = await generate_reflections(
+                    agents=self._agents,
+                    messages=all_messages,
+                    seed_prompt=self._seed_prompt,
+                    thread_id=self._thread_id,
+                    outcome_summary=f"Research cycle ended with status: {outcome}",
+                    api_key=self._config.api_key or "",
+                    model=self._config.memory.reflection_model,
+                    database=self._db,
+                )
+                total = sum(len(r.memories) for r in reflections)
+                for r in reflections:
+                    self._memory_store.add_memories(r.memories)
+                click.echo(f"  Stored {total} memories across {len(reflections)} agents.")
+                self._logger.log(
+                    EventType.MEMORY_GENERATED,
+                    content={
+                        "thread_id": self._thread_id,
+                        "total_memories": total,
+                        "agents": [r.agent_id for r in reflections],
+                    },
+                    thread_id=self._thread_id,
+                )
+            except Exception as e:
+                click.echo(f"  Warning: memory reflection failed ({e}), continuing.")
 
         return self._thread_id
 
@@ -1701,6 +1739,18 @@ class OrchestrationEngine:
         """
         return self._db.get_token_usage(thread_id=self._thread_id)
 
+    def _collect_all_messages(self) -> list[dict[str, Any]]:
+        """Collect all agent messages from the event log for this thread.
+
+        Returns:
+            List of message dicts with keys like 'from', 'to', 'type', 'content'.
+        """
+        events = self._logger.read_events(
+            event_type=EventType.AGENT_MESSAGE,
+            thread_id=self._thread_id,
+        )
+        return [e.content for e in events if isinstance(e.content, dict)]
+
     def _print_token_summary(self) -> None:
         """Display token usage summary at end of research cycle."""
         usage = self._get_token_summary()
@@ -2151,6 +2201,24 @@ class OrchestrationEngine:
             graveyard = getattr(self, "_graveyard_context", "")
             if graveyard:
                 checkpoint_context = checkpoint_context + graveyard + "\n\n"
+
+        # Inject agent episodic memories (cross-cycle learning)
+        if self._memory_store is not None and self._config.memory.enabled:
+            from paradigm.agents.memory import format_memory_context, rank_memories_with_recency
+
+            raw_memories = self._memory_store.search(
+                query=self._seed_prompt,
+                agent_id=agent.agent_id,
+                n_results=self._config.memory.max_memories_per_prompt * 4,
+            )
+            ranked = rank_memories_with_recency(
+                raw_memories,
+                half_life_days=self._config.memory.recency_half_life_days,
+                top_k=self._config.memory.max_memories_per_prompt,
+            )
+            mem_ctx = format_memory_context(ranked, max_chars=self._config.memory.max_memory_chars)
+            if mem_ctx:
+                checkpoint_context = mem_ctx + "\n\n" + checkpoint_context
 
         formatted = template.format(
             seed_prompt=self._seed_prompt,

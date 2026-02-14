@@ -102,6 +102,17 @@ class SkillsConfig(BaseModel):
     max_skill_chars: int | None = None  # Per-skill truncation limit
 
 
+class MemoryConfig(BaseModel):
+    """Configuration for agent episodic memory."""
+
+    enabled: bool = True
+    max_memories_per_prompt: int = 5
+    recency_half_life_days: float = 30.0
+    reflection_model: str = "claude-sonnet-4-5-20250929"
+    collection_name: str = "agent_memories"
+    max_memory_chars: int = 2000
+
+
 class Config(BaseModel):
     """Main configuration for Paradigm."""
 
@@ -111,6 +122,7 @@ class Config(BaseModel):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     api_key: str | None = Field(default=None, validate_default=True)
 
     @field_validator("api_key", mode="before")

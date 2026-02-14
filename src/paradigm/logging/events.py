@@ -23,6 +23,7 @@ class EventType(StrEnum):
     PAPER_SUBMITTED = "paper_submitted"
     REVIEW_COMPLETED = "review_completed"
     PUBLICATION = "publication"
+    MEMORY_GENERATED = "memory_generated"
 
 
 class Event(BaseModel):

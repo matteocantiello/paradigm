@@ -754,3 +754,25 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 
 - **Decision**: Add post-processing after paper finalization to ensure figure image tags are present in the paper body
 - **Artifacts**: `src/paradigm/orchestrator/engine.py`
+
+## 2026-02-14
+
+### Prompt — Implement Agent Episodic Memory System
+
+> Implement the following plan: [Agent Episodic Memory System plan - config, core memory module with ChromaDB, engine integration, CLI commands, event logging, tests]
+
+**Key decisions**: ChromaDB for semantic search, per-agent memories, recency × similarity scoring, non-fatal reflection, bounded context injection.
+
+**Artifacts**: `src/paradigm/agents/memory.py` (new), `tests/test_agent_memory.py` (new), edits to `config.py`, `default.yaml`, `events.py`, `engine.py`, `main.py`
+
+### Prompt — Update spec and planning docs for memory system
+
+> We should also update spec.md given all the changes. And any other .md file that doesn't reflect the current architecture and choices
+
+**Key decisions**: Update SPEC.md, ROADMAP.md, DECISIONS.md, and any other planning docs to reflect the new agent episodic memory system.
+
+### Prompt — Update spec and planning docs for memory system
+
+> We should also update spec.md given all the changes. And any other .md file that doesn't reflect the current architecture and choices
+
+**Key decisions**: Update SPEC.md, ROADMAP.md, DECISIONS.md, and any other planning docs to reflect the new agent episodic memory system.
