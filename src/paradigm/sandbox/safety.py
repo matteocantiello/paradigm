@@ -2,6 +2,7 @@
 
 import ast
 import re
+import warnings
 from dataclasses import dataclass, field
 
 from paradigm.sandbox.models import SafetyVerdict
@@ -74,8 +75,14 @@ class SafetyScanner:
             return SafetyVerdict(safe=False, violations=violations)
 
         # Try to parse AST
+        # Suppress SyntaxWarning from invalid escape sequences (e.g. \o in
+        # LaTeX strings like $M_\odot$).  These are harmless in Python 3.12
+        # but will become SyntaxError in 3.14 — the execution prompt already
+        # instructs agents to use raw strings.
         try:
-            tree = ast.parse(code)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(code)
         except SyntaxError as e:
             violations.append(f"Syntax error: {e.msg} (line {e.lineno})")
             return SafetyVerdict(safe=False, violations=violations)

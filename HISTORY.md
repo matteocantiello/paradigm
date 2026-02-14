@@ -789,3 +789,7 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 ### Prompt — Implement Focused Debate Sub-routine
 
 > Implement the following plan: [Focused Debate Sub-routine plan — config fields, DEBATE_TRIGGERED event, ChallengeRequest parsing, engine debate constants/state/methods, _run_debate, _synthesize_debate, _process_challenge_requests, _run_round and _build_agent_prompt wiring, tests]
+
+### Prompt — Fix SyntaxWarning from LaTeX escape sequences in sandbox
+
+> I am running a paradigm loop with the version with the new docker settings, and it looks like is encountering some errors: [SyntaxWarning: invalid escape sequence '\o' from `<unknown>` source during EXECUTION phase, causing retries and failures across multiple experiments]
