@@ -79,6 +79,40 @@ class PaperDraft(BaseModel):
         return "\n\n".join(parts)
 
 
+def strip_agent_scaffolding(text: str) -> str:
+    """Remove agent meta-text (planning notes, XML tool calls) from paper content.
+
+    Agent responses often include preamble ("I'll revise the paper..."),
+    XML function call blocks, and commentary before the actual paper.
+    Papers always start with a markdown heading (# or ##).
+
+    Args:
+        text: Raw agent response that should be a paper body.
+
+    Returns:
+        Cleaned text starting from the first markdown heading.
+    """
+    if not text:
+        return text
+
+    # Remove XML-style tool call blocks (e.g. <function_calls>...</function_calls>)
+    cleaned = re.sub(
+        r"<function_calls>.*?</function_calls>",
+        "",
+        text,
+        flags=re.DOTALL,
+    )
+    # Remove standalone XML tags that might remain
+    cleaned = re.sub(r"</?(?:invoke|parameter|function_calls)[^>]*>", "", cleaned)
+
+    # Find the first markdown heading (# with space, not inside code blocks)
+    match = re.search(r"^(#{1,2}\s+\S)", cleaned, flags=re.MULTILINE)
+    if match:
+        cleaned = cleaned[match.start() :]
+
+    return cleaned.strip()
+
+
 def parse_sections_from_markdown(markdown: str) -> dict[str, str]:
     """Extract sections from markdown text using ## headers.
 

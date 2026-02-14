@@ -742,3 +742,9 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 - **Decision**: Implement option 2 — offline pip cache. Pre-download wheels for common scientific packages, mount them read-only in the container. Agents can `pip install --no-index --find-links /data/packages/ <pkg>`.
 - **Future**: Down the road, consider option 4 — orchestrator-mediated installs where the agent declares `# REQUIRES: package1, package2`, the orchestrator validates against an allowlist, and builds/extends the Docker image before execution. This would be fully dynamic but requires more engineering.
 - **Artifacts**: `docker/requirements-cache.txt`, `docker/cache_packages.sh`, `src/paradigm/sandbox/executor.py`, `src/paradigm/sandbox/docker.py`, `src/paradigm/orchestrator/engine.py`
+
+### Prompt 65 — Strip Agent Scaffolding from Paper Body
+> Let's now fix 2. (Paper body starts with meta-text (lines 1-54): The revision agent included planning notes, XML function calls, and tool invocation text before the actual paper starts at line 57. The assembly/revision step leaked agent scaffolding into the paper.)
+
+- **Decision**: Add post-processing to strip agent meta-text from paper body before saving
+- **Artifacts**: `src/paradigm/orchestrator/engine.py` or `src/paradigm/journal/paper.py`

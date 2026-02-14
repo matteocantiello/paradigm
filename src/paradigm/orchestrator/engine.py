@@ -19,6 +19,7 @@ from paradigm.journal.paper import (
     SectionDraft,
     parse_review_feedback,
     parse_sections_from_markdown,
+    strip_agent_scaffolding,
 )
 from paradigm.journal.publication import publish_paper, reject_paper
 from paradigm.journal.review import PeerReview, parse_peer_review, synthesize_decision
@@ -849,7 +850,7 @@ class OrchestrationEngine:
             self._log_agent_response(
                 writer_agent.agent_id, response, ResearchPhase.WRITING, "assembly"
             )
-            return response.content
+            return strip_agent_scaffolding(response.content)
         except Exception as e:
             self._logger.log_error(e, agent_id=writer_agent.agent_id, thread_id=self._thread_id)
             click.echo(f"    [!] Writer assembly failed: {e}")
@@ -1200,7 +1201,7 @@ class OrchestrationEngine:
             await self._process_search_requests(
                 writer.agent_id, response.content, ResearchPhase.INTERNAL_REVIEW
             )
-            return response.content
+            return strip_agent_scaffolding(response.content)
         except Exception as e:
             self._logger.log_error(e, agent_id=writer.agent_id, thread_id=self._thread_id)
             click.echo(f"    [!] Revision failed: {e}")
@@ -1438,15 +1439,16 @@ class OrchestrationEngine:
             }
         )
 
-        # Update draft
-        draft.assembled_body = response.content
+        # Update draft (strip any agent meta-text before saving)
+        revised_body = strip_agent_scaffolding(response.content)
+        draft.assembled_body = revised_body
 
         # Update paper in database and on disk
         thread = self._db.get_thread(self._thread_id)
         if thread and thread.get("current_draft_id"):
             paper_id = thread["current_draft_id"]
-            self._db.update_paper(paper_id, body=response.content, status="revised")
-            self._save_paper_file(paper_id, response.content)
+            self._db.update_paper(paper_id, body=revised_body, status="revised")
+            self._save_paper_file(paper_id, revised_body)
 
         click.echo("  Revision complete")
 

@@ -15,6 +15,7 @@ from paradigm.journal.paper import (
     SectionDraft,
     parse_review_feedback,
     parse_sections_from_markdown,
+    strip_agent_scaffolding,
 )
 from paradigm.logging.events import EventLogger
 from paradigm.orchestrator.engine import OrchestrationEngine
@@ -127,6 +128,78 @@ class TestReviewFeedback:
     def test_accept(self):
         fb = ReviewFeedback(recommendation="accept")
         assert fb.recommendation == "accept"
+
+
+# --- Scaffolding Stripping Tests ---
+
+
+class TestStripAgentScaffolding:
+    def test_removes_preamble_before_heading(self):
+        text = (
+            "I'll revise the paper now.\n\n"
+            "Let me start with the abstract.\n\n"
+            "---\n\n"
+            "# My Paper Title\n\n## Abstract\n\nContent here."
+        )
+        result = strip_agent_scaffolding(text)
+        assert result.startswith("# My Paper Title")
+        assert "I'll revise" not in result
+
+    def test_removes_xml_function_calls(self):
+        text = (
+            '<function_calls>\n<invoke name="tool">\n'
+            '<parameter name="x">y</parameter>\n'
+            "</invoke>\n</function_calls>\n\n"
+            "# Paper Title\n\nContent."
+        )
+        result = strip_agent_scaffolding(text)
+        assert result.startswith("# Paper Title")
+        assert "function_calls" not in result
+        assert "invoke" not in result
+
+    def test_removes_mixed_scaffolding(self):
+        text = (
+            "I'll revise the paper to address feedback.\n\n"
+            '<function_calls>\n<invoke name="mcp_research">\n'
+            '<parameter name="query">test</parameter>\n'
+            "</invoke>\n</function_calls>\n\n"
+            "Now I'll write the revision:\n\n"
+            "---\n\n"
+            "# Red Noise in Massive Stars\n\n## Abstract\n\nRed noise is..."
+        )
+        result = strip_agent_scaffolding(text)
+        assert result.startswith("# Red Noise")
+        assert "I'll revise" not in result
+        assert "function_calls" not in result
+        assert "Now I'll write" not in result
+
+    def test_preserves_clean_paper(self):
+        text = "# My Paper\n\n## Abstract\n\nThis is the abstract.\n\n## Introduction\n\nIntro."
+        result = strip_agent_scaffolding(text)
+        assert result == text
+
+    def test_handles_h2_start(self):
+        text = "Some commentary.\n\n## Abstract\n\nContent."
+        result = strip_agent_scaffolding(text)
+        assert result.startswith("## Abstract")
+
+    def test_empty_input(self):
+        assert strip_agent_scaffolding("") == ""
+
+    def test_no_heading_returns_content(self):
+        text = "Just plain text without any headings."
+        result = strip_agent_scaffolding(text)
+        assert result == text
+
+    def test_removes_standalone_xml_tags(self):
+        text = (
+            "<invoke name='tool'>\n"
+            "<parameter name='x'>val</parameter>\n"
+            "</invoke>\n\n"
+            "# Title\n\nBody."
+        )
+        result = strip_agent_scaffolding(text)
+        assert result.startswith("# Title")
 
 
 # --- Parsing Tests ---
