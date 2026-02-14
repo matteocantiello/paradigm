@@ -16,7 +16,7 @@ providers:
 # Agent configuration
 agent:
   default_model: "claude-sonnet-4-5-20250929"
-  opus_model: "claude-opus-4-6-20250514"
+  opus_model: "claude-opus-4-6"
   max_tokens: 4096
   temperature: 1.0
   token_budget_per_thread: 1000000
@@ -25,10 +25,10 @@ agent:
   overrides:
     theorist:
       provider: anthropic
-      model: claude-opus-4-6-20250514
+      model: claude-opus-4-6
     skeptic:
       provider: anthropic
-      model: claude-opus-4-6-20250514
+      model: claude-opus-4-6
 
 # Sandbox configuration
 sandbox:
