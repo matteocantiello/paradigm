@@ -776,3 +776,16 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 > We should also update spec.md given all the changes. And any other .md file that doesn't reflect the current architecture and choices
 
 **Key decisions**: Update SPEC.md, ROADMAP.md, DECISIONS.md, and any other planning docs to reflect the new agent episodic memory system.
+
+### Prompt — Focused Debate Sub-routine
+
+> Looking at how the orchestrator runs rounds: each agent speaks in sequence, seeing the accumulated messages. But agents don't really argue. The theorist proposes, the skeptic responds, and then the cycle moves on. There's no mechanism for the theorist to defend its position against the skeptic's critique, refine the argument through back-and-forth, and arrive at something neither would have produced alone. The scheduler gives each agent one turn per round, and the number of rounds is fixed. Real intellectual progress happens in sustained, focused exchanges between two people who disagree.
+> You could address this with a focused debate sub-routine: when two agents disagree during IDEATION or PLANNING, the orchestrator spawns a structured debate (alternating turns, limited to the two agents, with an explicit resolution condition) before resuming the normal round.
+
+**Key decisions**: Explicit `[CHALLENGE: agent-id: reason]` tags (deterministic, like `[SEARCH:]`), defender speaks first, synthesizer generates outcome summary, one debate per agent response, max 3 exchanges × max 2 debates per phase, inline execution within `_run_round`.
+
+**Artifacts**: `src/paradigm/config.py`, `configs/default.yaml`, `src/paradigm/logging/events.py`, `src/paradigm/literature/prompt_utils.py`, `src/paradigm/orchestrator/engine.py`, `tests/test_debate.py` (new)
+
+### Prompt — Implement Focused Debate Sub-routine
+
+> Implement the following plan: [Focused Debate Sub-routine plan — config fields, DEBATE_TRIGGERED event, ChallengeRequest parsing, engine debate constants/state/methods, _run_debate, _synthesize_debate, _process_challenge_requests, _run_round and _build_agent_prompt wiring, tests]

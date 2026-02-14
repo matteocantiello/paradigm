@@ -1,13 +1,14 @@
-"""Prompt preprocessing utilities for literature search.
+"""Prompt preprocessing utilities for literature search and debate challenges.
 
-Extracts clean search queries and URLs from user prompts to avoid
-passing raw long-form text directly to the arXiv API.
+Extracts clean search queries, URLs, and challenge requests from user prompts
+to avoid passing raw long-form text directly to the arXiv API.
 """
 
 from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from paradigm.literature.arxiv import ArxivPaper
@@ -28,6 +29,20 @@ _MAX_QUERY_LENGTH = 300
 
 # Match [SEARCH: query] markers in agent text
 _SEARCH_REQUEST_RE = re.compile(r"\[SEARCH:\s*([^\]]+?)\]", re.IGNORECASE)
+
+# Match [CHALLENGE: agent-id: reason] markers in agent text
+_CHALLENGE_REQUEST_RE = re.compile(
+    r"\[CHALLENGE:\s*([a-z]+-\d+)\s*:\s*([^\]]+?)\]",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class ChallengeRequest:
+    """A parsed challenge request from an agent's response."""
+
+    challenged_agent_id: str
+    reason: str
 
 
 def extract_urls(text: str) -> list[str]:
@@ -116,6 +131,32 @@ def parse_search_requests(text: str) -> list[str]:
             seen.add(key)
             queries.append(query)
     return queries
+
+
+def parse_challenge_requests(text: str) -> list[ChallengeRequest]:
+    """Extract [CHALLENGE: agent-id: reason] markers from agent text.
+
+    Deduplicates by challenged_agent_id (first occurrence wins),
+    strips whitespace, and ignores entries with empty reasons.
+
+    Args:
+        text: Agent response text.
+
+    Returns:
+        List of unique ChallengeRequest objects.
+    """
+    matches = _CHALLENGE_REQUEST_RE.findall(text)
+    seen: set[str] = set()
+    challenges: list[ChallengeRequest] = []
+    for agent_id_match, reason_match in matches:
+        agent_id = agent_id_match.strip().lower()
+        reason = reason_match.strip()
+        if not reason:
+            continue
+        if agent_id not in seen:
+            seen.add(agent_id)
+            challenges.append(ChallengeRequest(challenged_agent_id=agent_id, reason=reason))
+    return challenges
 
 
 def format_search_results(query: str, papers: list[ArxivPaper], max_papers: int = 5) -> str:

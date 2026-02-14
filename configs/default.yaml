@@ -44,6 +44,9 @@ orchestrator:
   enable_experimentation: true
   max_experiment_rounds: 3
   max_searches_per_round: 10
+  enable_debates: true
+  max_debate_exchanges: 3
+  max_debates_per_phase: 2
 
 # Scientific skills configuration
 skills:

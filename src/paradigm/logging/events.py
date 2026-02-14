@@ -24,6 +24,7 @@ class EventType(StrEnum):
     REVIEW_COMPLETED = "review_completed"
     PUBLICATION = "publication"
     MEMORY_GENERATED = "memory_generated"
+    DEBATE_TRIGGERED = "debate_triggered"
 
 
 class Event(BaseModel):

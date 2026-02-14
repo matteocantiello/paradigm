@@ -90,6 +90,9 @@ class OrchestratorConfig(BaseModel):
     enable_experimentation: bool = True
     max_experiment_rounds: int = 3
     max_searches_per_round: int = 3
+    enable_debates: bool = True
+    max_debate_exchanges: int = 3
+    max_debates_per_phase: int = 2
 
 
 class SkillsConfig(BaseModel):

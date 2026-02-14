@@ -27,6 +27,7 @@ from paradigm.literature.corpus import Corpus
 from paradigm.literature.prompt_utils import (
     extract_urls,
     format_search_results,
+    parse_challenge_requests,
     parse_search_requests,
 )
 from paradigm.literature.resources import (
@@ -318,6 +319,65 @@ _SEARCH_ENABLED_PHASES: set[ResearchPhase] = {
     ResearchPhase.REVISION,
 }
 
+# Phases where agents can trigger focused debates
+_DEBATE_ENABLED_PHASES: set[ResearchPhase] = {
+    ResearchPhase.IDEATION,
+    ResearchPhase.PLANNING,
+}
+
+# Challenge instruction appended to agent prompts in debate-enabled phases
+_CHALLENGE_INSTRUCTION = (
+    "\n\n## Focused Debate\n"
+    "If you strongly disagree with another agent's position and believe a "
+    "focused exchange would advance the research, you may challenge them:\n"
+    "  [CHALLENGE: agent-id: brief reason for disagreement]\n\n"
+    "This triggers a structured debate between you and the challenged agent. "
+    "Use this sparingly — only when genuine intellectual disagreement exists "
+    "and a back-and-forth would produce better ideas than the normal round.\n"
+)
+
+# Debate turn prompts
+_DEBATE_PROMPT_DEFENDER = (
+    "You are {defender_id} in a focused debate with {challenger_id}.\n\n"
+    "## Challenge\n{challenger_id} challenges your position:\n"
+    "{challenger_argument}\n\n"
+    "## Topic: {debate_topic}\n\n"
+    "Respond to this challenge. Defend your position with evidence and reasoning, "
+    "or concede specific points where the criticism is valid.\n\n"
+    "If you believe the disagreement is resolved, end your response with:\n"
+    "  [RESOLVED: brief summary of agreement]\n"
+    "If you concede the challenger's main point, end with:\n"
+    "  [CONCEDE: what you now accept]\n"
+)
+
+_DEBATE_PROMPT_CHALLENGER = (
+    "You are {challenger_id} continuing a focused debate with {defender_id}.\n\n"
+    "## Debate Topic: {debate_topic}\n\n"
+    "## Defender's Response\n{defender_argument}\n\n"
+    "Respond to the defender's argument. Refine your critique, acknowledge "
+    "valid points, or press where you see weaknesses.\n\n"
+    "If you believe the disagreement is resolved, end your response with:\n"
+    "  [RESOLVED: brief summary of agreement]\n"
+    "If you concede the defender's main point, end with:\n"
+    "  [CONCEDE: what you now accept]\n"
+)
+
+_DEBATE_SYNTHESIS_PROMPT = (
+    "Summarize the following debate between {challenger_id} and {defender_id} "
+    "on the topic: {debate_topic}\n\n"
+    "## Debate Transcript\n{transcript}\n\n"
+    "## Resolution: {resolution_type}\n{resolution_statement}\n\n"
+    "Write a concise summary (2-4 paragraphs) capturing:\n"
+    "1. The core disagreement\n"
+    "2. Key arguments from each side\n"
+    "3. What was resolved and what remains open\n"
+    "4. How this debate should inform the research going forward\n"
+)
+
+# Resolution detection regexes
+_RESOLVED_RE = re.compile(r"\[RESOLVED:\s*([^\]]+?)\]", re.IGNORECASE)
+_CONCEDE_RE = re.compile(r"\[CONCEDE:\s*([^\]]+?)\]", re.IGNORECASE)
+
 # Roles allowed to speak during _run_round() phases.
 # Phases not listed have no filtering (all agents speak).
 # Specialized phases (WRITING, INTERNAL_REVIEW, etc.) have their own role logic.
@@ -462,6 +522,7 @@ class OrchestrationEngine:
         self._data_context: str = ""
         self._reference_context: str = ""
         self._resolved_resources: list[ResolvedResource] = []
+        self._debate_counts: dict[str, int] = {}  # phase_key → count
 
     async def run_research_cycle(
         self,
@@ -495,6 +556,7 @@ class OrchestrationEngine:
         self._data_context = ""
         self._reference_context = ""
         self._resolved_resources = []
+        self._debate_counts = {}
 
         # Create agent team
         agents = self._factory.create_team(team_roles, skill_mode="default")
@@ -1922,6 +1984,352 @@ class OrchestrationEngine:
                 phase=str(phase),
             )
 
+    async def _process_challenge_requests(
+        self,
+        challenger_id: str,
+        response_text: str,
+        phase: ResearchPhase,
+        round_num: int,
+    ) -> None:
+        """Parse [CHALLENGE: agent-id: reason] markers and trigger debates.
+
+        Only the first valid challenge per response is processed.
+
+        Args:
+            challenger_id: ID of the agent whose response contains the challenge.
+            response_text: The agent's response text.
+            phase: Current research phase.
+            round_num: Current round number.
+        """
+        if not self._config.orchestrator.enable_debates:
+            return
+        if phase not in _DEBATE_ENABLED_PHASES:
+            return
+
+        phase_key = str(phase)
+        current_count = self._debate_counts.get(phase_key, 0)
+        max_debates = self._config.orchestrator.max_debates_per_phase
+
+        if current_count >= max_debates:
+            return
+
+        challenges = parse_challenge_requests(response_text)
+        if not challenges:
+            return
+
+        # Only process the first valid challenge
+        active_roles = _PHASE_ACTIVE_ROLES.get(phase)
+        for challenge in challenges:
+            target_id = challenge.challenged_agent_id
+
+            # Skip self-challenge
+            if target_id == challenger_id:
+                continue
+
+            # Target must exist
+            if target_id not in self._agents:
+                click.echo(f"    [!] Debate skipped: target '{target_id}' not found")
+                continue
+
+            # Target must be active in this phase
+            if active_roles is not None:
+                target_role = self._agents[target_id].skill_profile
+                if target_role not in active_roles:
+                    click.echo(f"    [!] Debate skipped: '{target_id}' not active in {phase_key}")
+                    continue
+
+            # Budget check (re-check inside loop in case of prior skip)
+            if self._debate_counts.get(phase_key, 0) >= max_debates:
+                click.echo(f"    [!] Debate budget exhausted ({max_debates}/{phase_key}), skipping")
+                break
+
+            # Trigger the debate
+            await self._run_debate(
+                challenger_id=challenger_id,
+                defender_id=target_id,
+                debate_topic=challenge.reason,
+                challenger_position=response_text,
+                phase=phase,
+                round_num=round_num,
+            )
+            # Only one debate per response
+            break
+
+    async def _run_debate(
+        self,
+        challenger_id: str,
+        defender_id: str,
+        debate_topic: str,
+        challenger_position: str,
+        phase: ResearchPhase,
+        round_num: int,
+    ) -> None:
+        """Execute a focused debate between two agents.
+
+        Defender speaks first (challenger already stated position).
+        On the final exchange, only the defender speaks.
+
+        Args:
+            challenger_id: Agent who issued the challenge.
+            defender_id: Agent being challenged.
+            debate_topic: Reason/topic for the debate.
+            challenger_position: Challenger's original response (opening position).
+            phase: Current research phase.
+            round_num: Current round number.
+        """
+        phase_key = str(phase)
+        max_exchanges = self._config.orchestrator.max_debate_exchanges
+
+        click.echo(f"    >>> Debate: {challenger_id} vs {defender_id} — {debate_topic[:60]}")
+
+        self._logger.log(
+            EventType.DEBATE_TRIGGERED,
+            content={
+                "challenger": challenger_id,
+                "defender": defender_id,
+                "topic": debate_topic,
+                "status": "started",
+            },
+            thread_id=self._thread_id,
+            phase=phase_key,
+        )
+
+        transcript: list[dict[str, str]] = []
+        challenger_agent = self._agents[challenger_id]
+        defender_agent = self._agents[defender_id]
+
+        # The challenger's original response is the opening argument
+        last_challenger_arg = challenger_position
+        resolution_type = "max_turns"
+        resolution_statement = ""
+
+        for exchange_num in range(1, max_exchanges + 1):
+            is_final_exchange = exchange_num == max_exchanges
+
+            # --- Defender turn ---
+            defender_prompt = _DEBATE_PROMPT_DEFENDER.format(
+                defender_id=defender_id,
+                challenger_id=challenger_id,
+                challenger_argument=last_challenger_arg[:2000],
+                debate_topic=debate_topic,
+            )
+            try:
+                defender_response = await defender_agent.generate(defender_prompt)
+            except Exception as e:
+                self._logger.log_error(e, agent_id=defender_id, thread_id=self._thread_id)
+                click.echo(f"    [!] Debate error ({defender_id}): {e}")
+                resolution_type = "error"
+                resolution_statement = f"Debate ended due to error: {e}"
+                break
+
+            self._log_agent_response(defender_id, defender_response, phase, "debate_defense")
+            transcript.append({"agent": defender_id, "content": defender_response.content})
+
+            # Check for resolution tags
+            resolved_match = _RESOLVED_RE.search(defender_response.content)
+            concede_match = _CONCEDE_RE.search(defender_response.content)
+            if resolved_match:
+                resolution_type = "resolved"
+                resolution_statement = resolved_match.group(1).strip()
+                click.echo(f"    <<< Debate resolved by {defender_id}")
+                break
+            if concede_match:
+                resolution_type = "concede_defender"
+                resolution_statement = concede_match.group(1).strip()
+                click.echo(f"    <<< {defender_id} concedes")
+                break
+
+            # On the final exchange, only the defender speaks
+            if is_final_exchange:
+                break
+
+            # --- Challenger turn ---
+            challenger_prompt = _DEBATE_PROMPT_CHALLENGER.format(
+                challenger_id=challenger_id,
+                defender_id=defender_id,
+                defender_argument=defender_response.content[:2000],
+                debate_topic=debate_topic,
+            )
+            try:
+                challenger_response = await challenger_agent.generate(challenger_prompt)
+            except Exception as e:
+                self._logger.log_error(e, agent_id=challenger_id, thread_id=self._thread_id)
+                click.echo(f"    [!] Debate error ({challenger_id}): {e}")
+                resolution_type = "error"
+                resolution_statement = f"Debate ended due to error: {e}"
+                break
+
+            self._log_agent_response(challenger_id, challenger_response, phase, "debate_challenge")
+            transcript.append({"agent": challenger_id, "content": challenger_response.content})
+            last_challenger_arg = challenger_response.content
+
+            # Check for resolution tags
+            resolved_match = _RESOLVED_RE.search(challenger_response.content)
+            concede_match = _CONCEDE_RE.search(challenger_response.content)
+            if resolved_match:
+                resolution_type = "resolved"
+                resolution_statement = resolved_match.group(1).strip()
+                click.echo(f"    <<< Debate resolved by {challenger_id}")
+                break
+            if concede_match:
+                resolution_type = "concede_challenger"
+                resolution_statement = concede_match.group(1).strip()
+                click.echo(f"    <<< {challenger_id} concedes")
+                break
+
+        # Synthesize debate outcome
+        synthesis = await self._synthesize_debate(
+            challenger_id=challenger_id,
+            defender_id=defender_id,
+            debate_topic=debate_topic,
+            transcript=transcript,
+            resolution_type=resolution_type,
+            resolution_statement=resolution_statement,
+            phase=phase,
+        )
+
+        # Inject synthesis as a message visible to subsequent speakers
+        synthesis_msg: dict[str, Any] = {
+            "from": "orchestrator",
+            "to": "team",
+            "thread_id": self._thread_id,
+            "phase": phase_key,
+            "type": "debate_synthesis",
+            "content": synthesis,
+            "references": [],
+            "metadata": {
+                "debate_participants": [challenger_id, defender_id],
+                "debate_topic": debate_topic,
+                "resolution_type": resolution_type,
+                "num_exchanges": len(transcript),
+            },
+        }
+        self._messages.append(synthesis_msg)
+
+        self._logger.log(
+            EventType.DEBATE_TRIGGERED,
+            content={
+                "challenger": challenger_id,
+                "defender": defender_id,
+                "topic": debate_topic,
+                "status": "completed",
+                "resolution_type": resolution_type,
+                "num_exchanges": len(transcript),
+            },
+            thread_id=self._thread_id,
+            phase=phase_key,
+        )
+
+        self._debate_counts[phase_key] = self._debate_counts.get(phase_key, 0) + 1
+        click.echo(f"    <<< Debate complete ({resolution_type}, {len(transcript)} turns)")
+
+    async def _synthesize_debate(
+        self,
+        challenger_id: str,
+        defender_id: str,
+        debate_topic: str,
+        transcript: list[dict[str, str]],
+        resolution_type: str,
+        resolution_statement: str,
+        phase: ResearchPhase,
+    ) -> str:
+        """Generate a synthesis of the debate for the team.
+
+        Uses the synthesizer agent if available; falls back to a mechanical
+        template-based summary.
+
+        Args:
+            challenger_id: Agent who issued the challenge.
+            defender_id: Agent being challenged.
+            debate_topic: Topic of the debate.
+            transcript: List of {agent, content} dicts.
+            resolution_type: How the debate ended.
+            resolution_statement: The resolution/concession text.
+            phase: Current research phase.
+
+        Returns:
+            Synthesis text string.
+        """
+        # Build transcript text
+        transcript_text = "\n\n".join(
+            f"**{turn['agent']}**: {turn['content']}" for turn in transcript
+        )
+
+        # Try synthesizer agent first
+        synthesizer_id = None
+        for aid, agent in self._agents.items():
+            if agent.skill_profile == "synthesizer":
+                synthesizer_id = aid
+                break
+
+        if synthesizer_id is not None:
+            synth_agent = self._agents[synthesizer_id]
+            prompt = _DEBATE_SYNTHESIS_PROMPT.format(
+                challenger_id=challenger_id,
+                defender_id=defender_id,
+                debate_topic=debate_topic,
+                transcript=transcript_text[:4000],
+                resolution_type=resolution_type,
+                resolution_statement=resolution_statement or "(no explicit statement)",
+            )
+            try:
+                response = await synth_agent.generate(prompt)
+                self._log_agent_response(synthesizer_id, response, phase, "debate_synthesis")
+                return response.content
+            except Exception as e:
+                self._logger.log_error(e, agent_id=synthesizer_id, thread_id=self._thread_id)
+                click.echo(f"    [!] Synthesis failed, using mechanical fallback: {e}")
+
+        # Mechanical fallback
+        return self._mechanical_debate_synthesis(
+            challenger_id=challenger_id,
+            defender_id=defender_id,
+            debate_topic=debate_topic,
+            transcript=transcript,
+            resolution_type=resolution_type,
+            resolution_statement=resolution_statement,
+        )
+
+    @staticmethod
+    def _mechanical_debate_synthesis(
+        challenger_id: str,
+        defender_id: str,
+        debate_topic: str,
+        transcript: list[dict[str, str]],
+        resolution_type: str,
+        resolution_statement: str,
+    ) -> str:
+        """Generate a template-based debate summary as fallback.
+
+        Args:
+            challenger_id: Agent who issued the challenge.
+            defender_id: Agent being challenged.
+            debate_topic: Topic of the debate.
+            transcript: List of {agent, content} dicts.
+            resolution_type: How the debate ended.
+            resolution_statement: The resolution/concession text.
+
+        Returns:
+            Mechanical synthesis string.
+        """
+        parts = [
+            f"## Debate Summary: {challenger_id} vs {defender_id}",
+            f"**Topic:** {debate_topic}",
+            f"**Resolution:** {resolution_type}",
+        ]
+        if resolution_statement:
+            parts.append(f"**Statement:** {resolution_statement}")
+
+        # Include last position from each participant
+        last_positions: dict[str, str] = {}
+        for turn in transcript:
+            last_positions[turn["agent"]] = turn["content"]
+
+        for agent_id, content in last_positions.items():
+            parts.append(f"\n**{agent_id}'s final position:** {content[:500]}")
+
+        return "\n".join(parts)
+
     async def _run_seeding_phase(self, seed_prompt: str, mode: str) -> str:
         """Initialize the research thread. No agent calls.
 
@@ -2145,6 +2553,9 @@ class OrchestrationEngine:
             # Process any [SEARCH: ...] requests in the agent's response
             await self._process_search_requests(agent_id, response.content, phase)
 
+            # Process any [CHALLENGE: ...] requests in the agent's response
+            await self._process_challenge_requests(agent_id, response.content, phase, round_num)
+
     def _build_agent_prompt(
         self,
         agent: Agent,
@@ -2229,6 +2640,10 @@ class OrchestrationEngine:
         # Append search instructions for search-enabled phases
         if phase in _SEARCH_ENABLED_PHASES:
             formatted += _SEARCH_INSTRUCTION
+
+        # Append debate/challenge instructions for debate-enabled phases
+        if phase in _DEBATE_ENABLED_PHASES and self._config.orchestrator.enable_debates:
+            formatted += _CHALLENGE_INSTRUCTION
 
         return formatted
 
