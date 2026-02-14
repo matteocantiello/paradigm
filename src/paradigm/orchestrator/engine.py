@@ -1363,13 +1363,17 @@ class OrchestrationEngine:
 
         self._log_agent_response(editor.agent_id, response, ResearchPhase.SUBMITTED, "desk_review")
 
-        # Determine desk review decision for logging
-        _desk_lower = response.content.lower()
-        _desk_decision = (
-            "desk_reject"
-            if "desk_reject" in _desk_lower or "desk reject" in _desk_lower
-            else "send_to_review"
-        )
+        # Parse desk review decision from ## Decision section only
+        sections = parse_sections_from_markdown(response.content)
+        decision_text = sections.get("decision", "").strip().lower()
+
+        # Fall back to full-text scan only if no ## Decision section found
+        if not decision_text:
+            decision_text = response.content.lower()
+
+        is_desk_reject = "desk_reject" in decision_text or "desk reject" in decision_text
+
+        _desk_decision = "desk_reject" if is_desk_reject else "send_to_review"
         self._review_log.append(
             {
                 "type": "desk_review",
@@ -1379,9 +1383,7 @@ class OrchestrationEngine:
             }
         )
 
-        # Parse decision
-        response_lower = response.content.lower()
-        if "desk_reject" in response_lower or "desk reject" in response_lower:
+        if is_desk_reject:
             click.echo("  Desk REJECTED")
             # Desk rejection — create a minimal review for graveyard
             desk_review = PeerReview(

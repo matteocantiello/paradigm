@@ -739,6 +739,52 @@ class TestEngineDeskRejection:
         assert thread["status"] == "rejected"
 
 
+class TestEngineDeskReviewFalsePositive:
+    """Regression test: desk review mentions 'desk rejection' in reasoning but decides send_to_review."""
+
+    @pytest.mark.asyncio
+    async def test_desk_review_mention_in_reasoning_not_rejected(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Papers pass desk review even if reasoning mentions 'desk rejection'."""
+        factory = _make_writing_factory(
+            editor_desk_response=(
+                "## Decision\nsend_to_review\n\n"
+                "## Reason\nThis paper has sufficient scientific merit, structural "
+                "coherence, and clarity to warrant full evaluation by domain experts "
+                "rather than desk rejection."
+            )
+        )
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Test stellar convection",
+            mode="directed",
+        )
+
+        thread = tmp_db.get_thread(thread_id)
+        # Should NOT be rejected — the Decision section says send_to_review
+        assert thread["status"] in ("published", "rejected")
+        # If rejected, it must be from peer review, not desk rejection
+        if thread["status"] == "rejected":
+            # Desk rejection sets status to "rejected" via reject_paper which
+            # adds a graveyard entry with "Desk rejection" in it. Verify that's
+            # not the case here.
+            cursor = tmp_db.conn.cursor()
+            cursor.execute("SELECT * FROM graveyard WHERE type = 'rejected_paper'")
+            rows = cursor.fetchall()
+            for row in rows:
+                row_dict = dict(row)
+                assert "Desk rejection" not in row_dict.get("failure_reason", "")
+
+
 class TestEngineRevisionLoop:
     """Test revision loop path."""
 

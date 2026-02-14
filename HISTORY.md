@@ -842,6 +842,18 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 
 **Artifacts modified**: `tests/test_debate.py`
 
+### Prompt — Fix Desk Review Decision Parsing Bug
+
+> Implement the following plan: Fix Desk Review Decision Parsing Bug
+>
+> Paper paper-1d696305a77e was desk-rejected despite the editor explicitly deciding send_to_review. Root cause: the desk review decision parser checks if "desk_reject" or "desk reject" appears anywhere in the editor's full response text. The editor's reasoning naturally includes phrases like "rather than desk rejection", which contains the substring "desk reject" — triggering a false positive.
+>
+> Fix: Parse only the ## Decision section of the response (using existing parse_sections_from_markdown()), not the full text. Add regression test.
+
+**Key decisions**: Use existing parse_sections_from_markdown(); fall back to full-text scan only if no ## Decision section found; single decision check for both logging and control flow.
+
+**Artifacts modified**: `src/paradigm/orchestrator/engine.py`, `tests/test_peer_review.py`
+
 ### Prompt — Multi-Provider LLM Refactoring
 
 > Implement the following plan: [Multi-Provider LLM Refactoring plan]
