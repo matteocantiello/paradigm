@@ -24,10 +24,12 @@ class CodeExecutor:
         config: SandboxConfig,
         logger: EventLogger,
         data_dir: Path,
+        workspace_dir: Path | None = None,
     ) -> None:
         self.config = config
         self.logger = logger
         self.data_dir = data_dir
+        self.workspace_dir = workspace_dir
         self.scanner = SafetyScanner()
         self.container_manager = ContainerManager(config)
 
@@ -92,10 +94,22 @@ class CodeExecutor:
         if repo_paths:
             environment["PYTHONPATH"] = ":".join(repo_paths)
 
+        # Workspace dir persists across executions within a thread
+        workspace_dir = self.workspace_dir
+        if workspace_dir:
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+
+        # Offline pip cache for agent-driven package installs
+        packages_dir = self.data_dir / "packages"
+        if not packages_dir.is_dir():
+            packages_dir = None
+
         result = await self.container_manager.execute(
             request=request,
             results_dir=results_dir,
             shared_dir=shared_dir,
+            workspace_dir=workspace_dir,
+            packages_dir=packages_dir,
             environment=environment,
         )
         result.safety_verdict = verdict

@@ -709,3 +709,36 @@ Resuming Cycle 1 after API credits replenished.
 **Artifacts modified:**
 - `src/paradigm/orchestrator/engine.py` — Token summary at end of cycle + stored in paper metadata
 - `tests/test_orchestrator.py` — Test for token summary
+
+### Prompt 61 — Relax Safety Scanner for Docker Sandbox
+> Why is the safety scanner blocking all these modules (modules: pathlib, io, requests, http, urllib, glob, fnmatch, shutil, tempfile, plus builtins like open, getattr, locals, vars, etc.)? I think these should be allowed to be run inside the docker
+
+- **Decision**: Remove overly restrictive module/builtin blocks from safety scanner since Docker container with --network=none is the real security boundary
+- **Artifacts**: `src/paradigm/sandbox/safety.py`, experimentalist prompt, safety tests
+
+### Prompt 62 — Add Execution Phase Circuit Breaker
+> Still let's add a failure-rate circuit breaker — if >70% of executions fail in a round, declare experiments sufficient and move on
+
+- **Decision**: Add per-round failure rate check; if >70% of executions in a round fail, break out of execution loop
+- **Artifacts**: `src/paradigm/orchestrator/engine.py`, `tests/test_experimentation.py`
+
+### Prompt 63 — Analyze Execution Events for Thread a6013bedc956
+> Analyze the execution events for thread-a6013bedc956 in data/events.jsonl. Count code_execution events, successes vs failures vs rejections, error events, and check execution directories for experimentalist-2 outputs (PNGs) in the execution phase window (Feb 14 04:24–06:00 UTC).
+
+- **Decision**: Diagnostic analysis only, no code changes
+- **Artifacts**: None (analysis output)
+
+### Prompt 64 — Fix Docker Sandbox Environment Issues
+> Ok, let's try to tackle the issues still present. Let's start with 1
+
+Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: requests, 3× FileNotFoundError (CSV from prior execution not available), 2× ModuleNotFoundError: PyPDF2. Docker image needs more packages and cross-execution file persistence needs work.
+
+- **Artifacts**: `docker/Dockerfile`, `src/paradigm/sandbox/docker.py`, `src/paradigm/orchestrator/engine.py`
+
+### Prompt 64 — Offline Pip Cache for Docker Sandbox
+> Is it possible to allow agents to install packages in docker as they need? Would this be too much of a safety threat?
+> Let's start with 2. But let's make a note in history.md that down the road we might want to do 4
+
+- **Decision**: Implement option 2 — offline pip cache. Pre-download wheels for common scientific packages, mount them read-only in the container. Agents can `pip install --no-index --find-links /data/packages/ <pkg>`.
+- **Future**: Down the road, consider option 4 — orchestrator-mediated installs where the agent declares `# REQUIRES: package1, package2`, the orchestrator validates against an allowlist, and builds/extends the Docker image before execution. This would be fully dynamic but requires more engineering.
+- **Artifacts**: `docker/requirements-cache.txt`, `docker/cache_packages.sh`, `src/paradigm/sandbox/executor.py`, `src/paradigm/sandbox/docker.py`, `src/paradigm/orchestrator/engine.py`

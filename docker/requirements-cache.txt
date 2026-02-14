@@ -1,0 +1,52 @@
+# Packages to cache for offline pip install inside the sandbox.
+# These are downloaded as wheels by cache_packages.sh and mounted
+# read-only at /data/packages/ in the Docker container.
+#
+# Agents can install them with:
+#   os.system('pip install --user --no-index --find-links /data/packages/ <pkg>')
+
+# --- Already in Dockerfile (included here so cache is self-contained) ---
+numpy
+scipy
+matplotlib
+pandas
+scikit-learn
+sympy
+astropy
+requests
+pypdf
+h5py
+seaborn
+
+# --- Additional scientific computing ---
+emcee
+corner
+lmfit
+uncertainties
+statsmodels
+
+# --- Astronomy-specific ---
+photutils
+specutils
+dust_extinction
+extinction
+galpy
+healpy
+
+# --- Data formats ---
+tables
+netCDF4
+xarray
+pyarrow
+
+# --- Visualization ---
+plotly
+bokeh
+
+# --- Utilities ---
+tqdm
+joblib
+numba
+cython
+pyyaml
+toml

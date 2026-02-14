@@ -8,13 +8,17 @@ RUN pip install --no-cache-dir \
     pandas \
     scikit-learn \
     sympy \
-    astropy
+    astropy \
+    requests \
+    pypdf \
+    h5py \
+    seaborn
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash sandbox
 
 # Create data directories
-RUN mkdir -p /data/results /data/shared && \
+RUN mkdir -p /data/results /data/shared /data/workspace && \
     chown -R sandbox:sandbox /data
 
 # Switch to non-root user

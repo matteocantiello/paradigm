@@ -66,6 +66,8 @@ class ContainerManager:
         request: ExecutionRequest,
         results_dir: Path,
         shared_dir: Path | None = None,
+        workspace_dir: Path | None = None,
+        packages_dir: Path | None = None,
         environment: dict[str, str] | None = None,
     ) -> ExecutionResult:
         """Execute code in an isolated Docker container.
@@ -74,6 +76,10 @@ class ContainerManager:
             request: The execution request with code and metadata.
             results_dir: Directory where output files will be written.
             shared_dir: Optional read-only shared data directory.
+            workspace_dir: Optional read-write workspace that persists across
+                executions within a thread. Mounted at /data/workspace.
+            packages_dir: Optional read-only directory with pre-downloaded pip
+                wheels. Mounted at /data/packages for offline pip install.
             environment: Optional environment variables to set in the container.
 
         Returns:
@@ -97,6 +103,10 @@ class ContainerManager:
         }
         if shared_dir and shared_dir.exists():
             volumes[str(shared_dir)] = {"bind": "/data/shared", "mode": "ro"}
+        if workspace_dir and workspace_dir.exists():
+            volumes[str(workspace_dir)] = {"bind": "/data/workspace", "mode": "rw"}
+        if packages_dir and packages_dir.exists():
+            volumes[str(packages_dir)] = {"bind": "/data/packages", "mode": "ro"}
 
         try:
             container = await asyncio.to_thread(

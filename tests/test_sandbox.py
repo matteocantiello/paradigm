@@ -49,11 +49,11 @@ class TestSafetyScanner:
         verdict = self.scanner.scan(code)
         assert verdict.safe is True
 
-    def test_denied_import_os(self) -> None:
-        code = "import os\nos.system('rm -rf /')"
+    def test_allowed_import_os(self) -> None:
+        """os is allowed — Docker container is the security boundary."""
+        code = "import os\nprint(os.getcwd())"
         verdict = self.scanner.scan(code)
-        assert verdict.safe is False
-        assert any("os" in v for v in verdict.violations)
+        assert verdict.safe is True
 
     def test_denied_import_subprocess(self) -> None:
         code = "import subprocess\nsubprocess.run(['ls'])"
@@ -61,14 +61,32 @@ class TestSafetyScanner:
         assert verdict.safe is False
         assert any("subprocess" in v for v in verdict.violations)
 
-    def test_denied_from_import(self) -> None:
-        code = "from os.path import join"
+    def test_allowed_from_os_path(self) -> None:
+        """os.path is allowed — file path operations are safe in Docker."""
+        code = "from os.path import join\nprint(join('a', 'b'))"
+        verdict = self.scanner.scan(code)
+        assert verdict.safe is True
+
+    def test_allowed_pathlib(self) -> None:
+        """pathlib is allowed — file operations are safe in Docker."""
+        code = "from pathlib import Path\np = Path('/data/shared')\nprint(list(p.iterdir()))"
+        verdict = self.scanner.scan(code)
+        assert verdict.safe is True
+
+    def test_allowed_io(self) -> None:
+        """io module is allowed inside Docker."""
+        code = "import io\nbuf = io.StringIO()\nbuf.write('hello')"
+        verdict = self.scanner.scan(code)
+        assert verdict.safe is True
+
+    def test_denied_ctypes(self) -> None:
+        code = "import ctypes"
         verdict = self.scanner.scan(code)
         assert verdict.safe is False
-        assert any("os" in v for v in verdict.violations)
+        assert any("ctypes" in v for v in verdict.violations)
 
-    def test_denied_socket(self) -> None:
-        code = "import socket\ns = socket.socket()"
+    def test_denied_multiprocessing(self) -> None:
+        code = "import multiprocessing"
         verdict = self.scanner.scan(code)
         assert verdict.safe is False
 
@@ -84,11 +102,11 @@ class TestSafetyScanner:
         assert verdict.safe is False
         assert any("eval" in v for v in verdict.violations)
 
-    def test_denied_open(self) -> None:
-        code = "f = open('/etc/passwd')"
+    def test_allowed_open(self) -> None:
+        """open() is allowed — Docker filesystem is isolated."""
+        code = "f = open('/data/shared/file.txt')\nprint(f.read())"
         verdict = self.scanner.scan(code)
-        assert verdict.safe is False
-        assert any("open" in v for v in verdict.violations)
+        assert verdict.safe is True
 
     def test_denied_dunder_import(self) -> None:
         code = "__import__('os')"
@@ -318,7 +336,7 @@ class TestCodeExecutor:
 
         with patch.object(executor.container_manager, "execute") as mock_exec:
             request = ExecutionRequest(
-                code="import os\nos.system('rm -rf /')",
+                code="import subprocess\nsubprocess.run(['rm', '-rf', '/'])",
                 agent_id="agent-1",
                 thread_id="thread-1",
             )
@@ -366,3 +384,29 @@ class TestCodeExecutor:
         events = logger.read_events(event_type=EventType.CODE_EXECUTION)
         # Should have at least 2 events: pre-execution log + result log
         assert len(events) >= 2
+
+    @pytest.mark.asyncio
+    async def test_workspace_dir_passed_to_container(self, tmp_path: Path) -> None:
+        """Workspace directory is created and passed to the container manager."""
+        logger = EventLogger(tmp_path / "events.jsonl")
+        workspace = tmp_path / "workspace"
+        executor = CodeExecutor(self.config, logger, tmp_path / "data", workspace_dir=workspace)
+
+        mock_result = ExecutionResult(
+            request=ExecutionRequest(code="print(1)", agent_id="a", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="1\n",
+            exit_code=0,
+            duration_seconds=0.1,
+        )
+
+        with patch.object(
+            executor.container_manager, "execute", return_value=mock_result
+        ) as mock_exec:
+            await executor.execute(ExecutionRequest(code="print(1)", agent_id="a", thread_id="t"))
+
+        # Workspace dir should have been created
+        assert workspace.exists()
+        # Container manager should have received the workspace_dir
+        call_kwargs = mock_exec.call_args
+        assert call_kwargs.kwargs.get("workspace_dir") == workspace

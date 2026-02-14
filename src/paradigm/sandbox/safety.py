@@ -6,53 +6,29 @@ from dataclasses import dataclass, field
 
 from paradigm.sandbox.models import SafetyVerdict
 
-# Modules that are never allowed in sandbox code
+# Modules that are never allowed in sandbox code.
+# Docker with --network=none is the primary security boundary.
+# Only block modules that enable process spawning, C-level escape, or
+# code generation that bypasses the safety scanner itself.
 DENIED_MODULES: frozenset[str] = frozenset(
     {
-        "subprocess",
-        "os",
-        "sys",
-        "shutil",
-        "socket",
-        "http",
-        "urllib",
-        "requests",
-        "ctypes",
-        "multiprocessing",
-        "pickle",
-        "shelve",
-        "tempfile",
-        "signal",
-        "threading",
-        "webbrowser",
-        "code",
-        "codeop",
-        "compileall",
-        "importlib",
-        "runpy",
-        "pathlib",
-        "glob",
-        "fnmatch",
-        "io",
+        "subprocess",  # shell command execution
+        "ctypes",  # C-level access, potential sandbox escape
+        "multiprocessing",  # fork bombs / resource abuse
+        "signal",  # process signal manipulation
     }
 )
 
-# Builtin functions/names that are never allowed
+# Builtin functions/names that are never allowed.
+# Block dynamic code execution (makes agent code un-auditable).
+# File I/O (open, getattr, etc.) is safe inside Docker.
 DENIED_BUILTINS: frozenset[str] = frozenset(
     {
-        "exec",
-        "eval",
-        "compile",
-        "__import__",
-        "open",
-        "breakpoint",
-        "globals",
-        "locals",
-        "vars",
-        "dir",
-        "getattr",
-        "setattr",
-        "delattr",
+        "exec",  # dynamic code execution
+        "eval",  # dynamic expression evaluation
+        "compile",  # code compilation
+        "__import__",  # dynamic import bypass
+        "breakpoint",  # no debugger in container
     }
 )
 

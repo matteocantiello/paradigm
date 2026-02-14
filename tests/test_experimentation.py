@@ -491,6 +491,96 @@ class TestExecutionPhaseIntegration:
             assert mock_executor_instance.execute.call_count == 2
 
     @pytest.mark.asyncio
+    async def test_circuit_breaker_high_failure_rate(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Circuit breaker stops execution when >70% of experiments fail in a round."""
+        # Agent proposes 3 experiments per round — all will fail
+        multi_code_agent = MagicMock(spec=Agent)
+        multi_code_agent.agent_id = "experimentalist-0"
+        multi_code_agent.skill_profile = "experimentalist"
+        multi_code_agent.generate = AsyncMock(
+            return_value=AgentResponse(
+                content=(
+                    "```python\n# EXPERIMENT: exp_a\nprint('a')\n```\n"
+                    "```python\n# EXPERIMENT: exp_b\nprint('b')\n```\n"
+                    "```python\n# EXPERIMENT: exp_c\nprint('c')\n```\n"
+                ),
+                usage=TokenUsage(input_tokens=50, output_tokens=80, total_tokens=130),
+                model="claude-sonnet-4-5-20250929",
+            )
+        )
+        multi_code_agent.format_message = MagicMock(
+            side_effect=lambda to, thread_id, phase, message_type, content, **kw: MagicMock(
+                model_dump=MagicMock(
+                    return_value={
+                        "from": "experimentalist-0",
+                        "to": to,
+                        "thread_id": thread_id,
+                        "phase": phase,
+                        "type": message_type,
+                        "content": content,
+                        "references": [],
+                        "metadata": {},
+                    }
+                )
+            )
+        )
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(
+            side_effect=lambda roles, skill_mode="default": [
+                multi_code_agent if r == "experimentalist" else _make_mock_agent(f"{r}-0", r)
+                for r in roles
+            ]
+        )
+
+        failure_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.FAILURE,
+            stderr="NameError: something broke",
+            error_message="Process exited with code 1",
+        )
+
+        with (
+            patch("paradigm.storage.checkpoints.Anthropic") as mock_anthropic,
+            patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor,
+        ):
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = _mock_checkpoint_response()
+            mock_anthropic.return_value = mock_client
+
+            mock_executor_instance = AsyncMock()
+            # All executions fail (including retries)
+            mock_executor_instance.execute = AsyncMock(return_value=failure_result)
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            mock_config.orchestrator.max_experiment_rounds = 3
+
+            await engine.run_research_cycle(
+                seed_prompt="Test circuit breaker",
+                mode="experimental",
+            )
+
+            # Circuit breaker fires after round 1: only 1 proposal call in
+            # EXECUTION (plus retries and ideation/planning calls).
+            # Without circuit breaker, 3 rounds would triple the executor calls.
+            round_1_executor_calls = mock_executor_instance.execute.call_count
+            # 3 experiments × 3 attempts (1 initial + 2 retries) = 9
+            assert round_1_executor_calls == 9
+            # With 3 rounds it would be 27 — circuit breaker saved 2 rounds
+            assert round_1_executor_calls < 27
+
+    @pytest.mark.asyncio
     async def test_execution_context_in_writing(
         self, tmp_path, tmp_db, tmp_logger, mock_factory_with_code, mock_corpus
     ):

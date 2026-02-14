@@ -155,15 +155,26 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Wrap each experiment in a fenced ```python block with a "
             "`# EXPERIMENT: <name>` comment on the first line.\n\n"
             "**Available libraries:** numpy, scipy, matplotlib, pandas, scikit-learn, "
-            "sympy, astropy.\n"
-            "**Safety constraints:** Do NOT use os, subprocess, open() for writing, "
-            "or network access. Read-only file access is allowed via provided shared data.\n"
+            "sympy, astropy, seaborn, requests, pypdf, h5py, and standard library modules.\n"
+            "**Installing extra packages:** If you need a package not already installed, run "
+            "`import os; os.system('pip install --user --no-index --find-links /data/packages/ "
+            "<package_name>')` at the top of your script. Packages available in the offline "
+            "cache include: emcee, corner, lmfit, uncertainties, statsmodels, photutils, "
+            "specutils, dust_extinction, galpy, healpy, xarray, plotly, tqdm, numba, and more.\n"
+            "**Environment:** Code runs inside a Docker container with no network access. "
+            "You can use os, pathlib, open(), io, glob, shutil, etc. for file operations. "
+            "Do NOT use subprocess, ctypes, multiprocessing, exec(), or eval().\n"
             "**Shared resources:** Code repositories and data files from the research prompt "
             "are available under /data/shared/. See 'Available Code Resources' and 'Available "
             "Data Files' sections above for paths.\n"
+            "**Workspace:** /data/workspace/ is a persistent read-write directory shared "
+            "across all experiments. Save intermediate data files (CSVs, pickles, HDF5) "
+            "there so later experiments can reuse them. Read previous outputs from there.\n"
             "**Output:** Print results to stdout. Save figures as .png files using "
             "matplotlib (plt.savefig('figure_name.png')). All .png/.pdf files in the "
             "working directory will be collected.\n\n"
+            "Since network is disabled, generate synthetic or simulated data when real "
+            "observational data is not available under /data/shared/. "
             "Focus on producing clear, reproducible computational results."
         ),
         "analyze_results": (
@@ -855,10 +866,16 @@ class OrchestrationEngine:
             if r.resource_type == ResourceType.CODE_REPO and r.sandbox_path and r.error is None
         ]
 
+        # Per-thread workspace persists across executions so experiments
+        # can read files (CSVs, data) produced by earlier experiments.
+        workspace_dir = self._config.storage.data_dir / "workspaces" / self._thread_id
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+
         executor = CodeExecutor(
             config=self._config.sandbox,
             logger=self._logger,
             data_dir=self._config.storage.data_dir,
+            workspace_dir=workspace_dir,
         )
 
         all_results: list[str] = []
@@ -926,6 +943,8 @@ class OrchestrationEngine:
                     continue
 
                 # Execute each code block
+                round_total = 0
+                round_failures = 0
                 for exp_name, code in code_blocks:
                     click.echo(f"    Running: {exp_name}")
                     result = await self._execute_with_retry(
@@ -939,6 +958,10 @@ class OrchestrationEngine:
                     formatted = _format_execution_result(exp_name, result)
                     all_results.append(formatted)
 
+                    round_total += 1
+                    if result.status != ExecutionStatus.SUCCESS:
+                        round_failures += 1
+
                     # Track output figures
                     for output_file in result.output_files:
                         if output_file.filename.endswith((".png", ".pdf")):
@@ -946,6 +969,14 @@ class OrchestrationEngine:
 
                     status_str = result.status.value
                     click.echo(f"    {exp_name}: {status_str}")
+
+                # Circuit breaker: if >70% of executions failed, stop experimenting
+                if round_total > 0 and (round_failures / round_total) > 0.7:
+                    click.echo(
+                        f"    [!] High failure rate ({round_failures}/{round_total}), "
+                        "stopping experiments"
+                    )
+                    break
 
             # Build execution context for WRITING phase
             self._execution_context = "\n\n".join(all_results) if all_results else ""
