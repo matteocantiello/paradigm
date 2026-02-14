@@ -748,3 +748,9 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 
 - **Decision**: Add post-processing to strip agent meta-text from paper body before saving
 - **Artifacts**: `src/paradigm/orchestrator/engine.py` or `src/paradigm/journal/paper.py`
+
+### Prompt 66 — Embed Figures Inline in Paper Markdown
+> Now let's fix 3. (Figures not embedded inline: The paper references "Figure 1", "Figure 2", etc. in text but never uses ![Figure](figures/...) markdown syntax to actually embed them)
+
+- **Decision**: Add post-processing after paper finalization to ensure figure image tags are present in the paper body
+- **Artifacts**: `src/paradigm/orchestrator/engine.py`

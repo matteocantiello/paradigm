@@ -1,6 +1,7 @@
 """Tests for the EXECUTION phase: code extraction, result formatting, and integration."""
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -714,3 +715,83 @@ class TestExecutionPhaseIntegration:
             if paper_dirs:
                 figure_files = list(paper_dirs[0].glob("*.png"))
                 assert len(figure_files) >= 1
+
+
+# --- Unit tests: figure embedding ---
+
+
+class TestEmbedFiguresInline:
+    """Tests for the _embed_figures_inline post-processing method."""
+
+    def _make_engine(self, tmp_path):
+        """Create a minimal engine with mocked dependencies for unit testing."""
+        from paradigm.config import Config
+
+        config = Config(
+            api_key="fake",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={"max_rounds_per_phase": 1},
+        )
+        db = Database(tmp_path / "test.db")
+        logger = EventLogger(tmp_path / "events.jsonl")
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[])
+        corpus = MagicMock()
+        engine = OrchestrationEngine(
+            config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
+        )
+        db.close()
+        return engine
+
+    def test_no_figures_returns_unchanged(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = []
+        body = "# Paper\n\n## Abstract\n\nContent."
+        assert engine._embed_figures_inline(body) == body
+
+    def test_inserts_missing_figure_tag(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = [("test_exp", Path("/tmp/plot.png"))]
+
+        body = "# Paper\n\n## Results\n\nAs shown in Figure 1, the data is clear.\n\n## Conclusion\n\nDone."
+        result = engine._embed_figures_inline(body)
+        assert "![Figure 1](figures/test_exp_plot.png)" in result
+
+    def test_skips_already_embedded(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = [("test_exp", Path("/tmp/plot.png"))]
+
+        body = "# Paper\n\n![Figure 1](figures/test_exp_plot.png)\n\nSee Figure 1 above."
+        result = engine._embed_figures_inline(body)
+        # Should not duplicate the tag
+        assert result.count("![Figure 1]") == 1
+
+    def test_appends_if_no_text_reference(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = [("test_exp", Path("/tmp/plot.png"))]
+
+        body = "# Paper\n\n## Abstract\n\nNo figure mention here."
+        result = engine._embed_figures_inline(body)
+        assert "![Figure 1](figures/test_exp_plot.png)" in result
+        # Should be at the end
+        assert result.strip().endswith("![Figure 1](figures/test_exp_plot.png)")
+
+    def test_multiple_figures(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = [
+            ("exp_a", Path("/tmp/fig_a.png")),
+            ("exp_b", Path("/tmp/fig_b.png")),
+        ]
+
+        body = "# Paper\n\nFigure 1 shows X.\n\nFigure 2 shows Y."
+        result = engine._embed_figures_inline(body)
+        assert "![Figure 1](figures/exp_a_fig_a.png)" in result
+        assert "![Figure 2](figures/exp_b_fig_b.png)" in result
+
+    def test_figure_dest_name_sanitizes(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        name = engine._figure_dest_name("Test Experiment (v2)", Path("/tmp/plot.png"))
+        assert name == "Test_Experiment__v2__plot.png"
+        # No spaces or parens
+        assert " " not in name
+        assert "(" not in name
