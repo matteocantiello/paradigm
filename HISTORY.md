@@ -1046,3 +1046,27 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/literature/prompt_utils.py` — validation regex + early URL rejection
 - `src/paradigm/orchestrator/engine.py` — clearer prompt instruction
 - `tests/test_prompt_utils.py` — 6 new validation tests
+
+### Prompt 69 — Fix Execution Phase Network Access Failures
+
+> Implement the following plan: Fix Execution Phase — Network Access Failures
+>
+> During live testing, agents in the EXECUTION phase repeatedly try to download data from the internet despite running in Docker with --network=none. This causes execution failures, retry loops waste tokens, and circuit breaker triggers early.
+>
+> Root causes: `requests` listed as available library, no-network constraint buried at end of prompt, retry prompt has no network reminder, safety scanner doesn't catch network calls.
+>
+> Fix: (1) Restructure execution prompt — remove requests, move no-network warning to top, add data strategy guidance, (2) Add network error detection to retry feedback, (3) Add network module detection to safety scanner (AST + regex), (4) Update analyze_results and retry_after_failure prompts with no-network reminders, (5) Tests for all changes.
+
+**Key decisions:**
+- Remove `requests` from available libraries list (contradictory signal with --network=none)
+- Network constraint as bold warning block at top of execution prompt, not buried at end
+- Network error pattern detection in `_execute_with_retry()` prepends clear guidance
+- AST-based detection for `requests`, `httpx`, `aiohttp`, `ftplib` imports in safety scanner
+- Regex-based detection for `urllib.request`, `http.client`, `socket` usage
+- `urllib.parse` remains allowed (no network needed)
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Restructured execution prompt, network error detection in retry, updated analyze_results and retry_after_failure prompts
+- `src/paradigm/sandbox/safety.py` — Added NETWORK_MODULES, _check_network_imports(), network regex patterns
+- `tests/test_safety.py` — NEW: ~5 tests for network module detection
+- `tests/test_orchestrator.py` — ~2 new tests for network error hints and library list

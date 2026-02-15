@@ -33,6 +33,30 @@ DENIED_BUILTINS: frozenset[str] = frozenset(
     }
 )
 
+# Modules that attempt network access in a --network=none sandbox.
+# Unlike DENIED_MODULES (which block dangerous operations), these block
+# operations that will always fail, saving Docker execution time.
+NETWORK_MODULES: frozenset[str] = frozenset(
+    {
+        "requests",  # HTTP library — always needs network
+        "httpx",  # HTTP library — always needs network
+        "aiohttp",  # HTTP library — always needs network
+        "ftplib",  # FTP library — always needs network
+    }
+)
+
+# Catch urllib.request and http.client usage via regex.
+# We don't block the full 'urllib' or 'http' modules since
+# urllib.parse and http.server are harmless.
+_NETWORK_REGEX_PATTERNS: list[tuple[str, str]] = [
+    (r"urllib\.request", "urllib.request cannot work in the sandbox (no network access)"),
+    (r"http\.client", "http.client cannot work in the sandbox (no network access)"),
+    (
+        r"socket\.create_connection|socket\.socket\(",
+        "socket connections cannot work in the sandbox (no network access)",
+    ),
+]
+
 # Maximum code length (characters) to prevent abuse
 MAX_CODE_LENGTH: int = 50_000
 
@@ -89,6 +113,7 @@ class SafetyScanner:
 
         # AST-based checks
         self._check_imports(tree, violations)
+        self._check_network_imports(tree, violations)
         self._check_builtins(tree, violations)
 
         # Regex fallback for patterns AST might miss
@@ -110,6 +135,28 @@ class SafetyScanner:
                     top_module = node.module.split(".")[0]
                     if top_module in self.config.denied_modules:
                         violations.append(f"Denied import: 'from {node.module}'")
+
+    def _check_network_imports(self, tree: ast.AST, violations: list[str]) -> None:
+        """Check for network module imports that will fail in --network=none sandbox."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top_module = alias.name.split(".")[0]
+                    if top_module in NETWORK_MODULES:
+                        violations.append(
+                            f"Network module '{alias.name}' cannot work in the sandbox "
+                            f"(no network access). Use synthetic data or files from "
+                            f"/data/shared/ instead."
+                        )
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    top_module = node.module.split(".")[0]
+                    if top_module in NETWORK_MODULES:
+                        violations.append(
+                            f"Network module 'from {node.module}' cannot work in the "
+                            f"sandbox (no network access). Use synthetic data or files "
+                            f"from /data/shared/ instead."
+                        )
 
     def _check_builtins(self, tree: ast.AST, violations: list[str]) -> None:
         """Check for denied builtin function calls via AST."""
@@ -147,3 +194,8 @@ class SafetyScanner:
         # Catch os.system-style calls via string manipulation
         if re.search(r'getattr\s*\(.+["\']system["\']\s*\)', code):
             violations.append("Denied pattern: getattr-based system call detected")
+
+        # Catch network access patterns via stdlib modules
+        for pattern, message in _NETWORK_REGEX_PATTERNS:
+            if re.search(pattern, code):
+                violations.append(message)

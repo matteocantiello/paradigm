@@ -163,8 +163,13 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Write Python code to test the hypotheses and plans from prior discussion. "
             "Wrap each experiment in a fenced ```python block with a "
             "`# EXPERIMENT: <name>` comment on the first line.\n\n"
+            "**\u26a0 CRITICAL: The sandbox has NO network access.** Do NOT use `requests`, "
+            "`urllib.request`, `httpx`, `http.client`, `aiohttp`, or any HTTP/socket calls "
+            "— they will always fail. All data must come from: (1) files under "
+            "/data/shared/, (2) /data/workspace/, or (3) synthetic/simulated data you "
+            "generate in code.\n\n"
             "**Available libraries:** numpy, scipy, matplotlib, pandas, scikit-learn, "
-            "sympy, astropy, seaborn, requests, pypdf, h5py, emcee, corner, lmfit, "
+            "sympy, astropy, seaborn, pypdf, h5py, emcee, corner, lmfit, "
             "uncertainties, statsmodels, tqdm, numba, xarray, joblib, pyyaml, "
             "and standard library modules.\n"
             "**Installing extra packages:** If you need a package not already installed, run "
@@ -192,8 +197,10 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "raw strings (r'...') to avoid invalid escape sequences. For example: "
             r"r'$M_\odot$' not '$M_\odot$'."
             "\n\n"
-            "Since network is disabled, generate synthetic or simulated data when real "
-            "observational data is not available under /data/shared/. "
+            "**Data strategy:** If the research topic references specific datasets or "
+            "observations, generate realistic synthetic data that captures the key "
+            "statistical properties (distributions, correlations, noise characteristics). "
+            "Document your synthetic data assumptions with comments. "
             "Focus on producing clear, reproducible computational results."
         ),
         "analyze_results": (
@@ -207,7 +214,10 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "2. Declare experiments sufficient by NOT including any code block "
             "(just provide your analysis)\n\n"
             "If proposing follow-up experiments, explain what additional question "
-            "they address."
+            "they address.\n\n"
+            "**Remember:** The sandbox has NO network access. All experiments must use "
+            "synthetic/simulated data or files from /data/shared/ and /data/workspace/. "
+            "Do NOT use requests, urllib, or any HTTP calls."
         ),
         "retry_after_failure": (
             "Your previous experiment failed or was rejected.\n"
@@ -215,7 +225,10 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "{checkpoint_context}"
             "## Error Feedback\n{error_feedback}\n\n"
             "Fix the code and resubmit in a ```python block with "
-            "`# EXPERIMENT: <name>` header. Address the specific error above."
+            "`# EXPERIMENT: <name>` header. Address the specific error above.\n\n"
+            "**Remember:** The sandbox has NO network access. Do NOT use requests, "
+            "urllib, or any HTTP calls. Generate synthetic data or use files from "
+            "/data/shared/."
         ),
     },
     ResearchPhase.WRITING: {
@@ -446,6 +459,22 @@ _MIN_PAPER_LENGTH = 500
 _EXECUTION_OUTPUT_LIMIT = 4000
 _EXECUTION_STDERR_LIMIT = 2000
 _MAX_RETRIES_PER_EXPERIMENT = 2
+
+# Network error patterns in stderr — when detected, retry feedback includes
+# explicit guidance that the sandbox has no network access.
+_NETWORK_ERROR_PATTERNS: list[str] = [
+    "Temporary failure in name resolution",
+    "Name or service not known",
+    "ConnectionRefusedError",
+    "ConnectionError",
+    "No route to host",
+    "Network is unreachable",
+    "urlopen error",
+    "MaxRetryError",
+    "NewConnectionError",
+    "socket.gaierror",
+    "requests.exceptions",
+]
 
 # Regex to extract fenced python code blocks
 _CODE_BLOCK_RE = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
@@ -1291,6 +1320,21 @@ class OrchestrationEngine:
                     error_parts.append(f"```\n{result.stderr[:_EXECUTION_STDERR_LIMIT]}\n```")
                 if result.error_message:
                     error_parts.append(f"Error: {result.error_message}")
+
+            # Detect network errors and prepend clear guidance
+            stderr_text = result.stderr or ""
+            if any(p in stderr_text for p in _NETWORK_ERROR_PATTERNS):
+                error_parts.insert(
+                    0,
+                    "**\u26a0 NETWORK ERROR:** This failure is because the sandbox has "
+                    "NO internet access. Do NOT use requests, urllib, httpx, or any "
+                    "HTTP calls. Instead:\n"
+                    "- Generate synthetic data that matches the expected statistical "
+                    "properties\n"
+                    "- Use files already available under /data/shared/ or "
+                    "/data/workspace/\n"
+                    "- Create mathematical models to simulate the data you need\n",
+                )
 
             error_feedback = "\n\n".join(error_parts)
             click.echo(f"    Retry {attempt + 1}/{_MAX_RETRIES_PER_EXPERIMENT}...")

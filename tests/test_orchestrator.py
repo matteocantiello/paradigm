@@ -11,13 +11,16 @@ from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.engine import (
     _LITERATURE_CONTEXT_LIMIT,
     _MIN_PAPER_LENGTH,
+    _NETWORK_ERROR_PATTERNS,
     _PHASE_ACTIVE_ROLES,
     _PHASE_CONTEXT_NEEDS,
+    _PHASE_INSTRUCTIONS,
     MODE_TEAM_ROLES,
     OrchestrationEngine,
     _is_duplicate_query,
     _normalize_query_keywords,
 )
+from paradigm.orchestrator.phases import ResearchPhase
 from paradigm.storage.database import Database
 
 
@@ -1605,9 +1608,7 @@ class TestLiteratureGraphTraversal:
                             content = "Response"
                         return AgentResponse(
                             content=content,
-                            usage=TokenUsage(
-                                input_tokens=50, output_tokens=30, total_tokens=80
-                            ),
+                            usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
                             model="claude-sonnet-4-5-20250929",
                         )
 
@@ -1630,3 +1631,55 @@ class TestLiteratureGraphTraversal:
         # After second search returns 0 new papers, hint should be in context
         lit_context = getattr(engine, "_literature_context", "")
         assert "Hint" in lit_context or "FOLLOW" in lit_context
+
+
+class TestNetworkErrorHandling:
+    """Tests for network error detection in execution phase."""
+
+    def test_requests_not_in_available_libraries(self):
+        """Execution prompt should not list 'requests' as an available library."""
+        prompt = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["propose_experiment"]
+        # The word "requests" should not appear as a listed available library.
+        # It may appear in the warning text ("Do NOT use `requests`"), but not
+        # in the "Available libraries:" line.
+        lines = prompt.split("\n")
+        for line in lines:
+            if line.startswith("**Available libraries:**"):
+                assert "requests" not in line, (
+                    "'requests' should not be listed as an available library"
+                )
+
+    def test_network_error_hint_in_retry(self):
+        """Network error patterns should be detected and produce clear guidance."""
+        # Verify that the pattern list contains expected entries
+        assert "Temporary failure in name resolution" in _NETWORK_ERROR_PATTERNS
+        assert "ConnectionRefusedError" in _NETWORK_ERROR_PATTERNS
+        assert "requests.exceptions" in _NETWORK_ERROR_PATTERNS
+
+        # Verify the detection logic works
+        stderr = "requests.exceptions.ConnectionError: Temporary failure in name resolution"
+        has_network_error = any(p in stderr for p in _NETWORK_ERROR_PATTERNS)
+        assert has_network_error
+
+    def test_execution_prompt_has_network_warning(self):
+        """Execution prompt should have a prominent no-network warning near the top."""
+        prompt = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["propose_experiment"]
+        # The CRITICAL warning should appear before the "Available libraries" line
+        warning_pos = prompt.find("CRITICAL: The sandbox has NO network access")
+        libraries_pos = prompt.find("Available libraries:")
+        assert warning_pos != -1, "CRITICAL network warning not found in execution prompt"
+        assert warning_pos < libraries_pos, (
+            "Network warning should appear before available libraries list"
+        )
+
+    def test_analyze_results_has_network_reminder(self):
+        """analyze_results prompt should include a no-network reminder."""
+        prompt = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
+        assert "NO network access" in prompt
+        assert "requests" in prompt
+
+    def test_retry_after_failure_has_network_reminder(self):
+        """retry_after_failure prompt should include a no-network reminder."""
+        prompt = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
+        assert "NO network access" in prompt
+        assert "requests" in prompt
