@@ -1134,3 +1134,22 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/orchestrator/engine.py`
 - `tests/test_executor.py` (new test)
 - `HISTORY.md`
+
+### Prompt 32 — Fix Literature Search Pipeline Stalling
+
+> Implement the following plan: Fix Literature Search Pipeline Stalling
+>
+> Agents are not finding new literature after the first batch. Logs show: theorist monopolizes the search budget (5/5 searches), repeats queries returning 0 new results, other agents never search. Root causes: shared per-round budget, no early termination on stale searches, no cross-round stall tracking, stall hint fires only once per round.
+>
+> Changes: (1) Early termination after 2 consecutive stale keyword searches, (2) Cross-round stale tracking with hard cap after 5 cumulative stale searches, (3) Unconditional stall hint (remove follow/cited_by count condition), (4) Per-agent keyword search cap.
+
+**Key decisions:**
+- `_total_stale_keyword_searches` persists across rounds (never reset per round)
+- Per-agent cap: `max(1, max_searches_per_round // 3)`
+- After 5 cumulative stale searches: hard-cap keyword budget to 1/round + inject persistent warning
+- Stall hint always fires on 0-new results (not gated on follow/cited_by counts)
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Early termination, cross-round tracking, unconditional stall hint, per-agent cap
+- `tests/test_orchestrator.py` — ~4 new tests
+- `HISTORY.md` — This prompt logged

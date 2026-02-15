@@ -741,6 +741,12 @@ class OrchestrationEngine:
         self._searched_queries: set[str] = set()  # Global exact dedup across entire cycle
         self._searched_query_keywords: list[frozenset[str]] = []  # Fuzzy dedup keyword sets
         self._seen_paper_ids: set[str] = set()  # Cross-query dedup: papers already shown to agents
+        self._total_stale_keyword_searches: int = (
+            0  # Cross-round stale counter (never reset per round)
+        )
+        self._agent_search_count: dict[
+            str, int
+        ] = {}  # Per-agent keyword search count (reset per round)
         self._search_log: list[dict[str, Any]] = []
         self._review_log: list[dict[str, Any]] = []
         self._code_context: str = ""
@@ -777,6 +783,8 @@ class OrchestrationEngine:
         self._searched_queries = set()
         self._searched_query_keywords = []
         self._seen_paper_ids = set()
+        self._total_stale_keyword_searches = 0
+        self._agent_search_count = {}
         self._search_log = []
         self._review_log = []
         self._code_context = ""
@@ -2247,7 +2255,7 @@ class OrchestrationEngine:
         """Parse [SEARCH: query] markers from an agent's response and execute searches.
 
         Results are appended to self._literature_context for all subsequent agents.
-        Respects the per-round budget from config.
+        Respects per-round budget, per-agent cap, and cross-round stall tracking.
 
         Args:
             agent_id: ID of the agent whose response contains search requests.
@@ -2258,9 +2266,20 @@ class OrchestrationEngine:
             return
 
         max_searches = self._config.orchestrator.max_searches_per_round
+
+        # Cross-round stall: after 5 cumulative stale keyword searches,
+        # hard-cap keyword budget to 1 per round for the rest of the phase
+        if self._total_stale_keyword_searches >= 5:
+            max_searches = min(max_searches, 1)
+
+        # Per-agent cap: no single agent monopolizes the round's budget
+        per_agent_cap = max(1, self._config.orchestrator.max_searches_per_round // 3)
+
         queries = parse_search_requests(response_text)
         if not queries:
             return
+
+        consecutive_stale = 0  # Track consecutive 0-new results within this agent's batch
 
         for query in queries:
             # Global exact dedup: skip queries already executed in this cycle
@@ -2274,9 +2293,19 @@ class OrchestrationEngine:
                 click.echo(f"    [~] Skipping similar query: {query[:60]}")
                 continue
 
+            # Check per-round budget
             if self._search_count_this_round >= max_searches:
                 click.echo(
                     f"    [!] Search budget exhausted ({max_searches}/round), "
+                    f"skipping: {query[:60]}"
+                )
+                break
+
+            # Check per-agent cap
+            agent_count = self._agent_search_count.get(agent_id, 0)
+            if agent_count >= per_agent_cap:
+                click.echo(
+                    f"    [!] {agent_id}: per-agent cap reached ({per_agent_cap}), "
                     f"skipping: {query[:60]}"
                 )
                 break
@@ -2315,6 +2344,7 @@ class OrchestrationEngine:
                 self._seen_paper_ids.add(p.arxiv_id)
 
             if new_papers:
+                consecutive_stale = 0
                 formatted = format_search_results(query, new_papers)
                 lit = getattr(self, "_literature_context", "")
                 self._literature_context = lit + "\n" + formatted if lit else formatted
@@ -2322,8 +2352,12 @@ class OrchestrationEngine:
                 # Trim literature context if it exceeds the limit (keep most recent)
                 if len(self._literature_context) > _LITERATURE_CONTEXT_LIMIT:
                     self._literature_context = self._literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+            else:
+                consecutive_stale += 1
+                self._total_stale_keyword_searches += 1
 
             self._search_count_this_round += 1
+            self._agent_search_count[agent_id] = self._agent_search_count.get(agent_id, 0) + 1
 
             click.echo(
                 f"    {agent_id} searched: '{query[:60]}' → "
@@ -2343,13 +2377,8 @@ class OrchestrationEngine:
                 phase=str(phase),
             )
 
-            # Stall hint: if keyword search returned 0 new papers and
-            # graph traversal hasn't been used yet this round, suggest it
-            if (
-                not new_papers
-                and self._follow_count_this_round == 0
-                and self._cited_by_count_this_round == 0
-            ):
+            # Stall hint: always inject when keyword search returns 0 new papers
+            if not new_papers:
                 hint = (
                     "\n\n> **Hint:** Your keyword searches are returning no new results. "
                     "Consider using [FOLLOW: arxiv_id] to explore references of papers "
@@ -2358,6 +2387,29 @@ class OrchestrationEngine:
                 )
                 lit = getattr(self, "_literature_context", "")
                 self._literature_context = lit + hint if lit else hint
+
+            # Early termination: 2 consecutive stale searches from this agent
+            if consecutive_stale >= 2:
+                click.echo(f"    [!] {agent_id}: 2 consecutive stale searches, stopping keywords")
+                stall_warning = (
+                    "\n\n> **Warning:** Keyword searches are exhausted for this topic. "
+                    "You MUST use [FOLLOW: arxiv_id] or [CITED_BY: arxiv_id] to discover "
+                    "new papers. Do NOT issue more [SEARCH:] requests.\n"
+                )
+                lit = getattr(self, "_literature_context", "")
+                self._literature_context = lit + stall_warning if lit else stall_warning
+                break
+
+        # Cross-round exhaustion warning: inject persistent warning
+        if self._total_stale_keyword_searches >= 5:
+            exhaustion_warning = (
+                "\n\n> \u26a0 Keyword searches are exhausted for this topic. You MUST use "
+                "[FOLLOW: arxiv_id] or [CITED_BY: arxiv_id] to discover new papers. "
+                "Do NOT issue [SEARCH:] requests.\n"
+            )
+            lit = getattr(self, "_literature_context", "")
+            if "\u26a0 Keyword searches are exhausted" not in lit:
+                self._literature_context = lit + exhaustion_warning if lit else exhaustion_warning
 
     async def _process_literature_actions(
         self, agent_id: str, response_text: str, phase: ResearchPhase
@@ -3060,6 +3112,7 @@ class OrchestrationEngine:
         self._follow_count_this_round = 0
         self._cited_by_count_this_round = 0
         self._read_count_this_round = 0
+        self._agent_search_count = {}
         speaker_order = scheduler.get_speaker_order(phase)
 
         # Phase-appropriate filtering: skip roles not active in this phase

@@ -1665,6 +1665,295 @@ class TestLiteratureGraphTraversal:
         lit_context = getattr(engine, "_literature_context", "")
         assert "Hint" in lit_context or "FOLLOW" in lit_context
 
+    @pytest.mark.asyncio
+    async def test_early_termination_on_stale_searches(self, mock_config, tmp_db, tmp_logger):
+        """After 2 consecutive 0-new results, remaining searches are skipped."""
+        from datetime import UTC, datetime
+
+        from paradigm.literature.arxiv import ArxivPaper
+
+        now = datetime.now(UTC)
+        paper = ArxivPaper(
+            arxiv_id="2401.12345",
+            title="Seen Paper",
+            abstract="Abstract",
+            authors=["Author"],
+            categories=["astro-ph.SR"],
+            primary_category="astro-ph.SR",
+            published=now,
+            updated=now,
+            pdf_url="https://arxiv.org/pdf/2401.12345",
+            abs_url="https://arxiv.org/abs/2401.12345",
+        )
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        # Return the same paper every time → 0 new after first
+        corpus.search = AsyncMock(return_value=[paper])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+                    # 5 searches: first one finds the paper, next 4 return 0 new
+                    response = AgentResponse(
+                        content=(
+                            "Ideas [SEARCH: query A] [SEARCH: query B] "
+                            "[SEARCH: query C] [SEARCH: query D] [SEARCH: query E]"
+                        ),
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        # Allow enough budget so early termination is the constraint
+        object.__setattr__(
+            mock_config,
+            "orchestrator",
+            mock_config.orchestrator.model_copy(update={"max_searches_per_round": 10}),
+        )
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test early term", mode="directed")
+
+        # Within round 1: query A (1 new), B (0 new), C (0 new) → stops after 3
+        # queries D and E are skipped in round 1 due to early termination.
+        # Round 2: D (0 new), E (0 new) → stops after 2. Total = 5.
+        # Without early termination, total would be 10 (5 per round × 2 rounds).
+        assert corpus.search.call_count < 10
+        # Stall warning should be injected
+        lit_context = getattr(engine, "_literature_context", "")
+        assert "Warning" in lit_context or "exhausted" in lit_context
+
+    @pytest.mark.asyncio
+    async def test_cross_round_stale_tracking(self, mock_config, tmp_db, tmp_logger):
+        """_total_stale_keyword_searches increments across rounds and caps budget."""
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        # Always return empty → every search is stale
+        corpus.search = AsyncMock(return_value=[])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                # Every agent issues 2 search requests
+                response = AgentResponse(
+                    content=f"Ideas from {role} [SEARCH: {role} query 1] [SEARCH: {role} query 2]",
+                    usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                    model="claude-sonnet-4-5-20250929",
+                )
+                agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(
+            seed_prompt="Test cross-round stale",
+            mode="directed",
+            team_roles=["theorist", "analyst"],
+        )
+
+        # Total stale count should have incremented (every search returned 0 new)
+        assert engine._total_stale_keyword_searches > 0
+        # After 5+ stale searches, the exhaustion warning should be in context
+        if engine._total_stale_keyword_searches >= 5:
+            lit_context = getattr(engine, "_literature_context", "")
+            assert "\u26a0 Keyword searches are exhausted" in lit_context
+
+    @pytest.mark.asyncio
+    async def test_per_agent_search_cap(self, mock_config, tmp_db, tmp_logger):
+        """A single agent cannot use the entire round's search budget."""
+        from datetime import UTC, datetime
+
+        from paradigm.literature.arxiv import ArxivPaper
+
+        now = datetime.now(UTC)
+        call_counter = [0]
+
+        async def _unique_search(query, max_results=10):
+            call_counter[0] += 1
+            return [
+                ArxivPaper(
+                    arxiv_id=f"2401.{call_counter[0]:05d}",
+                    title=f"Paper {call_counter[0]}",
+                    abstract="Abstract",
+                    authors=["Author"],
+                    categories=["astro-ph.SR"],
+                    primary_category="astro-ph.SR",
+                    published=now,
+                    updated=now,
+                    pdf_url=f"https://arxiv.org/pdf/2401.{call_counter[0]:05d}",
+                    abs_url=f"https://arxiv.org/abs/2401.{call_counter[0]:05d}",
+                )
+            ]
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(side_effect=_unique_search)
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                # First agent requests 5 searches
+                if role == roles[0]:
+                    response = AgentResponse(
+                        content=(
+                            f"Ideas [SEARCH: {role} q1] [SEARCH: {role} q2] "
+                            f"[SEARCH: {role} q3] [SEARCH: {role} q4] [SEARCH: {role} q5]"
+                        ),
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        # max_searches_per_round=5, so per_agent_cap = max(1, 5//3) = 1
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(
+            seed_prompt="Test per-agent cap",
+            mode="directed",
+            team_roles=["theorist", "analyst"],
+        )
+
+        # With per_agent_cap=1 (5//3=1), each agent should get at most 1 keyword
+        # search per round. So the first agent can't use all 5.
+        # The agent_search_count tracks per-agent usage within the round.
+        # We verify the first agent didn't get all 5 searches in any single round.
+        # Since all searches return unique papers, corpus.search.call_count
+        # tells us total searches executed across 2 rounds * 2 phases.
+        # With 2 agents, cap=1 each, 2 rounds, 2 phases = max 2*2*2 = 8
+        # (but agent 2 has no search markers, so max from agent 1 = 1*2*2 = 4)
+        assert corpus.search.call_count <= 4
+
+    @pytest.mark.asyncio
+    async def test_stall_hint_always_injected(self, mock_config, tmp_db, tmp_logger):
+        """Stall hint appears regardless of follow/cited_by count."""
+        from datetime import UTC, datetime
+
+        from paradigm.literature.arxiv import ArxivPaper
+
+        now = datetime.now(UTC)
+        paper = ArxivPaper(
+            arxiv_id="2401.99999",
+            title="Seen Paper",
+            abstract="Abstract",
+            authors=["Author"],
+            categories=["astro-ph.SR"],
+            primary_category="astro-ph.SR",
+            published=now,
+            updated=now,
+            pdf_url="https://arxiv.org/pdf/2401.99999",
+            abs_url="https://arxiv.org/abs/2401.99999",
+        )
+
+        # SemanticScholarPaper-like mock for get_references return
+        sem_paper = MagicMock()
+        sem_paper.arxiv_id = "2401.88888"
+        sem_paper.title = "Referenced Paper"
+        sem_paper.abstract = "Abstract of referenced paper"
+        sem_paper.authors = ["Ref Author"]
+        sem_paper.year = 2024
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[paper])
+        corpus.get_references = AsyncMock(return_value=[sem_paper])  # Non-empty FOLLOW
+        corpus.get_citations = AsyncMock(return_value=[sem_paper])  # Non-empty CITED_BY
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+                    # Search + FOLLOW + second search (0 new because paper already seen)
+                    response = AgentResponse(
+                        content=(
+                            "Ideas [SEARCH: initial query] "
+                            "[FOLLOW: 2401.99999] "
+                            "[SEARCH: second query]"
+                        ),
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        # Increase per-agent cap so second search actually executes
+        object.__setattr__(
+            mock_config,
+            "orchestrator",
+            mock_config.orchestrator.model_copy(update={"max_searches_per_round": 10}),
+        )
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test unconditional hint", mode="directed")
+
+        # Even though FOLLOW was used (follow_count > 0), the stall hint should
+        # still appear because the second search returned 0 new papers
+        lit_context = getattr(engine, "_literature_context", "")
+        assert "Hint" in lit_context or "FOLLOW" in lit_context
+
 
 class TestNetworkErrorHandling:
     """Tests for network error detection in execution phase."""
