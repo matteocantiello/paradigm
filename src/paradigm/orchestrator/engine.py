@@ -983,6 +983,13 @@ class OrchestrationEngine:
             recent_messages=recent_messages,
         )
 
+        # Inject discovered paper index for round 2+ in search-enabled phases
+        # so agents always have concrete IDs for [FOLLOW:] / [CITED_BY:]
+        if phase in _SEARCH_ENABLED_PHASES and round_num >= 2:
+            paper_index = self._literature.build_paper_index()
+            if paper_index:
+                formatted = paper_index + "\n" + formatted
+
         # Append literature search instructions for search-enabled phases
         if phase in _SEARCH_ENABLED_PHASES:
             formatted += _LITERATURE_INSTRUCTION

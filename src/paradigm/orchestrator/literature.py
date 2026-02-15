@@ -53,6 +53,9 @@ class LiteratureHandler:
         self.total_stale_keyword_searches: int = 0
         self.search_log: list[dict[str, Any]] = []
         self.literature_context: str = ""
+        # Compact index of all discovered papers (not subject to context truncation)
+        self.discovered_papers: list[tuple[str, str, str]] = []  # (arxiv_id, title, first_author)
+        self._discovered_ids: set[str] = set()  # Fast lookup to avoid duplicates
 
     # ------------------------------------------------------------------
     # Reset helpers
@@ -79,6 +82,40 @@ class LiteratureHandler:
         self.total_stale_keyword_searches = 0
         self.search_log = []
         self.literature_context = ""
+        self.discovered_papers = []
+        self._discovered_ids = set()
+
+    # ------------------------------------------------------------------
+    # Paper index (compact reference list for agent prompts)
+    # ------------------------------------------------------------------
+
+    def _track_paper(self, arxiv_id: str, title: str, first_author: str) -> None:
+        """Record a discovered paper in the compact index (idempotent)."""
+        if not arxiv_id or arxiv_id in self._discovered_ids:
+            return
+        self._discovered_ids.add(arxiv_id)
+        self.discovered_papers.append((arxiv_id, title, first_author))
+
+    def build_paper_index(self) -> str:
+        """Render a compact reference list of all discovered papers.
+
+        This index is NOT subject to the literature context truncation limit,
+        so agents always have access to paper IDs for graph traversal.
+
+        Returns:
+            Formatted markdown string, or empty string if no papers discovered.
+        """
+        if not self.discovered_papers:
+            return ""
+        lines = [
+            "## Discovered Papers (use these IDs for [FOLLOW:] and [CITED_BY:])",
+        ]
+        for arxiv_id, title, first_author in self.discovered_papers:
+            # Truncate long titles to keep the index compact
+            short_title = title[:80] + "..." if len(title) > 80 else title
+            lines.append(f"- [{arxiv_id}] {first_author}: {short_title}")
+        lines.append("")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Search requests ([SEARCH: ...])
@@ -179,6 +216,8 @@ class LiteratureHandler:
             new_papers = [p for p in papers if p.arxiv_id not in self.seen_paper_ids]
             for p in new_papers:
                 self.seen_paper_ids.add(p.arxiv_id)
+                first_author = p.authors[0] if p.authors else "Unknown"
+                self._track_paper(p.arxiv_id, p.title, first_author)
 
             if new_papers:
                 consecutive_stale = 0
@@ -216,34 +255,35 @@ class LiteratureHandler:
 
             # Stall hint: always inject when keyword search returns 0 new papers
             if not new_papers:
-                hint = (
-                    "\n\n> **Hint:** Your keyword searches are returning no new results. "
-                    "Consider using [FOLLOW: arxiv_id] to explore references of papers "
-                    "you've already found, or [CITED_BY: arxiv_id] to find recent work "
-                    "building on foundational papers.\n"
-                )
+                hint = self._build_stall_hint()
                 lit = self.literature_context
                 self.literature_context = lit + hint if lit else hint
 
             # Early termination: 2 consecutive stale searches from this agent
             if consecutive_stale >= 2:
                 click.echo(f"    [!] {agent_id}: 2 consecutive stale searches, stopping keywords")
+                examples = self._build_follow_examples(3)
                 stall_warning = (
                     "\n\n> **Warning:** Keyword searches are exhausted for this topic. "
                     "You MUST use [FOLLOW: arxiv_id] or [CITED_BY: arxiv_id] to discover "
                     "new papers. Do NOT issue more [SEARCH:] requests.\n"
                 )
+                if examples:
+                    stall_warning += examples
                 lit = self.literature_context
                 self.literature_context = lit + stall_warning if lit else stall_warning
                 break
 
         # Cross-round exhaustion warning: inject persistent warning
         if self.total_stale_keyword_searches >= 5:
+            examples = self._build_follow_examples(3)
             exhaustion_warning = (
                 "\n\n> \u26a0 Keyword searches are exhausted for this topic. You MUST use "
                 "[FOLLOW: arxiv_id] or [CITED_BY: arxiv_id] to discover new papers. "
                 "Do NOT issue [SEARCH:] requests.\n"
             )
+            if examples:
+                exhaustion_warning += examples
             lit = self.literature_context
             if "\u26a0 Keyword searches are exhausted" not in lit:
                 self.literature_context = lit + exhaustion_warning if lit else exhaustion_warning
@@ -291,6 +331,8 @@ class LiteratureHandler:
             for p in papers:
                 if p.arxiv_id:
                     self.seen_paper_ids.add(p.arxiv_id)
+                    first_author = p.authors[0] if p.authors else "Unknown"
+                    self._track_paper(p.arxiv_id, p.title, first_author)
 
             formatted = format_follow_results(
                 arxiv_id, papers, max_papers=lit_config.max_reference_results
@@ -357,6 +399,8 @@ class LiteratureHandler:
             for p in papers:
                 if p.arxiv_id:
                     self.seen_paper_ids.add(p.arxiv_id)
+                    first_author = p.authors[0] if p.authors else "Unknown"
+                    self._track_paper(p.arxiv_id, p.title, first_author)
 
             formatted = format_cited_by_results(
                 arxiv_id, papers, max_papers=lit_config.max_citation_results
@@ -446,3 +490,43 @@ class LiteratureHandler:
                 thread_id=self._engine._thread_id,
                 phase=str(phase),
             )
+
+    # ------------------------------------------------------------------
+    # Stall hint helpers
+    # ------------------------------------------------------------------
+
+    def _build_follow_examples(self, n: int = 3) -> str:
+        """Build concrete [FOLLOW:] example commands from discovered papers.
+
+        Args:
+            n: Number of examples to include.
+
+        Returns:
+            Formatted string with example commands, or empty string if no papers.
+        """
+        if not self.discovered_papers:
+            return ""
+        examples = self.discovered_papers[:n]
+        lines = ["\n> **Try these commands:**"]
+        for arxiv_id, title, _ in examples:
+            short = title[:60] + "..." if len(title) > 60 else title
+            lines.append(f'>   [FOLLOW: {arxiv_id}]  — refs of "{short}"')
+        lines.append("")
+        return "\n".join(lines)
+
+    def _build_stall_hint(self) -> str:
+        """Build a stall hint with concrete paper IDs when available.
+
+        Returns:
+            Formatted hint string.
+        """
+        hint = (
+            "\n\n> **Hint:** Your keyword searches are returning no new results. "
+            "Use [FOLLOW: arxiv_id] to explore references of papers "
+            "you've already found, or [CITED_BY: arxiv_id] to find recent work "
+            "building on foundational papers.\n"
+        )
+        examples = self._build_follow_examples(3)
+        if examples:
+            hint += examples
+        return hint

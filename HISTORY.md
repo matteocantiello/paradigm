@@ -1351,3 +1351,24 @@ it just stripped prefixes and returned whatever string it got.
 **Artifacts modified:**
 - `configs/default.yaml` — Added `experimentalist` override: `provider: anthropic, model: claude-opus-4-6`
 - `HISTORY.md` — This prompt logged
+
+### Prompt 85 — Fix Literature Search: Agents Don't Use Graph Traversal in Round 2+
+
+> Implement the following plan: Fix Literature Search — Agents Don't Use Graph Traversal in Round 2+
+>
+> Agents in round 2+ keep doing keyword searches that return 0 new results instead of using [FOLLOW:] and [CITED_BY:] for citation graph traversal. Root cause: agents can't see the arXiv IDs of papers they found — literature context is truncated to 10K chars, and stall hints tell agents to use graph traversal but don't provide concrete paper IDs to follow.
+>
+> Changes: (1) Track discovered papers in compact index in LiteratureHandler, (2) Inject paper index into round 2+ prompts, (3) Make stall hints include concrete paper IDs, (4) Increase _LITERATURE_CONTEXT_LIMIT 10K→15K.
+
+**Key decisions:**
+- `discovered_papers: list[tuple[str, str, str]]` (arxiv_id, title, first_author) tracked on LiteratureHandler
+- `build_paper_index()` renders compact reference list not subject to truncation
+- Paper index prepended to checkpoint context for search-enabled phases at round 2+
+- Stall hints include 3 concrete `[FOLLOW: arxiv_id]` examples from discovered papers
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/literature.py` — `discovered_papers`, `build_paper_index()`, track in search/follow/cited_by, concrete IDs in stall hints
+- `src/paradigm/orchestrator/engine.py` — Inject paper index into round 2+ prompts
+- `src/paradigm/orchestrator/constants.py` — `_LITERATURE_CONTEXT_LIMIT` 10000 → 15000
+- `tests/test_orchestrator.py` — Tests for paper index building and injection
+- `HISTORY.md` — This prompt logged

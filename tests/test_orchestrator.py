@@ -1100,7 +1100,7 @@ class TestOrchestrationEngine:
 
         # Context should be within limit (it gets set fresh each cycle, but
         # the constant itself is what we're validating)
-        assert _LITERATURE_CONTEXT_LIMIT == 10000
+        assert _LITERATURE_CONTEXT_LIMIT == 15000
         assert _MIN_PAPER_LENGTH == 3000
 
 
@@ -1901,3 +1901,205 @@ class TestListSharedFiles:
 
         result = _list_shared_files(tmp_path)
         assert "/data/shared/README.txt" in result
+
+
+# --- Discovered paper index tests ---
+
+
+class TestDiscoveredPaperIndex:
+    """Tests for the compact paper index that persists across context truncation."""
+
+    def test_build_paper_index_empty(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """build_paper_index returns empty string when no papers discovered."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        assert engine._literature.build_paper_index() == ""
+
+    def test_build_paper_index_with_papers(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """build_paper_index renders compact reference list."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        engine._literature.discovered_papers = [
+            ("2301.12345", "Red noise in massive stars", "Bowman"),
+            ("1905.67890", "Low-frequency variability in OB stars", "Lecoanet"),
+        ]
+        engine._literature._discovered_ids = {"2301.12345", "1905.67890"}
+
+        result = engine._literature.build_paper_index()
+        assert "Discovered Papers" in result
+        assert "[FOLLOW:]" in result
+        assert "[CITED_BY:]" in result
+        assert "[2301.12345] Bowman: Red noise in massive stars" in result
+        assert "[1905.67890] Lecoanet: Low-frequency variability in OB stars" in result
+
+    def test_track_paper_deduplicates(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """_track_paper does not add duplicate entries."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        lit = engine._literature
+        lit._track_paper("2301.12345", "Paper A", "Author A")
+        lit._track_paper("2301.12345", "Paper A", "Author A")  # duplicate
+        lit._track_paper("2301.67890", "Paper B", "Author B")
+
+        assert len(lit.discovered_papers) == 2
+        assert len(lit._discovered_ids) == 2
+
+    def test_track_paper_ignores_empty_id(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """_track_paper skips empty arxiv_id."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        engine._literature._track_paper("", "Paper", "Author")
+        assert len(engine._literature.discovered_papers) == 0
+
+    @pytest.mark.asyncio
+    async def test_paper_index_injected_round2(self, mock_config, tmp_db, tmp_logger):
+        """Paper index is prepended to agent prompt in round 2+ of search-enabled phases."""
+        from datetime import UTC, datetime
+
+        from paradigm.literature.arxiv import ArxivPaper
+
+        now = datetime.now(UTC)
+        paper = ArxivPaper(
+            arxiv_id="2401.12345",
+            title="Test Paper",
+            abstract="Abstract",
+            authors=["Smith"],
+            categories=["astro-ph.SR"],
+            primary_category="astro-ph.SR",
+            published=now,
+            updated=now,
+            pdf_url="https://arxiv.org/pdf/2401.12345",
+            abs_url="https://arxiv.org/abs/2401.12345",
+        )
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[paper])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+        call_count = [0]
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+
+                    async def _gen(prompt, **kwargs):
+                        call_count[0] += 1
+                        if call_count[0] == 1:
+                            return AgentResponse(
+                                content="Ideas [SEARCH: test query]",
+                                usage=TokenUsage(
+                                    input_tokens=50, output_tokens=30, total_tokens=80
+                                ),
+                                model="claude-sonnet-4-5-20250929",
+                            )
+                        return AgentResponse(
+                            content="More ideas",
+                            usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                            model="claude-sonnet-4-5-20250929",
+                        )
+
+                    agent.generate = AsyncMock(side_effect=_gen)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test index injection", mode="directed")
+
+        # Paper should be tracked in discovered_papers
+        assert len(engine._literature.discovered_papers) >= 1
+        assert any(aid == "2401.12345" for aid, _, _ in engine._literature.discovered_papers)
+
+        # Round 2 prompts for the first agent should contain the paper index
+        # The first agent's round 2 call is call index 1 (0=round1)
+        first_agent = list(engine._agents.values())[0]
+        if first_agent.generate.call_count >= 2:
+            round2_prompt = first_agent.generate.call_args_list[1][0][0]
+            assert "Discovered Papers" in round2_prompt
+            assert "2401.12345" in round2_prompt
+
+    def test_stall_hint_includes_concrete_ids(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """Stall hints include concrete [FOLLOW:] examples when papers are available."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        lit = engine._literature
+        lit._track_paper("2301.12345", "Paper A", "Author A")
+        lit._track_paper("2301.67890", "Paper B", "Author B")
+
+        hint = lit._build_stall_hint()
+        assert "[FOLLOW: 2301.12345]" in hint
+        assert "[FOLLOW: 2301.67890]" in hint
+        assert "Try these commands" in hint
+
+    def test_stall_hint_without_papers(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """Stall hints still work when no papers have been discovered."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        hint = engine._literature._build_stall_hint()
+        assert "Hint" in hint
+        assert "FOLLOW" in hint
+        # No concrete examples since no papers
+        assert "Try these commands" not in hint
+
+    def test_reset_cycle_clears_discovered_papers(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        """reset_cycle clears discovered_papers and _discovered_ids."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        lit = engine._literature
+        lit._track_paper("2301.12345", "Paper A", "Author A")
+        assert len(lit.discovered_papers) == 1
+
+        lit.reset_cycle()
+        assert len(lit.discovered_papers) == 0
+        assert len(lit._discovered_ids) == 0
