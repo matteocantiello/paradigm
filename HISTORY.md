@@ -1027,6 +1027,26 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 - `tests/test_corpus.py` (MODIFY)
 - `tests/test_orchestrator.py` (MODIFY)
 
+### Prompt — Fix Per-Agent Search Cap, 429 Backoff, and Circuit Breaker Minimum Sample
+
+> Implement the following plan: Fix Remaining Literature Search + Execution Issues
+>
+> 1. Raise per-agent search cap from `max(1, max_searches//3)` to `max(2, max_searches*2//5)` — gives 2 searches instead of 1 with default budget of 5
+> 2. Increase 429 backoff from `rate_limit * 2^(attempt+1)` (6s,12s,24s) to `10 * 2^attempt` (10s,20s,40s) — 70s total, enough for arXiv rate limits
+> 3. Add minimum sample size to circuit breaker: `round_total >= 3` instead of `round_total > 0` — prevents 1/1 failure from triggering early stop
+> 4. Update tests for new cap value and add circuit breaker minimum sample test
+
+**Key decisions:**
+- Per-agent cap formula changed to give the active searcher 2 slots while keeping round budget at 5
+- Backoff uses fixed 10s base instead of rate_limit (3s), giving more headroom for arXiv 429s
+- Circuit breaker requires at least 3 experiments before evaluating failure rate
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Per-agent cap formula, circuit breaker minimum sample
+- `src/paradigm/literature/arxiv.py` — Increased 429 backoff
+- `tests/test_orchestrator.py` — Updated per-agent cap test assertions
+- `tests/test_experimentation.py` — New `test_circuit_breaker_minimum_sample` test
+
 ### Prompt 68 — Fix arXiv ID Validation for Graph Traversal Actions
 
 > I'm seeing some issues: agents pass URLs (e.g., `https://www.aanda.org/...`) to `[READ:]` and
@@ -1152,4 +1172,146 @@ it just stripped prefixes and returned whatever string it got.
 **Artifacts modified:**
 - `src/paradigm/orchestrator/engine.py` — Early termination, cross-round tracking, unconditional stall hint, per-agent cap
 - `tests/test_orchestrator.py` — ~4 new tests
+- `HISTORY.md` — This prompt logged
+
+---
+
+## 2026-02-15
+
+### Prompt 24 — Refactor engine.py + Create tests/conftest.py
+
+> Implement the following plan: Refactor engine.py (3,306 lines, 37 methods) into 5 focused modules (~900-line core + 4 handlers: constants.py, literature.py, debate.py, writing.py, review.py) and create tests/conftest.py to eliminate fixture duplication across 5 test files.
+
+**Key decisions:**
+- Handler classes receive back-reference to engine (`self._engine`)
+- TYPE_CHECKING blocks to avoid circular imports
+- Re-exports in engine.py preserve backward compatibility for tests
+- conftest.py consolidates tmp_db, tmp_logger, build_checkpoint_response, make_mock_agent, mock_factory, mock_corpus
+
+**Artifacts produced/modified:**
+- `src/paradigm/orchestrator/constants.py` — NEW: all constants, prompt templates, pure functions
+- `src/paradigm/orchestrator/literature.py` — NEW: LiteratureHandler class
+- `src/paradigm/orchestrator/debate.py` — NEW: DebateHandler class
+- `src/paradigm/orchestrator/writing.py` — NEW: WritingHandler class
+- `src/paradigm/orchestrator/review.py` — NEW: ReviewHandler class
+- `src/paradigm/orchestrator/engine.py` — Slimmed to ~900 lines, delegates to handlers
+- `tests/conftest.py` — NEW: shared test fixtures
+- `tests/test_*.py` — Updated to use conftest fixtures
+- `HISTORY.md` — This prompt logged
+
+### Prompt 25 — Remove old constants/functions from engine.py
+
+> I need you to edit engine.py to remove the old module-level constants, prompt templates, and pure functions that have been moved to constants.py. The file currently has a dummy line `_PHASE_INSTRUCTIONS_COMPAT = {` at line ~91 that marks the start of the old block. Everything from that line through the `_format_execution_result` function (which ends with `return "\n\n".join(parts)`) and the two blank lines before `class OrchestrationEngine:` needs to be removed. Replace it with just two blank lines before `class OrchestrationEngine:`.
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Removed dead module-level constants/functions already in constants.py
+- `HISTORY.md` — This prompt logged
+
+### Prompt 26 — Refactor test_orchestrator.py to use shared conftest.py fixtures
+
+> Edit tests/test_orchestrator.py to use shared fixtures from conftest.py: import build_checkpoint_response, make_mock_agent, LONG_RESPONSE, patch_config_provider; delete local tmp_db, tmp_logger, _LONG_RESPONSE, _make_mock_agent, mock_factory, mock_corpus, _build_checkpoint_response; simplify mock_config provider patching with patch_config_provider(); replace all _make_mock_agent/_ LONG_RESPONSE/_build_checkpoint_response references with conftest versions.
+
+**Artifacts modified:**
+- `tests/test_orchestrator.py` — Refactored to use shared conftest.py fixtures
+- `HISTORY.md` — This prompt logged
+
+### Prompt 27 — Refactor test_experimentation.py to use shared conftest.py fixtures
+
+> Edit tests/test_experimentation.py to use shared fixtures from conftest.py: import build_checkpoint_response, make_mock_agent, patch_config_provider; delete local tmp_db, tmp_logger, _build_checkpoint_response, _make_mock_agent, mock_factory, mock_corpus; simplify mock_config and mock_config_no_sandbox provider patching with patch_config_provider(); replace all _make_mock_agent/_build_checkpoint_response references with conftest versions. Keep _make_experiment_agent and mock_factory_with_code since they are specific to experimentation tests.
+
+**Artifacts modified:**
+- `tests/test_experimentation.py` — Refactored to use shared conftest.py fixtures
+- `HISTORY.md` — This prompt logged
+
+### Prompt 28 — Refactor test_debate.py to use shared conftest.py fixtures
+
+> Edit tests/test_debate.py to use shared fixtures from conftest.py: import build_checkpoint_response, make_mock_agent, patch_config_provider; delete local _build_checkpoint_response, _make_mock_agent, tmp_db, tmp_logger, mock_corpus; simplify both mock_config fixtures' provider patching with patch_config_provider(); replace all _make_mock_agent/_build_checkpoint_response references with conftest versions.
+
+**Artifacts modified:**
+- `tests/test_debate.py` — Refactored to use shared conftest.py fixtures
+- `HISTORY.md` — This prompt logged
+
+### Prompt 29 — Refactor test_peer_review.py to use shared conftest.py fixtures
+
+> Edit tests/test_peer_review.py to use shared fixtures from conftest.py: import build_checkpoint_response, make_mock_agent, patch_config_provider; delete local tmp_db, tmp_logger, mock_corpus, _build_checkpoint_response, _make_mock_agent; simplify mock_config and mock_config_no_peer_review provider patching with patch_config_provider(); replace all _make_mock_agent/_build_checkpoint_response references with conftest versions. Keep _make_review_text and _make_writing_factory since they are specific to peer review tests.
+
+**Artifacts modified:**
+- `tests/test_peer_review.py` — Refactored to use shared conftest.py fixtures
+- `HISTORY.md` — This prompt logged
+
+### Prompt 30 — Refactor test_writing.py to use shared conftest.py fixtures
+
+> Edit tests/test_writing.py to use shared fixtures from conftest.py: import build_checkpoint_response, make_mock_agent, patch_config_provider; delete local tmp_db, tmp_logger, _build_checkpoint_response, _make_mock_agent, mock_corpus; simplify mock_config and mock_config_no_writing provider patching with patch_config_provider(); replace all _make_mock_agent/_build_checkpoint_response references with conftest versions. Keep _make_writing_factory since it is specific to writing tests.
+
+**Artifacts modified:**
+- `tests/test_writing.py` — Refactored to use shared conftest.py fixtures
+- `HISTORY.md` — This prompt logged
+
+### Prompt 31 — Create orchestrator/debate.py (DebateHandler)
+
+> Create the file /Users/mcantiello/astro/paradigm/src/paradigm/orchestrator/debate.py containing a `DebateHandler` class. Extract `_process_challenge_requests`, `_run_debate`, `_synthesize_debate`, and `_mechanical_debate_synthesis` from engine.py. Use `from __future__ import annotations` and `TYPE_CHECKING` to avoid circular imports. Translate all `self._foo` references to `self._engine._foo` and `self._debate_counts` to `self.debate_counts`.
+
+**Artifacts produced:**
+- `src/paradigm/orchestrator/debate.py` — NEW: DebateHandler class with 6 methods
+- `HISTORY.md` — This prompt logged
+
+### Prompt 32 — Create orchestrator/literature.py (LiteratureHandler)
+
+> Create the file /Users/mcantiello/astro/paradigm/src/paradigm/orchestrator/literature.py containing a `LiteratureHandler` class that extracts the literature search methods from engine.py. The handler receives a back-reference to the engine (`self._engine`) in its constructor. It accesses engine state via `self._engine._config`, `self._engine._corpus`, etc. Use `from __future__ import annotations` and `TYPE_CHECKING` blocks to avoid circular imports. The class should contain `__init__`, `reset_round_counters`, `reset_cycle`, `process_search_requests`, and `process_literature_actions` methods, with method bodies copied from engine.py's `_process_search_requests` and `_process_literature_actions`, with attribute references updated to go through `self._engine` or `self` as appropriate.
+
+**Artifacts produced:**
+- `src/paradigm/orchestrator/literature.py` — NEW: LiteratureHandler class with 5 methods
+- `HISTORY.md` — This prompt logged
+
+### Prompt 33 — Create orchestrator/review.py (ReviewHandler)
+
+> Create the file /Users/mcantiello/astro/paradigm/src/paradigm/orchestrator/review.py containing a `ReviewHandler` class. Extract `_run_review_phase`, `_run_revision`, `_run_submission_phase`, `_run_peer_review_phase`, and `_run_revision_phase` from engine.py. Use `from __future__ import annotations` and `TYPE_CHECKING` to avoid circular imports. Translate all `self._foo` references to `self._engine._foo`, `self._review_log` to `self.review_log`, `self._search_count_this_round` to `self._engine._literature.search_count_this_round`, `self._save_paper_file` to `self._engine._writing.save_paper_file`, and `self._run_revision` to `self.run_revision`.
+
+**Artifacts produced:**
+- `src/paradigm/orchestrator/review.py` — NEW: ReviewHandler class with 7 methods
+- `HISTORY.md` — This prompt logged
+
+### Prompt 34 — Create orchestrator/writing.py (WritingHandler)
+
+> Create the file /Users/mcantiello/astro/paradigm/src/paradigm/orchestrator/writing.py containing a `WritingHandler` class. Extract writing-phase methods from engine.py (`_run_writing_phase`, `_run_section_drafting`, `_run_assembly`, `_embed_figures_inline`, `_save_paper_file`, `_copy_figures_to_paper_dir`, `_figure_dest_name`) into the new class, translating `self._*` references to `self._engine._*` as appropriate, and `self._search_count_this_round` to `self._engine._literature.search_count_this_round`, and `self._process_search_requests`/`self._process_literature_actions` to `self._engine._literature.*`.
+
+**Artifacts produced:**
+- `src/paradigm/orchestrator/writing.py` — NEW: WritingHandler class with 7 methods
+
+### Prompt 35 — Rewrite engine.py to delegate to handler classes
+
+> Rewrite /Users/mcantiello/astro/paradigm/src/paradigm/orchestrator/engine.py to delegate to the new handler classes instead of implementing everything inline. Update imports, create handler instances in __init__, delegate method calls in run_research_cycle and other methods, remove extracted methods, and update all references to handler-owned state.
+
+**Key decisions:**
+- Handler instances created in `__init__`: `self._literature`, `self._debate`, `self._writing`, `self._review`
+- Per-cycle state (search/debate/review counters) now owned by handlers
+- 18 methods removed from engine.py (now in handler classes)
+- Remaining methods updated to reference handler state via `self._literature.*`, `self._debate.*`, `self._review.*`, `self._writing.*`
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Major rewrite: imports trimmed, handlers injected, methods removed, references updated
+- `HISTORY.md` — This prompt logged
+
+### Prompt 36 — Final cleanup and verification (continued session)
+
+> Continue with the refactoring plan — final cleanup and verification after handler integration.
+
+**Key decisions:**
+- Fixed stale reference `engine._literature_context` → `engine._literature.literature_context` in test_debate.py
+- Ran ruff format on 4 files (debate.py, literature.py, writing.py, test_debate.py)
+- Removed unused import `build_checkpoint_response` from test_peer_review.py
+- Fixed import sort order in conftest.py, helpers.py, test_peer_review.py, test_writing.py
+
+**Final results:**
+- 578/578 tests passing
+- All ruff check + format passing
+- engine.py: 3,306 → 1,262 lines (62% reduction)
+- New modules: constants.py (641), literature.py (448), debate.py (393), writing.py (358), review.py (453)
+- New test infrastructure: conftest.py + helpers.py (eliminated ~290 lines of fixture duplication)
+
+**Artifacts modified:**
+- `tests/test_debate.py` — Fixed `_literature_context` → `_literature.literature_context`
+- `tests/test_peer_review.py` — Removed unused import
+- `tests/conftest.py`, `tests/helpers.py`, `tests/test_writing.py` — Import sort fixes
+- `src/paradigm/orchestrator/debate.py`, `literature.py`, `writing.py` — Formatting fixes
 - `HISTORY.md` — This prompt logged

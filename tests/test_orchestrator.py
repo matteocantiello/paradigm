@@ -4,11 +4,12 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from helpers import make_mock_agent, patch_config_provider
 
-from paradigm.agents.base import Agent, AgentResponse, TokenUsage
+from paradigm.agents.base import AgentResponse, TokenUsage
 from paradigm.config import Config
-from paradigm.logging.events import EventLogger, EventType
-from paradigm.orchestrator.engine import (
+from paradigm.logging.events import EventType
+from paradigm.orchestrator.constants import (
     _LITERATURE_CONTEXT_LIMIT,
     _MIN_PAPER_LENGTH,
     _NETWORK_ERROR_PATTERNS,
@@ -16,27 +17,12 @@ from paradigm.orchestrator.engine import (
     _PHASE_CONTEXT_NEEDS,
     _PHASE_INSTRUCTIONS,
     MODE_TEAM_ROLES,
-    OrchestrationEngine,
     _is_duplicate_query,
     _list_shared_files,
     _normalize_query_keywords,
 )
+from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.orchestrator.phases import ResearchPhase
-from paradigm.storage.database import Database
-
-
-@pytest.fixture
-def tmp_db(tmp_path):
-    """Create a temporary database."""
-    db = Database(tmp_path / "test.db")
-    yield db
-    db.close()
-
-
-@pytest.fixture
-def tmp_logger(tmp_path):
-    """Create a temporary event logger."""
-    return EventLogger(tmp_path / "events.jsonl")
 
 
 @pytest.fixture
@@ -53,145 +39,8 @@ def mock_config(tmp_path):
             "enable_experimentation": False,
         },
     )
-    mock_provider = MagicMock()
-    mock_provider.complete.return_value = _build_checkpoint_response()
-    mock_provider.default_model = "claude-sonnet-4-5-20250929"
-    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
-    object.__setattr__(
-        config,
-        "get_provider_and_model_for_role",
-        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-    )
+    patch_config_provider(config)
     return config
-
-
-# Long response content that exceeds _MIN_PAPER_LENGTH for writing tests
-_LONG_RESPONSE = (
-    "# Test Paper Title\n\n"
-    "## Abstract\n\nThis is a comprehensive study of stellar convection. "
-    "We present new theoretical models and observational constraints on "
-    "convective overshooting in intermediate-mass stars using 1D stellar "
-    "evolution models. Our analysis reveals that overshooting extends the "
-    "main-sequence lifetime by 15-25% for stars in the 1.5-8 solar mass range, "
-    "with significant implications for age determinations of stellar clusters.\n\n"
-    "## Introduction\n\nStellar convection is a fundamental process in stellar physics "
-    "that governs energy transport, chemical mixing, and angular momentum redistribution "
-    "in stellar interiors. Understanding convective processes is essential for modeling "
-    "stellar evolution accurately. In this paper, we present a detailed analysis of "
-    "convective overshooting in intermediate-mass stars.\n\n"
-    "The treatment of convective boundaries remains one of the largest uncertainties "
-    "in stellar evolution theory. Classical mixing-length theory (MLT) provides a "
-    "local description of convection but does not predict the extent of mixing beyond "
-    "formally stable boundaries. Overshooting — the penetration of convective motions "
-    "into radiatively stable layers — has profound effects on stellar structure, "
-    "nucleosynthesis, and observable properties.\n\n"
-    "Previous studies have parameterized overshooting as a fraction of the pressure "
-    "scale height (f_ov), with values ranging from 0.01 to 0.03 depending on stellar "
-    "mass, evolutionary state, and calibration method. However, systematic uncertainties "
-    "persist, particularly regarding the mass dependence of f_ov and its effect on "
-    "the main-sequence width in the Hertzsprung-Russell diagram.\n\n"
-    "## Methods\n\nWe use one-dimensional stellar evolution models computed with the "
-    "MESA code (version r23.05.1) to investigate the effects of convective overshooting "
-    "on the main-sequence width. Our models span a mass range of 1.5 to 8 solar masses "
-    "with initial metallicity Z = 0.014 and helium fraction Y = 0.266.\n\n"
-    "For each mass, we compute evolutionary tracks with overshooting parameters "
-    "f_ov = 0.000, 0.005, 0.010, 0.015, 0.020, 0.025, and 0.030 using the exponential "
-    "diffusive scheme of Herwig (2000). We define the main-sequence width as the "
-    "temperature difference between the zero-age main sequence and the terminal-age "
-    "main sequence at constant luminosity.\n\n"
-    "## Results\n\nOur results show that convective overshooting significantly affects "
-    "the main-sequence lifetime and core hydrogen burning efficiency. For a 3 solar mass "
-    "star, increasing f_ov from 0.000 to 0.020 extends the main-sequence lifetime from "
-    "284 Myr to 347 Myr (a 22% increase). The convective core mass at the TAMS "
-    "increases by approximately 18%, leading to a more luminous and cooler turnoff point.\n\n"
-    "The mass dependence of overshooting shows a clear trend: the relative effect on "
-    "main-sequence lifetime increases from 15% at 1.5 solar masses to 25% at 8 solar "
-    "masses for f_ov = 0.020. Statistical comparison with observed eclipsing binaries "
-    "yields a best-fit overshooting parameter of f_ov = 0.016 +/- 0.004, consistent "
-    "with previous calibrations.\n\n"
-    "## Conclusions\n\nWe conclude that convective overshooting is a critical ingredient "
-    "in stellar evolution models for intermediate-mass stars. Our systematic grid of "
-    "models provides calibrated overshooting parameters that can be applied to stellar "
-    "population synthesis and cluster age determinations. The mass dependence of f_ov "
-    "suggests that a single overshooting parameter is insufficient to describe the "
-    "physics across the full mass range studied here."
-)
-
-
-def _make_mock_agent(agent_id: str, role: str, long_response: bool = False) -> Agent:
-    """Create a mock agent that returns canned responses."""
-    agent = MagicMock(spec=Agent)
-    agent.agent_id = agent_id
-    agent.skill_profile = role
-
-    # generate() returns a canned AgentResponse
-    content = (
-        _LONG_RESPONSE
-        if long_response
-        else f"Response from {agent_id}: I have ideas about this topic."
-    )
-    response = AgentResponse(
-        content=content,
-        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
-        model="claude-sonnet-4-5-20250929",
-    )
-    agent.generate = AsyncMock(return_value=response)
-
-    # format_message returns a mock Message-like dict
-    def _format_message(to, thread_id, phase, message_type, content, **kwargs):
-        msg = MagicMock()
-        msg.model_dump.return_value = {
-            "from": agent_id,
-            "to": to,
-            "thread_id": thread_id,
-            "phase": phase,
-            "type": message_type,
-            "content": content,
-            "references": [],
-            "metadata": {},
-        }
-        return msg
-
-    agent.format_message = MagicMock(side_effect=_format_message)
-    return agent
-
-
-@pytest.fixture
-def mock_factory():
-    """Create a mock AgentFactory."""
-    factory = MagicMock()
-
-    def _create_team(roles, skill_mode="default"):
-        return [_make_mock_agent(f"{role}-0", role) for role in roles]
-
-    factory.create_team = MagicMock(side_effect=_create_team)
-    return factory
-
-
-@pytest.fixture
-def mock_corpus():
-    """Create a mock Corpus."""
-    corpus = MagicMock()
-    corpus.build_literature_context = AsyncMock(return_value="## Literature\nNo papers found.")
-    corpus.search = AsyncMock(return_value=[])
-    return corpus
-
-
-def _build_checkpoint_response():
-    """Build a mock provider.complete() response for checkpoint compression."""
-    return (
-        json.dumps(
-            {
-                "hypothesis": "Test hypothesis from checkpoint",
-                "key_findings": ["Finding 1"],
-                "open_questions": ["Question 1"],
-                "next_steps": ["Next step 1"],
-                "conversation_summary": "Agents discussed the topic.",
-            }
-        ),
-        200,
-        100,
-    )
 
 
 class TestOrchestrationEngine:
@@ -578,7 +427,7 @@ class TestOrchestrationEngine:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 # First agent includes a search marker in its response
                 if role == roles[0]:
                     search_response = AgentResponse(
@@ -643,7 +492,7 @@ class TestOrchestrationEngine:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role == roles[0]:
                     response = AgentResponse(
                         content="Ideas [SEARCH: Cepheid period-luminosity]",
@@ -670,8 +519,8 @@ class TestOrchestrationEngine:
         )
 
         # _search_log should have entries
-        assert len(engine._search_log) >= 1
-        entry = engine._search_log[0]
+        assert len(engine._literature.search_log) >= 1
+        entry = engine._literature.search_log[0]
         assert entry["query"] == "Cepheid period-luminosity"
         assert entry["phase"] is not None
         assert len(entry["papers"]) == 1
@@ -691,7 +540,7 @@ class TestOrchestrationEngine:
         engine._thread_id = "thread-test123"
 
         # Manually populate search log
-        engine._search_log = [
+        engine._literature.search_log = [
             {
                 "query": "Cepheid metallicity",
                 "agent_id": "theorist-0",
@@ -746,7 +595,7 @@ class TestOrchestrationEngine:
         engine._thread_id = "thread-test456"
 
         # Manually populate review log
-        engine._review_log = [
+        engine._review.review_log = [
             {
                 "type": "internal_review",
                 "reviewer_id": "editor-0",
@@ -974,21 +823,13 @@ class TestOrchestrationEngine:
                 "enable_experimentation": False,
             },
         )
-        mock_provider = MagicMock()
-        mock_provider.complete.return_value = _build_checkpoint_response()
-        mock_provider.default_model = "claude-sonnet-4-5-20250929"
-        object.__setattr__(config_writing, "get_provider", MagicMock(return_value=mock_provider))
-        object.__setattr__(
-            config_writing,
-            "get_provider_and_model_for_role",
-            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-        )
+        patch_config_provider(config_writing)
 
         # Use long responses so paper passes _MIN_PAPER_LENGTH guard
         writing_factory = MagicMock()
         writing_factory.create_team = MagicMock(
             side_effect=lambda roles, skill_mode="default": [
-                _make_mock_agent(f"{role}-0", role, long_response=True) for role in roles
+                make_mock_agent(f"{role}-0", role, long_response=True) for role in roles
             ]
         )
 
@@ -1047,23 +888,13 @@ class TestOrchestrationEngine:
                 "enable_experimentation": False,
             },
         )
-        mock_provider = MagicMock()
-        mock_provider.complete.return_value = _build_checkpoint_response()
-        mock_provider.default_model = "claude-sonnet-4-5-20250929"
-        object.__setattr__(
-            mock_config_writing, "get_provider", MagicMock(return_value=mock_provider)
-        )
-        object.__setattr__(
-            mock_config_writing,
-            "get_provider_and_model_for_role",
-            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-        )
+        patch_config_provider(mock_config_writing)
 
         # Use long responses so paper passes _MIN_PAPER_LENGTH guard
         writing_factory = MagicMock()
         writing_factory.create_team = MagicMock(
             side_effect=lambda roles, skill_mode="default": [
-                _make_mock_agent(f"{role}-0", role, long_response=True) for role in roles
+                make_mock_agent(f"{role}-0", role, long_response=True) for role in roles
             ]
         )
 
@@ -1114,21 +945,13 @@ class TestOrchestrationEngine:
                 "enable_peer_review": False,
             },
         )
-        mock_provider = MagicMock()
-        mock_provider.complete.return_value = _build_checkpoint_response()
-        mock_provider.default_model = "claude-sonnet-4-5-20250929"
-        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
-        object.__setattr__(
-            config,
-            "get_provider_and_model_for_role",
-            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-        )
+        patch_config_provider(config)
 
         # Make all agents return errors during writing (simulating ConnectionError)
         def _create_failing_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role in ("writer", "editor", "theorist", "analyst", "synthesizer"):
                     # Writer's assembly returns empty content
                     if role == "writer":
@@ -1209,7 +1032,7 @@ class TestOrchestrationEngine:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role == roles[0]:
 
                     async def _gen(prompt, **kwargs):
@@ -1246,8 +1069,8 @@ class TestOrchestrationEngine:
         )
 
         # After first search, both paper IDs should be in seen set
-        assert "2401.00001" in engine._seen_paper_ids
-        assert "2401.00002" in engine._seen_paper_ids
+        assert "2401.00001" in engine._literature.seen_paper_ids
+        assert "2401.00002" in engine._literature.seen_paper_ids
 
     @pytest.mark.asyncio
     async def test_literature_context_limit(self, mock_config, tmp_db, tmp_logger, mock_corpus):
@@ -1255,7 +1078,7 @@ class TestOrchestrationEngine:
         factory = MagicMock()
         factory.create_team = MagicMock(
             side_effect=lambda roles, skill_mode="default": [
-                _make_mock_agent(f"{role}-0", role) for role in roles
+                make_mock_agent(f"{role}-0", role) for role in roles
             ]
         )
 
@@ -1268,7 +1091,7 @@ class TestOrchestrationEngine:
         )
 
         # Manually set literature context to exceed limit
-        engine._literature_context = "x" * (_LITERATURE_CONTEXT_LIMIT + 5000)
+        engine._literature.literature_context = "x" * (_LITERATURE_CONTEXT_LIMIT + 5000)
 
         await engine.run_research_cycle(
             seed_prompt="Test context limit",
@@ -1427,7 +1250,7 @@ class TestLiteratureGraphTraversal:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role == roles[0]:
                     response = AgentResponse(
                         content="Ideas [FOLLOW: 2301.12345]",
@@ -1482,7 +1305,7 @@ class TestLiteratureGraphTraversal:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role == roles[0]:
                     response = AgentResponse(
                         content="Ideas [CITED_BY: 0901.67890]",
@@ -1522,7 +1345,7 @@ class TestLiteratureGraphTraversal:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role == roles[0]:
                     response = AgentResponse(
                         content="Ideas [READ: 2301.12345]",
@@ -1563,7 +1386,7 @@ class TestLiteratureGraphTraversal:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role == roles[0]:
                     # 5 follow requests but budget is 3
                     content = " ".join(f"[FOLLOW: 2301.{i:05d}]" for i in range(5))
@@ -1630,7 +1453,7 @@ class TestLiteratureGraphTraversal:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role == roles[0]:
 
                     async def _gen(prompt, **kwargs):
@@ -1662,7 +1485,7 @@ class TestLiteratureGraphTraversal:
         await engine.run_research_cycle(seed_prompt="Test stall", mode="directed")
 
         # After second search returns 0 new papers, hint should be in context
-        lit_context = getattr(engine, "_literature_context", "")
+        lit_context = engine._literature.literature_context
         assert "Hint" in lit_context or "FOLLOW" in lit_context
 
     @pytest.mark.asyncio
@@ -1699,7 +1522,7 @@ class TestLiteratureGraphTraversal:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role == roles[0]:
                     # 5 searches: first one finds the paper, next 4 return 0 new
                     response = AgentResponse(
@@ -1739,7 +1562,7 @@ class TestLiteratureGraphTraversal:
         # Without early termination, total would be 10 (5 per round × 2 rounds).
         assert corpus.search.call_count < 10
         # Stall warning should be injected
-        lit_context = getattr(engine, "_literature_context", "")
+        lit_context = engine._literature.literature_context
         assert "Warning" in lit_context or "exhausted" in lit_context
 
     @pytest.mark.asyncio
@@ -1758,7 +1581,7 @@ class TestLiteratureGraphTraversal:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 # Every agent issues 2 search requests
                 response = AgentResponse(
                     content=f"Ideas from {role} [SEARCH: {role} query 1] [SEARCH: {role} query 2]",
@@ -1786,10 +1609,10 @@ class TestLiteratureGraphTraversal:
         )
 
         # Total stale count should have incremented (every search returned 0 new)
-        assert engine._total_stale_keyword_searches > 0
+        assert engine._literature.total_stale_keyword_searches > 0
         # After 5+ stale searches, the exhaustion warning should be in context
-        if engine._total_stale_keyword_searches >= 5:
-            lit_context = getattr(engine, "_literature_context", "")
+        if engine._literature.total_stale_keyword_searches >= 5:
+            lit_context = engine._literature.literature_context
             assert "\u26a0 Keyword searches are exhausted" in lit_context
 
     @pytest.mark.asyncio
@@ -1831,7 +1654,7 @@ class TestLiteratureGraphTraversal:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 # First agent requests 5 searches
                 if role == roles[0]:
                     response = AgentResponse(
@@ -1848,7 +1671,7 @@ class TestLiteratureGraphTraversal:
 
         factory.create_team = MagicMock(side_effect=_create_team)
 
-        # max_searches_per_round=5, so per_agent_cap = max(1, 5//3) = 1
+        # max_searches_per_round=5, so per_agent_cap = max(2, 5*2//5) = 2
         engine = OrchestrationEngine(
             config=mock_config,
             database=tmp_db,
@@ -1863,15 +1686,14 @@ class TestLiteratureGraphTraversal:
             team_roles=["theorist", "analyst"],
         )
 
-        # With per_agent_cap=1 (5//3=1), each agent should get at most 1 keyword
-        # search per round. So the first agent can't use all 5.
-        # The agent_search_count tracks per-agent usage within the round.
-        # We verify the first agent didn't get all 5 searches in any single round.
+        # With per_agent_cap=2 (max(2, 5*2//5)=2), each agent gets at most 2
+        # keyword searches per round. The first agent requests 5 but only gets 2.
         # Since all searches return unique papers, corpus.search.call_count
         # tells us total searches executed across 2 rounds * 2 phases.
-        # With 2 agents, cap=1 each, 2 rounds, 2 phases = max 2*2*2 = 8
-        # (but agent 2 has no search markers, so max from agent 1 = 1*2*2 = 4)
-        assert corpus.search.call_count <= 4
+        # With 2 agents, cap=2 each, 2 rounds, 2 phases = max 2*2*2 = 8
+        # (but agent 2 has no search markers, so max from agent 1 = 2*2*2 = 8)
+        # Also capped by round budget of 5, so max = min(2, 5) * 2 * 2 = 8
+        assert corpus.search.call_count <= 8
 
     @pytest.mark.asyncio
     async def test_stall_hint_always_injected(self, mock_config, tmp_db, tmp_logger):
@@ -1914,7 +1736,7 @@ class TestLiteratureGraphTraversal:
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
-                agent = _make_mock_agent(f"{role}-0", role)
+                agent = make_mock_agent(f"{role}-0", role)
                 if role == roles[0]:
                     # Search + FOLLOW + second search (0 new because paper already seen)
                     response = AgentResponse(
@@ -1951,7 +1773,7 @@ class TestLiteratureGraphTraversal:
 
         # Even though FOLLOW was used (follow_count > 0), the stall hint should
         # still appear because the second search returned 0 new papers
-        lit_context = getattr(engine, "_literature_context", "")
+        lit_context = engine._literature.literature_context
         assert "Hint" in lit_context or "FOLLOW" in lit_context
 
 

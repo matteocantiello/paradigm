@@ -355,9 +355,9 @@ class ArxivClient:
                 response.raise_for_status()
                 return response
 
-            # Exponential backoff on 429: 5s, 10s, 20s
+            # Exponential backoff on 429: 10s, 20s, 40s
             if attempt < max_retries:
-                backoff = self._rate_limit * 2 ** (attempt + 1)
+                backoff = 10.0 * 2**attempt
                 await asyncio.sleep(backoff)
 
         response.raise_for_status()

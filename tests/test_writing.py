@@ -1,11 +1,11 @@
 """Tests for paper models, writing phase, and review pipeline."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
+from helpers import make_mock_agent, patch_config_provider
 
-from paradigm.agents.base import AgentResponse, TokenUsage
 from paradigm.config import Config
 from paradigm.journal.paper import (
     SECTION_ASSIGNMENTS,
@@ -17,9 +17,7 @@ from paradigm.journal.paper import (
     parse_sections_from_markdown,
     strip_agent_scaffolding,
 )
-from paradigm.logging.events import EventLogger
 from paradigm.orchestrator.engine import OrchestrationEngine
-from paradigm.storage.database import Database
 
 # --- Paper Model Tests ---
 
@@ -264,34 +262,6 @@ class TestParseReviewFeedback:
 
 
 @pytest.fixture
-def tmp_db(tmp_path):
-    db = Database(tmp_path / "test.db")
-    yield db
-    db.close()
-
-
-@pytest.fixture
-def tmp_logger(tmp_path):
-    return EventLogger(tmp_path / "events.jsonl")
-
-
-def _build_checkpoint_response(summary="The team discussed", hypothesis="Test hypothesis"):
-    return (
-        json.dumps(
-            {
-                "hypothesis": hypothesis,
-                "key_findings": ["finding"],
-                "open_questions": ["question"],
-                "next_steps": ["step"],
-                "conversation_summary": summary,
-            }
-        ),
-        100,
-        50,
-    )
-
-
-@pytest.fixture
 def mock_config(tmp_path):
     config = Config(
         api_key="fake-api-key",
@@ -306,15 +276,7 @@ def mock_config(tmp_path):
             "enable_peer_review": False,
         },
     )
-    mock_provider = MagicMock()
-    mock_provider.complete.return_value = _build_checkpoint_response()
-    mock_provider.default_model = "claude-sonnet-4-5-20250929"
-    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
-    object.__setattr__(
-        config,
-        "get_provider_and_model_for_role",
-        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-    )
+    patch_config_provider(config)
     return config
 
 
@@ -333,49 +295,8 @@ def mock_config_no_writing(tmp_path):
             "enable_peer_review": False,
         },
     )
-    mock_provider = MagicMock()
-    mock_provider.complete.return_value = _build_checkpoint_response()
-    mock_provider.default_model = "claude-sonnet-4-5-20250929"
-    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
-    object.__setattr__(
-        config,
-        "get_provider_and_model_for_role",
-        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-    )
+    patch_config_provider(config)
     return config
-
-
-def _make_mock_agent(agent_id: str, role: str, content: str | None = None):
-    agent = MagicMock()
-    agent.agent_id = agent_id
-    agent.skill_profile = role
-
-    if content is None:
-        content = f"Response from {agent_id}"
-
-    response = AgentResponse(
-        content=content,
-        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
-        model="claude-sonnet-4-5-20250929",
-    )
-    agent.generate = AsyncMock(return_value=response)
-
-    def _format_message(to, thread_id, phase, message_type, content, **kwargs):
-        msg = MagicMock()
-        msg.model_dump.return_value = {
-            "from": agent_id,
-            "to": to,
-            "thread_id": thread_id,
-            "phase": phase,
-            "type": message_type,
-            "content": content,
-            "references": [],
-            "metadata": {},
-        }
-        return msg
-
-    agent.format_message = MagicMock(side_effect=_format_message)
-    return agent
 
 
 def _make_writing_factory():
@@ -455,18 +376,11 @@ def _make_writing_factory():
         agents = []
         for role in roles:
             content = section_responses.get(role, f"Response from {role}")
-            agents.append(_make_mock_agent(f"{role}-0", role, content))
+            agents.append(make_mock_agent(f"{role}-0", role, content))
         return agents
 
     factory.create_team = MagicMock(side_effect=_create_team)
     return factory
-
-
-@pytest.fixture
-def mock_corpus():
-    corpus = MagicMock()
-    corpus.build_literature_context = AsyncMock(return_value="No relevant papers found.")
-    return corpus
 
 
 class TestWritingPhaseEngine:

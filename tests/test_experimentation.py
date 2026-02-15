@@ -1,19 +1,16 @@
 """Tests for the EXECUTION phase: code extraction, result formatting, and integration."""
 
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from helpers import make_mock_agent, patch_config_provider
 
 from paradigm.agents.base import Agent, AgentResponse, TokenUsage
 from paradigm.config import Config
 from paradigm.logging.events import EventLogger
-from paradigm.orchestrator.engine import (
-    OrchestrationEngine,
-    _extract_code_blocks,
-    _format_execution_result,
-)
+from paradigm.orchestrator.constants import _extract_code_blocks, _format_execution_result
+from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.sandbox.models import (
     ExecutionRequest,
     ExecutionResult,
@@ -22,21 +19,7 @@ from paradigm.sandbox.models import (
 )
 from paradigm.storage.database import Database
 
-# --- Fixtures (shared with test_orchestrator.py patterns) ---
-
-
-@pytest.fixture
-def tmp_db(tmp_path):
-    """Create a temporary database."""
-    db = Database(tmp_path / "test.db")
-    yield db
-    db.close()
-
-
-@pytest.fixture
-def tmp_logger(tmp_path):
-    """Create a temporary event logger."""
-    return EventLogger(tmp_path / "events.jsonl")
+# --- Fixtures ---
 
 
 @pytest.fixture
@@ -55,15 +38,7 @@ def mock_config(tmp_path):
         },
         sandbox={"enabled": True},
     )
-    mock_provider = MagicMock()
-    mock_provider.complete.return_value = _build_checkpoint_response()
-    mock_provider.default_model = "claude-sonnet-4-5-20250929"
-    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
-    object.__setattr__(
-        config,
-        "get_provider_and_model_for_role",
-        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-    )
+    patch_config_provider(config)
     return config
 
 
@@ -83,47 +58,8 @@ def mock_config_no_sandbox(tmp_path):
         },
         sandbox={"enabled": False},
     )
-    mock_provider = MagicMock()
-    mock_provider.complete.return_value = _build_checkpoint_response()
-    mock_provider.default_model = "claude-sonnet-4-5-20250929"
-    object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
-    object.__setattr__(
-        config,
-        "get_provider_and_model_for_role",
-        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-    )
+    patch_config_provider(config)
     return config
-
-
-def _make_mock_agent(agent_id: str, role: str) -> Agent:
-    """Create a mock agent that returns canned responses."""
-    agent = MagicMock(spec=Agent)
-    agent.agent_id = agent_id
-    agent.skill_profile = role
-
-    response = AgentResponse(
-        content=f"Response from {agent_id}: I have ideas about this topic.",
-        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
-        model="claude-sonnet-4-5-20250929",
-    )
-    agent.generate = AsyncMock(return_value=response)
-
-    def _format_message(to, thread_id, phase, message_type, content, **kwargs):
-        msg = MagicMock()
-        msg.model_dump.return_value = {
-            "from": agent_id,
-            "to": to,
-            "thread_id": thread_id,
-            "phase": phase,
-            "type": message_type,
-            "content": content,
-            "references": [],
-            "metadata": {},
-        }
-        return msg
-
-    agent.format_message = MagicMock(side_effect=_format_message)
-    return agent
 
 
 def _make_experiment_agent(agent_id: str, role: str) -> Agent:
@@ -165,18 +101,6 @@ def _make_experiment_agent(agent_id: str, role: str) -> Agent:
 
 
 @pytest.fixture
-def mock_factory():
-    """Create a mock AgentFactory."""
-    factory = MagicMock()
-
-    def _create_team(roles, skill_mode="default"):
-        return [_make_mock_agent(f"{role}-0", role) for role in roles]
-
-    factory.create_team = MagicMock(side_effect=_create_team)
-    return factory
-
-
-@pytest.fixture
 def mock_factory_with_code():
     """Create a mock AgentFactory where experimentalists return code blocks."""
     factory = MagicMock()
@@ -187,36 +111,11 @@ def mock_factory_with_code():
             if role == "experimentalist":
                 agents.append(_make_experiment_agent(f"{role}-0", role))
             else:
-                agents.append(_make_mock_agent(f"{role}-0", role))
+                agents.append(make_mock_agent(f"{role}-0", role))
         return agents
 
     factory.create_team = MagicMock(side_effect=_create_team)
     return factory
-
-
-@pytest.fixture
-def mock_corpus():
-    """Create a mock Corpus."""
-    corpus = MagicMock()
-    corpus.build_literature_context = AsyncMock(return_value="## Literature\nNo papers found.")
-    return corpus
-
-
-def _build_checkpoint_response(summary="Agents discussed the topic.", hypothesis="Test hypothesis"):
-    """Build a mock provider response for checkpoint compression."""
-    return (
-        json.dumps(
-            {
-                "hypothesis": hypothesis,
-                "key_findings": ["Finding 1"],
-                "open_questions": ["Question 1"],
-                "next_steps": ["Next step 1"],
-                "conversation_summary": summary,
-            }
-        ),
-        200,
-        100,
-    )
 
 
 # --- Unit tests: code extraction ---
@@ -517,7 +416,7 @@ class TestExecutionPhaseIntegration:
         factory = MagicMock()
         factory.create_team = MagicMock(
             side_effect=lambda roles, skill_mode="default": [
-                multi_code_agent if r == "experimentalist" else _make_mock_agent(f"{r}-0", r)
+                multi_code_agent if r == "experimentalist" else make_mock_agent(f"{r}-0", r)
                 for r in roles
             ]
         )
@@ -561,6 +460,81 @@ class TestExecutionPhaseIntegration:
             assert round_1_executor_calls < 27
 
     @pytest.mark.asyncio
+    async def test_circuit_breaker_minimum_sample(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Circuit breaker does NOT fire when sample size < 3 (e.g. 1/1 failure)."""
+        # Agent proposes 1 experiment per round — it will fail
+        single_code_agent = MagicMock(spec=Agent)
+        single_code_agent.agent_id = "experimentalist-0"
+        single_code_agent.skill_profile = "experimentalist"
+        single_code_agent.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="```python\n# EXPERIMENT: solo_exp\nprint('fail')\n```\n",
+                usage=TokenUsage(input_tokens=50, output_tokens=80, total_tokens=130),
+                model="claude-sonnet-4-5-20250929",
+            )
+        )
+        single_code_agent.format_message = MagicMock(
+            side_effect=lambda to, thread_id, phase, message_type, content, **kw: MagicMock(
+                model_dump=MagicMock(
+                    return_value={
+                        "from": "experimentalist-0",
+                        "to": to,
+                        "thread_id": thread_id,
+                        "phase": phase,
+                        "type": message_type,
+                        "content": content,
+                        "references": [],
+                        "metadata": {},
+                    }
+                )
+            )
+        )
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(
+            side_effect=lambda roles, skill_mode="default": [
+                single_code_agent if r == "experimentalist" else make_mock_agent(f"{r}-0", r)
+                for r in roles
+            ]
+        )
+
+        failure_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.FAILURE,
+            stderr="NameError: something broke",
+            error_message="Process exited with code 1",
+        )
+
+        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(return_value=failure_result)
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            # 3 rounds: each round has 1 experiment that fails (1/1 = 100% failure)
+            # but sample size < 3, so circuit breaker should NOT fire
+            mock_config.orchestrator.max_experiment_rounds = 3
+
+            await engine.run_research_cycle(
+                seed_prompt="Test circuit breaker minimum sample",
+                mode="experimental",
+            )
+
+            # All 3 rounds should run (1 experiment × 3 attempts × 3 rounds = 9)
+            # If circuit breaker fired on round 1, we'd only get 3 calls
+            assert mock_executor_instance.execute.call_count == 9
+
+    @pytest.mark.asyncio
     async def test_execution_context_in_writing(
         self, tmp_path, tmp_db, tmp_logger, mock_factory_with_code, mock_corpus
     ):
@@ -580,15 +554,7 @@ class TestExecutionPhaseIntegration:
             },
             sandbox={"enabled": True},
         )
-        mock_provider = MagicMock()
-        mock_provider.complete.return_value = _build_checkpoint_response()
-        mock_provider.default_model = "claude-sonnet-4-5-20250929"
-        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
-        object.__setattr__(
-            config,
-            "get_provider_and_model_for_role",
-            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-        )
+        patch_config_provider(config)
 
         mock_exec_result = ExecutionResult(
             request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
@@ -640,15 +606,7 @@ class TestExecutionPhaseIntegration:
             },
             sandbox={"enabled": True},
         )
-        mock_provider = MagicMock()
-        mock_provider.complete.return_value = _build_checkpoint_response()
-        mock_provider.default_model = "claude-sonnet-4-5-20250929"
-        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
-        object.__setattr__(
-            config,
-            "get_provider_and_model_for_role",
-            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-        )
+        patch_config_provider(config)
 
         # Create a fake figure file
         figures_src = tmp_path / "data" / "executions"
@@ -715,15 +673,7 @@ class TestEmbedFiguresInline:
             storage={"data_dir": str(tmp_path / "data")},
             orchestrator={"max_rounds_per_phase": 1},
         )
-        mock_provider = MagicMock()
-        mock_provider.complete.return_value = _build_checkpoint_response()
-        mock_provider.default_model = "claude-sonnet-4-5-20250929"
-        object.__setattr__(config, "get_provider", MagicMock(return_value=mock_provider))
-        object.__setattr__(
-            config,
-            "get_provider_and_model_for_role",
-            MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
-        )
+        patch_config_provider(config)
         db = Database(tmp_path / "test.db")
         logger = EventLogger(tmp_path / "events.jsonl")
         factory = MagicMock()
@@ -739,14 +689,14 @@ class TestEmbedFiguresInline:
         engine = self._make_engine(tmp_path)
         engine._execution_figures = []
         body = "# Paper\n\n## Abstract\n\nContent."
-        assert engine._embed_figures_inline(body) == body
+        assert engine._writing.embed_figures_inline(body) == body
 
     def test_inserts_missing_figure_tag(self, tmp_path):
         engine = self._make_engine(tmp_path)
         engine._execution_figures = [("test_exp", Path("/tmp/plot.png"))]
 
         body = "# Paper\n\n## Results\n\nAs shown in Figure 1, the data is clear.\n\n## Conclusion\n\nDone."
-        result = engine._embed_figures_inline(body)
+        result = engine._writing.embed_figures_inline(body)
         assert "![Figure 1](figures/test_exp_plot.png)" in result
 
     def test_skips_already_embedded(self, tmp_path):
@@ -754,7 +704,7 @@ class TestEmbedFiguresInline:
         engine._execution_figures = [("test_exp", Path("/tmp/plot.png"))]
 
         body = "# Paper\n\n![Figure 1](figures/test_exp_plot.png)\n\nSee Figure 1 above."
-        result = engine._embed_figures_inline(body)
+        result = engine._writing.embed_figures_inline(body)
         # Should not duplicate the tag
         assert result.count("![Figure 1]") == 1
 
@@ -763,7 +713,7 @@ class TestEmbedFiguresInline:
         engine._execution_figures = [("test_exp", Path("/tmp/plot.png"))]
 
         body = "# Paper\n\n## Abstract\n\nNo figure mention here."
-        result = engine._embed_figures_inline(body)
+        result = engine._writing.embed_figures_inline(body)
         assert "![Figure 1](figures/test_exp_plot.png)" in result
         # Should be at the end
         assert result.strip().endswith("![Figure 1](figures/test_exp_plot.png)")
@@ -776,13 +726,13 @@ class TestEmbedFiguresInline:
         ]
 
         body = "# Paper\n\nFigure 1 shows X.\n\nFigure 2 shows Y."
-        result = engine._embed_figures_inline(body)
+        result = engine._writing.embed_figures_inline(body)
         assert "![Figure 1](figures/exp_a_fig_a.png)" in result
         assert "![Figure 2](figures/exp_b_fig_b.png)" in result
 
     def test_figure_dest_name_sanitizes(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        name = engine._figure_dest_name("Test Experiment (v2)", Path("/tmp/plot.png"))
+        name = engine._writing.figure_dest_name("Test Experiment (v2)", Path("/tmp/plot.png"))
         assert name == "Test_Experiment__v2__plot.png"
         # No spaces or parens
         assert " " not in name
