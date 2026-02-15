@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
 from paradigm.literature.semantic_scholar import (
-    SemanticPaper,
     SemanticScholarClient,
     _normalize_arxiv_id,
     _parse_paper,
 )
-
 
 # --- Helpers ---
 

@@ -1550,8 +1550,6 @@ class TestLiteratureGraphTraversal:
     @pytest.mark.asyncio
     async def test_follow_budget_enforced(self, mock_config, tmp_db, tmp_logger):
         """Stops processing [FOLLOW:] after budget exhausted."""
-        from paradigm.literature.semantic_scholar import SemanticPaper
-
         corpus = MagicMock()
         corpus.build_literature_context = AsyncMock(return_value="No papers.")
         corpus.search = AsyncMock(return_value=[])
