@@ -12,8 +12,11 @@ from paradigm.orchestrator.engine import (
     _LITERATURE_CONTEXT_LIMIT,
     _MIN_PAPER_LENGTH,
     _PHASE_ACTIVE_ROLES,
+    _PHASE_CONTEXT_NEEDS,
     MODE_TEAM_ROLES,
     OrchestrationEngine,
+    _is_duplicate_query,
+    _normalize_query_keywords,
 )
 from paradigm.storage.database import Database
 
@@ -871,12 +874,21 @@ class TestOrchestrationEngine:
             )
             await engine.run_research_cycle(seed_prompt=prompt, mode="directed")
 
-        # Check that agents received prompts with all three contexts
+        # IDEATION gets references only (not code/data per _PHASE_CONTEXT_NEEDS)
         first_agent = list(engine._agents.values())[0]
-        prompt_text = first_agent.generate.call_args_list[0][0][0]
-        assert "Available Code Resources" in prompt_text
-        assert "Available Data Files" in prompt_text
-        assert "Web Reference Materials" in prompt_text
+        ideation_prompt = first_agent.generate.call_args_list[0][0][0]
+        assert "Web Reference Materials" in ideation_prompt
+        assert "Available Code Resources" not in ideation_prompt
+        assert "Available Data Files" not in ideation_prompt
+
+        # PLANNING gets code/data (not references per _PHASE_CONTEXT_NEEDS)
+        # Round 1 of PLANNING is after all IDEATION rounds. Each round has
+        # 5 active agents (editor/writer excluded). 2 rounds × 5 = 10 calls.
+        # Agent call index 10 is the first PLANNING call for this agent.
+        planning_prompt = first_agent.generate.call_args_list[2][0][0]
+        assert "Available Code Resources" in planning_prompt
+        assert "Available Data Files" in planning_prompt
+        assert "Web Reference Materials" not in planning_prompt
 
     @pytest.mark.asyncio
     async def test_editor_writer_excluded_from_ideation_planning(
@@ -1227,5 +1239,117 @@ class TestOrchestrationEngine:
 
         # Context should be within limit (it gets set fresh each cycle, but
         # the constant itself is what we're validating)
-        assert _LITERATURE_CONTEXT_LIMIT == 15000
+        assert _LITERATURE_CONTEXT_LIMIT == 10000
         assert _MIN_PAPER_LENGTH == 500
+
+
+# --- Fuzzy query dedup tests ---
+
+
+class TestNormalizeQueryKeywords:
+    def test_basic_normalization(self):
+        kw = _normalize_query_keywords("Cepheid period-luminosity relation")
+        assert "cepheid" in kw
+        assert "period" in kw
+        assert "luminosity" in kw
+        assert "relation" in kw
+
+    def test_stop_words_removed(self):
+        kw = _normalize_query_keywords("the effect of metallicity on the period")
+        assert "the" not in kw
+        assert "of" not in kw
+        assert "on" not in kw
+        assert "metallicity" in kw
+        assert "effect" in kw
+        assert "period" in kw
+
+    def test_case_insensitive(self):
+        kw1 = _normalize_query_keywords("Stellar Evolution")
+        kw2 = _normalize_query_keywords("stellar evolution")
+        assert kw1 == kw2
+
+    def test_punctuation_stripped(self):
+        kw = _normalize_query_keywords("convective overshooting, massive stars!")
+        assert "convective" in kw
+        assert "overshooting" in kw
+        assert "massive" in kw
+        assert "stars" in kw
+
+    def test_empty_string(self):
+        kw = _normalize_query_keywords("")
+        assert kw == frozenset()
+
+    def test_only_stop_words(self):
+        kw = _normalize_query_keywords("the and or is of")
+        assert kw == frozenset()
+
+
+class TestIsDuplicateQuery:
+    def test_identical_queries(self):
+        kw1 = _normalize_query_keywords("convective overshooting massive stars")
+        assert _is_duplicate_query(kw1, [kw1]) is True
+
+    def test_different_queries(self):
+        kw1 = _normalize_query_keywords("convective overshooting massive stars")
+        kw2 = _normalize_query_keywords("exoplanet transit photometry")
+        assert _is_duplicate_query(kw1, [kw2]) is False
+
+    def test_similar_queries_above_threshold(self):
+        kw1 = _normalize_query_keywords("convective overshooting in massive stars")
+        kw2 = _normalize_query_keywords("convective overshooting massive star models")
+        # Overlap: convective, overshooting, massive — 3/5 words, Jaccard 0.6
+        # Actually kw1: {convective, overshooting, massive, stars}
+        # kw2: {convective, overshooting, massive, star, models}
+        # intersection: 3, union: 6, Jaccard ~0.5 — below 0.7
+        assert _is_duplicate_query(kw1, [kw2], threshold=0.5) is True
+
+    def test_similar_queries_below_threshold(self):
+        kw1 = _normalize_query_keywords("stellar pulsation cepheids")
+        kw2 = _normalize_query_keywords("stellar nucleosynthesis AGB")
+        # Only "stellar" overlaps. Jaccard = 1/5 = 0.2 — below 0.7
+        assert _is_duplicate_query(kw1, [kw2]) is False
+
+    def test_empty_keywords(self):
+        assert _is_duplicate_query(frozenset(), [frozenset({"a", "b"})]) is False
+
+    def test_empty_existing_list(self):
+        kw = _normalize_query_keywords("convective overshooting")
+        assert _is_duplicate_query(kw, []) is False
+
+    def test_reordered_words_match(self):
+        kw1 = _normalize_query_keywords("massive star convective overshooting")
+        kw2 = _normalize_query_keywords("convective overshooting massive star")
+        assert _is_duplicate_query(kw1, [kw2]) is True
+
+
+# --- Phase context needs tests ---
+
+
+class TestPhaseContextNeeds:
+    def test_ideation_has_literature_references_memory(self):
+        from paradigm.orchestrator.phases import ResearchPhase
+
+        needs = _PHASE_CONTEXT_NEEDS[ResearchPhase.IDEATION]
+        assert "literature" in needs
+        assert "references" in needs
+        assert "memory" in needs
+        assert "code_data" not in needs
+
+    def test_planning_has_literature_code_data_memory(self):
+        from paradigm.orchestrator.phases import ResearchPhase
+
+        needs = _PHASE_CONTEXT_NEEDS[ResearchPhase.PLANNING]
+        assert "literature" in needs
+        assert "code_data" in needs
+        assert "memory" in needs
+        assert "references" not in needs
+
+    def test_writing_not_listed(self):
+        from paradigm.orchestrator.phases import ResearchPhase
+
+        assert ResearchPhase.WRITING not in _PHASE_CONTEXT_NEEDS
+
+    def test_execution_not_listed(self):
+        from paradigm.orchestrator.phases import ResearchPhase
+
+        assert ResearchPhase.EXECUTION not in _PHASE_CONTEXT_NEEDS

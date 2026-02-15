@@ -946,3 +946,23 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 **Artifacts modified:**
 - `docker/Dockerfile.sandbox` — Added 10 packages to the default install
 - `src/paradigm/orchestrator/engine.py` — Updated "Available libraries" list and shrank offline cache list in execution prompt
+
+### Prompt — Reduce Token Usage Per Research Cycle
+
+> Implement the plan to reduce token usage per research cycle (~530K → ~300K target, ~40% reduction). Changes: (1) Phase-appropriate context injection via `_PHASE_CONTEXT_NEEDS` dict gating `_build_agent_prompt()`, (2) Reduce `_SEARCH_ENABLED_PHASES` from 7 to 3, (3) Fuzzy query deduplication via Jaccard similarity, (4) Reduce limits: `_LITERATURE_CONTEXT_LIMIT` 15K→10K, `max_papers` 5→3, `max_searches_per_round` 10→5.
+
+**Key decisions:**
+- IDEATION gets literature+references+memory but NOT code/data
+- PLANNING gets literature+code/data+memory but NOT references
+- Unlisted phases get nothing injected (they build their own prompts)
+- Search only enabled in IDEATION, PLANNING, EXECUTION
+- Fuzzy dedup uses normalized keyword sets + Jaccard similarity (threshold=0.7)
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — `_PHASE_CONTEXT_NEEDS`, gated `_build_agent_prompt()`, shrunk `_SEARCH_ENABLED_PHASES`, fuzzy dedup helpers + state, `_LITERATURE_CONTEXT_LIMIT` 15K→10K
+- `src/paradigm/literature/prompt_utils.py` — `max_papers` default 5→3
+- `configs/default.yaml` — `max_searches_per_round` 10→5
+- `tests/test_orchestrator.py` — Phase context + fuzzy dedup tests
+- `tests/test_prompt_utils.py` — Updated for `max_papers=3` default
+
+**Future work:** The reduced limits (`_LITERATURE_CONTEXT_LIMIT` 10K, `max_papers` 3, `max_searches_per_round` 5) are conservative defaults for cost-efficient development and testing. For production research runs, agents should have the ability to download and retain more literature when they need to. Consider making these limits configurable via `default.yaml` (or a separate `production.yaml` profile) so they can be raised without code changes — e.g. `literature_context_limit: 25000`, `max_papers_per_search: 10`, `max_searches_per_round: 15`.

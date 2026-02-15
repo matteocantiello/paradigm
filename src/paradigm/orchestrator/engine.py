@@ -320,14 +320,12 @@ _SEARCH_INSTRUCTION = (
 )
 
 # Phases where agents can request literature searches
+# WRITING/INTERNAL_REVIEW/PEER_REVIEW/REVISION build their own prompts
+# and never inject _literature_context, so searches there are wasted.
 _SEARCH_ENABLED_PHASES: set[ResearchPhase] = {
     ResearchPhase.IDEATION,
     ResearchPhase.PLANNING,
     ResearchPhase.EXECUTION,
-    ResearchPhase.WRITING,
-    ResearchPhase.INTERNAL_REVIEW,
-    ResearchPhase.PEER_REVIEW,
-    ResearchPhase.REVISION,
 }
 
 # Phases where agents can trigger focused debates
@@ -397,6 +395,18 @@ _PHASE_ACTIVE_ROLES: dict[ResearchPhase, set[str]] = {
     ResearchPhase.PLANNING: {"theorist", "analyst", "synthesizer", "skeptic", "experimentalist"},
 }
 
+# Phase-appropriate context injection: controls what _build_agent_prompt() injects.
+# Keys: "literature", "references", "code_data", "memory".
+# IDEATION: needs literature + references (user-provided web pages for grounding),
+#           but not code/data (no experiments yet).
+# PLANNING: needs literature + code/data (experiment planning against available resources),
+#           but not references (checkpoint already digested them).
+# Phases not listed here get no context injected (they build their own prompts).
+_PHASE_CONTEXT_NEEDS: dict[ResearchPhase, set[str]] = {
+    ResearchPhase.IDEATION: {"literature", "references", "memory"},
+    ResearchPhase.PLANNING: {"literature", "code_data", "memory"},
+}
+
 # Max tokens for writing/assembly/revision calls (papers need much more than default 4096)
 _WRITING_MAX_TOKENS = 32768
 
@@ -405,7 +415,7 @@ _PAPER_CONTEXT_LIMIT = 50000
 
 # Max characters of accumulated literature context to include in agent prompts
 # When exceeded, oldest entries are trimmed from the front
-_LITERATURE_CONTEXT_LIMIT = 15000
+_LITERATURE_CONTEXT_LIMIT = 10000
 
 # Minimum paper body length — papers shorter than this are considered failed
 _MIN_PAPER_LENGTH = 500
@@ -442,6 +452,81 @@ def _extract_code_blocks(text: str) -> list[tuple[str, str]]:
         name = name_match.group(1).strip() if name_match else "unnamed_experiment"
         blocks.append((name, code))
     return blocks
+
+
+# Stop words for fuzzy query normalization
+_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "has",
+        "have",
+        "in",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "to",
+        "was",
+        "were",
+        "will",
+        "with",
+    }
+)
+
+
+def _normalize_query_keywords(query: str) -> frozenset[str]:
+    """Normalize a search query to a set of lowercase keywords, minus stop words.
+
+    Args:
+        query: Raw search query string.
+
+    Returns:
+        Frozen set of meaningful keywords.
+    """
+    words = set(re.sub(r"[^a-z0-9\s]", " ", query.lower()).split())
+    return frozenset(words - _STOP_WORDS)
+
+
+def _is_duplicate_query(
+    new_keywords: frozenset[str],
+    existing_keyword_sets: list[frozenset[str]],
+    threshold: float = 0.7,
+) -> bool:
+    """Check if a query is a near-duplicate of any previously executed query.
+
+    Uses Jaccard similarity: |A ∩ B| / |A ∪ B| >= threshold.
+
+    Args:
+        new_keywords: Keyword set of the new query.
+        existing_keyword_sets: List of keyword sets from previously executed queries.
+        threshold: Minimum Jaccard similarity to consider a duplicate.
+
+    Returns:
+        True if the query is a near-duplicate.
+    """
+    if not new_keywords:
+        return False
+    for existing in existing_keyword_sets:
+        if not existing:
+            continue
+        intersection = len(new_keywords & existing)
+        union = len(new_keywords | existing)
+        if union > 0 and intersection / union >= threshold:
+            return True
+    return False
 
 
 def _format_execution_result(experiment_name: str, result: ExecutionResult) -> str:
@@ -527,7 +612,8 @@ class OrchestrationEngine:
         self._execution_context: str = ""
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
         self._search_count_this_round: int = 0
-        self._searched_queries: set[str] = set()  # Global dedup across entire cycle
+        self._searched_queries: set[str] = set()  # Global exact dedup across entire cycle
+        self._searched_query_keywords: list[frozenset[str]] = []  # Fuzzy dedup keyword sets
         self._seen_paper_ids: set[str] = set()  # Cross-query dedup: papers already shown to agents
         self._search_log: list[dict[str, Any]] = []
         self._review_log: list[dict[str, Any]] = []
@@ -563,6 +649,7 @@ class OrchestrationEngine:
         self._execution_context = ""
         self._execution_figures = []
         self._searched_queries = set()
+        self._searched_query_keywords = []
         self._seen_paper_ids = set()
         self._search_log = []
         self._review_log = []
@@ -2004,9 +2091,15 @@ class OrchestrationEngine:
             return
 
         for query in queries:
-            # Global dedup: skip queries already executed in this cycle
+            # Global exact dedup: skip queries already executed in this cycle
             query_key = query.lower().strip()
             if query_key in self._searched_queries:
+                continue
+
+            # Fuzzy dedup: skip queries that are near-duplicates of previous ones
+            new_kw = _normalize_query_keywords(query)
+            if _is_duplicate_query(new_kw, self._searched_query_keywords):
+                click.echo(f"    [~] Skipping similar query: {query[:60]}")
                 continue
 
             if self._search_count_this_round >= max_searches:
@@ -2024,6 +2117,8 @@ class OrchestrationEngine:
                 continue
 
             self._searched_queries.add(query_key)
+            if new_kw:
+                self._searched_query_keywords.append(new_kw)
             # Log all raw results (before dedup filtering)
             self._search_log.append(
                 {
@@ -2688,18 +2783,22 @@ class OrchestrationEngine:
             for m in recent
         )
 
-        # Include accumulated literature context (all phases)
-        lit = getattr(self, "_literature_context", "")
-        if lit:
-            checkpoint_context = "## Literature Context\n" + lit + "\n\n" + checkpoint_context
+        # Phase-appropriate context injection — only inject what each phase needs
+        context_needs = _PHASE_CONTEXT_NEEDS.get(phase, set())
 
-        # Inject resource contexts (code repos, data files, web references)
-        if self._reference_context:
+        if "literature" in context_needs:
+            lit = getattr(self, "_literature_context", "")
+            if lit:
+                checkpoint_context = "## Literature Context\n" + lit + "\n\n" + checkpoint_context
+
+        if "references" in context_needs and self._reference_context:
             checkpoint_context = self._reference_context + "\n\n" + checkpoint_context
-        if self._data_context:
-            checkpoint_context = self._data_context + "\n\n" + checkpoint_context
-        if self._code_context:
-            checkpoint_context = self._code_context + "\n\n" + checkpoint_context
+
+        if "code_data" in context_needs:
+            if self._data_context:
+                checkpoint_context = self._data_context + "\n\n" + checkpoint_context
+            if self._code_context:
+                checkpoint_context = self._code_context + "\n\n" + checkpoint_context
 
         # Graveyard context stays IDEATION round 1 only
         if phase == ResearchPhase.IDEATION and round_num == 1:
@@ -2708,7 +2807,11 @@ class OrchestrationEngine:
                 checkpoint_context = checkpoint_context + graveyard + "\n\n"
 
         # Inject agent episodic memories (cross-cycle learning)
-        if self._memory_store is not None and self._config.memory.enabled:
+        if (
+            "memory" in context_needs
+            and self._memory_store is not None
+            and self._config.memory.enabled
+        ):
             from paradigm.agents.memory import format_memory_context, rank_memories_with_recency
 
             raw_memories = self._memory_store.search(

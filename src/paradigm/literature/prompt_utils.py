@@ -159,7 +159,7 @@ def parse_challenge_requests(text: str) -> list[ChallengeRequest]:
     return challenges
 
 
-def format_search_results(query: str, papers: list[ArxivPaper], max_papers: int = 5) -> str:
+def format_search_results(query: str, papers: list[ArxivPaper], max_papers: int = 3) -> str:
     """Format search results as compact markdown for agent context.
 
     Args:
