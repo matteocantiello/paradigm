@@ -911,3 +911,38 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 **Artifacts modified:**
 - `configs/default.yaml` — added Together provider + skeptic override
 - `pyproject.toml` — openai dependency already present from previous commit
+
+### Prompt — Fix Sandbox Execution Environment Issues
+
+> Implement the following plan: Fix Sandbox Execution Environment Issues
+>
+> The EXECUTION phase has a ~75% failure rate across recent runs. Analysis of thread-19c335b0bbe8 (21 attempts, 11 failures) reveals four systematic issues:
+> 1. Docker image is stale (missing requests, pypdf, h5py, seaborn)
+> 2. CODE_FILE parent directories not added to PYTHONPATH (from read_mist_models.py fails)
+> 3. Ingested PDFs not saved to sandbox (raw PDF bytes discarded after text extraction)
+> 4. Execution prompt template needs clarifications about PDF/code file availability
+>
+> Fix: Make _fetch_pdf_bytes public in arxiv.py, add CODE_FILE dirs to PYTHONPATH, save raw PDFs to data/shared/papers/, update execution prompt, improve CODE_FILE import instructions in resources.py.
+
+**Key decisions:**
+- Make `_fetch_pdf_bytes` a public method on ArxivClient (already has httpx + curl fallback)
+- Add CODE_FILE parent dirs to repo_paths (deduplicated) for PYTHONPATH injection
+- Save raw PDF bytes to `data/shared/papers/` during SEEDING (non-fatal on failure)
+- Add explicit import instructions for CODE_FILE entries in `build_code_context()`
+
+**Artifacts modified:**
+- `src/paradigm/literature/arxiv.py` — Made `_fetch_pdf_bytes` public
+- `src/paradigm/orchestrator/engine.py` — PYTHONPATH for code files, PDF save helper, prompt template updates
+- `src/paradigm/literature/resources.py` — Improved CODE_FILE import instructions in `build_code_context()`
+
+### Prompt — Add default scientific packages to Docker container
+
+> We should load the most used scientific packages as defaults in the docker container
+
+**Key decisions:** Promote 10 frequently-used packages from the offline pip cache to the Dockerfile so they're always available without manual `pip install`.
+
+**Packages added to Dockerfile:** emcee, corner, lmfit, uncertainties, statsmodels, tqdm, numba, xarray, pyyaml, joblib
+
+**Artifacts modified:**
+- `docker/Dockerfile.sandbox` — Added 10 packages to the default install
+- `src/paradigm/orchestrator/engine.py` — Updated "Available libraries" list and shrank offline cache list in execution prompt

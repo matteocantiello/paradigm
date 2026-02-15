@@ -158,21 +158,27 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Wrap each experiment in a fenced ```python block with a "
             "`# EXPERIMENT: <name>` comment on the first line.\n\n"
             "**Available libraries:** numpy, scipy, matplotlib, pandas, scikit-learn, "
-            "sympy, astropy, seaborn, requests, pypdf, h5py, and standard library modules.\n"
+            "sympy, astropy, seaborn, requests, pypdf, h5py, emcee, corner, lmfit, "
+            "uncertainties, statsmodels, tqdm, numba, xarray, joblib, pyyaml, "
+            "and standard library modules.\n"
             "**Installing extra packages:** If you need a package not already installed, run "
             "`import os; os.system('pip install --user --no-index --find-links /data/packages/ "
             "<package_name>')` at the top of your script. Packages available in the offline "
-            "cache include: emcee, corner, lmfit, uncertainties, statsmodels, photutils, "
-            "specutils, dust_extinction, galpy, healpy, xarray, plotly, tqdm, numba, and more.\n"
+            "cache include: photutils, specutils, dust_extinction, galpy, healpy, "
+            "plotly, bokeh, tables, netCDF4, pyarrow, and more.\n"
             "**Environment:** Code runs inside a Docker container with no network access. "
             "You can use os, pathlib, open(), io, glob, shutil, etc. for file operations. "
             "Do NOT use subprocess, ctypes, multiprocessing, exec(), or eval().\n"
             "**Shared resources:** Code repositories and data files from the research prompt "
             "are available under /data/shared/. See 'Available Code Resources' and 'Available "
             "Data Files' sections above for paths.\n"
-            "**Workspace:** /data/workspace/ is a persistent read-write directory shared "
-            "across all experiments. Save intermediate data files (CSVs, pickles, HDF5) "
-            "there so later experiments can reuse them. Read previous outputs from there.\n"
+            "**PDF files:** PDF files from the research prompt are available under "
+            "/data/shared/papers/. Use pypdf (not PyPDF2) to parse them.\n"
+            "**Code files:** Code files from the research prompt are importable directly "
+            "(their directories are on PYTHONPATH). See 'Available Code Resources' above.\n"
+            "**Workspace:** IMPORTANT: Save ALL intermediate data files to /data/workspace/ "
+            "so later experiments can reuse them. This is a persistent read-write directory "
+            "shared across all experiments. Read previous outputs from there.\n"
             "**Output:** Print results to stdout. Save figures as .png files using "
             "matplotlib (plt.savefig('figure_name.png')). All .png/.pdf files in the "
             "working directory will be collected.\n"
@@ -978,6 +984,13 @@ class OrchestrationEngine:
             for r in self._resolved_resources
             if r.resource_type == ResourceType.CODE_REPO and r.sandbox_path and r.error is None
         ]
+        # Also add parent directories of CODE_FILE resources so they are importable
+        code_file_dirs = {
+            str(Path(r.sandbox_path).parent)
+            for r in self._resolved_resources
+            if r.resource_type == ResourceType.CODE_FILE and r.sandbox_path and r.error is None
+        }
+        repo_paths.extend(sorted(code_file_dirs))
 
         # Per-thread workspace persists across executions so experiments
         # can read files (CSVs, data) produced by earlier experiments.
@@ -1672,6 +1685,38 @@ class OrchestrationEngine:
         path.write_text(body)
         if self._execution_figures:
             self._copy_figures_to_paper_dir(paper_id)
+
+    async def _save_pdf_for_sandbox(self, url: str) -> None:
+        """Save raw PDF bytes to data/shared/papers/ for sandbox access.
+
+        Non-fatal: if the download or save fails, logs and continues
+        (the paper is already in ChromaDB for literature context).
+
+        Args:
+            url: URL of the PDF to save.
+        """
+        try:
+            pdf_bytes = await self._corpus._arxiv.fetch_pdf_bytes(url)
+            if pdf_bytes is None:
+                return
+
+            papers_dir = self._config.storage.data_dir / "shared" / "papers"
+            papers_dir.mkdir(parents=True, exist_ok=True)
+
+            # Sanitize filename from URL
+            name = url.rstrip("/").split("/")[-1]
+            if not name.endswith(".pdf"):
+                name += ".pdf"
+            # Remove query params and unsafe chars
+            name = re.sub(r"[?#&=].*", "", name)
+            name = re.sub(r"[^\w.\-]", "_", name)
+
+            dest = papers_dir / name
+            dest.write_bytes(pdf_bytes)
+            click.echo(f"  Saved PDF for sandbox: {name}")
+        except Exception as e:
+            self._logger.log_error(e, metadata_key="pdf_sandbox_save", url=url)
+            click.echo(f"  [!] Could not save PDF for sandbox: {e}")
 
     def _copy_figures_to_paper_dir(self, paper_id: str) -> None:
         """Copy execution output figures to the paper's figures/ directory.
@@ -2422,6 +2467,8 @@ class OrchestrationEngine:
                     paper = await self._corpus.fetch_and_ingest_url(url)
                     if paper:
                         click.echo(f"  Ingested external paper: {paper.title[:80]}")
+                        # Also save raw PDF to sandbox so experimentalist can parse it
+                        await self._save_pdf_for_sandbox(url)
                     else:
                         click.echo(f"  [!] Could not extract PDF from: {url}")
                 except Exception as e:

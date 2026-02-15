@@ -159,7 +159,7 @@ class ArxivClient:
         Returns:
             Extracted text content, or None if extraction fails.
         """
-        pdf_bytes = await self._fetch_pdf_bytes(url)
+        pdf_bytes = await self.fetch_pdf_bytes(url)
         if pdf_bytes is None:
             return None
 
@@ -175,7 +175,7 @@ class ArxivClient:
                 self._logger.log_error(e, metadata_key="pdf_extraction", url=url)
             return None
 
-    async def _fetch_pdf_bytes(self, url: str) -> bytes | None:
+    async def fetch_pdf_bytes(self, url: str) -> bytes | None:
         """Fetch raw PDF bytes from a URL, with curl fallback.
 
         Args:

@@ -12,7 +12,17 @@ RUN pip install --no-cache-dir \
     requests \
     pypdf \
     h5py \
-    seaborn
+    seaborn \
+    emcee \
+    corner \
+    lmfit \
+    uncertainties \
+    statsmodels \
+    tqdm \
+    numba \
+    xarray \
+    pyyaml \
+    joblib
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash sandbox

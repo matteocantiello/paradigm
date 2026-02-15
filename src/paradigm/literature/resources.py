@@ -536,6 +536,11 @@ def build_code_context(resources: list[ResolvedResource]) -> str:
             lines.append(f"  Import with: `import {r.name}` or `from {r.name} import ...`")
         else:
             lines.append(f"- **File: {r.name}** — `{r.sandbox_path}`")
+            # Generate import instruction from filename
+            module_name = Path(r.name).stem
+            lines.append(
+                f"  Import directly: `from {module_name} import ...` or `import {module_name}`"
+            )
             lines.append(f"  {r.summary}")
     lines.append("")
 
