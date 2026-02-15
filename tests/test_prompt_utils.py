@@ -308,13 +308,26 @@ class TestParseFollowRequests:
         assert result == ["2301.12345"]
 
     def test_multiple(self):
-        text = "[FOLLOW: 2301.001] and [FOLLOW: 2301.002]"
+        text = "[FOLLOW: 2301.00100] and [FOLLOW: 2301.00200]"
         result = parse_follow_requests(text)
         assert len(result) == 2
 
     def test_no_markers(self):
         text = "Just a regular response."
         assert parse_follow_requests(text) == []
+
+    def test_rejects_urls(self):
+        text = "[FOLLOW: https://www.aanda.org/articles/aa/pdf/2024/paper.pdf]"
+        assert parse_follow_requests(text) == []
+
+    def test_rejects_placeholder_text(self):
+        text = "[FOLLOW: arxiv_id]"
+        assert parse_follow_requests(text) == []
+
+    def test_old_format_id(self):
+        text = "[FOLLOW: astro-ph/0601001]"
+        result = parse_follow_requests(text)
+        assert result == ["astro-ph/0601001"]
 
 
 class TestParseCitedByRequests:
@@ -328,6 +341,14 @@ class TestParseCitedByRequests:
         result = parse_cited_by_requests(text)
         assert result == ["2301.12345"]
 
+    def test_rejects_urls(self):
+        text = "[CITED_BY: https://www.nature.com/articles/s41550-023-02040-7]"
+        assert parse_cited_by_requests(text) == []
+
+    def test_rejects_garbage(self):
+        text = "[CITED_BY: some random text]"
+        assert parse_cited_by_requests(text) == []
+
 
 class TestParseReadRequests:
     def test_basic_extraction(self):
@@ -339,6 +360,10 @@ class TestParseReadRequests:
         text = "[READ: arxiv:2301.12345v1]"
         result = parse_read_requests(text)
         assert result == ["2301.12345"]
+
+    def test_rejects_urls(self):
+        text = "[READ: https://www.aanda.org/articles/aa/pdf/2024/12/aa51419-24.pdf]"
+        assert parse_read_requests(text) == []
 
 
 # --- format tests ---

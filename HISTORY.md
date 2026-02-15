@@ -1026,3 +1026,23 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 - `tests/test_prompt_utils.py` (MODIFY)
 - `tests/test_corpus.py` (MODIFY)
 - `tests/test_orchestrator.py` (MODIFY)
+
+### Prompt 68 — Fix arXiv ID Validation for Graph Traversal Actions
+
+> I'm seeing some issues: agents pass URLs (e.g., `https://www.aanda.org/...`) to `[READ:]` and
+> literal placeholder text (`arxiv_id`) to `[FOLLOW:]`/`[CITED_BY:]`. These cause 400 errors
+> from arXiv API and empty results from Semantic Scholar.
+
+**Root cause:** `_normalize_arxiv_id()` didn't validate that the input looked like an arXiv ID —
+it just stripped prefixes and returned whatever string it got.
+
+**Fixes:**
+- Added `_ARXIV_ID_RE` regex to validate arXiv ID format (YYMM.NNNNN or category/YYMMNNN)
+- `_normalize_arxiv_id()` now returns empty string for URLs, placeholder text, and garbage
+- Improved `_LITERATURE_INSTRUCTION` prompt to explicitly state arXiv IDs required (not URLs)
+- Added 6 new tests for URL/garbage rejection across all three parsers
+
+**Artifacts modified:**
+- `src/paradigm/literature/prompt_utils.py` — validation regex + early URL rejection
+- `src/paradigm/orchestrator/engine.py` — clearer prompt instruction
+- `tests/test_prompt_utils.py` — 6 new validation tests

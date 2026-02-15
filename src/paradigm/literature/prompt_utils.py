@@ -199,16 +199,29 @@ def format_search_results(query: str, papers: list[ArxivPaper], max_papers: int 
     return "\n".join(lines)
 
 
+# Valid arXiv ID patterns:
+# New format: YYMM.NNNNN (e.g., 2301.12345)
+# Old format: category/YYMMNNN (e.g., astro-ph/0601001)
+_ARXIV_ID_RE = re.compile(r"^(\d{4}\.\d{4,5}|[a-z-]+/\d{7})$")
+
+
 def _normalize_arxiv_id(raw_id: str) -> str:
     """Normalize an arXiv ID by stripping prefixes and version suffixes.
+
+    Returns empty string for invalid inputs (URLs, placeholder text, etc.).
 
     Args:
         raw_id: Raw arXiv ID (e.g., "arXiv:2301.12345v2").
 
     Returns:
-        Cleaned arXiv ID (e.g., "2301.12345").
+        Cleaned arXiv ID, or empty string if input is not a valid arXiv ID.
     """
     cleaned = raw_id.strip()
+
+    # Reject URLs immediately
+    if cleaned.startswith(("http://", "https://", "www.")):
+        return ""
+
     for prefix in ("arXiv:", "arxiv:", "ArXiv:"):
         if cleaned.startswith(prefix):
             cleaned = cleaned[len(prefix) :]
@@ -218,7 +231,14 @@ def _normalize_arxiv_id(raw_id: str) -> str:
         parts = cleaned.rsplit("v", 1)
         if len(parts) == 2 and parts[1].isdigit():
             cleaned = parts[0]
-    return cleaned.strip()
+
+    cleaned = cleaned.strip()
+
+    # Validate against arXiv ID pattern
+    if not _ARXIV_ID_RE.match(cleaned):
+        return ""
+
+    return cleaned
 
 
 def parse_follow_requests(text: str) -> list[str]:
