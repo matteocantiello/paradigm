@@ -55,7 +55,7 @@ class LiteratureConfig(BaseModel):
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     follow_budget_per_round: int = 3
     cited_by_budget_per_round: int = 2
-    read_budget_per_round: int = 2
+    read_budget_per_round: int = 5
     max_read_chars: int = 8000
     max_citation_results: int = 10
     max_reference_results: int = 20
@@ -103,7 +103,7 @@ class OrchestratorConfig(BaseModel):
     max_review_iterations: int = 2
     enable_peer_review: bool = True
     num_reviewers: int = 2
-    max_revision_rounds: int = 2
+    max_revision_rounds: int = 3
     enable_experimentation: bool = True
     max_experiment_rounds: int = 3
     max_searches_per_round: int = 3

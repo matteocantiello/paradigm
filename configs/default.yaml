@@ -60,7 +60,7 @@ literature:
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
   follow_budget_per_round: 3
   cited_by_budget_per_round: 2
-  read_budget_per_round: 2
+  read_budget_per_round: 5
   max_read_chars: 8000
   max_citation_results: 10
   max_reference_results: 20
@@ -75,7 +75,7 @@ orchestrator:
   enable_checkpointing: true
   checkpoint_interval: 5
   enable_writing: true
-  max_review_iterations: 1
+  max_review_iterations: 2
   enable_peer_review: true
   num_reviewers: 2
   max_revision_rounds: 2

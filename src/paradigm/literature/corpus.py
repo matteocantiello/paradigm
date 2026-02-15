@@ -97,11 +97,11 @@ class Corpus:
             local_results = self._embeddings.search(query, n_results=max_results)
             for result in local_results:
                 doc_id = result["arxiv_id"]
-                # Internal papers use their ID directly; arXiv papers use "arxiv:" prefix
+                # Skip Paradigm's own generated papers from search results
                 if doc_id.startswith("paper-"):
-                    db_key = doc_id
-                else:
-                    db_key = f"arxiv:{doc_id}"
+                    continue
+                # All non-paper IDs (arXiv and ext-*) use "arxiv:" prefix in the database
+                db_key = f"arxiv:{doc_id}"
                 db_paper = self._db.get_paper(db_key)
                 if db_paper and db_paper.get("status") in ("published", "external"):
                     paper = self._db_row_to_paper(db_paper)

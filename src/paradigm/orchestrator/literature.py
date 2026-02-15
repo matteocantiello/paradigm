@@ -57,6 +57,8 @@ class LiteratureHandler:
         self.discovered_papers: list[tuple[str, str, str]] = []  # (arxiv_id, title, first_author)
         self._discovered_ids: set[str] = set()  # Fast lookup to avoid duplicates
         self.read_paper_ids: set[str] = set()  # Papers already read (cross-round dedup)
+        self.followed_paper_ids: set[str] = set()  # Papers whose refs already fetched
+        self.cited_by_paper_ids: set[str] = set()  # Papers whose citations already fetched
 
     # ------------------------------------------------------------------
     # Reset helpers
@@ -86,6 +88,8 @@ class LiteratureHandler:
         self.discovered_papers = []
         self._discovered_ids = set()
         self.read_paper_ids = set()
+        self.followed_paper_ids = set()
+        self.cited_by_paper_ids = set()
 
     # ------------------------------------------------------------------
     # Paper index (compact reference list for agent prompts)
@@ -318,6 +322,10 @@ class LiteratureHandler:
                 click.echo(f"    [!] Follow budget exhausted, skipping: {arxiv_id}")
                 break
 
+            if arxiv_id in self.followed_paper_ids:
+                click.echo(f"    [skip] Already followed refs of {arxiv_id}, skipping duplicate")
+                continue
+
             try:
                 papers = await self._engine._corpus.get_references(
                     arxiv_id, max_results=lit_config.max_reference_results
@@ -347,6 +355,7 @@ class LiteratureHandler:
                 self.literature_context = self.literature_context[-_LITERATURE_CONTEXT_LIMIT:]
 
             self.follow_count_this_round += 1
+            self.followed_paper_ids.add(arxiv_id)
             self.search_log.append(
                 {
                     "query": f"[FOLLOW: {arxiv_id}]",
@@ -386,6 +395,12 @@ class LiteratureHandler:
                 click.echo(f"    [!] Cited-by budget exhausted, skipping: {arxiv_id}")
                 break
 
+            if arxiv_id in self.cited_by_paper_ids:
+                click.echo(
+                    f"    [skip] Already fetched citations of {arxiv_id}, skipping duplicate"
+                )
+                continue
+
             try:
                 papers = await self._engine._corpus.get_citations(
                     arxiv_id, max_results=lit_config.max_citation_results
@@ -414,6 +429,7 @@ class LiteratureHandler:
                 self.literature_context = self.literature_context[-_LITERATURE_CONTEXT_LIMIT:]
 
             self.cited_by_count_this_round += 1
+            self.cited_by_paper_ids.add(arxiv_id)
             self.search_log.append(
                 {
                     "query": f"[CITED_BY: {arxiv_id}]",

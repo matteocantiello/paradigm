@@ -2184,6 +2184,258 @@ class TestReadDeduplication:
 # --- Config default tests ---
 
 
+class TestFollowCitedByDeduplication:
+    """Tests for [FOLLOW:] and [CITED_BY:] cross-round deduplication."""
+
+    @pytest.mark.asyncio
+    async def test_follow_dedup_skips_duplicate(self, mock_config, tmp_db, tmp_logger):
+        """Two [FOLLOW: same_id] requests — get_references() called only once."""
+        from paradigm.literature.semantic_scholar import SemanticPaper
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])
+        corpus.get_references = AsyncMock(
+            return_value=[
+                SemanticPaper(
+                    paper_id="s2-1",
+                    arxiv_id="2301.001",
+                    title="Referenced Paper",
+                    authors=["Author"],
+                    abstract="Abstract",
+                    year=2023,
+                    citation_count=5,
+                    url="",
+                )
+            ]
+        )
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+        call_count = [0]
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+
+                    async def _gen(prompt, **kwargs):
+                        call_count[0] += 1
+                        if call_count[0] <= 2:
+                            # Both rounds request FOLLOW on the same paper
+                            content = "Ideas [FOLLOW: 2301.12345]"
+                        else:
+                            content = "Response"
+                        return AgentResponse(
+                            content=content,
+                            usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                            model="claude-sonnet-4-5-20250929",
+                        )
+
+                    agent.generate = AsyncMock(side_effect=_gen)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test follow dedup", mode="directed")
+
+        # get_references should only be called once despite two [FOLLOW: 2301.12345] requests
+        assert corpus.get_references.call_count == 1
+        assert "2301.12345" in engine._literature.followed_paper_ids
+
+    @pytest.mark.asyncio
+    async def test_cited_by_dedup_skips_duplicate(self, mock_config, tmp_db, tmp_logger):
+        """Two [CITED_BY: same_id] requests — get_citations() called only once."""
+        from paradigm.literature.semantic_scholar import SemanticPaper
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(
+            return_value=[
+                SemanticPaper(
+                    paper_id="s2-2",
+                    arxiv_id="2401.001",
+                    title="Citing Paper",
+                    authors=["Author"],
+                    abstract="Abstract",
+                    year=2024,
+                    citation_count=3,
+                    url="",
+                )
+            ]
+        )
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+        call_count = [0]
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+
+                    async def _gen(prompt, **kwargs):
+                        call_count[0] += 1
+                        if call_count[0] <= 2:
+                            content = "Ideas [CITED_BY: 0901.67890]"
+                        else:
+                            content = "Response"
+                        return AgentResponse(
+                            content=content,
+                            usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                            model="claude-sonnet-4-5-20250929",
+                        )
+
+                    agent.generate = AsyncMock(side_effect=_gen)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test cited_by dedup", mode="directed")
+
+        # get_citations should only be called once despite two requests
+        assert corpus.get_citations.call_count == 1
+        assert "0901.67890" in engine._literature.cited_by_paper_ids
+
+    def test_follow_dedup_reset_on_cycle(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """reset_cycle() clears followed_paper_ids."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        lit = engine._literature
+        lit.followed_paper_ids.add("2301.12345")
+        lit.followed_paper_ids.add("2301.67890")
+        assert len(lit.followed_paper_ids) == 2
+
+        lit.reset_cycle()
+        assert len(lit.followed_paper_ids) == 0
+
+    def test_cited_by_dedup_reset_on_cycle(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """reset_cycle() clears cited_by_paper_ids."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        lit = engine._literature
+        lit.cited_by_paper_ids.add("0901.67890")
+        assert len(lit.cited_by_paper_ids) == 1
+
+        lit.reset_cycle()
+        assert len(lit.cited_by_paper_ids) == 0
+
+
+# --- Search excludes Paradigm papers test ---
+
+
+class TestSearchExcludesParadigmPapers:
+    """Tests for filtering Paradigm's own papers from search results."""
+
+    @pytest.mark.asyncio
+    async def test_search_excludes_paradigm_papers(self):
+        """Corpus.search() skips paper-* IDs from local ChromaDB results."""
+        from datetime import UTC, datetime
+
+        from paradigm.config import LiteratureConfig, StorageConfig
+        from paradigm.literature.corpus import Corpus
+
+        # Set up mock database
+        db = MagicMock()
+
+        # paper-abc should be skipped, arxiv:2401.12345 should be returned
+        def _get_paper(paper_id):
+            if paper_id == "paper-abc":
+                return {
+                    "id": "paper-abc",
+                    "title": "Paradigm Internal Paper",
+                    "abstract": "Internal abstract",
+                    "authors": '["Agent"]',
+                    "keywords": "[]",
+                    "status": "published",
+                    "body": "",
+                    "created_at": "2024-01-01T00:00:00",
+                    "updated_at": "2024-01-01T00:00:00",
+                }
+            if paper_id == "arxiv:2401.12345":
+                return {
+                    "id": "arxiv:2401.12345",
+                    "title": "Real ArXiv Paper",
+                    "abstract": "Real abstract",
+                    "authors": '["Smith"]',
+                    "keywords": '["astro-ph.SR"]',
+                    "status": "external",
+                    "body": "",
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+            return None
+
+        db.get_paper = MagicMock(side_effect=_get_paper)
+
+        # Mock embedding store that returns both a paper-* and a real arXiv paper
+        embeddings = MagicMock()
+        embeddings.count.return_value = 10
+        embeddings.search.return_value = [
+            {"arxiv_id": "paper-abc", "distance": 0.1},
+            {"arxiv_id": "2401.12345", "distance": 0.2},
+        ]
+
+        # Mock arXiv client (no remote results)
+        arxiv_client = MagicMock()
+        arxiv_client.search = AsyncMock(return_value=[])
+
+        lit_config = LiteratureConfig()
+        storage_config = MagicMock(spec=StorageConfig)
+        storage_config.vector_db_path = "/tmp/test_vector_db"
+
+        corpus = Corpus(
+            database=db,
+            literature_config=lit_config,
+            storage_config=storage_config,
+            arxiv_client=arxiv_client,
+            embedding_store=embeddings,
+        )
+
+        results = await corpus.search("test query", include_arxiv=False)
+
+        # Should only return the real arXiv paper, not the paper-* one
+        assert len(results) == 1
+        assert results[0].arxiv_id == "2401.12345"
+        assert results[0].title == "Real ArXiv Paper"
+
+
+# --- Config default tests ---
+
+
 class TestConfigDefaults:
     """Tests for configuration defaults."""
 
@@ -2193,3 +2445,10 @@ class TestConfigDefaults:
 
         config = OrchestratorConfig()
         assert config.max_review_iterations == 2
+
+    def test_read_budget_default_is_5(self):
+        """read_budget_per_round default is 5 to allow 1 read per agent."""
+        from paradigm.config import LiteratureConfig
+
+        config = LiteratureConfig()
+        assert config.read_budget_per_round == 5

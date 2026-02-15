@@ -1377,6 +1377,30 @@ it just stripped prefixes and returned whatever string it got.
 
 ## 2026-02-15
 
+### Prompt 33 — FOLLOW/CITED_BY Dedup + Filter Self-Papers + Increase Read Budget
+
+> Implement the following plan: FOLLOW/CITED_BY Dedup + Filter Self-Papers + Increase Read Budget
+>
+> Three resource waste problems: (1) FOLLOW/CITED_BY have zero deduplication — same papers followed multiple times, (2) ChromaDB search returns Paradigm's own published papers — paper-* IDs waste search slots, (3) read_budget_per_round: 2 too low for 5 agents.
+>
+> Fix 1: Add followed_paper_ids and cited_by_paper_ids sets to LiteratureHandler, skip duplicates.
+> Fix 2: Skip paper-* IDs in Corpus.search() local results.
+> Fix 3: Increase read_budget_per_round from 2 to 5 in config.py and default.yaml.
+> Also fix stale YAML max_review_iterations: 1 → 2.
+
+**Key decisions:**
+- Same dedup pattern as read_paper_ids (per-cycle sets, reset in reset_cycle)
+- paper-* filtering at corpus level prevents self-citation pollution
+- read_budget_per_round: 5 gives ~1 read per agent per round
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/literature.py` — `followed_paper_ids`, `cited_by_paper_ids` sets + dedup checks
+- `src/paradigm/literature/corpus.py` — Skip `paper-*` IDs in `search()` local results
+- `src/paradigm/config.py` — `read_budget_per_round: 2` → `5`
+- `configs/default.yaml` — `read_budget_per_round: 2` → `5`, `max_review_iterations: 1` → `2`
+- `tests/test_orchestrator.py` — 6 new tests
+- `HISTORY.md` — This prompt logged
+
 ### Prompt 32 — Fix Internal Review Revision Flow + Add READ Deduplication
 
 > Implement the following plan:

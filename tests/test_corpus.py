@@ -260,8 +260,8 @@ async def test_citations_accessible(corpus):
     assert count == 1
 
 
-async def test_search_finds_internal_papers(corpus, db, embedding_store):
-    """Internal papers ingested via ingest_internal_paper() are found by search()."""
+async def test_search_excludes_internal_papers(corpus, db, embedding_store):
+    """Internal papers (paper-*) are excluded from search() results to prevent self-citation."""
     # Create the paper in the database first (as publish_paper does)
     db.create_paper(
         paper_id="paper-abc123def456",
@@ -281,17 +281,13 @@ async def test_search_finds_internal_papers(corpus, db, embedding_store):
 
     results = await corpus.search("stellar oscillations", include_arxiv=False)
 
-    assert len(results) >= 1
+    # Internal paper-* IDs should be filtered out
     found_ids = [p.arxiv_id for p in results]
-    assert "paper-abc123def456" in found_ids
-    # Internal paper should not have arXiv URLs
-    internal = [p for p in results if p.arxiv_id == "paper-abc123def456"][0]
-    assert internal.pdf_url == ""
-    assert internal.abs_url == ""
+    assert "paper-abc123def456" not in found_ids
 
 
-async def test_build_literature_context_includes_internal(corpus, db, mock_arxiv):
-    """build_literature_context() annotates internal papers as 'Paradigm internal'."""
+async def test_build_literature_context_excludes_internal(corpus, db, mock_arxiv):
+    """build_literature_context() excludes internal paper-* IDs from search results."""
     db.create_paper(
         paper_id="paper-111222333444",
         title="Paradigm Paper on Convection",
@@ -310,15 +306,14 @@ async def test_build_literature_context_includes_internal(corpus, db, mock_arxiv
 
     context = await corpus.build_literature_context("convective mixing", include_arxiv=False)
 
-    assert "Paradigm internal" in context
-    assert "paper-111222333444" in context
-    # Should NOT have "arXiv:" prefix for internal papers
-    assert "arXiv:paper-" not in context
+    # Internal papers should be filtered out — no results
+    assert "No relevant papers found" in context
+    assert "paper-111222333444" not in context
 
 
-async def test_search_mixes_internal_and_arxiv(corpus, db, mock_arxiv, embedding_store):
-    """Search results can contain both internal and arXiv papers."""
-    # Internal paper
+async def test_search_filters_internal_keeps_arxiv(corpus, db, mock_arxiv, embedding_store):
+    """Search results exclude internal paper-* but keep arXiv papers."""
+    # Internal paper (should be filtered)
     db.create_paper(
         paper_id="paper-aabbccddeeff",
         title="Internal Results",
@@ -334,14 +329,14 @@ async def test_search_mixes_internal_and_arxiv(corpus, db, mock_arxiv, embedding
         authors=["analyst-0"],
     )
 
-    # arXiv paper
+    # arXiv paper (should be kept)
     arxiv_paper = _make_paper("2401.001", "External Mixing Study", "About stellar mixing")
     mock_arxiv.search.return_value = [arxiv_paper]
 
     results = await corpus.search("mixing", include_arxiv=True)
 
     ids = [p.arxiv_id for p in results]
-    assert "paper-aabbccddeeff" in ids
+    assert "paper-aabbccddeeff" not in ids
     assert "2401.001" in ids
 
 
