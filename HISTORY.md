@@ -1315,3 +1315,39 @@ it just stripped prefixes and returned whatever string it got.
 - `tests/conftest.py`, `tests/helpers.py`, `tests/test_writing.py` — Import sort fixes
 - `src/paradigm/orchestrator/debate.py`, `literature.py`, `writing.py` — Formatting fixes
 - `HISTORY.md` — This prompt logged
+
+### Prompt 82 — Analyze Execution Phase Failures from Thread thread-17927ce63b27
+
+> I need to analyze the execution phase failures from a Paradigm run. The thread ID is thread-17927ce63b27. There were 8 execution attempts across 3 rounds. For each execution directory, read script.py and check for output/stderr/result files. Also search events log for execution events from this thread. Provide detailed analysis of what each script was doing, what went wrong, and what changed between failing and succeeding attempts.
+
+**Artifacts modified:**
+- `HISTORY.md` — This prompt logged
+
+### Prompt 83 — Fix Experiment Execution Failures (Vacuous Success + File Path Hallucination)
+
+> Implement the following plan: Fix Experiment Execution Failures
+>
+> Two systemic problems: (1) Vacuous success — scripts that catch FileNotFoundError and exit 0 count as SUCCESS despite producing no scientific output. (2) File path hallucination on retry — retry feedback includes raw stderr but doesn't highlight what files exist, so agents keep fabricating filenames.
+>
+> Changes: Add `_is_vacuous_success()` + `_VACUOUS_STDOUT_PATTERNS` + `_FILE_NOT_FOUND_PATTERNS` to constants.py. In engine.py `_execute_with_retry`: detect vacuous success and reclassify as failure, add FileNotFoundError-specific retry guidance with file listing.
+
+**Key decisions:**
+- Vacuous success: no output_files AND (stdout < 20 chars OR stdout contains error-like patterns)
+- File-not-found guidance: inject file listing directly next to the error, not buried in checkpoint context
+- Check both stdout and stderr for file-not-found patterns (scripts may catch and print to stdout)
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/constants.py` — `_VACUOUS_STDOUT_PATTERNS`, `_FILE_NOT_FOUND_PATTERNS`, `_is_vacuous_success()`
+- `src/paradigm/orchestrator/engine.py` — Vacuous success detection + file-not-found retry guidance
+- `tests/test_experimentation.py` — Tests for vacuous success and file-not-found guidance
+- `HISTORY.md` — This prompt logged
+
+### Prompt 84 — Route Experimentalist to Opus 4.6
+
+> I also (as a default) I think we need to use Opus 4.6 for the experimentalist, since the other models seem to hallucinate constantly and this agent needs to be precise and skilled
+
+**Key decisions:** Experimentalist needs precision for code generation and file path handling — route to Anthropic/Opus alongside theorist.
+
+**Artifacts modified:**
+- `configs/default.yaml` — Added `experimentalist` override: `provider: anthropic, model: claude-opus-4-6`
+- `HISTORY.md` — This prompt logged

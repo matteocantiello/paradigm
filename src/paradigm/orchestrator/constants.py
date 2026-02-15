@@ -422,6 +422,57 @@ _MAX_RETRIES_PER_EXPERIMENT = 2
 # (Also exposed as _RECENT_MESSAGES_LIMIT above)
 
 # ---------------------------------------------------------------------------
+# Vacuous success detection
+# ---------------------------------------------------------------------------
+
+_VACUOUS_STDOUT_PATTERNS: list[str] = [
+    "file not found",
+    "no such file or directory",
+    "please check the file path",
+    "no data available",
+    "error loading",
+    "could not find",
+    "does not exist",
+    "failed to load",
+    "cannot open",
+]
+
+
+def _is_vacuous_success(result: ExecutionResult) -> bool:
+    """Check if a SUCCESS result produced no scientific output.
+
+    A result is vacuous if it has no output files AND either:
+    - stdout is empty/trivially short (< 20 chars), or
+    - stdout is dominated by error-like messages.
+
+    Args:
+        result: Execution result with SUCCESS status.
+
+    Returns:
+        True if the result appears vacuous.
+    """
+    # Output files (figures, data) → not vacuous
+    if result.output_files:
+        return False
+    stdout = (result.stdout or "").strip()
+    # Empty or trivially short stdout with no files → vacuous
+    if len(stdout) < 20:
+        return True
+    # Stdout dominated by error-like messages → vacuous
+    stdout_lower = stdout.lower()
+    return any(p in stdout_lower for p in _VACUOUS_STDOUT_PATTERNS)
+
+
+# ---------------------------------------------------------------------------
+# File-not-found error patterns
+# ---------------------------------------------------------------------------
+
+_FILE_NOT_FOUND_PATTERNS: list[str] = [
+    "FileNotFoundError",
+    "No such file or directory",
+]
+
+# ---------------------------------------------------------------------------
 # Network error patterns
 # ---------------------------------------------------------------------------
 

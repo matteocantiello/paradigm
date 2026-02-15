@@ -26,6 +26,9 @@ agent:
     theorist:
       provider: anthropic
       model: claude-opus-4-6
+    experimentalist:
+      provider: anthropic
+      model: claude-opus-4-6
     skeptic:
       provider: together
       model: Qwen/Qwen3-235B-A22B-Thinking-2507

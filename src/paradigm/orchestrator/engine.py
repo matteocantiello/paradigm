@@ -28,6 +28,7 @@ from paradigm.orchestrator.constants import (
     _CHALLENGE_INSTRUCTION,
     _DEBATE_ENABLED_PHASES,
     _EXECUTION_STDERR_LIMIT,
+    _FILE_NOT_FOUND_PATTERNS,
     _LITERATURE_INSTRUCTION,
     _MAX_RETRIES_PER_EXPERIMENT,
     _MODE_PROMPT_OVERRIDES,
@@ -43,6 +44,7 @@ from paradigm.orchestrator.constants import (
     InterventionHook,
     _extract_code_blocks,
     _format_execution_result,
+    _is_vacuous_success,
     _list_shared_files,
 )
 from paradigm.orchestrator.debate import DebateHandler
@@ -565,9 +567,27 @@ class OrchestrationEngine:
             )
             result = await executor.execute(request, repo_paths=repo_paths)
 
-            # Success or timeout — return immediately
-            if result.status in (ExecutionStatus.SUCCESS, ExecutionStatus.TIMEOUT):
+            # Timeout — return immediately
+            if result.status == ExecutionStatus.TIMEOUT:
                 return result
+
+            # Success — check for vacuous output before accepting
+            if result.status == ExecutionStatus.SUCCESS:
+                if not _is_vacuous_success(result):
+                    return result
+                # Vacuous: reclassify as failure so retry kicks in
+                result = result.model_copy(
+                    update={
+                        "status": ExecutionStatus.FAILURE,
+                        "error_message": (
+                            "Script exited successfully but produced no scientific output. "
+                            "No figures were saved and stdout contained no quantitative results. "
+                            "Ensure your script: (1) prints numerical results to stdout, "
+                            "and/or (2) saves figures with plt.savefig('name.png')."
+                        ),
+                    }
+                )
+                # Fall through to retry logic below
 
             # Last attempt — return whatever we got
             if attempt == _MAX_RETRIES_PER_EXPERIMENT:
@@ -597,6 +617,20 @@ class OrchestrationEngine:
                     "- Use files already available under /data/shared/ or "
                     "/data/workspace/\n"
                     "- Create mathematical models to simulate the data you need\n",
+                )
+
+            # Detect file-not-found errors (check both stderr and stdout for
+            # scripts that caught the exception and printed to stdout)
+            combined_text = stderr_text + (result.stdout or "")
+            if any(p in combined_text for p in _FILE_NOT_FOUND_PATTERNS):
+                file_listing = _list_shared_files(self._config.storage.data_dir)
+                error_parts.insert(
+                    0,
+                    "**\u26a0 FILE NOT FOUND:** Your script tried to open a file that "
+                    "does not exist in the sandbox. Do NOT guess or invent filenames.\n\n"
+                    f"{file_listing}\n"
+                    "Use ONLY the exact paths listed above. If no suitable data files "
+                    "are available, generate realistic synthetic data instead.\n",
                 )
 
             error_feedback = "\n\n".join(error_parts)

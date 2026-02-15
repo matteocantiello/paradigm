@@ -9,7 +9,11 @@ from helpers import make_mock_agent, patch_config_provider
 from paradigm.agents.base import Agent, AgentResponse, TokenUsage
 from paradigm.config import Config
 from paradigm.logging.events import EventLogger
-from paradigm.orchestrator.constants import _extract_code_blocks, _format_execution_result
+from paradigm.orchestrator.constants import (
+    _extract_code_blocks,
+    _format_execution_result,
+    _is_vacuous_success,
+)
 from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.sandbox.models import (
     ExecutionRequest,
@@ -305,7 +309,7 @@ class TestExecutionPhaseIntegration:
         success_result = ExecutionResult(
             request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
             status=ExecutionStatus.SUCCESS,
-            stdout="safe output\n",
+            stdout="Mean: 42.3, Std: 5.1, N=1000 samples\n",
         )
 
         with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
@@ -350,7 +354,7 @@ class TestExecutionPhaseIntegration:
         success_result = ExecutionResult(
             request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
             status=ExecutionStatus.SUCCESS,
-            stdout="fixed output\n",
+            stdout="Result: 42.3 +/- 5.1 (N=1000)\n",
         )
 
         with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
@@ -737,3 +741,146 @@ class TestEmbedFiguresInline:
         # No spaces or parens
         assert " " not in name
         assert "(" not in name
+
+
+# --- Unit tests: vacuous success detection ---
+
+
+class TestIsVacuousSuccess:
+    def _make_result(
+        self,
+        stdout: str = "",
+        output_files: list[OutputFile] | None = None,
+    ) -> ExecutionResult:
+        return ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="exp-0", thread_id="t-1"),
+            status=ExecutionStatus.SUCCESS,
+            stdout=stdout,
+            output_files=output_files or [],
+        )
+
+    def test_empty_stdout_no_files_is_vacuous(self):
+        result = self._make_result(stdout="")
+        assert _is_vacuous_success(result) is True
+
+    def test_short_stdout_no_files_is_vacuous(self):
+        result = self._make_result(stdout="File not found")
+        assert _is_vacuous_success(result) is True
+
+    def test_error_like_stdout_is_vacuous(self):
+        result = self._make_result(
+            stdout="Error: could not find the file data.csv. Please check the file path."
+        )
+        assert _is_vacuous_success(result) is True
+
+    def test_real_output_not_vacuous(self):
+        result = self._make_result(
+            stdout="Mean temperature: 5778.3 K\nStd deviation: 42.1 K\nSample size: 1000"
+        )
+        assert _is_vacuous_success(result) is False
+
+    def test_output_files_not_vacuous(self):
+        result = self._make_result(
+            stdout="",
+            output_files=[OutputFile(filename="plot.png", path="/tmp/plot.png", size_bytes=1024)],
+        )
+        assert _is_vacuous_success(result) is False
+
+    def test_file_not_found_in_stdout_is_vacuous(self):
+        result = self._make_result(
+            stdout="FileNotFoundError: [Errno 2] No such file or directory: '/data/shared/star_data.csv'"
+        )
+        assert _is_vacuous_success(result) is True
+
+
+# --- Integration tests: vacuous success retry ---
+
+
+class TestVacuousSuccessRetry:
+    @pytest.mark.asyncio
+    async def test_vacuous_success_triggers_retry(
+        self, mock_config, tmp_db, tmp_logger, mock_factory_with_code, mock_corpus
+    ):
+        """A vacuous SUCCESS (empty stdout, no files) should be retried."""
+        vacuous_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="File not found\n",
+        )
+        real_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="Mean: 42.3\nStd: 5.1\nN=1000 samples\n",
+        )
+
+        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(side_effect=[vacuous_result, real_result])
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory_with_code,
+            )
+
+            mock_config.orchestrator.max_experiment_rounds = 1
+
+            await engine.run_research_cycle(
+                seed_prompt="Test vacuous retry",
+                mode="experimental",
+            )
+
+            # Executor called twice: vacuous result triggered retry
+            assert mock_executor_instance.execute.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_file_not_found_injects_listing(
+        self, mock_config, tmp_db, tmp_logger, mock_factory_with_code, mock_corpus, tmp_path
+    ):
+        """FileNotFoundError in stderr should inject file listing into retry feedback."""
+        failure_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.FAILURE,
+            stderr="FileNotFoundError: [Errno 2] No such file or directory: '/data/shared/nonexistent.csv'",
+            error_message="Process exited with code 1",
+        )
+        success_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="Generated synthetic data\nMean: 42.0\nN=500\n",
+        )
+
+        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(side_effect=[failure_result, success_result])
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory_with_code,
+            )
+
+            mock_config.orchestrator.max_experiment_rounds = 1
+
+            await engine.run_research_cycle(
+                seed_prompt="Test file not found guidance",
+                mode="experimental",
+            )
+
+            # Retry was triggered — check that the retry prompt was called
+            exp_agent = engine._find_agent_by_role("experimentalist")
+            assert exp_agent is not None
+            # The agent should have been called with retry prompt containing
+            # file-not-found guidance (at least 2 generate calls: proposal + retry)
+            retry_calls = [
+                call for call in exp_agent.generate.call_args_list if "FILE NOT FOUND" in str(call)
+            ]
+            assert len(retry_calls) >= 1
