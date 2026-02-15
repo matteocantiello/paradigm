@@ -1353,3 +1353,280 @@ class TestPhaseContextNeeds:
         from paradigm.orchestrator.phases import ResearchPhase
 
         assert ResearchPhase.EXECUTION not in _PHASE_CONTEXT_NEEDS
+
+
+# --- Literature graph traversal tests ---
+
+
+class TestLiteratureGraphTraversal:
+    @pytest.mark.asyncio
+    async def test_follow_requests_processed(self, mock_config, tmp_db, tmp_logger):
+        """[FOLLOW:] triggers corpus.get_references()."""
+        from paradigm.literature.semantic_scholar import SemanticPaper
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])
+        corpus.get_references = AsyncMock(
+            return_value=[
+                SemanticPaper(
+                    paper_id="s2-1",
+                    arxiv_id="2301.001",
+                    title="Referenced Paper",
+                    authors=["Author"],
+                    abstract="Abstract",
+                    year=2023,
+                    citation_count=5,
+                    url="",
+                )
+            ]
+        )
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+                    response = AgentResponse(
+                        content="Ideas [FOLLOW: 2301.12345]",
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test follow", mode="directed")
+
+        corpus.get_references.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_cited_by_requests_processed(self, mock_config, tmp_db, tmp_logger):
+        """[CITED_BY:] triggers corpus.get_citations()."""
+        from paradigm.literature.semantic_scholar import SemanticPaper
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(
+            return_value=[
+                SemanticPaper(
+                    paper_id="s2-2",
+                    arxiv_id="2401.001",
+                    title="Citing Paper",
+                    authors=["Author"],
+                    abstract="Abstract",
+                    year=2024,
+                    citation_count=3,
+                    url="",
+                )
+            ]
+        )
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+                    response = AgentResponse(
+                        content="Ideas [CITED_BY: 0901.67890]",
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test cited_by", mode="directed")
+
+        corpus.get_citations.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_read_requests_processed(self, mock_config, tmp_db, tmp_logger):
+        """[READ:] triggers corpus.read_paper()."""
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=("Test Paper", "Abstract text here"))
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+                    response = AgentResponse(
+                        content="Ideas [READ: 2301.12345]",
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test read", mode="directed")
+
+        corpus.read_paper.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_follow_budget_enforced(self, mock_config, tmp_db, tmp_logger):
+        """Stops processing [FOLLOW:] after budget exhausted."""
+        from paradigm.literature.semantic_scholar import SemanticPaper
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+
+        # Agent makes more follow requests than budget allows
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+                    # 5 follow requests but budget is 3
+                    content = " ".join(f"[FOLLOW: 2301.{i:05d}]" for i in range(5))
+                    response = AgentResponse(
+                        content=f"Ideas {content}",
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test budget", mode="directed")
+
+        # Should have been called at most follow_budget_per_round times per round
+        # Default budget is 3
+        follow_budget = mock_config.literature.follow_budget_per_round
+        # Each round resets the counter, so we check that per-round calls are bounded
+        # Total calls should be at most budget * rounds * phases
+        assert corpus.get_references.call_count <= follow_budget * 2 * 2  # 2 rounds * 2 phases
+
+    @pytest.mark.asyncio
+    async def test_stall_hint_injected(self, mock_config, tmp_db, tmp_logger):
+        """Hint appears when keyword search returns 0 new papers."""
+        from datetime import UTC, datetime
+
+        from paradigm.literature.arxiv import ArxivPaper
+
+        now = datetime.now(UTC)
+        paper = ArxivPaper(
+            arxiv_id="2401.12345",
+            title="Seen Paper",
+            abstract="Abstract",
+            authors=["Author"],
+            categories=["astro-ph.SR"],
+            primary_category="astro-ph.SR",
+            published=now,
+            updated=now,
+            pdf_url="https://arxiv.org/pdf/2401.12345",
+            abs_url="https://arxiv.org/abs/2401.12345",
+        )
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        # Return the same paper every time (so 2nd search = 0 new)
+        corpus.search = AsyncMock(return_value=[paper])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+        call_count = [0]
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = _make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+
+                    async def _gen(prompt, **kwargs):
+                        call_count[0] += 1
+                        if call_count[0] <= 2:
+                            content = f"Ideas [SEARCH: query {call_count[0]}]"
+                        else:
+                            content = "Response"
+                        return AgentResponse(
+                            content=content,
+                            usage=TokenUsage(
+                                input_tokens=50, output_tokens=30, total_tokens=80
+                            ),
+                            model="claude-sonnet-4-5-20250929",
+                        )
+
+                    agent.generate = AsyncMock(side_effect=_gen)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test stall", mode="directed")
+
+        # After second search returns 0 new papers, hint should be in context
+        lit_context = getattr(engine, "_literature_context", "")
+        assert "Hint" in lit_context or "FOLLOW" in lit_context

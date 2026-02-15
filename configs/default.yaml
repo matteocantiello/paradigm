@@ -55,6 +55,12 @@ literature:
   max_results_per_search: 200
   enable_pdf_fetch: true
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  follow_budget_per_round: 3
+  cited_by_budget_per_round: 2
+  read_budget_per_round: 2
+  max_read_chars: 8000
+  max_citation_results: 10
+  max_reference_results: 20
 
 # Storage configuration
 storage:

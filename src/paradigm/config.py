@@ -53,6 +53,12 @@ class LiteratureConfig(BaseModel):
     max_results_per_search: int = 20
     enable_pdf_fetch: bool = True
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    follow_budget_per_round: int = 3
+    cited_by_budget_per_round: int = 2
+    read_budget_per_round: int = 2
+    max_read_chars: int = 8000
+    max_citation_results: int = 10
+    max_reference_results: int = 20
 
 
 class StorageConfig(BaseModel):

@@ -440,3 +440,86 @@ async def test_search_arxiv_only_no_local_crowding(corpus, mock_arxiv, embedding
     # All should be arXiv papers
     for p in results:
         assert p.arxiv_id.startswith("2401.")
+
+
+# --- Semantic Scholar integration tests ---
+
+
+async def test_get_references_delegates_to_s2(corpus):
+    """Verify Corpus.get_references delegates to SemanticScholarClient."""
+    from paradigm.literature.semantic_scholar import SemanticPaper
+
+    mock_paper = SemanticPaper(
+        paper_id="s2-abc",
+        arxiv_id="2301.001",
+        title="Referenced Paper",
+        authors=["Author"],
+        abstract="Abstract",
+        year=2023,
+        citation_count=5,
+        url="https://s2.org/paper",
+    )
+    corpus._s2 = AsyncMock()
+    corpus._s2.get_references = AsyncMock(return_value=[mock_paper])
+
+    results = await corpus.get_references("2301.12345", max_results=10)
+    assert len(results) == 1
+    assert results[0].title == "Referenced Paper"
+    corpus._s2.get_references.assert_called_once_with("2301.12345", limit=10)
+
+
+async def test_get_citations_delegates_to_s2(corpus):
+    """Verify Corpus.get_citations delegates to SemanticScholarClient."""
+    from paradigm.literature.semantic_scholar import SemanticPaper
+
+    mock_paper = SemanticPaper(
+        paper_id="s2-def",
+        arxiv_id="2401.001",
+        title="Citing Paper",
+        authors=["Author"],
+        abstract="Abstract",
+        year=2024,
+        citation_count=12,
+        url="https://s2.org/paper",
+    )
+    corpus._s2 = AsyncMock()
+    corpus._s2.get_citations = AsyncMock(return_value=[mock_paper])
+
+    results = await corpus.get_citations("2301.12345", max_results=5)
+    assert len(results) == 1
+    assert results[0].title == "Citing Paper"
+    corpus._s2.get_citations.assert_called_once_with("2301.12345", limit=5)
+
+
+async def test_read_paper_from_db(corpus, db):
+    """Returns cached body text from database."""
+    # Ingest a paper with body text
+    paper = _make_paper("2301.001", "Cached Paper", "Abstract text")
+    paper = paper.model_copy(
+        update={"body": "Abstract\nThis is the abstract.\n\nIntroduction\nThis is the intro."}
+    )
+    await corpus.ingest_paper(paper, fetch_pdf=False)
+    # Update body in DB
+    db.update_paper("arxiv:2301.001", body=paper.body)
+
+    result = await corpus.read_paper("2301.001", max_chars=8000)
+    assert result is not None
+    title, text = result
+    assert title == "Cached Paper"
+    assert len(text) > 0
+
+
+async def test_read_paper_from_pdf(corpus, mock_arxiv):
+    """Falls back to PDF fetch when not in DB."""
+    paper = _make_paper("2301.999", "PDF Paper", "Abstract from PDF")
+    mock_arxiv.get_paper = AsyncMock(return_value=paper)
+    mock_arxiv.fetch_pdf_text = AsyncMock(
+        return_value="Abstract\nThis is the abstract.\n\nIntroduction\nIntro text here."
+    )
+
+    result = await corpus.read_paper("2301.999", max_chars=8000)
+    assert result is not None
+    title, text = result
+    assert title == "PDF Paper"
+    assert len(text) > 0
+    mock_arxiv.fetch_pdf_text.assert_called_once()

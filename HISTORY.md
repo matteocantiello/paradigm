@@ -987,3 +987,42 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 - `src/paradigm/config.py` — testing_overrides field, apply_testing_overrides(), validation
 - `src/paradigm/main.py` — --testing flag on run command
 - `tests/test_providers.py` — Tests for testing_overrides
+
+### Prompt — Literature Search: Graph Traversal, Not Keyword Slot Machines
+
+> Read all files in `.planning/` and `CLAUDE.md`. Then read `src/paradigm/literature/arxiv.py`, `src/paradigm/literature/corpus.py`, `src/paradigm/literature/embeddings.py`, and `src/paradigm/orchestrator/engine.py`. Plan a complete overhaul of literature search from flat keyword guessing to citation-graph traversal.
+>
+> New action markers: `[FOLLOW: arxiv_id]` (reference chasing via Semantic Scholar), `[CITED_BY: arxiv_id]` (citation-forward search), `[READ: arxiv_id]` (deep reading with PDF extraction). New module: `semantic_scholar.py`. Per-action-type budget counters. Agent prompt changes to prefer graph traversal over keyword rephrasing after Round 1.
+
+**Goal:** Plan the implementation across 4 phases: (1) CITED_BY via Semantic Scholar, (2) FOLLOW via references endpoint, (3) READ for deep reading, (4) agent prompt changes + stall detection hints.
+
+### Prompt 67 — Implement Literature Search Graph Traversal via Semantic Scholar
+
+> Implement the following plan: Literature Search — Graph Traversal via Semantic Scholar
+>
+> Adds three new action markers (`[FOLLOW:]`, `[CITED_BY:]`, `[READ:]`) alongside existing `[SEARCH:]`,
+> backed by a Semantic Scholar API client for structured citation graph traversal and PDF-based deep reading.
+>
+> Implementation steps: (1) Semantic Scholar API client, (2) Action marker parsing, (3) Config updates,
+> (4) Event types, (5) Deep reading helper, (6) Corpus integration, (7) Engine integration, (8) Agent prompt updates, (9) Tests.
+
+**Key decisions:**
+- Semantic Scholar for citation graph (free API, structured data, arXiv ID lookup)
+- Per-action-type budgets (follow: 3, cited_by: 2, read: 2 per round)
+- Stall detection hint when keyword search returns 0 new results
+- Agent prompt updated to teach graph traversal strategy
+
+**Artifacts produced/modified:**
+- `src/paradigm/literature/semantic_scholar.py` (NEW)
+- `src/paradigm/literature/prompt_utils.py` (MODIFY)
+- `src/paradigm/literature/arxiv.py` (MODIFY)
+- `src/paradigm/literature/corpus.py` (MODIFY)
+- `src/paradigm/literature/__init__.py` (MODIFY)
+- `src/paradigm/config.py` (MODIFY)
+- `configs/default.yaml` (MODIFY)
+- `src/paradigm/logging/events.py` (MODIFY)
+- `src/paradigm/orchestrator/engine.py` (MODIFY)
+- `tests/test_semantic_scholar.py` (NEW)
+- `tests/test_prompt_utils.py` (MODIFY)
+- `tests/test_corpus.py` (MODIFY)
+- `tests/test_orchestrator.py` (MODIFY)

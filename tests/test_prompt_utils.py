@@ -9,10 +9,17 @@ from paradigm.literature.arxiv import ArxivPaper
 from paradigm.literature.prompt_utils import (
     extract_search_query,
     extract_urls,
+    format_cited_by_results,
+    format_follow_results,
+    format_read_result,
     format_search_results,
     make_external_paper,
+    parse_cited_by_requests,
+    parse_follow_requests,
+    parse_read_requests,
     parse_search_requests,
 )
+from paradigm.literature.semantic_scholar import SemanticPaper
 
 # --- extract_urls tests ---
 
@@ -261,3 +268,115 @@ class TestFormatSearchResults:
         assert "Paper 0" in result
         assert "Paper 2" in result
         assert "Paper 3" not in result
+
+
+# --- parse_follow_requests tests ---
+
+
+def _make_s2_paper(
+    arxiv_id: str = "2301.12345",
+    title: str = "S2 Paper",
+    year: int = 2023,
+) -> SemanticPaper:
+    """Helper to create a SemanticPaper for testing."""
+    return SemanticPaper(
+        paper_id="abc123",
+        arxiv_id=arxiv_id,
+        title=title,
+        authors=["Alice", "Bob", "Charlie", "Diana"],
+        abstract="A test abstract about stellar physics.",
+        year=year,
+        citation_count=42,
+        url="https://www.semanticscholar.org/paper/abc123",
+    )
+
+
+class TestParseFollowRequests:
+    def test_basic_extraction(self):
+        text = "Let's follow [FOLLOW: 2301.12345] to see its references."
+        result = parse_follow_requests(text)
+        assert result == ["2301.12345"]
+
+    def test_dedup(self):
+        text = "[FOLLOW: 2301.12345] and again [FOLLOW: 2301.12345]"
+        result = parse_follow_requests(text)
+        assert len(result) == 1
+
+    def test_strips_prefix(self):
+        text = "[FOLLOW: arXiv:2301.12345v2]"
+        result = parse_follow_requests(text)
+        assert result == ["2301.12345"]
+
+    def test_multiple(self):
+        text = "[FOLLOW: 2301.001] and [FOLLOW: 2301.002]"
+        result = parse_follow_requests(text)
+        assert len(result) == 2
+
+    def test_no_markers(self):
+        text = "Just a regular response."
+        assert parse_follow_requests(text) == []
+
+
+class TestParseCitedByRequests:
+    def test_basic_extraction(self):
+        text = "[CITED_BY: 0901.67890]"
+        result = parse_cited_by_requests(text)
+        assert result == ["0901.67890"]
+
+    def test_case_insensitive(self):
+        text = "[cited_by: 2301.12345]"
+        result = parse_cited_by_requests(text)
+        assert result == ["2301.12345"]
+
+
+class TestParseReadRequests:
+    def test_basic_extraction(self):
+        text = "[READ: 2301.12345]"
+        result = parse_read_requests(text)
+        assert result == ["2301.12345"]
+
+    def test_strips_prefix(self):
+        text = "[READ: arxiv:2301.12345v1]"
+        result = parse_read_requests(text)
+        assert result == ["2301.12345"]
+
+
+# --- format tests ---
+
+
+class TestFormatFollowResults:
+    def test_with_papers(self):
+        papers = [
+            _make_s2_paper("2301.001", "Ref Paper One"),
+            _make_s2_paper("2301.002", "Ref Paper Two"),
+        ]
+        result = format_follow_results("2301.12345", papers)
+        assert "References of 2301.12345" in result
+        assert "Ref Paper One" in result
+        assert "Ref Paper Two" in result
+        assert "et al." in result
+
+    def test_empty_results(self):
+        result = format_follow_results("2301.12345", [])
+        assert "No references found" in result
+
+
+class TestFormatCitedByResults:
+    def test_with_papers(self):
+        papers = [_make_s2_paper("2301.001", "Citing Paper")]
+        result = format_cited_by_results("2301.12345", papers)
+        assert "Papers citing 2301.12345" in result
+        assert "Citing Paper" in result
+        assert "42 citations" in result
+
+    def test_empty_results(self):
+        result = format_cited_by_results("2301.12345", [])
+        assert "No citations found" in result
+
+
+class TestFormatReadResult:
+    def test_basic_format(self):
+        result = format_read_result("2301.12345", "My Paper", "Abstract text here...")
+        assert "Deep Read: My Paper" in result
+        assert "2301.12345" in result
+        assert "Abstract text here..." in result

@@ -30,6 +30,15 @@ _MAX_QUERY_LENGTH = 300
 # Match [SEARCH: query] markers in agent text
 _SEARCH_REQUEST_RE = re.compile(r"\[SEARCH:\s*([^\]]+?)\]", re.IGNORECASE)
 
+# Match [FOLLOW: arxiv_id] markers in agent text (reference chasing)
+_FOLLOW_REQUEST_RE = re.compile(r"\[FOLLOW:\s*([^\]]+?)\]", re.IGNORECASE)
+
+# Match [CITED_BY: arxiv_id] markers in agent text (citation-forward search)
+_CITED_BY_REQUEST_RE = re.compile(r"\[CITED_BY:\s*([^\]]+?)\]", re.IGNORECASE)
+
+# Match [READ: arxiv_id] markers in agent text (deep reading)
+_READ_REQUEST_RE = re.compile(r"\[READ:\s*([^\]]+?)\]", re.IGNORECASE)
+
 # Match [CHALLENGE: agent-id: reason] markers in agent text
 _CHALLENGE_REQUEST_RE = re.compile(
     r"\[CHALLENGE:\s*([a-z]+-\d+)\s*:\s*([^\]]+?)\]",
@@ -188,6 +197,178 @@ def format_search_results(query: str, papers: list[ArxivPaper], max_papers: int 
         )
     lines.append("")
     return "\n".join(lines)
+
+
+def _normalize_arxiv_id(raw_id: str) -> str:
+    """Normalize an arXiv ID by stripping prefixes and version suffixes.
+
+    Args:
+        raw_id: Raw arXiv ID (e.g., "arXiv:2301.12345v2").
+
+    Returns:
+        Cleaned arXiv ID (e.g., "2301.12345").
+    """
+    cleaned = raw_id.strip()
+    for prefix in ("arXiv:", "arxiv:", "ArXiv:"):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix) :]
+            break
+    # Strip version suffix
+    if "v" in cleaned:
+        parts = cleaned.rsplit("v", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            cleaned = parts[0]
+    return cleaned.strip()
+
+
+def parse_follow_requests(text: str) -> list[str]:
+    """Extract [FOLLOW: arxiv_id] markers from agent text.
+
+    Returns deduplicated, normalized arXiv IDs.
+
+    Args:
+        text: Agent response text.
+
+    Returns:
+        List of unique arXiv ID strings.
+    """
+    matches = _FOLLOW_REQUEST_RE.findall(text)
+    seen: set[str] = set()
+    ids: list[str] = []
+    for match in matches:
+        arxiv_id = _normalize_arxiv_id(match)
+        if not arxiv_id:
+            continue
+        if arxiv_id not in seen:
+            seen.add(arxiv_id)
+            ids.append(arxiv_id)
+    return ids
+
+
+def parse_cited_by_requests(text: str) -> list[str]:
+    """Extract [CITED_BY: arxiv_id] markers from agent text.
+
+    Returns deduplicated, normalized arXiv IDs.
+
+    Args:
+        text: Agent response text.
+
+    Returns:
+        List of unique arXiv ID strings.
+    """
+    matches = _CITED_BY_REQUEST_RE.findall(text)
+    seen: set[str] = set()
+    ids: list[str] = []
+    for match in matches:
+        arxiv_id = _normalize_arxiv_id(match)
+        if not arxiv_id:
+            continue
+        if arxiv_id not in seen:
+            seen.add(arxiv_id)
+            ids.append(arxiv_id)
+    return ids
+
+
+def parse_read_requests(text: str) -> list[str]:
+    """Extract [READ: arxiv_id] markers from agent text.
+
+    Returns deduplicated, normalized arXiv IDs.
+
+    Args:
+        text: Agent response text.
+
+    Returns:
+        List of unique arXiv ID strings.
+    """
+    matches = _READ_REQUEST_RE.findall(text)
+    seen: set[str] = set()
+    ids: list[str] = []
+    for match in matches:
+        arxiv_id = _normalize_arxiv_id(match)
+        if not arxiv_id:
+            continue
+        if arxiv_id not in seen:
+            seen.add(arxiv_id)
+            ids.append(arxiv_id)
+    return ids
+
+
+def format_follow_results(arxiv_id: str, papers: list, max_papers: int = 15) -> str:
+    """Format reference list as markdown for agent context.
+
+    Args:
+        arxiv_id: The source paper whose references were fetched.
+        papers: List of SemanticPaper objects.
+        max_papers: Maximum number of papers to include.
+
+    Returns:
+        Markdown-formatted reference list.
+    """
+    if not papers:
+        return f"### References of {arxiv_id}\nNo references found.\n"
+
+    lines = [f"### References of {arxiv_id}"]
+    for i, paper in enumerate(papers[:max_papers], 1):
+        authors_str = ", ".join(paper.authors[:3])
+        if len(paper.authors) > 3:
+            authors_str += " et al."
+        year = paper.year or "?"
+        abstract_trunc = (paper.abstract or "")[:200].strip()
+        if len(paper.abstract or "") > 200:
+            abstract_trunc += "..."
+        id_str = paper.arxiv_id or paper.paper_id
+        lines.append(
+            f"{i}. **{paper.title}** — {authors_str} ({year}) [{id_str}]\n   {abstract_trunc}"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def format_cited_by_results(arxiv_id: str, papers: list, max_papers: int = 10) -> str:
+    """Format citation-forward results as markdown for agent context.
+
+    Args:
+        arxiv_id: The source paper whose citations were fetched.
+        papers: List of SemanticPaper objects.
+        max_papers: Maximum number of papers to include.
+
+    Returns:
+        Markdown-formatted citation list.
+    """
+    if not papers:
+        return f"### Papers citing {arxiv_id}\nNo citations found.\n"
+
+    lines = [f"### Papers citing {arxiv_id}"]
+    for i, paper in enumerate(papers[:max_papers], 1):
+        authors_str = ", ".join(paper.authors[:3])
+        if len(paper.authors) > 3:
+            authors_str += " et al."
+        year = paper.year or "?"
+        cite_count = f", {paper.citation_count} citations" if paper.citation_count else ""
+        abstract_trunc = (paper.abstract or "")[:200].strip()
+        if len(paper.abstract or "") > 200:
+            abstract_trunc += "..."
+        id_str = paper.arxiv_id or paper.paper_id
+        lines.append(
+            f"{i}. **{paper.title}** — {authors_str} ({year}{cite_count}) "
+            f"[{id_str}]\n   {abstract_trunc}"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def format_read_result(arxiv_id: str, title: str, extracted_text: str) -> str:
+    """Format deep-read result as markdown for agent context.
+
+    Args:
+        arxiv_id: The paper's arXiv ID.
+        title: The paper's title.
+        extracted_text: Extracted key sections text.
+
+    Returns:
+        Markdown-formatted deep-read result.
+    """
+    return f"### Deep Read: {title} [{arxiv_id}]\n\n{extracted_text}\n"
 
 
 def make_external_paper(url: str, pdf_text: str) -> ArxivPaper:

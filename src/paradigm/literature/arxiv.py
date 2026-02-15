@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -21,6 +22,89 @@ ARXIV_API_BASE = "http://export.arxiv.org/api/query"
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 OPENSEARCH_NS = "{http://a9.com/-/spec/opensearch/1.1/}"
+
+
+def extract_key_sections(full_text: str, max_chars: int = 8000) -> str:
+    """Extract abstract + introduction + conclusion from paper text.
+
+    Strategy:
+    1. Find abstract (text between "Abstract" and "Introduction" headers)
+    2. Find introduction (text between "Introduction" and next section header)
+    3. Find conclusion (text between "Conclusion"/"Summary" and "References"/"Acknowledgements")
+    4. Concatenate with section headers, cap at max_chars
+    5. If no sections found, return first max_chars of text
+
+    Args:
+        full_text: Complete extracted paper text.
+        max_chars: Maximum characters to return.
+
+    Returns:
+        Extracted key sections as a string.
+    """
+    if not full_text:
+        return ""
+
+    # Common section header patterns (case-insensitive)
+    abstract_re = re.compile(
+        r"(?:^|\n)\s*(?:abstract)\s*\n",
+        re.IGNORECASE,
+    )
+    intro_re = re.compile(
+        r"(?:^|\n)\s*(?:\d+\.?\s*)?(?:introduction)\s*\n",
+        re.IGNORECASE,
+    )
+    conclusion_re = re.compile(
+        r"(?:^|\n)\s*(?:\d+\.?\s*)?(?:conclusions?|summary|discussion and conclusions?)\s*\n",
+        re.IGNORECASE,
+    )
+    end_re = re.compile(
+        r"(?:^|\n)\s*(?:\d+\.?\s*)?(?:references|acknowledgements?|appendix|bibliography)\s*\n",
+        re.IGNORECASE,
+    )
+    # Generic section header (number + title)
+    section_re = re.compile(
+        r"(?:^|\n)\s*(?:\d+\.?\s+)[A-Z]",
+    )
+
+    sections: list[str] = []
+
+    # Extract abstract
+    abs_match = abstract_re.search(full_text)
+    intro_match = intro_re.search(full_text)
+
+    if abs_match:
+        abs_start = abs_match.end()
+        abs_end = intro_match.start() if intro_match else abs_start + 2000
+        abstract_text = full_text[abs_start:abs_end].strip()
+        if abstract_text:
+            sections.append(f"**Abstract:**\n{abstract_text}")
+
+    # Extract introduction
+    if intro_match:
+        intro_start = intro_match.end()
+        # Find next section header after introduction
+        next_section = section_re.search(full_text, intro_start + 100)
+        intro_end = next_section.start() if next_section else intro_start + 3000
+        intro_text = full_text[intro_start:intro_end].strip()
+        if intro_text:
+            sections.append(f"**Introduction:**\n{intro_text}")
+
+    # Extract conclusion
+    conc_match = conclusion_re.search(full_text)
+    if conc_match:
+        conc_start = conc_match.end()
+        end_match = end_re.search(full_text, conc_start)
+        conc_end = end_match.start() if end_match else conc_start + 3000
+        conc_text = full_text[conc_start:conc_end].strip()
+        if conc_text:
+            sections.append(f"**Conclusion:**\n{conc_text}")
+
+    if sections:
+        result = "\n\n".join(sections)
+        return result[:max_chars]
+
+    # Fallback: return first max_chars of text
+    return full_text[:max_chars]
 
 
 class ArxivPaper(BaseModel):

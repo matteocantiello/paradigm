@@ -10,6 +10,7 @@ from paradigm.literature.resources import (
     classify_resource,
     resolve_resource,
 )
+from paradigm.literature.semantic_scholar import SemanticPaper, SemanticScholarClient
 
 __all__ = [
     "ArxivClient",
@@ -19,6 +20,8 @@ __all__ = [
     "EmbeddingStore",
     "ResolvedResource",
     "ResourceType",
+    "SemanticPaper",
+    "SemanticScholarClient",
     "classify_resource",
     "resolve_resource",
 ]

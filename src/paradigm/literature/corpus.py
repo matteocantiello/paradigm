@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from paradigm.config import LiteratureConfig, StorageConfig
-from paradigm.literature.arxiv import ArxivClient, ArxivPaper
+from paradigm.literature.arxiv import ArxivClient, ArxivPaper, extract_key_sections
 from paradigm.literature.citations import CitationTracker
 from paradigm.literature.embeddings import EmbeddingStore
 from paradigm.literature.prompt_utils import make_external_paper
+from paradigm.literature.semantic_scholar import SemanticPaper, SemanticScholarClient
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.storage.database import Database
 
@@ -28,6 +30,7 @@ class Corpus:
         logger: EventLogger | None = None,
         arxiv_client: ArxivClient | None = None,
         embedding_store: EmbeddingStore | None = None,
+        semantic_scholar_client: SemanticScholarClient | None = None,
     ) -> None:
         """Initialize corpus.
 
@@ -38,6 +41,7 @@ class Corpus:
             logger: Optional event logger.
             arxiv_client: Optional pre-configured ArxivClient (for testing).
             embedding_store: Optional pre-configured EmbeddingStore (for testing).
+            semantic_scholar_client: Optional pre-configured S2 client (for testing).
         """
         self._db = database
         self._config = literature_config
@@ -51,6 +55,10 @@ class Corpus:
             vector_db_path=storage_config.vector_db_path,
         )
         self._citations = CitationTracker(database)
+        self._s2 = semantic_scholar_client or SemanticScholarClient(
+            api_key=os.getenv("SEMANTIC_SCHOLAR_API_KEY"),
+            logger=logger,
+        )
 
     async def search(
         self,
@@ -354,6 +362,67 @@ class Corpus:
             metadata=metadata,
         )
 
+    async def get_references(self, arxiv_id: str, max_results: int = 20) -> list[SemanticPaper]:
+        """Get papers referenced by this paper via Semantic Scholar.
+
+        Args:
+            arxiv_id: arXiv paper ID.
+            max_results: Maximum number of references to return.
+
+        Returns:
+            List of SemanticPaper objects.
+        """
+        return await self._s2.get_references(arxiv_id, limit=max_results)
+
+    async def get_citations(self, arxiv_id: str, max_results: int = 10) -> list[SemanticPaper]:
+        """Get papers that cite this paper via Semantic Scholar.
+
+        Args:
+            arxiv_id: arXiv paper ID.
+            max_results: Maximum number of citations to return.
+
+        Returns:
+            List of SemanticPaper objects (with arXiv IDs, sorted by year).
+        """
+        return await self._s2.get_citations(arxiv_id, limit=max_results)
+
+    async def read_paper(self, arxiv_id: str, max_chars: int = 8000) -> tuple[str, str] | None:
+        """Fetch and extract key sections from a paper.
+
+        Checks local DB body first; falls back to PDF fetch + extraction.
+
+        Args:
+            arxiv_id: arXiv paper ID.
+            max_chars: Maximum characters to return.
+
+        Returns:
+            Tuple of (title, extracted_text), or None if paper cannot be read.
+        """
+        # Check local DB for cached body text
+        db_paper = self._db.get_paper(f"arxiv:{arxiv_id}")
+        if db_paper and db_paper.get("body"):
+            title = db_paper.get("title", arxiv_id)
+            return title, extract_key_sections(db_paper["body"], max_chars)
+
+        # Fall back to fetching from arXiv
+        paper = await self._arxiv.get_paper(arxiv_id)
+        if paper is None:
+            return None
+
+        pdf_text = await self._arxiv.fetch_pdf_text(paper)
+        if pdf_text is None:
+            return None
+
+        # Cache the body text in DB
+        paper_id = f"arxiv:{arxiv_id}"
+        existing = self._db.get_paper(paper_id)
+        if existing:
+            self._db.update_paper(paper_id, body=pdf_text)
+        else:
+            await self.ingest_paper(paper.model_copy(update={"body": pdf_text}))
+
+        return paper.title, extract_key_sections(pdf_text, max_chars)
+
     @property
     def citations(self) -> CitationTracker:
         """Access the citation tracker."""
@@ -411,8 +480,9 @@ class Corpus:
             return None
 
     async def close(self) -> None:
-        """Close the arXiv client."""
+        """Close the arXiv and Semantic Scholar clients."""
         await self._arxiv.close()
+        await self._s2.close()
 
     async def __aenter__(self) -> Corpus:
         """Context manager entry."""

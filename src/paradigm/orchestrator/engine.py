@@ -27,8 +27,14 @@ from paradigm.journal.review import PeerReview, parse_peer_review, synthesize_de
 from paradigm.literature.corpus import Corpus
 from paradigm.literature.prompt_utils import (
     extract_urls,
+    format_cited_by_results,
+    format_follow_results,
+    format_read_result,
     format_search_results,
     parse_challenge_requests,
+    parse_cited_by_requests,
+    parse_follow_requests,
+    parse_read_requests,
     parse_search_requests,
 )
 from paradigm.literature.resources import (
@@ -311,12 +317,26 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
 _RECENT_MESSAGES_LIMIT = 10
 
 # Search instruction appended to agent prompts in search-enabled phases
-_SEARCH_INSTRUCTION = (
-    "\n\n## Literature Search\n"
-    "You may request literature searches at any time by writing:\n"
+_LITERATURE_INSTRUCTION = (
+    "\n\n## Literature Search & Discovery\n"
+    "You have four tools for finding and reading scientific literature:\n\n"
+    "**Keyword search** (best for Round 1, initial exploration):\n"
     "  [SEARCH: your query here]\n\n"
-    "You may include multiple search requests. Be specific to get relevant results "
-    "(e.g., [SEARCH: Cepheid period-luminosity relation metallicity dependence]).\n"
+    "**Reference chasing** (follow a paper's bibliography):\n"
+    "  [FOLLOW: 2301.12345]\n\n"
+    "**Citation-forward search** (find papers that cite a known paper):\n"
+    "  [CITED_BY: 0901.67890]\n\n"
+    "**Deep reading** (get extended text from a paper):\n"
+    "  [READ: 2301.12345]\n\n"
+    "### Search Strategy\n"
+    "- **Round 1**: Use [SEARCH:] to find initial papers on your topic.\n"
+    "- **Round 2+**: Shift to graph traversal. Use [FOLLOW:] to explore "
+    "references of promising papers. Use [CITED_BY:] on foundational papers "
+    "to find the current frontier. Use [READ:] when a paper seems critical "
+    "to your argument.\n"
+    "- **If keyword search returns no new results**, stop rephrasing and "
+    "switch to [FOLLOW:] or [CITED_BY:] on papers you've already found.\n"
+    "- After reading a paper, explain how it changes your understanding.\n"
 )
 
 # Phases where agents can request literature searches
@@ -612,6 +632,9 @@ class OrchestrationEngine:
         self._execution_context: str = ""
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
         self._search_count_this_round: int = 0
+        self._follow_count_this_round: int = 0
+        self._cited_by_count_this_round: int = 0
+        self._read_count_this_round: int = 0
         self._searched_queries: set[str] = set()  # Global exact dedup across entire cycle
         self._searched_query_keywords: list[frozenset[str]] = []  # Fuzzy dedup keyword sets
         self._seen_paper_ids: set[str] = set()  # Cross-query dedup: papers already shown to agents
@@ -1004,6 +1027,9 @@ class OrchestrationEngine:
 
             self._log_agent_response(agent_id, response, ResearchPhase.WRITING, "section_draft")
             await self._process_search_requests(agent_id, response.content, ResearchPhase.WRITING)
+            await self._process_literature_actions(
+                agent_id, response.content, ResearchPhase.WRITING
+            )
 
     async def _run_assembly(self, draft: PaperDraft) -> str:
         """Round 2 of writing: writer assembles all sections into a coherent paper.
@@ -1143,6 +1169,9 @@ class OrchestrationEngine:
                 )
 
                 await self._process_search_requests(
+                    experimenter.agent_id, response.content, ResearchPhase.EXECUTION
+                )
+                await self._process_literature_actions(
                     experimenter.agent_id, response.content, ResearchPhase.EXECUTION
                 )
 
@@ -1334,6 +1363,9 @@ class OrchestrationEngine:
             await self._process_search_requests(
                 editor.agent_id, response.content, ResearchPhase.INTERNAL_REVIEW
             )
+            await self._process_literature_actions(
+                editor.agent_id, response.content, ResearchPhase.INTERNAL_REVIEW
+            )
             self._review_log.append(
                 {
                     "type": "internal_review",
@@ -1411,6 +1443,9 @@ class OrchestrationEngine:
                 writer.agent_id, response, ResearchPhase.INTERNAL_REVIEW, "revision"
             )
             await self._process_search_requests(
+                writer.agent_id, response.content, ResearchPhase.INTERNAL_REVIEW
+            )
+            await self._process_literature_actions(
                 writer.agent_id, response.content, ResearchPhase.INTERNAL_REVIEW
             )
             return strip_agent_scaffolding(response.content)
@@ -1550,6 +1585,9 @@ class OrchestrationEngine:
             await self._process_search_requests(
                 agent.agent_id, response.content, ResearchPhase.PEER_REVIEW
             )
+            await self._process_literature_actions(
+                agent.agent_id, response.content, ResearchPhase.PEER_REVIEW
+            )
 
             review = parse_peer_review(agent.agent_id, response.content)
             reviews.append(review)
@@ -1644,6 +1682,9 @@ class OrchestrationEngine:
 
         self._log_agent_response(writer.agent_id, response, ResearchPhase.REVISION, "revision")
         await self._process_search_requests(
+            writer.agent_id, response.content, ResearchPhase.REVISION
+        )
+        await self._process_literature_actions(
             writer.agent_id, response.content, ResearchPhase.REVISION
         )
         self._review_log.append(
@@ -2171,6 +2212,209 @@ class OrchestrationEngine:
                 phase=str(phase),
             )
 
+            # Stall hint: if keyword search returned 0 new papers and
+            # graph traversal hasn't been used yet this round, suggest it
+            if (
+                not new_papers
+                and self._follow_count_this_round == 0
+                and self._cited_by_count_this_round == 0
+            ):
+                hint = (
+                    "\n\n> **Hint:** Your keyword searches are returning no new results. "
+                    "Consider using [FOLLOW: arxiv_id] to explore references of papers "
+                    "you've already found, or [CITED_BY: arxiv_id] to find recent work "
+                    "building on foundational papers.\n"
+                )
+                lit = getattr(self, "_literature_context", "")
+                self._literature_context = lit + hint if lit else hint
+
+    async def _process_literature_actions(
+        self, agent_id: str, response_text: str, phase: ResearchPhase
+    ) -> None:
+        """Parse [FOLLOW:], [CITED_BY:], [READ:] markers and execute them.
+
+        Results are appended to self._literature_context for all subsequent agents.
+        Respects per-action-type budgets from config.
+
+        Args:
+            agent_id: ID of the agent whose response contains action markers.
+            response_text: The agent's response text.
+            phase: Current research phase.
+        """
+        if phase not in _SEARCH_ENABLED_PHASES:
+            return
+
+        lit_config = self._config.literature
+
+        # Process [FOLLOW: arxiv_id] requests
+        for arxiv_id in parse_follow_requests(response_text):
+            if self._follow_count_this_round >= lit_config.follow_budget_per_round:
+                click.echo(f"    [!] Follow budget exhausted, skipping: {arxiv_id}")
+                break
+
+            try:
+                papers = await self._corpus.get_references(
+                    arxiv_id, max_results=lit_config.max_reference_results
+                )
+            except Exception as e:
+                self._logger.log_error(e, agent_id=agent_id, thread_id=self._thread_id)
+                click.echo(f"    [!] Follow failed for '{arxiv_id}': {e}")
+                continue
+
+            # Track discovered paper IDs
+            for p in papers:
+                if p.arxiv_id:
+                    self._seen_paper_ids.add(p.arxiv_id)
+
+            formatted = format_follow_results(
+                arxiv_id, papers, max_papers=lit_config.max_reference_results
+            )
+            lit = getattr(self, "_literature_context", "")
+            self._literature_context = lit + "\n" + formatted if lit else formatted
+
+            # Trim if needed
+            if len(self._literature_context) > _LITERATURE_CONTEXT_LIMIT:
+                self._literature_context = self._literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+
+            self._follow_count_this_round += 1
+            self._search_log.append(
+                {
+                    "query": f"[FOLLOW: {arxiv_id}]",
+                    "agent_id": agent_id,
+                    "phase": str(phase),
+                    "papers": [
+                        {
+                            "arxiv_id": p.arxiv_id or p.paper_id,
+                            "title": p.title,
+                            "authors": p.authors[:3],
+                            "year": str(p.year or "?"),
+                        }
+                        for p in papers
+                    ],
+                }
+            )
+
+            click.echo(f"    {agent_id} followed refs of {arxiv_id} → {len(papers)} references")
+
+            self._logger.log(
+                EventType.LITERATURE_FOLLOW,
+                content={
+                    "arxiv_id": arxiv_id,
+                    "agent_id": agent_id,
+                    "references_found": len(papers),
+                    "phase": str(phase),
+                },
+                thread_id=self._thread_id,
+                phase=str(phase),
+            )
+
+        # Process [CITED_BY: arxiv_id] requests
+        for arxiv_id in parse_cited_by_requests(response_text):
+            if self._cited_by_count_this_round >= lit_config.cited_by_budget_per_round:
+                click.echo(f"    [!] Cited-by budget exhausted, skipping: {arxiv_id}")
+                break
+
+            try:
+                papers = await self._corpus.get_citations(
+                    arxiv_id, max_results=lit_config.max_citation_results
+                )
+            except Exception as e:
+                self._logger.log_error(e, agent_id=agent_id, thread_id=self._thread_id)
+                click.echo(f"    [!] Cited-by failed for '{arxiv_id}': {e}")
+                continue
+
+            # Track discovered paper IDs
+            for p in papers:
+                if p.arxiv_id:
+                    self._seen_paper_ids.add(p.arxiv_id)
+
+            formatted = format_cited_by_results(
+                arxiv_id, papers, max_papers=lit_config.max_citation_results
+            )
+            lit = getattr(self, "_literature_context", "")
+            self._literature_context = lit + "\n" + formatted if lit else formatted
+
+            if len(self._literature_context) > _LITERATURE_CONTEXT_LIMIT:
+                self._literature_context = self._literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+
+            self._cited_by_count_this_round += 1
+            self._search_log.append(
+                {
+                    "query": f"[CITED_BY: {arxiv_id}]",
+                    "agent_id": agent_id,
+                    "phase": str(phase),
+                    "papers": [
+                        {
+                            "arxiv_id": p.arxiv_id or p.paper_id,
+                            "title": p.title,
+                            "authors": p.authors[:3],
+                            "year": str(p.year or "?"),
+                        }
+                        for p in papers
+                    ],
+                }
+            )
+
+            click.echo(f"    {agent_id} cited-by {arxiv_id} → {len(papers)} citations")
+
+            self._logger.log(
+                EventType.LITERATURE_CITED_BY,
+                content={
+                    "arxiv_id": arxiv_id,
+                    "agent_id": agent_id,
+                    "citations_found": len(papers),
+                    "phase": str(phase),
+                },
+                thread_id=self._thread_id,
+                phase=str(phase),
+            )
+
+        # Process [READ: arxiv_id] requests
+        for arxiv_id in parse_read_requests(response_text):
+            if self._read_count_this_round >= lit_config.read_budget_per_round:
+                click.echo(f"    [!] Read budget exhausted, skipping: {arxiv_id}")
+                break
+
+            try:
+                result = await self._corpus.read_paper(
+                    arxiv_id, max_chars=lit_config.max_read_chars
+                )
+            except Exception as e:
+                self._logger.log_error(e, agent_id=agent_id, thread_id=self._thread_id)
+                click.echo(f"    [!] Read failed for '{arxiv_id}': {e}")
+                continue
+
+            if result is None:
+                click.echo(f"    [!] Could not read paper {arxiv_id}")
+                continue
+
+            title, extracted_text = result
+            formatted = format_read_result(arxiv_id, title, extracted_text)
+            lit = getattr(self, "_literature_context", "")
+            self._literature_context = lit + "\n" + formatted if lit else formatted
+
+            if len(self._literature_context) > _LITERATURE_CONTEXT_LIMIT:
+                self._literature_context = self._literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+
+            self._read_count_this_round += 1
+
+            click.echo(
+                f"    {agent_id} read {arxiv_id}: {title[:60]} ({len(extracted_text)} chars)"
+            )
+
+            self._logger.log(
+                EventType.LITERATURE_READ,
+                content={
+                    "arxiv_id": arxiv_id,
+                    "agent_id": agent_id,
+                    "title": title,
+                    "chars_extracted": len(extracted_text),
+                    "phase": str(phase),
+                },
+                thread_id=self._thread_id,
+                phase=str(phase),
+            )
+
     async def _process_challenge_requests(
         self,
         challenger_id: str,
@@ -2682,6 +2926,9 @@ class OrchestrationEngine:
             scheduler: Scheduler for speaker order.
         """
         self._search_count_this_round = 0
+        self._follow_count_this_round = 0
+        self._cited_by_count_this_round = 0
+        self._read_count_this_round = 0
         speaker_order = scheduler.get_speaker_order(phase)
 
         # Phase-appropriate filtering: skip roles not active in this phase
@@ -2741,6 +2988,9 @@ class OrchestrationEngine:
 
             # Process any [SEARCH: ...] requests in the agent's response
             await self._process_search_requests(agent_id, response.content, phase)
+
+            # Process any [FOLLOW:], [CITED_BY:], [READ:] requests
+            await self._process_literature_actions(agent_id, response.content, phase)
 
             # Process any [CHALLENGE: ...] requests in the agent's response
             await self._process_challenge_requests(agent_id, response.content, phase, round_num)
@@ -2834,9 +3084,9 @@ class OrchestrationEngine:
             recent_messages=recent_messages,
         )
 
-        # Append search instructions for search-enabled phases
+        # Append literature search instructions for search-enabled phases
         if phase in _SEARCH_ENABLED_PHASES:
-            formatted += _SEARCH_INSTRUCTION
+            formatted += _LITERATURE_INSTRUCTION
 
         # Append debate/challenge instructions for debate-enabled phases
         if phase in _DEBATE_ENABLED_PHASES and self._config.orchestrator.enable_debates:
