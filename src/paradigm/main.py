@@ -15,6 +15,7 @@ def _run_research(
     mode: str,
     rounds: int | None = None,
     interactive: bool = False,
+    testing: bool = False,
 ) -> None:
     """Run a research cycle synchronously (wraps async engine).
 
@@ -24,7 +25,12 @@ def _run_research(
         mode: Operating mode.
         rounds: Optional rounds-per-phase override.
         interactive: Whether to prompt for confirmation before phase transitions.
+        testing: Whether to apply testing_overrides (swap to open-weight models).
     """
+    # Apply testing overrides before creating any agents
+    if testing:
+        config.apply_testing_overrides()
+        click.echo("Testing mode: all agents using open-weight models via Together.ai")
     from paradigm.agents.factory import AgentFactory
     from paradigm.agents.skills import SkillRegistry
     from paradigm.literature.corpus import Corpus
@@ -155,6 +161,12 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     default=False,
     help="Pause for confirmation before each major phase transition",
 )
+@click.option(
+    "--testing",
+    is_flag=True,
+    default=False,
+    help="Use open-weight models only (no Anthropic API calls)",
+)
 @click.pass_obj
 def run(
     config: Config,
@@ -164,6 +176,7 @@ def run(
     topic: str | None,
     rounds: int | None,
     interactive: bool,
+    testing: bool,
 ) -> None:
     """Run a research cycle.
 
@@ -197,7 +210,9 @@ def run(
         click.echo(f"Rounds per phase: {rounds} (override)")
     if interactive:
         click.echo("Interactive mode: will pause before major phase transitions")
-    _run_research(config, seed_prompt, mode, rounds=rounds, interactive=interactive)
+    _run_research(
+        config, seed_prompt, mode, rounds=rounds, interactive=interactive, testing=testing
+    )
 
 
 @cli.command()

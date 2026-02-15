@@ -966,3 +966,24 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 - `tests/test_prompt_utils.py` — Updated for `max_papers=3` default
 
 **Future work:** The reduced limits (`_LITERATURE_CONTEXT_LIMIT` 10K, `max_papers` 3, `max_searches_per_round` 5) are conservative defaults for cost-efficient development and testing. For production research runs, agents should have the ability to download and retain more literature when they need to. Consider making these limits configurable via `default.yaml` (or a separate `production.yaml` profile) so they can be raised without code changes — e.g. `literature_context_limit: 25000`, `max_papers_per_search: 10`, `max_searches_per_round: 15`.
+
+### Prompt — Multi-Provider LLM Refactoring: Epistemic Diversity + Testing Mode
+
+> Implement the following plan: Multi-Provider LLM Refactoring — Epistemic Diversity + Testing Mode
+>
+> 1. Update model assignments in default.yaml: Together default → Llama 3.3 70B Turbo, skeptic → Together/Qwen3, editor → Together/GLM 4.7, add testing_overrides section
+> 2. Add testing_overrides field to Config, apply_testing_overrides() method, validation in _ensure_providers
+> 3. Add --testing CLI flag to run command, apply overrides before agent creation
+> 4. Add tests for testing_overrides parsing, apply, resolution, and validation
+
+**Key decisions:**
+- Epistemic diversity: 5 independent orgs (Anthropic, Meta, Alibaba, Zhipu, DeepSeek) with distinct training lineages
+- `--testing` flag swaps theorist from Opus to DeepSeek V3.1 via Together.ai, removing all Anthropic API calls
+- Config-driven `testing_overrides` section in YAML, applied at runtime via `apply_testing_overrides()`
+- No changes needed to providers.py, factory.py, engine.py, or orchestrator — existing abstraction handles it
+
+**Artifacts modified:**
+- `configs/default.yaml` — New model assignments, testing_overrides section
+- `src/paradigm/config.py` — testing_overrides field, apply_testing_overrides(), validation
+- `src/paradigm/main.py` — --testing flag on run command
+- `tests/test_providers.py` — Tests for testing_overrides

@@ -147,6 +147,7 @@ class Config(BaseModel):
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     providers: dict[str, ProviderConfigEntry] = Field(default_factory=dict)
+    testing_overrides: dict[str, AgentOverrideConfig] = Field(default_factory=dict)
     api_key: str | None = Field(default=None, validate_default=True)
 
     @field_validator("api_key", mode="before")
@@ -183,7 +184,21 @@ class Config(BaseModel):
                     f"not found in providers: {list(self.providers.keys())}"
                 )
 
+        # Validate testing_overrides provider names exist
+        for role, override in self.testing_overrides.items():
+            if override.provider and override.provider not in self.providers:
+                raise ValueError(
+                    f"Testing override for role '{role}' references provider "
+                    f"'{override.provider}' not found in providers: "
+                    f"{list(self.providers.keys())}"
+                )
+
         return self
+
+    def apply_testing_overrides(self) -> None:
+        """Merge testing_overrides into agent.overrides for testing mode."""
+        for role, override in self.testing_overrides.items():
+            self.agent.overrides[role] = override
 
     def get_provider(self, name: str | None = None) -> Any:
         """Get an instantiated LLMProvider by name.

@@ -388,3 +388,122 @@ class TestConfigProviders:
         override = AgentOverrideConfig(model="claude-opus-4-6")
         assert override.provider is None
         assert override.model == "claude-opus-4-6"
+
+
+# ---------------------------------------------------------------------------
+# Testing overrides tests
+# ---------------------------------------------------------------------------
+
+
+class TestTestingOverrides:
+    """Test Config.testing_overrides field and apply_testing_overrides()."""
+
+    @pytest.fixture(autouse=True)
+    def _set_api_keys(self):
+        """Ensure API keys are set for Config validation."""
+        original_anthropic = os.environ.get("ANTHROPIC_API_KEY")
+        original_together = os.environ.get("TOGETHER_API_KEY")
+        os.environ["ANTHROPIC_API_KEY"] = "test-api-key"
+        os.environ["TOGETHER_API_KEY"] = "test-together-key"
+        yield
+        if original_anthropic:
+            os.environ["ANTHROPIC_API_KEY"] = original_anthropic
+        else:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+        if original_together:
+            os.environ["TOGETHER_API_KEY"] = original_together
+        else:
+            os.environ.pop("TOGETHER_API_KEY", None)
+
+    def _make_config(self, **kwargs) -> Config:
+        """Build a Config with both providers pre-registered."""
+        defaults = dict(
+            providers={
+                "anthropic": {"type": "anthropic", "api_key_env": "ANTHROPIC_API_KEY"},
+                "together": {
+                    "type": "openai_compatible",
+                    "api_key_env": "TOGETHER_API_KEY",
+                    "base_url": "https://api.together.xyz/v1",
+                    "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                },
+            },
+            agent={
+                "default_provider": "together",
+                "overrides": {
+                    "theorist": {"provider": "anthropic", "model": "claude-opus-4-6"},
+                },
+            },
+        )
+        defaults.update(kwargs)
+        return Config(**defaults)
+
+    def test_testing_overrides_parsed_from_dict(self):
+        """testing_overrides are parsed into AgentOverrideConfig objects."""
+        config = self._make_config(
+            testing_overrides={
+                "theorist": {"provider": "together", "model": "deepseek-ai/DeepSeek-V3.1"},
+            }
+        )
+        assert "theorist" in config.testing_overrides
+        assert config.testing_overrides["theorist"].provider == "together"
+        assert config.testing_overrides["theorist"].model == "deepseek-ai/DeepSeek-V3.1"
+
+    def test_testing_overrides_default_empty(self):
+        """testing_overrides defaults to empty dict."""
+        config = self._make_config()
+        assert config.testing_overrides == {}
+
+    def test_apply_testing_overrides_merges(self):
+        """apply_testing_overrides() merges into agent.overrides."""
+        config = self._make_config(
+            testing_overrides={
+                "theorist": {"provider": "together", "model": "deepseek-ai/DeepSeek-V3.1"},
+            }
+        )
+        # Before applying: theorist uses anthropic/opus
+        assert config.agent.overrides["theorist"].provider == "anthropic"
+        assert config.agent.overrides["theorist"].model == "claude-opus-4-6"
+
+        config.apply_testing_overrides()
+
+        # After applying: theorist uses together/deepseek
+        assert config.agent.overrides["theorist"].provider == "together"
+        assert config.agent.overrides["theorist"].model == "deepseek-ai/DeepSeek-V3.1"
+
+    def test_apply_testing_overrides_adds_new_roles(self):
+        """apply_testing_overrides() can add overrides for roles that had none."""
+        config = self._make_config(
+            testing_overrides={
+                "writer": {"provider": "together", "model": "some-model"},
+            }
+        )
+        assert "writer" not in config.agent.overrides
+
+        config.apply_testing_overrides()
+
+        assert "writer" in config.agent.overrides
+        assert config.agent.overrides["writer"].provider == "together"
+
+    def test_theorist_resolves_to_together_after_testing_overrides(self):
+        """After applying testing overrides, theorist resolves to Together provider."""
+        config = self._make_config(
+            testing_overrides={
+                "theorist": {"provider": "together", "model": "deepseek-ai/DeepSeek-V3.1"},
+            }
+        )
+        config.apply_testing_overrides()
+
+        mock_openai_mod = MagicMock()
+        with patch.dict("sys.modules", {"openai": mock_openai_mod}):
+            provider, model = config.get_provider_and_model_for_role("theorist")
+            assert isinstance(provider, OpenAICompatibleProvider)
+            assert model == "deepseek-ai/DeepSeek-V3.1"
+
+    def test_invalid_provider_in_testing_overrides(self):
+        """Validation catches invalid provider names in testing_overrides."""
+        with pytest.raises(ValueError, match="Testing override for role 'theorist'"):
+            self._make_config(
+                testing_overrides={
+                    "theorist": {"provider": "nonexistent", "model": "some-model"},
+                }
+            )

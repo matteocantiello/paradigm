@@ -11,11 +11,11 @@ providers:
     type: openai_compatible
     api_key_env: TOGETHER_API_KEY
     base_url: https://api.together.xyz/v1
-    default_model: deepseek-ai/DeepSeek-R1
+    default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
 
 # Agent configuration
 agent:
-  default_model: "claude-sonnet-4-5-20250929"
+  default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
   opus_model: "claude-opus-4-6"
   max_tokens: 4096
   temperature: 1.0
@@ -27,8 +27,17 @@ agent:
       provider: anthropic
       model: claude-opus-4-6
     skeptic:
-      provider: anthropic
-      model: claude-opus-4-6
+      provider: together
+      model: Qwen/Qwen3-235B-A22B-Thinking-2507
+    editor:
+      provider: together
+      model: zai-org/GLM-4.7
+
+# Testing mode overrides (applied when --testing flag is passed)
+testing_overrides:
+  theorist:
+    provider: together
+    model: deepseek-ai/DeepSeek-V3.1
 
 # Sandbox configuration
 sandbox:
