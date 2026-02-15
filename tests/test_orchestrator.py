@@ -18,6 +18,7 @@ from paradigm.orchestrator.engine import (
     MODE_TEAM_ROLES,
     OrchestrationEngine,
     _is_duplicate_query,
+    _list_shared_files,
     _normalize_query_keywords,
 )
 from paradigm.orchestrator.phases import ResearchPhase
@@ -68,18 +69,52 @@ def mock_config(tmp_path):
 _LONG_RESPONSE = (
     "# Test Paper Title\n\n"
     "## Abstract\n\nThis is a comprehensive study of stellar convection. "
-    "We present new theoretical models and observational constraints.\n\n"
+    "We present new theoretical models and observational constraints on "
+    "convective overshooting in intermediate-mass stars using 1D stellar "
+    "evolution models. Our analysis reveals that overshooting extends the "
+    "main-sequence lifetime by 15-25% for stars in the 1.5-8 solar mass range, "
+    "with significant implications for age determinations of stellar clusters.\n\n"
     "## Introduction\n\nStellar convection is a fundamental process in stellar physics "
     "that governs energy transport, chemical mixing, and angular momentum redistribution "
     "in stellar interiors. Understanding convective processes is essential for modeling "
     "stellar evolution accurately. In this paper, we present a detailed analysis of "
     "convective overshooting in intermediate-mass stars.\n\n"
+    "The treatment of convective boundaries remains one of the largest uncertainties "
+    "in stellar evolution theory. Classical mixing-length theory (MLT) provides a "
+    "local description of convection but does not predict the extent of mixing beyond "
+    "formally stable boundaries. Overshooting — the penetration of convective motions "
+    "into radiatively stable layers — has profound effects on stellar structure, "
+    "nucleosynthesis, and observable properties.\n\n"
+    "Previous studies have parameterized overshooting as a fraction of the pressure "
+    "scale height (f_ov), with values ranging from 0.01 to 0.03 depending on stellar "
+    "mass, evolutionary state, and calibration method. However, systematic uncertainties "
+    "persist, particularly regarding the mass dependence of f_ov and its effect on "
+    "the main-sequence width in the Hertzsprung-Russell diagram.\n\n"
     "## Methods\n\nWe use one-dimensional stellar evolution models computed with the "
-    "MESA code to investigate the effects of convective overshooting on the main-sequence "
-    "width. Our models span a mass range of 1.5 to 8 solar masses.\n\n"
+    "MESA code (version r23.05.1) to investigate the effects of convective overshooting "
+    "on the main-sequence width. Our models span a mass range of 1.5 to 8 solar masses "
+    "with initial metallicity Z = 0.014 and helium fraction Y = 0.266.\n\n"
+    "For each mass, we compute evolutionary tracks with overshooting parameters "
+    "f_ov = 0.000, 0.005, 0.010, 0.015, 0.020, 0.025, and 0.030 using the exponential "
+    "diffusive scheme of Herwig (2000). We define the main-sequence width as the "
+    "temperature difference between the zero-age main sequence and the terminal-age "
+    "main sequence at constant luminosity.\n\n"
     "## Results\n\nOur results show that convective overshooting significantly affects "
-    "the main-sequence lifetime and core hydrogen burning.\n\n"
-    "## Conclusions\n\nWe conclude that overshooting is important."
+    "the main-sequence lifetime and core hydrogen burning efficiency. For a 3 solar mass "
+    "star, increasing f_ov from 0.000 to 0.020 extends the main-sequence lifetime from "
+    "284 Myr to 347 Myr (a 22% increase). The convective core mass at the TAMS "
+    "increases by approximately 18%, leading to a more luminous and cooler turnoff point.\n\n"
+    "The mass dependence of overshooting shows a clear trend: the relative effect on "
+    "main-sequence lifetime increases from 15% at 1.5 solar masses to 25% at 8 solar "
+    "masses for f_ov = 0.020. Statistical comparison with observed eclipsing binaries "
+    "yields a best-fit overshooting parameter of f_ov = 0.016 +/- 0.004, consistent "
+    "with previous calibrations.\n\n"
+    "## Conclusions\n\nWe conclude that convective overshooting is a critical ingredient "
+    "in stellar evolution models for intermediate-mass stars. Our systematic grid of "
+    "models provides calibrated overshooting parameters that can be applied to stellar "
+    "population synthesis and cluster age determinations. The mass dependence of f_ov "
+    "suggests that a single overshooting parameter is insufficient to describe the "
+    "physics across the full mass range studied here."
 )
 
 
@@ -1243,7 +1278,7 @@ class TestOrchestrationEngine:
         # Context should be within limit (it gets set fresh each cycle, but
         # the constant itself is what we're validating)
         assert _LITERATURE_CONTEXT_LIMIT == 10000
-        assert _MIN_PAPER_LENGTH == 500
+        assert _MIN_PAPER_LENGTH == 3000
 
 
 # --- Fuzzy query dedup tests ---
@@ -1683,3 +1718,77 @@ class TestNetworkErrorHandling:
         prompt = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
         assert "NO network access" in prompt
         assert "requests" in prompt
+
+    def test_execution_prompt_no_phantom_section_refs(self):
+        """Execution prompt should not reference nonexistent 'Available Code Resources' sections."""
+        prompt = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["propose_experiment"]
+        assert "See 'Available Code Resources'" not in prompt
+        assert "See 'Available Data Files'" not in prompt
+
+
+# --- Paper quality gate tests ---
+
+
+class TestPaperQualityGates:
+    def test_min_paper_length_is_substantive(self):
+        """_MIN_PAPER_LENGTH should be at least 3000 chars to prevent hollow papers."""
+        assert _MIN_PAPER_LENGTH >= 3000
+
+    def test_section_drafting_has_length_guidance(self):
+        """Section drafting prompt should include word count guidance."""
+        prompt = _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["section_drafting"]
+        assert "200-500 words" in prompt
+        assert "quantitative" in prompt.lower()
+
+    def test_experiment_injection_demands_quantitative(self):
+        """Experiment results injection should demand quantitative analysis."""
+        # The injection text is built dynamically in _run_section_drafting,
+        # but we can verify the template language by checking a key phrase
+        # exists in the codebase. Here we test that the WRITING section_drafting
+        # prompt demands quantitative content.
+        prompt = _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["section_drafting"]
+        assert "quantitative results" in prompt.lower()
+
+
+# --- _list_shared_files tests ---
+
+
+class TestListSharedFiles:
+    def test_empty_dir(self, tmp_path):
+        """Returns 'No files' message when shared/ directory is empty."""
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        result = _list_shared_files(tmp_path)
+        assert "No files" in result
+        assert "Available Files" in result
+
+    def test_missing_dir(self, tmp_path):
+        """Returns 'No files' message when shared/ directory doesn't exist."""
+        result = _list_shared_files(tmp_path)
+        assert "No files" in result
+
+    def test_with_files(self, tmp_path):
+        """Lists actual files with correct paths and sizes."""
+        shared = tmp_path / "shared"
+        repos = shared / "repos" / "mesa"
+        repos.mkdir(parents=True)
+        (repos / "inlist").write_text("x" * 2048)
+
+        data = shared / "data"
+        data.mkdir(parents=True)
+        (data / "observations.csv").write_text("col1,col2\n" * 100)
+
+        result = _list_shared_files(tmp_path)
+        assert "Available Files" in result
+        assert "/data/shared/repos/mesa/inlist" in result
+        assert "/data/shared/data/observations.csv" in result
+        assert "KB" in result  # Should show size
+
+    def test_top_level_files(self, tmp_path):
+        """Lists files directly in shared/ directory."""
+        shared = tmp_path / "shared"
+        shared.mkdir(parents=True)
+        (shared / "README.txt").write_text("hello")
+
+        result = _list_shared_files(tmp_path)
+        assert "/data/shared/README.txt" in result

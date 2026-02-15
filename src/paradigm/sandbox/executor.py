@@ -12,6 +12,21 @@ from paradigm.sandbox.safety import SafetyScanner
 # Max characters of stdout/stderr to include in event logs
 _LOG_OUTPUT_LIMIT: int = 2048
 
+# Auto-import preamble prepended to all experiment code.
+# Agents frequently use standard aliases (np, pd, plt) without explicit imports;
+# this prevents NameError crashes for the most common scientific libraries.
+_SCIENCE_PREAMBLE = """\
+import numpy as np
+import scipy
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pandas as pd
+from pathlib import Path
+import warnings
+warnings.filterwarnings('ignore')
+"""
+
 
 class CodeExecutor:
     """Orchestrates the code execution pipeline.
@@ -75,7 +90,11 @@ class CodeExecutor:
                 error_message=verdict.summary,
             )
 
-        # Step 2: Log code before execution
+        # Step 2: Prepend standard scientific imports so agents don't crash
+        # on common aliases (np, pd, plt) they forget to import explicitly.
+        request = request.model_copy(update={"code": _SCIENCE_PREAMBLE + request.code})
+
+        # Step 3: Log code before execution
         self.logger.log_code_execution(
             agent_id=request.agent_id,
             thread_id=request.thread_id,
@@ -84,7 +103,7 @@ class CodeExecutor:
             output="Execution started",
         )
 
-        # Step 3: Execute in Docker
+        # Step 4: Execute in Docker
         results_dir = self._make_results_dir(request)
         shared_dir = self.data_dir / "shared"
         shared_dir.mkdir(parents=True, exist_ok=True)

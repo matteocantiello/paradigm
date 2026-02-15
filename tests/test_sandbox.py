@@ -410,3 +410,50 @@ class TestCodeExecutor:
         # Container manager should have received the workspace_dir
         call_kwargs = mock_exec.call_args
         assert call_kwargs.kwargs.get("workspace_dir") == workspace
+
+
+class TestSciencePreamble:
+    """Tests for auto-import preamble prepended to experiment code."""
+
+    @pytest.mark.asyncio
+    async def test_preamble_prepended_to_code(self, tmp_path):
+        """Executor prepends science preamble so common aliases (np, pd, plt) work."""
+        from paradigm.sandbox.executor import _SCIENCE_PREAMBLE
+
+        config = SandboxConfig(enabled=True, image="test:latest")
+        logger = MagicMock(spec=EventLogger)
+        logger.log_code_execution = MagicMock()
+        executor = CodeExecutor(config=config, logger=logger, data_dir=tmp_path)
+
+        user_code = "df = pd.DataFrame({'a': [1, 2, 3]})\nprint(df)"
+
+        mock_result = ExecutionResult(
+            request=ExecutionRequest(code=user_code, agent_id="a", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="   a\n0  1\n1  2\n2  3\n",
+            exit_code=0,
+            duration_seconds=0.1,
+        )
+
+        with patch.object(
+            executor.container_manager, "execute", return_value=mock_result
+        ) as mock_exec:
+            await executor.execute(ExecutionRequest(code=user_code, agent_id="a", thread_id="t"))
+
+        # The code sent to Docker should have the preamble prepended
+        executed_request = mock_exec.call_args.kwargs.get(
+            "request", mock_exec.call_args[0][0] if mock_exec.call_args[0] else None
+        )
+        assert executed_request is not None
+        assert executed_request.code.startswith(_SCIENCE_PREAMBLE)
+        assert "import pandas as pd" in executed_request.code
+        assert user_code in executed_request.code
+
+    def test_preamble_includes_common_aliases(self):
+        """Preamble imports numpy, pandas, matplotlib, scipy with standard aliases."""
+        from paradigm.sandbox.executor import _SCIENCE_PREAMBLE
+
+        assert "import numpy as np" in _SCIENCE_PREAMBLE
+        assert "import pandas as pd" in _SCIENCE_PREAMBLE
+        assert "import matplotlib.pyplot as plt" in _SCIENCE_PREAMBLE
+        assert "import scipy" in _SCIENCE_PREAMBLE

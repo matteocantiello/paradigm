@@ -1070,3 +1070,67 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/sandbox/safety.py` — Added NETWORK_MODULES, _check_network_imports(), network regex patterns
 - `tests/test_safety.py` — NEW: ~5 tests for network module detection
 - `tests/test_orchestrator.py` — ~2 new tests for network error hints and library list
+
+---
+
+### Prompt 42 — Analyze Execution Phase of Latest Paradigm Run
+**Date:** 2026-02-14
+
+> Analyze the latest paradigm run's execution phase from data/events.jsonl. Find the most recent thread ID, extract all events for that thread, identify the research topic, count code execution successes/failures/rejections/timeouts, extract error messages, determine if errors are network-related, check for safety rejections, find phase transitions, check paper output directory, review the paper's search log and review log, and give a comprehensive summary.
+
+**Key decisions:** Pure analysis task, no code changes.
+
+**Artifacts examined:**
+- `data/events.jsonl` — thread-28bbf68ba964 (60 events)
+- `data/papers/paper-e4543cc41888/paper-e4543cc41888.md`
+- `data/papers/paper-e4543cc41888/reviews.md`
+- `data/papers/paper-e4543cc41888/literature_searches.md`
+- `data/papers/paper-e4543cc41888/figures/` (3 PNG figures)
+
+---
+
+## 2026-02-14
+
+### Prompt 30 — Fix File Path Hallucination & Hollow Papers
+
+> Implement the following plan:
+>
+> # Plan: Fix File Path Hallucination & Hollow Papers
+>
+> ## Context
+> Latest run (thread-28bbf68ba964) had 76.5% execution success rate but the paper was desk-rejected as a "template, not a manuscript" — just 35 lines with no quantitative results. Two root causes:
+> 1. File path hallucination: execution prompt references nonexistent "Available Code Resources" / "Available Data Files" sections
+> 2. Hollow papers: _MIN_PAPER_LENGTH = 500 too low, no section length guidance, passive experiment injection
+>
+> ## Changes
+> 1. Add `_list_shared_files()` helper, inject actual file listing into execution prompt
+> 2. Fix `propose_experiment` template to remove phantom section references
+> 3. Raise `_MIN_PAPER_LENGTH` from 500 to 3000
+> 4. Add section length guidance to `section_drafting` template
+> 5. Strengthen experiment results injection wording
+> 6. Add ~4 new tests
+
+**Key decisions:**
+- `_list_shared_files()` scans at execution time for ground truth
+- 3000 chars minimum (~1000 words) for paper body
+- Demand quantitative results in section drafting and experiment injection
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py`
+- `tests/test_orchestrator.py`
+- `HISTORY.md`
+
+### Prompt 31 — Add Auto-Import Preamble for Pandas (and Common Libraries)
+
+> We also need to add pandas (NameError: name 'pd' is not defined | Missing import (code bug))
+
+**Key decisions:**
+- Add a `_SCIENCE_PREAMBLE` auto-prepended to all experiment code in the executor
+- Covers numpy, scipy, matplotlib, pandas, astropy with standard aliases
+- Also add import reminder to the execution prompt template
+
+**Artifacts modified:**
+- `src/paradigm/sandbox/executor.py`
+- `src/paradigm/orchestrator/engine.py`
+- `tests/test_executor.py` (new test)
+- `HISTORY.md`

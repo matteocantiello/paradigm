@@ -171,7 +171,9 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "**Available libraries:** numpy, scipy, matplotlib, pandas, scikit-learn, "
             "sympy, astropy, seaborn, pypdf, h5py, emcee, corner, lmfit, "
             "uncertainties, statsmodels, tqdm, numba, xarray, joblib, pyyaml, "
-            "and standard library modules.\n"
+            "and standard library modules. Note: numpy (np), pandas (pd), "
+            "matplotlib.pyplot (plt), and scipy are auto-imported, but you should "
+            "still import any other libraries you use.\n"
             "**Installing extra packages:** If you need a package not already installed, run "
             "`import os; os.system('pip install --user --no-index --find-links /data/packages/ "
             "<package_name>')` at the top of your script. Packages available in the offline "
@@ -181,12 +183,13 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "You can use os, pathlib, open(), io, glob, shutil, etc. for file operations. "
             "Do NOT use subprocess, ctypes, multiprocessing, exec(), or eval().\n"
             "**Shared resources:** Code repositories and data files from the research prompt "
-            "are available under /data/shared/. See 'Available Code Resources' and 'Available "
-            "Data Files' sections above for paths.\n"
+            "are listed in the 'Available Files' section above. Do NOT assume files exist — "
+            "only use paths explicitly listed above. If no files are listed, generate all data "
+            "synthetically.\n"
             "**PDF files:** PDF files from the research prompt are available under "
             "/data/shared/papers/. Use pypdf (not PyPDF2) to parse them.\n"
             "**Code files:** Code files from the research prompt are importable directly "
-            "(their directories are on PYTHONPATH). See 'Available Code Resources' above.\n"
+            "(their directories are on PYTHONPATH). See 'Available Files' above for paths.\n"
             "**Workspace:** IMPORTANT: Save ALL intermediate data files to /data/workspace/ "
             "so later experiments can reuse them. This is a persistent read-write directory "
             "shared across all experiments. Read previous outputs from there.\n"
@@ -238,6 +241,11 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "{checkpoint_context}"
             "Draft the following sections in markdown, using ## headers for each:\n"
             "{assigned_sections}\n\n"
+            "**Length guidance:** Each section should be substantive — 200-500 words "
+            "per section. A one-paragraph section is not acceptable.\n"
+            "**Quantitative results:** Include quantitative results (numbers, statistical "
+            "measures, comparisons) wherever applicable. Do not write vague summaries — "
+            "cite specific values, uncertainties, and trends from the experiments.\n\n"
             "Write clear, precise scientific prose. Every claim should be supported "
             "by evidence from the research. Use active voice where possible."
         ),
@@ -453,7 +461,8 @@ _PAPER_CONTEXT_LIMIT = 50000
 _LITERATURE_CONTEXT_LIMIT = 10000
 
 # Minimum paper body length — papers shorter than this are considered failed
-_MIN_PAPER_LENGTH = 500
+# ~3000 chars ≈ 1000 words, enough for a substantive paper with quantitative results
+_MIN_PAPER_LENGTH = 3000
 
 # Execution phase limits
 _EXECUTION_OUTPUT_LIMIT = 4000
@@ -503,6 +512,69 @@ def _extract_code_blocks(text: str) -> list[tuple[str, str]]:
         name = name_match.group(1).strip() if name_match else "unnamed_experiment"
         blocks.append((name, code))
     return blocks
+
+
+def _list_shared_files(data_dir: Path) -> str:
+    """Scan /data/shared/ and return a concrete listing of available files.
+
+    This is injected into the execution prompt so agents know exactly what
+    files exist — preventing hallucinated file paths.
+
+    Args:
+        data_dir: The base data directory (contains shared/ subdirectory).
+
+    Returns:
+        Formatted string listing available files, or a "No files" message.
+    """
+    shared_dir = data_dir / "shared"
+    if not shared_dir.exists():
+        return "## Available Files\nNo files are available under /data/shared/.\n"
+
+    lines = ["## Available Files"]
+    found_any = False
+
+    # List subdirectories and their contents
+    for category_dir in sorted(shared_dir.iterdir()):
+        if not category_dir.is_dir():
+            continue
+        files = sorted(f for f in category_dir.rglob("*") if f.is_file())
+        if not files:
+            continue
+        found_any = True
+        lines.append(f"\n### /data/shared/{category_dir.name}/")
+        for f in files[:50]:  # Cap at 50 files per category
+            rel = f.relative_to(shared_dir)
+            size = f.stat().st_size
+            if size < 1024:
+                size_str = f"{size} B"
+            elif size < 1024 * 1024:
+                size_str = f"{size / 1024:.1f} KB"
+            else:
+                size_str = f"{size / (1024 * 1024):.1f} MB"
+            lines.append(f"- `/data/shared/{rel}` ({size_str})")
+        if len(files) > 50:
+            lines.append(f"  ... and {len(files) - 50} more files")
+
+    # Also list any top-level files in shared/
+    top_files = sorted(f for f in shared_dir.iterdir() if f.is_file())
+    if top_files:
+        found_any = True
+        lines.append("\n### /data/shared/")
+        for f in top_files[:20]:
+            size = f.stat().st_size
+            if size < 1024:
+                size_str = f"{size} B"
+            elif size < 1024 * 1024:
+                size_str = f"{size / 1024:.1f} KB"
+            else:
+                size_str = f"{size / (1024 * 1024):.1f} MB"
+            lines.append(f"- `/data/shared/{f.name}` ({size_str})")
+
+    if not found_any:
+        return "## Available Files\nNo files are available under /data/shared/.\n"
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 # Stop words for fuzzy query normalization
@@ -1033,7 +1105,10 @@ class OrchestrationEngine:
                 prompt += (
                     f"\n\n## Computational Experiment Results\n"
                     f"The following {exec_label} were produced during the "
-                    f"EXECUTION phase. Incorporate them into your section:\n\n"
+                    f"EXECUTION phase. You MUST thoroughly discuss these results "
+                    f"in your section. Include specific numbers, statistical "
+                    f"measures, and quantitative comparisons. Do NOT merely "
+                    f"summarize — analyze and interpret the data:\n\n"
                     f"{self._execution_context}"
                 )
 
@@ -1168,6 +1243,16 @@ class OrchestrationEngine:
                 checkpoint_context = ""
                 if self._checkpoint:
                     checkpoint_context = self._checkpoint.to_context_string() + "\n\n"
+
+                # Inject actual file listing so agents know what exists
+                file_listing = _list_shared_files(self._config.storage.data_dir)
+                checkpoint_context = file_listing + "\n\n" + checkpoint_context
+
+                # Inject code/data context from resolved resources
+                if self._code_context:
+                    checkpoint_context += self._code_context + "\n\n"
+                if self._data_context:
+                    checkpoint_context += self._data_context + "\n\n"
 
                 previous_results = "\n\n".join(all_results) if all_results else ""
 
