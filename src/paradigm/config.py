@@ -50,7 +50,7 @@ class LiteratureConfig(BaseModel):
     """Configuration for literature search and retrieval."""
 
     arxiv_rate_limit: float = 3.0  # seconds between requests
-    max_results_per_search: int = 20
+    max_results_per_search: int = 50
     enable_pdf_fetch: bool = True
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     follow_budget_per_round: int = 3

@@ -189,7 +189,9 @@ class LiteratureHandler:
                 break
 
             try:
-                papers = await self._engine._corpus.search(query, max_results=10)
+                papers = await self._engine._corpus.search(
+                    query, max_results=self._engine._config.literature.max_results_per_search
+                )
             except Exception as e:
                 self._engine._logger.log_error(
                     e, agent_id=agent_id, thread_id=self._engine._thread_id
