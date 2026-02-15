@@ -56,6 +56,7 @@ class LiteratureHandler:
         # Compact index of all discovered papers (not subject to context truncation)
         self.discovered_papers: list[tuple[str, str, str]] = []  # (arxiv_id, title, first_author)
         self._discovered_ids: set[str] = set()  # Fast lookup to avoid duplicates
+        self.read_paper_ids: set[str] = set()  # Papers already read (cross-round dedup)
 
     # ------------------------------------------------------------------
     # Reset helpers
@@ -84,6 +85,7 @@ class LiteratureHandler:
         self.literature_context = ""
         self.discovered_papers = []
         self._discovered_ids = set()
+        self.read_paper_ids = set()
 
     # ------------------------------------------------------------------
     # Paper index (compact reference list for agent prompts)
@@ -449,6 +451,10 @@ class LiteratureHandler:
                 click.echo(f"    [!] Read budget exhausted, skipping: {arxiv_id}")
                 break
 
+            if arxiv_id in self.read_paper_ids:
+                click.echo(f"    [skip] Already read {arxiv_id}, skipping duplicate")
+                continue
+
             try:
                 result = await self._engine._corpus.read_paper(
                     arxiv_id, max_chars=lit_config.max_read_chars
@@ -473,6 +479,7 @@ class LiteratureHandler:
                 self.literature_context = self.literature_context[-_LITERATURE_CONTEXT_LIMIT:]
 
             self.read_count_this_round += 1
+            self.read_paper_ids.add(arxiv_id)
 
             click.echo(
                 f"    {agent_id} read {arxiv_id}: {title[:60]} ({len(extracted_text)} chars)"

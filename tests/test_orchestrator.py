@@ -2103,3 +2103,93 @@ class TestDiscoveredPaperIndex:
         lit.reset_cycle()
         assert len(lit.discovered_papers) == 0
         assert len(lit._discovered_ids) == 0
+
+
+# --- READ deduplication tests ---
+
+
+class TestReadDeduplication:
+    """Tests for [READ:] cross-round deduplication."""
+
+    @pytest.mark.asyncio
+    async def test_read_dedup_skips_duplicate(self, mock_config, tmp_db, tmp_logger):
+        """A second [READ: same_id] request is skipped."""
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=("Test Paper", "Full text here"))
+
+        factory = MagicMock()
+        call_count = [0]
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+
+                    async def _gen(prompt, **kwargs):
+                        call_count[0] += 1
+                        if call_count[0] <= 2:
+                            # Both rounds request the same paper
+                            content = "Ideas [READ: 2401.12345]"
+                        else:
+                            content = "Response"
+                        return AgentResponse(
+                            content=content,
+                            usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                            model="claude-sonnet-4-5-20250929",
+                        )
+
+                    agent.generate = AsyncMock(side_effect=_gen)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test read dedup", mode="directed")
+
+        # read_paper should only be called once despite two [READ: 2401.12345] requests
+        assert corpus.read_paper.call_count == 1
+        assert "2401.12345" in engine._literature.read_paper_ids
+
+    def test_read_dedup_reset_on_cycle(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """reset_cycle() clears read_paper_ids."""
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=MagicMock(),
+        )
+        lit = engine._literature
+        lit.read_paper_ids.add("2401.12345")
+        lit.read_paper_ids.add("2401.67890")
+        assert len(lit.read_paper_ids) == 2
+
+        lit.reset_cycle()
+        assert len(lit.read_paper_ids) == 0
+
+
+# --- Config default tests ---
+
+
+class TestConfigDefaults:
+    """Tests for configuration defaults."""
+
+    def test_max_review_iterations_default_is_2(self):
+        """max_review_iterations default allows at least one revision."""
+        from paradigm.config import OrchestratorConfig
+
+        config = OrchestratorConfig()
+        assert config.max_review_iterations == 2

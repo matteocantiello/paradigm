@@ -1372,3 +1372,26 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/orchestrator/constants.py` — `_LITERATURE_CONTEXT_LIMIT` 10000 → 15000
 - `tests/test_orchestrator.py` — Tests for paper index building and injection
 - `HISTORY.md` — This prompt logged
+
+---
+
+## 2026-02-15
+
+### Prompt 32 — Fix Internal Review Revision Flow + Add READ Deduplication
+
+> Implement the following plan:
+>
+> Fix 1: Internal Review Revision Flow — Change `max_review_iterations` default from 1 to 2 in `config.py` so the editor review → writer revision loop actually runs.
+>
+> Fix 2: READ Deduplication — Add `read_paper_ids: set[str]` to `LiteratureHandler` that persists across rounds (reset per-cycle). When a `[READ:]` request comes in, skip if already in `read_paper_ids`. Log a message so it's visible.
+
+**Key decisions:**
+- `max_review_iterations` default changed from 1 → 2 (review → revise → review)
+- `read_paper_ids` set added to `LiteratureHandler.__init__`, cleared in `reset_cycle()`
+- Dedup check inserted before `corpus.read_paper()` call, after budget check
+
+**Artifacts modified:**
+- `src/paradigm/config.py` — `max_review_iterations: int = 1` → `2`
+- `src/paradigm/orchestrator/literature.py` — `read_paper_ids` set, dedup check in READ processing, reset in `reset_cycle()`
+- `tests/test_orchestrator.py` — Tests for READ dedup, dedup reset, config default
+- `HISTORY.md` — This prompt logged
