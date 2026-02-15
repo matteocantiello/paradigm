@@ -1,7 +1,15 @@
 Below a series of papers on red noise (also knows as stochastic low-frequency variability). Please have a read, look further into the relevant literature, and extract all the relevant data about red noise (in particular look at temperature, luminosity, nu_char (characteristic frequency), the power of the variability, and metallicity. The data is often provided in tables, sometimes you might have to download it from some repository. Aggregate and study possible correlations in the data.  Make plots of the trends, possibly overlap to properties of stellar models (look at some of the papers to get inspiration on what kind of plots you might want to prepare). For getting  stellar models, you can use MESA MIST models available online here: https://waps.cfa.harvard.edu/MIST/model_grids.html 
 Here's a demo on how to use them https://waps.cfa.harvard.edu/MIST/read_mist_models_demo.html
 Here's the python routine to plot https://github.com/jieunchoi/MIST_codes/blob/master/scripts/read_mist_models.py )
+Important: Note that the luminosity in the MIST models is different from the spectroscopic luminosity in the Bowman samples ell. 
+(To convert 
 
+ell_sun=(5777)**4.0/(274*100)  # Used for Spectroscopic HRD 
+ell = (10**logt)**4.0/(10**logg)
+ell=np.log10(ell/ell_sun) 
+
+See e.g. https://github.com/matteocantiello/rednoise/blob/master/rednoise.ipynb )
+ 
 Compare the trend in the data with existing trends in different theoretical predictions for the origin of red noise. 
 Draw conclusions on what is the most likely physical origin of this phenomena, or just come up with your own results and reflections on what you learned from the data. 
 
