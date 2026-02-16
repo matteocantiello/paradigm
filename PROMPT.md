@@ -2,13 +2,13 @@ Below a series of papers on red noise (also knows as stochastic low-frequency va
 Here's a demo on how to use them https://waps.cfa.harvard.edu/MIST/read_mist_models_demo.html
 Here's the python routine to plot https://github.com/jieunchoi/MIST_codes/blob/master/scripts/read_mist_models.py )
 Important: Note that the luminosity in the MIST models is different from the spectroscopic luminosity in the Bowman samples ell. 
-(To convert 
+
+To convert 
 
 ell_sun=(5777)**4.0/(274*100)  # Used for Spectroscopic HRD 
 ell = (10**logt)**4.0/(10**logg)
 ell=np.log10(ell/ell_sun) 
 
-See e.g. https://github.com/matteocantiello/rednoise/blob/master/rednoise.ipynb )
  
 Compare the trend in the data with existing trends in different theoretical predictions for the origin of red noise. 
 Draw conclusions on what is the most likely physical origin of this phenomena, or just come up with your own results and reflections on what you learned from the data. 
