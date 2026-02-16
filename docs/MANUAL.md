@@ -44,7 +44,9 @@ You provide a research question or topic. A team of specialized AI agents (theor
 ### Prerequisites
 
 - Python 3.11+ (3.12+ recommended)
-- Anthropic API key
+- Anthropic API key (for default mode)
+- Google Gemini API key (for default mode)
+- Together.ai API key (for testing mode)
 - Docker (optional, for computational sandbox)
 
 ### From zero to first paper in 5 commands
@@ -55,8 +57,9 @@ git clone https://github.com/matteocantiello/paradigm.git
 cd paradigm
 pip install -e ".[dev]"
 
-# 2. Set your API key (or create a .env file with ANTHROPIC_API_KEY=sk-ant-...)
+# 2. Set your API keys (or create a .env file)
 export ANTHROPIC_API_KEY="sk-ant-..."
+export GEMINI_API_KEY="..."
 
 # 3. Run a quick directed research cycle (1 round per phase to minimize cost)
 paradigm run --mode directed --prompt "Explain the period-luminosity relation for Cepheids" --rounds 1
@@ -702,16 +705,61 @@ All literature state --- query history, seen papers, stall counters, discovered 
 
 Configuration is loaded from a YAML file (default: `configs/default.yaml`). Override with `--config` or the `PARADIGM_CONFIG` environment variable.
 
+### `providers` --- LLM Providers
+
+Paradigm supports multiple LLM providers for epistemic diversity. Each provider is defined in the `providers` section:
+
+```yaml
+providers:
+  anthropic:
+    type: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+    default_model: claude-sonnet-4-5-20250929
+  together:
+    type: openai_compatible
+    api_key_env: TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  google:
+    type: openai_compatible
+    api_key_env: GEMINI_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta/
+    default_model: gemini-3-pro-preview
+```
+
+Any provider with an OpenAI-compatible chat completions API can be added using `type: openai_compatible`.
+
 ### `agent` --- Agent Behavior
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `default_model` | string | `claude-sonnet-4-5-20250929` | Claude model for all agents |
-| `opus_model` | string | `claude-opus-4-6-20250514` | Higher-capability model (available for special tasks) |
+| `default_provider` | string | `together` | Default LLM provider for agents without an explicit override |
+| `default_model` | string | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | Default model for agents without an explicit override |
+| `opus_model` | string | `claude-opus-4-6` | Higher-capability model (available for special tasks) |
 | `max_tokens` | int | `4096` | Default max output tokens per API call |
 | `temperature` | float | `1.0` | Sampling temperature for agent responses |
 | `token_budget_per_thread` | int | `1000000` | Max tokens allowed per research thread |
 | `token_budget_per_agent` | int | `100000` | Max tokens allowed per individual agent |
+
+### Model Assignments
+
+Per-role overrides route each agent to a specific provider and model. The default configuration uses three providers for epistemic diversity --- agents from different training lineages are less likely to share the same blind spots.
+
+**Default mode:**
+
+| Role | Provider | Model |
+|------|----------|-------|
+| Theorist, Experimentalist, Analyst, Synthesizer, Writer | Anthropic | `claude-opus-4-6` |
+| Skeptic, Editor | Google | `gemini-3-pro-preview` |
+
+**Testing mode** (`--testing` flag) --- eliminates Anthropic and Google API calls for cost-free iteration:
+
+| Role | Provider | Model |
+|------|----------|-------|
+| Theorist, Experimentalist, Analyst, Synthesizer, Writer, Editor | Together | `deepseek-ai/DeepSeek-V3.1` |
+| Skeptic | Together | `Qwen/Qwen3-235B-A22B-Thinking-2507` |
+
+Overrides are configured in the `agent.overrides` section of the YAML config. Testing overrides are in the `testing_overrides` section and are applied when the `--testing` CLI flag is passed.
 
 ### `orchestrator` --- Orchestration Behavior
 
@@ -778,15 +826,19 @@ Configuration is loaded from a YAML file (default: `configs/default.yaml`). Over
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | Claude API key (**required**) | --- |
+| `ANTHROPIC_API_KEY` | Anthropic API key (**required** for default mode) | --- |
+| `GEMINI_API_KEY` | Google Gemini API key (**required** for default mode) | --- |
+| `TOGETHER_API_KEY` | Together.ai API key (**required** for testing mode) | --- |
 | `PARADIGM_CONFIG` | Path to config YAML file | `configs/default.yaml` |
 | `PARADIGM_DATA_DIR` | Override data directory | `./data` |
 | `PARADIGM_LOG_LEVEL` | Logging level | `INFO` |
 
-You can also place your API key in a `.env` file in the project root:
+Place your API keys in a `.env` file in the project root:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+TOGETHER_API_KEY=...
 ```
 
 ---
@@ -972,11 +1024,13 @@ sandbox:
 
 ### Common Errors
 
-#### `ANTHROPIC_API_KEY must be set in environment or config file`
+#### `API key must be set in environment or config file`
 
-Your API key is not configured. Either:
-- Set the environment variable: `export ANTHROPIC_API_KEY="sk-ant-..."`
-- Create a `.env` file in the project root with `ANTHROPIC_API_KEY=sk-ant-...`
+A required API key is not configured. Ensure all provider keys are set:
+- `export ANTHROPIC_API_KEY="sk-ant-..."` (Anthropic, for default mode)
+- `export GEMINI_API_KEY="..."` (Google, for default mode)
+- `export TOGETHER_API_KEY="..."` (Together.ai, for testing mode)
+- Or create a `.env` file in the project root with all required keys
 
 #### `Error loading configuration`
 

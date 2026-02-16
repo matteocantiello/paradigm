@@ -1535,3 +1535,18 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/journal/paper.py` — Add `_parse_h3_sections`, enhance `parse_review_feedback` with fallbacks, strip colons from keys
 - `tests/test_writing.py` — Add 3 tests for parse_review_feedback edge cases
 - `HISTORY.md` — This prompt logged
+
+### Prompt 44 — Update Model Assignments: Opus Default, Gemini for Skeptic/Editor
+
+> Route analyst, synthesizer, writer to Opus 4.6 in default mode. Add Google Gemini provider with `gemini-3-pro-preview`. Route skeptic and editor to Gemini. Update testing overrides so `--testing` stays Anthropic/Google-free. Update documentation.
+
+**Key decisions:**
+- Default mode: 5 core roles on Anthropic/Opus 4.6, skeptic + editor on Google/Gemini 3 Pro
+- Testing mode: all roles on Together.ai (DeepSeek-V3.1 + Qwen3 Thinking), zero Anthropic/Google calls
+- Google provider via OpenAI-compatible endpoint at `generativelanguage.googleapis.com/v1beta/`
+- MANUAL.md updated: prerequisites, providers section, model assignment tables, environment variables, error messages
+
+**Artifacts modified:**
+- `configs/default.yaml` — Add google provider, route analyst/synthesizer/writer to Opus, skeptic/editor to Gemini, update testing overrides
+- `docs/MANUAL.md` — Add providers section, model assignment tables, multi-provider setup docs
+- `HISTORY.md` — This prompt logged

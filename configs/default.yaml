@@ -12,6 +12,11 @@ providers:
     api_key_env: TOGETHER_API_KEY
     base_url: https://api.together.xyz/v1
     default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  google:
+    type: openai_compatible
+    api_key_env: GEMINI_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta/
+    default_model: gemini-3-pro-preview
 
 # Agent configuration
 agent:
@@ -29,16 +34,43 @@ agent:
     experimentalist:
       provider: anthropic
       model: claude-opus-4-6
+    analyst:
+      provider: anthropic
+      model: claude-opus-4-6
+    synthesizer:
+      provider: anthropic
+      model: claude-opus-4-6
+    writer:
+      provider: anthropic
+      model: claude-opus-4-6
     skeptic:
-      provider: together
-      model: Qwen/Qwen3-235B-A22B-Thinking-2507
+      provider: google
+      model: gemini-3-pro-preview
     editor:
-      provider: together
-      model: zai-org/GLM-4.7
+      provider: google
+      model: gemini-3-pro-preview
 
 # Testing mode overrides (applied when --testing flag is passed)
 testing_overrides:
   theorist:
+    provider: together
+    model: deepseek-ai/DeepSeek-V3.1
+  experimentalist:
+    provider: together
+    model: deepseek-ai/DeepSeek-V3.1
+  analyst:
+    provider: together
+    model: deepseek-ai/DeepSeek-V3.1
+  synthesizer:
+    provider: together
+    model: deepseek-ai/DeepSeek-V3.1
+  writer:
+    provider: together
+    model: deepseek-ai/DeepSeek-V3.1
+  skeptic:
+    provider: together
+    model: Qwen/Qwen3-235B-A22B-Thinking-2507
+  editor:
     provider: together
     model: deepseek-ai/DeepSeek-V3.1
 
