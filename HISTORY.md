@@ -1419,3 +1419,72 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/orchestrator/literature.py` — `read_paper_ids` set, dedup check in READ processing, reset in `reset_cycle()`
 - `tests/test_orchestrator.py` — Tests for READ dedup, dedup reset, config default
 - `HISTORY.md` — This prompt logged
+
+### Prompt 33 — Analyze Execution Phase of Most Recent Paradigm Run
+
+> Analyze the execution phase of the most recent Paradigm paper run. I need to understand why experiments got stuck and couldn't make progress.
+>
+> Steps:
+> 1. Find the most recent thread ID from `data/events.jsonl`
+> 2. Extract ALL events for that thread — focus on PHASE_TRANSITION, CODE_EXECUTION, EXPERIMENT_* events
+> 3. Find the paper ID from the thread and read the paper's search log and review log
+> 4. Look in `data/` for execution directories
+> 5. For each failed execution, read the `script.py` and `stderr`/`result.json` files
+> 6. Check for patterns: network errors? Missing files? Import errors? Timeouts?
+> 7. Read execution-related prompts in `src/paradigm/orchestrator/constants.py`
+>
+> Give me a comprehensive breakdown.
+
+**Key decisions:** Pure analysis task, no code changes.
+**Artifacts examined:** TBD
+
+---
+
+### Prompt 40 — Analyze Desk-Rejected Paper
+
+> Analyze the latest Paradigm paper that was desk-rejected to understand what went wrong. The thread is thread-f035675480f5 and the paper is paper-be233212b32b.
+>
+> 1. Read the paper: `data/papers/paper-be233212b32b/paper-be233212b32b.md`
+> 2. Read the review log: `data/papers/paper-be233212b32b/reviews.md`
+> 3. Read the literature search log (first 100 lines)
+> 4. Check how many figures are in the paper directory
+> 5. Look at the desk review logic in `src/paradigm/orchestrator/review.py`
+>
+> Focus on paper substance, desk rejection reason, quantitative results from experiments, figure handling, and disconnect between experimental output and paper content.
+
+**Key decisions:** Pure analysis task, no code changes.
+**Artifacts examined:** TBD
+
+---
+
+### Prompt 41 — Fix Paper Quality: Stop Auto-Promote, Raise Min Length, More Review Iterations
+
+> Implement the following plan:
+>
+> Fix Paper Quality — Stop Auto-Promote, Raise Min Length, More Review Iterations
+>
+> The latest Paradigm run produced a paper that was desk-rejected despite 36/36 successful experiments.
+> Root cause: the paper was only 735 words (5,850 chars) — a skeleton with fabricated numbers. Three issues:
+>
+> 1. Auto-promote on max review iterations — `review.py` lines 131-134 mark paper as "reviewed" when exhausted
+> 2. `_MIN_PAPER_LENGTH = 3000` is too low — needs ~10,000 chars
+> 3. `max_review_iterations = 2` — only 2 rounds, bump to 3
+>
+> Fix 1: Don't auto-promote → set `writing_failed` instead of `reviewed`
+> Fix 2: Raise `_MIN_PAPER_LENGTH` to 10000
+> Fix 3: Increase `max_review_iterations` to 3
+> Fix 4: Update tests and helpers
+
+**Key decisions:**
+- `writing_failed` status for exhausted review iterations (mirrors existing pattern)
+- 10,000 char minimum (~1,250 words) — still lenient but catches skeletons
+- 3 review iterations = 2 revision chances
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/review.py` — Stop auto-promoting on max iterations
+- `src/paradigm/orchestrator/constants.py` — `_MIN_PAPER_LENGTH = 10000`
+- `src/paradigm/config.py` — `max_review_iterations: int = 3`
+- `configs/default.yaml` — `max_review_iterations: 3`
+- `tests/helpers.py` — Pad `LONG_RESPONSE` to exceed 10,000 chars
+- `tests/test_orchestrator.py` — Update assertions + add new test
+- `HISTORY.md` — This prompt logged

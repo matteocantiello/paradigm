@@ -100,7 +100,7 @@ class OrchestratorConfig(BaseModel):
     enable_checkpointing: bool = True
     checkpoint_interval: int = 5  # rounds
     enable_writing: bool = True
-    max_review_iterations: int = 2
+    max_review_iterations: int = 3
     enable_peer_review: bool = True
     num_reviewers: int = 2
     max_revision_rounds: int = 3

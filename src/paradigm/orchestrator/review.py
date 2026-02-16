@@ -128,10 +128,12 @@ class ReviewHandler:
                     )
                     self._engine._writing.save_paper_file(paper_id, current_body)
 
-        # Max iterations reached, mark as reviewed regardless
+        # Max iterations reached without editor acceptance — writing failed
+        click.echo("  [!] Max review iterations reached without editor acceptance")
         thread = self._engine._db.get_thread(self._engine._thread_id)
         if thread and thread.get("current_draft_id"):
-            self._engine._db.update_paper(thread["current_draft_id"], status="reviewed")
+            self._engine._db.update_paper(thread["current_draft_id"], status="writing_failed")
+        self._engine._db.update_thread(self._engine._thread_id, status="writing_failed")
 
     async def run_revision(self, current_body: str, review_text: str) -> str:
         """Writer revises the paper based on review feedback.

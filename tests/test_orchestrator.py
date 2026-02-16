@@ -1101,7 +1101,7 @@ class TestOrchestrationEngine:
         # Context should be within limit (it gets set fresh each cycle, but
         # the constant itself is what we're validating)
         assert _LITERATURE_CONTEXT_LIMIT == 15000
-        assert _MIN_PAPER_LENGTH == 3000
+        assert _MIN_PAPER_LENGTH == 10000
 
 
 # --- Fuzzy query dedup tests ---
@@ -1840,8 +1840,8 @@ class TestNetworkErrorHandling:
 
 class TestPaperQualityGates:
     def test_min_paper_length_is_substantive(self):
-        """_MIN_PAPER_LENGTH should be at least 3000 chars to prevent hollow papers."""
-        assert _MIN_PAPER_LENGTH >= 3000
+        """_MIN_PAPER_LENGTH should be at least 10000 chars to prevent hollow papers."""
+        assert _MIN_PAPER_LENGTH >= 10000
 
     def test_section_drafting_has_length_guidance(self):
         """Section drafting prompt should include word count guidance."""
@@ -2439,12 +2439,12 @@ class TestSearchExcludesParadigmPapers:
 class TestConfigDefaults:
     """Tests for configuration defaults."""
 
-    def test_max_review_iterations_default_is_2(self):
-        """max_review_iterations default allows at least one revision."""
+    def test_max_review_iterations_default_is_3(self):
+        """max_review_iterations default allows two revision attempts."""
         from paradigm.config import OrchestratorConfig
 
         config = OrchestratorConfig()
-        assert config.max_review_iterations == 2
+        assert config.max_review_iterations == 3
 
     def test_read_budget_default_is_5(self):
         """read_budget_per_round default is 5 to allow 1 read per agent."""

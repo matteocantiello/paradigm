@@ -280,6 +280,12 @@ class OrchestrationEngine:
             click.echo("Phase: INTERNAL_REVIEW")
             await self._review.run_review_phase(paper_draft)
 
+            # Check if internal review exhausted iterations without acceptance
+            thread = self._db.get_thread(self._thread_id)
+            if thread and thread.get("status") == "writing_failed":
+                click.echo("  Writing failed — internal review never accepted the paper.")
+                return self._thread_id
+
             # Phase 6: PEER REVIEW PIPELINE (optional)
             if self._config.orchestrator.enable_peer_review:
                 # Intervention check before SUBMITTED
