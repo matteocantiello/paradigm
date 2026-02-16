@@ -14,12 +14,13 @@ A comprehensive guide for scientist-operators running Paradigm, the agentic scie
 6. [The Agent Team](#6-the-agent-team)
 7. [Interactive Mode](#7-interactive-mode)
 8. [Multi-Cycle Research](#8-multi-cycle-research)
-9. [Configuration Reference](#9-configuration-reference)
-10. [Data and Storage](#10-data-and-storage)
-11. [Cost Management](#11-cost-management)
-12. [Docker Sandbox](#12-docker-sandbox)
-13. [Troubleshooting](#13-troubleshooting)
-14. [Recipes](#14-recipes)
+9. [Literature Search System](#9-literature-search-system)
+10. [Configuration Reference](#10-configuration-reference)
+11. [Data and Storage](#11-data-and-storage)
+12. [Cost Management](#12-cost-management)
+13. [Docker Sandbox](#13-docker-sandbox)
+14. [Troubleshooting](#14-troubleshooting)
+15. [Recipes](#15-recipes)
 
 ---
 
@@ -617,7 +618,87 @@ paradigm papers --status published
 
 ---
 
-## 9. Configuration Reference
+## 9. Literature Search System
+
+Paradigm implements a multi-backend, budget-constrained literature search system that agents drive through action tags in their responses. Rather than the orchestrator searching upfront, agents decide what to search for and when, guided by stall detection and budget enforcement.
+
+### Action Tags
+
+Agents embed these tags in their natural-language responses:
+
+| Tag | Purpose | Example |
+|-----|---------|---------|
+| `[SEARCH: query]` | Keyword search across arXiv + local corpus | `[SEARCH: Cepheid period-luminosity metallicity]` |
+| `[FOLLOW: arxiv_id]` | Get papers cited by this paper (references) | `[FOLLOW: 2301.12345]` |
+| `[CITED_BY: arxiv_id]` | Get papers that cite this paper | `[CITED_BY: 1903.09534]` |
+| `[READ: arxiv_id]` | Deep-read key sections of a paper | `[READ: 2301.12345]` |
+
+After every agent response, the orchestrator parses these tags and executes the corresponding actions. Results are appended to the literature context and included in subsequent agent prompts.
+
+**Search-enabled phases:** IDEATION, PLANNING, EXECUTION. Other phases (WRITING, PEER_REVIEW, etc.) disable literature actions.
+
+### Search Pipeline (SEARCH)
+
+When an agent issues `[SEARCH: query]`, the request passes through several gates before execution:
+
+**1. Deduplication.** Two layers prevent redundant searches:
+- *Exact match:* The query string (lowercased) is checked against all previous queries in this cycle.
+- *Fuzzy keyword match:* Keywords are extracted (stop words removed), and Jaccard similarity is computed against all previous keyword sets. Queries with similarity >= 0.7 are skipped.
+
+**2. Budget enforcement.** Three levels of budget control:
+- *Per-round global:* `max_searches_per_round` (default: 3). Hard cap on total keyword searches per round. Resets each round.
+- *Per-agent cap:* Computed as `max * 2/5` (default: 2). Prevents a single agent from monopolizing the search budget.
+- *Cross-round stall throttle:* After 5 cumulative zero-result searches, the global keyword budget is reduced to 1 per round.
+
+**3. Dual-backend query.** Two independent sources are queried in parallel:
+- *ChromaDB (local):* Semantic similarity search using sentence-transformers embeddings. Returns papers with status `published` or `external` only. Paradigm-internal draft/rejected papers are filtered out.
+- *arXiv API:* Keyword search via `http://export.arxiv.org/api/query`. Rate-limited to one request per `arxiv_rate_limit` seconds (default: 3.0). Results sorted by relevance.
+
+**4. Merge and filter.** Local results are ranked first, then arXiv-only results (deduplicated by ID). The merged list is capped at `max_results_per_search` (default: 50). Papers already seen in this cycle (`seen_paper_ids`) are filtered out --- agents never see the same paper twice.
+
+**5. Context injection.** Formatted results are appended to the accumulated `literature_context`. This context is truncated to 15,000 characters, trimming from the beginning (oldest results first) so the most recent searches are always visible.
+
+### Graph Traversal (FOLLOW / CITED_BY)
+
+Graph traversal uses the **Semantic Scholar API** to walk the citation graph:
+
+- **FOLLOW** queries `GET /paper/ArXiv:{id}/references` --- returns up to `max_reference_results` (default: 20) papers cited by the target.
+- **CITED_BY** queries `GET /paper/ArXiv:{id}/citations` --- returns up to `max_citation_results` (default: 10) papers citing the target, filtered to arXiv papers only and sorted by year descending (most recent first).
+
+**Budgets per round:** `follow_budget_per_round` (default: 3), `cited_by_budget_per_round` (default: 2). Each paper's references and citations are traversed at most once per cycle.
+
+### Deep Read (READ)
+
+`[READ: arxiv_id]` fetches the full PDF text (cached in SQLite after first fetch), extracts key sections (Abstract, Introduction, Conclusion --- up to `max_read_chars`, default: 8,000 characters), and injects the content into the literature context.
+
+**Budget:** `read_budget_per_round` (default: 5). Each paper is read at most once per cycle.
+
+### Discovered Papers Index
+
+Separately from the truncated literature context, the orchestrator maintains a compact **discovered papers index** --- a list of `[arxiv_id] Author: Title` entries for every paper encountered during the cycle. This index is never truncated, ensuring agents always have paper IDs available for `[FOLLOW:]` and `[CITED_BY:]` commands even after the detailed search results have been trimmed.
+
+### Stall Detection
+
+The system detects when keyword searches stop finding new papers and nudges agents toward graph traversal:
+
+1. **Per-agent stall (2 consecutive zero-result searches):** A warning is injected into the literature context with specific `[FOLLOW:]` and `[CITED_BY:]` suggestions using discovered paper IDs.
+2. **Global exhaustion (5+ cumulative zero-result searches):** The keyword search budget is hard-capped to 1 per round, and a persistent warning tells all agents to use graph traversal exclusively.
+
+### Intended Search Strategy
+
+The system is designed to guide agents through a natural progression:
+
+- **Round 1:** Agents use `[SEARCH:]` to build an initial corpus of relevant papers.
+- **Round 2+:** As keyword searches return diminishing results, agents shift to `[FOLLOW:]` and `[CITED_BY:]` to explore the citation graph. Stall detection enforces this transition.
+- **Throughout:** Agents use `[READ:]` to deep-dive into the most relevant papers.
+
+### State and Reset
+
+All literature state --- query history, seen papers, stall counters, discovered paper index, dedup sets --- is scoped to a single research cycle. The `reset_cycle()` method clears everything at the start of each new cycle, so literature discovery starts fresh.
+
+---
+
+## 10. Configuration Reference
 
 Configuration is loaded from a YAML file (default: `configs/default.yaml`). Override with `--config` or the `PARADIGM_CONFIG` environment variable.
 
@@ -640,7 +721,7 @@ Configuration is loaded from a YAML file (default: `configs/default.yaml`). Over
 | `enable_checkpointing` | bool | `true` | Save checkpoint summaries during phases |
 | `checkpoint_interval` | int | `5` | Save checkpoint every N rounds |
 | `enable_writing` | bool | `true` | Enable the WRITING phase (set `false` to stop after PLANNING) |
-| `max_review_iterations` | int | `1` | Max internal review-revision loops |
+| `max_review_iterations` | int | `3` | Max internal review-revision loops |
 | `enable_peer_review` | bool | `true` | Enable the peer review pipeline after internal review |
 | `num_reviewers` | int | `2` | Number of independent peer reviewers |
 | `max_revision_rounds` | int | `2` | Max peer-review revision loops before final decision |
@@ -653,9 +734,15 @@ Configuration is loaded from a YAML file (default: `configs/default.yaml`). Over
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `arxiv_rate_limit` | float | `3.0` | Seconds between arXiv API requests |
-| `max_results_per_search` | int | `20` | Maximum papers returned per search |
+| `max_results_per_search` | int | `50` | Maximum papers returned per search |
 | `enable_pdf_fetch` | bool | `true` | Fetch and extract PDF text from arXiv |
 | `embedding_model` | string | `sentence-transformers/all-MiniLM-L6-v2` | Model for paper embeddings in ChromaDB |
+| `follow_budget_per_round` | int | `3` | Max `[FOLLOW:]` requests per round |
+| `cited_by_budget_per_round` | int | `2` | Max `[CITED_BY:]` requests per round |
+| `read_budget_per_round` | int | `5` | Max `[READ:]` requests per round |
+| `max_read_chars` | int | `8000` | Character limit for deep-read extraction |
+| `max_citation_results` | int | `10` | Papers returned per `[CITED_BY:]` |
+| `max_reference_results` | int | `20` | Papers returned per `[FOLLOW:]` |
 
 ### `sandbox` --- Docker Sandbox
 
@@ -704,7 +791,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ---
 
-## 10. Data and Storage
+## 11. Data and Storage
 
 ### Directory Layout
 
@@ -771,7 +858,7 @@ Published papers are automatically saved as markdown files in `data/papers/`. Pa
 
 ---
 
-## 11. Cost Management
+## 12. Cost Management
 
 Paradigm uses Claude API calls extensively. A full research cycle with default settings (10 rounds per phase, 6 agents, 2 reviewers) can use 300K-500K+ tokens.
 
@@ -834,7 +921,7 @@ Token usage is tracked per API call in the `token_usage` database table and logg
 
 ---
 
-## 12. Docker Sandbox
+## 13. Docker Sandbox
 
 The computational sandbox executes Python code in isolated Docker containers with no network access.
 
@@ -881,7 +968,7 @@ sandbox:
 
 ---
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 ### Common Errors
 
@@ -986,7 +1073,7 @@ rm data/paradigm.db
 
 ---
 
-## 14. Recipes
+## 15. Recipes
 
 ### Recipe 1: Quick Test Run (Low Cost)
 

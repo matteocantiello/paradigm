@@ -1488,3 +1488,18 @@ it just stripped prefixes and returned whatever string it got.
 - `tests/helpers.py` — Pad `LONG_RESPONSE` to exceed 10,000 chars
 - `tests/test_orchestrator.py` — Update assertions + add new test
 - `HISTORY.md` — This prompt logged
+
+---
+
+### Prompt 42 — Document Literature Search Algorithm in Manual
+
+> Great. Let's make sure this is documented in the manual
+
+**Key decisions:**
+- Added new section 9 "Literature Search System" to `docs/MANUAL.md`
+- Updated outdated config values in the configuration reference
+- Renumbered sections 9-14 → 10-15
+
+**Artifacts modified:**
+- `docs/MANUAL.md` — New literature search section + config updates
+- `HISTORY.md` — This prompt logged
