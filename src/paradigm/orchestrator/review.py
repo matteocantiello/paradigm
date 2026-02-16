@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-import click
-
 from paradigm.journal.paper import (
     PaperDraft,
     parse_review_feedback,
@@ -48,21 +46,19 @@ class ReviewHandler:
         # Belt-and-suspenders: don't review empty/tiny papers
         current_body = draft.assembled_body or draft.to_markdown()
         if len(current_body) < _MIN_PAPER_LENGTH:
-            click.echo(
-                f"  [!] Paper body too short for review ({len(current_body)} chars), skipping"
-            )
+            self._engine._display.review_too_short(len(current_body))
             return
 
         max_iterations = self._engine._config.orchestrator.max_review_iterations
 
         for iteration in range(1, max_iterations + 1):
-            click.echo(f"  Review iteration {iteration}/{max_iterations}...")
+            self._engine._display.review_iteration(iteration, max_iterations)
             self._engine._literature.search_count_this_round = 0
 
             # Editor reviews
             editor = self._engine._find_agent_by_role("editor")
             if editor is None:
-                click.echo("    [!] No editor agent found, skipping review")
+                self._engine._display.review_no_editor()
                 return
 
             template = _PHASE_INSTRUCTIONS[ResearchPhase.INTERNAL_REVIEW]["editor_review"]
@@ -77,7 +73,7 @@ class ReviewHandler:
                 self._engine._logger.log_error(
                     e, agent_id=editor.agent_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] Editor review failed: {e}")
+                self._engine._display.review_editor_error(e)
                 return
 
             self._engine._log_agent_response(
@@ -100,9 +96,8 @@ class ReviewHandler:
 
             # Parse review feedback
             feedback = parse_review_feedback(response.content)
-            click.echo(
-                f"    Editor recommendation: {feedback.recommendation} "
-                f"({len(feedback.required_changes)} required changes)"
+            self._engine._display.review_recommendation(
+                feedback.recommendation, len(feedback.required_changes)
             )
 
             if feedback.recommendation == "accept":
@@ -114,7 +109,7 @@ class ReviewHandler:
 
             # Revision needed — writer revises
             if iteration < max_iterations:
-                click.echo("    Revising...")
+                self._engine._display.review_revising()
                 current_body = await self.run_revision(current_body, response.content)
                 draft.assembled_body = current_body
 
@@ -130,7 +125,7 @@ class ReviewHandler:
                     self._engine._writing.save_paper_file(paper_id, current_body)
 
         # Max iterations reached without editor acceptance — writing failed
-        click.echo("  [!] Max review iterations reached without editor acceptance")
+        self._engine._display.review_max_iterations()
         thread = self._engine._db.get_thread(self._engine._thread_id)
         if thread and thread.get("current_draft_id"):
             self._engine._db.update_paper(thread["current_draft_id"], status="writing_failed")
@@ -178,7 +173,7 @@ class ReviewHandler:
             self._engine._logger.log_error(
                 e, agent_id=writer.agent_id, thread_id=self._engine._thread_id
             )
-            click.echo(f"    [!] Revision failed: {e}")
+            self._engine._display.revision_error(e)
             return current_body
 
     async def run_submission_phase(self, draft: PaperDraft) -> bool:
@@ -193,7 +188,7 @@ class ReviewHandler:
         self._engine._phase_manager.transition_to(ResearchPhase.SUBMITTED)
         self._engine._log_phase_transition(ResearchPhase.INTERNAL_REVIEW, ResearchPhase.SUBMITTED)
         self._engine._messages = []
-        click.echo("Phase: SUBMITTED (desk review)")
+        self._engine._display.phase_transition("SUBMITTED (desk review)")
 
         # Update submitted_at in database
         thread = self._engine._db.get_thread(self._engine._thread_id)
@@ -207,7 +202,7 @@ class ReviewHandler:
         # Editor desk review
         editor = self._engine._find_agent_by_role("editor")
         if editor is None:
-            click.echo("  [!] No editor agent found, auto-accepting for desk review")
+            self._engine._display.desk_review_no_editor()
             return True
 
         current_body = draft.assembled_body or draft.to_markdown()
@@ -223,7 +218,7 @@ class ReviewHandler:
             self._engine._logger.log_error(
                 e, agent_id=editor.agent_id, thread_id=self._engine._thread_id
             )
-            click.echo(f"  [!] Desk review failed: {e}, auto-accepting")
+            self._engine._display.desk_review_error(e)
             return True
 
         self._engine._log_agent_response(
@@ -251,7 +246,7 @@ class ReviewHandler:
         )
 
         if is_desk_reject:
-            click.echo("  Desk REJECTED")
+            self._engine._display.desk_review_result(False)
             # Desk rejection — create a minimal review for graveyard
             desk_review = PeerReview(
                 reviewer_id=editor.agent_id,
@@ -271,7 +266,7 @@ class ReviewHandler:
             self._engine._log_phase_transition(ResearchPhase.SUBMITTED, ResearchPhase.REJECTED)
             return False
 
-        click.echo("  Desk review passed — sending to peer review")
+        self._engine._display.desk_review_result(True)
         return True
 
     async def run_peer_review_phase(self, draft: PaperDraft) -> tuple[str, list[PeerReview]]:
@@ -287,7 +282,7 @@ class ReviewHandler:
         self._engine._log_phase_transition(ResearchPhase.SUBMITTED, ResearchPhase.PEER_REVIEW)
         self._engine._messages = []
         num_reviewers = self._engine._config.orchestrator.num_reviewers
-        click.echo(f"Phase: PEER_REVIEW ({num_reviewers} reviewers)")
+        self._engine._display.peer_review_start(num_reviewers)
 
         # Create fresh reviewer agents (not reusing team agents)
         reviewer_roles = ["reviewer"] * num_reviewers
@@ -314,7 +309,7 @@ class ReviewHandler:
                 self._engine._logger.log_error(
                     e, agent_id=agent.agent_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] {agent.agent_id} review failed: {e}")
+                self._engine._display.peer_review_error(agent.agent_id, e)
                 continue
 
             self._engine._log_agent_response(
@@ -338,8 +333,8 @@ class ReviewHandler:
                 }
             )
             avg_score = sum(review.scores.values()) / len(review.scores) if review.scores else 0
-            click.echo(
-                f"    {agent.agent_id}: {review.recommendation} (avg score: {avg_score:.1f})"
+            self._engine._display.peer_review_result(
+                agent.agent_id, review.recommendation, avg_score
             )
 
         # Synthesize decision
@@ -350,7 +345,7 @@ class ReviewHandler:
                 "decision": decision,
             }
         )
-        click.echo(f"  Decision: {decision}")
+        self._engine._display.peer_review_decision(decision)
 
         return decision, reviews
 
@@ -368,11 +363,11 @@ class ReviewHandler:
         self._engine._log_phase_transition(ResearchPhase.PEER_REVIEW, ResearchPhase.REVISION)
         self._engine._messages = []
         self._engine._literature.search_count_this_round = 0
-        click.echo("Phase: REVISION")
+        self._engine._display.revision_start()
 
         writer = self._engine._find_agent_by_role("writer")
         if writer is None:
-            click.echo("  [!] No writer agent found, skipping revision")
+            self._engine._display.revision_no_writer()
             # Re-submit without changes
             self._engine._phase_manager.transition_to(ResearchPhase.SUBMITTED)
             self._engine._log_phase_transition(ResearchPhase.REVISION, ResearchPhase.SUBMITTED)
@@ -414,7 +409,7 @@ class ReviewHandler:
             self._engine._logger.log_error(
                 e, agent_id=writer.agent_id, thread_id=self._engine._thread_id
             )
-            click.echo(f"  [!] Revision failed: {e}")
+            self._engine._display.revision_phase_error(e)
             # Transition back to SUBMITTED so peer review can re-run
             self._engine._phase_manager.transition_to(ResearchPhase.SUBMITTED)
             self._engine._log_phase_transition(ResearchPhase.REVISION, ResearchPhase.SUBMITTED)
@@ -447,7 +442,7 @@ class ReviewHandler:
             self._engine._db.update_paper(paper_id, body=revised_body, status="revised")
             self._engine._writing.save_paper_file(paper_id, revised_body)
 
-        click.echo("  Revision complete")
+        self._engine._display.revision_complete()
 
         # Transition back to SUBMITTED for re-review
         self._engine._phase_manager.transition_to(ResearchPhase.SUBMITTED)

@@ -1,12 +1,12 @@
 """Main orchestration engine for research cycles."""
 
+from __future__ import annotations
+
 import re
 import time
 import uuid
 from pathlib import Path
-from typing import Any
-
-import click
+from typing import TYPE_CHECKING, Any
 
 from paradigm.agents.base import Agent
 from paradigm.agents.factory import AgentFactory
@@ -58,6 +58,9 @@ from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, Execution
 from paradigm.storage.checkpoints import Checkpoint, CheckpointManager
 from paradigm.storage.database import Database
 
+if TYPE_CHECKING:
+    from paradigm.display import DisplayManager
+
 
 class OrchestrationEngine:
     """Orchestrates multi-agent research cycles through structured phases."""
@@ -71,6 +74,7 @@ class OrchestrationEngine:
         agent_factory: AgentFactory,
         intervention_hook: InterventionHook | None = None,
         memory_store: Any | None = None,
+        display: DisplayManager | None = None,
     ) -> None:
         """Initialize the orchestration engine.
 
@@ -83,6 +87,7 @@ class OrchestrationEngine:
             intervention_hook: Optional callback invoked before certain phase transitions.
                 Returns "continue", "pause", or "abort".
             memory_store: Optional AgentMemoryStore for cross-cycle episodic memory.
+            display: Optional DisplayManager for terminal output.
         """
         self._config = config
         self._db = database
@@ -91,6 +96,12 @@ class OrchestrationEngine:
         self._factory = agent_factory
         self._intervention_hook = intervention_hook
         self._memory_store = memory_store
+        if display is not None:
+            self._display = display
+        else:
+            from paradigm.display import DisplayManager
+
+            self._display = DisplayManager(verbose=True)
         _default_provider = config.get_provider()
         self._checkpoint_mgr = CheckpointManager(
             database=database,
@@ -179,8 +190,11 @@ class OrchestrationEngine:
             if active_ideation
             else agent_count
         )
-        click.echo(
-            f"Phase: IDEATION ({max_rounds} rounds, {active_ideation_count}/{agent_count} agents active)"
+        self._display.phase_transition(
+            "IDEATION",
+            max_rounds=max_rounds,
+            active_agents=active_ideation_count,
+            total_agents=agent_count,
         )
         await self._run_phase(
             ResearchPhase.IDEATION,
@@ -192,11 +206,11 @@ class OrchestrationEngine:
         intervention = self._check_intervention("ideation", "planning")
         if intervention == "abort":
             self._db.update_thread(self._thread_id, status="aborted")
-            click.echo("Research cycle aborted by intervention hook.")
+            self._display.phase_aborted()
             return self._thread_id
         if intervention == "pause":
             self._db.update_thread(self._thread_id, status="paused")
-            click.echo("Research cycle paused by intervention hook.")
+            self._display.phase_paused()
             return self._thread_id
 
         self._phase_manager.transition_to(ResearchPhase.PLANNING)
@@ -208,8 +222,11 @@ class OrchestrationEngine:
             if active_planning
             else agent_count
         )
-        click.echo(
-            f"Phase: PLANNING ({max_rounds} rounds, {active_planning_count}/{agent_count} agents active)"
+        self._display.phase_transition(
+            "PLANNING",
+            max_rounds=max_rounds,
+            active_agents=active_planning_count,
+            total_agents=agent_count,
         )
         await self._run_phase(
             ResearchPhase.PLANNING,
@@ -227,17 +244,17 @@ class OrchestrationEngine:
             intervention = self._check_intervention("planning", "execution")
             if intervention == "abort":
                 self._db.update_thread(self._thread_id, status="aborted")
-                click.echo("Research cycle aborted by intervention hook.")
+                self._display.phase_aborted()
                 return self._thread_id
             if intervention == "pause":
                 self._db.update_thread(self._thread_id, status="paused")
-                click.echo("Research cycle paused by intervention hook.")
+                self._display.phase_paused()
                 return self._thread_id
 
             self._phase_manager.transition_to(ResearchPhase.EXECUTION)
             self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
             self._messages = []
-            click.echo("Phase: EXECUTION")
+            self._display.phase_transition("EXECUTION")
             await self._run_experimentation_phase()
 
         # Phase 4: WRITING (optional, controlled by config)
@@ -249,22 +266,22 @@ class OrchestrationEngine:
             intervention = self._check_intervention(from_label, "writing")
             if intervention == "abort":
                 self._db.update_thread(self._thread_id, status="aborted")
-                click.echo("Research cycle aborted by intervention hook.")
+                self._display.phase_aborted()
                 return self._thread_id
             if intervention == "pause":
                 self._db.update_thread(self._thread_id, status="paused")
-                click.echo("Research cycle paused by intervention hook.")
+                self._display.phase_paused()
                 return self._thread_id
 
             self._phase_manager.transition_to(ResearchPhase.WRITING)
             self._log_phase_transition(from_phase, ResearchPhase.WRITING)
             self._messages = []
-            click.echo("Phase: WRITING")
+            self._display.phase_transition("WRITING")
             paper_draft = await self._writing.run_writing_phase()
 
             # Guard: if writing failed (empty/too short paper), skip all review phases
             if paper_draft is None:
-                click.echo("  Skipping review/submission — writing phase failed.")
+                self._display.writing_failed_skip_review()
                 # Save auxiliary files even on failure (search log is still useful)
                 thread = self._db.get_thread(self._thread_id)
                 paper_id = thread.get("current_draft_id") if thread else None
@@ -277,13 +294,13 @@ class OrchestrationEngine:
             self._phase_manager.transition_to(ResearchPhase.INTERNAL_REVIEW)
             self._log_phase_transition(ResearchPhase.WRITING, ResearchPhase.INTERNAL_REVIEW)
             self._messages = []
-            click.echo("Phase: INTERNAL_REVIEW")
+            self._display.phase_transition("INTERNAL_REVIEW")
             await self._review.run_review_phase(paper_draft)
 
             # Check if internal review exhausted iterations without acceptance
             thread = self._db.get_thread(self._thread_id)
             if thread and thread.get("status") == "writing_failed":
-                click.echo("  Writing failed — internal review never accepted the paper.")
+                self._display.writing_failed_review_exhausted()
                 paper_id = thread.get("current_draft_id") if thread else None
                 if paper_id:
                     self._save_auxiliary_files(paper_id)
@@ -296,11 +313,11 @@ class OrchestrationEngine:
                 intervention = self._check_intervention("internal", "submitted")
                 if intervention == "abort":
                     self._db.update_thread(self._thread_id, status="aborted")
-                    click.echo("Research cycle aborted by intervention hook.")
+                    self._display.phase_aborted()
                     return self._thread_id
                 if intervention == "pause":
                     self._db.update_thread(self._thread_id, status="paused")
-                    click.echo("Research cycle paused by intervention hook.")
+                    self._display.phase_paused()
                     return self._thread_id
 
                 accepted = await self._review.run_submission_phase(paper_draft)
@@ -321,13 +338,13 @@ class OrchestrationEngine:
                     if paper_id and decision in ("accept", "minor_revision"):
                         await publish_paper(paper_id, self._db, self._corpus, self._logger, reviews)
                         self._db.update_thread(self._thread_id, status="published")
-                        click.echo("  Paper PUBLISHED")
+                        self._display.paper_published()
                     elif paper_id:
                         from paradigm.journal.publication import reject_paper
 
                         reject_paper(paper_id, self._db, reviews, self._logger)
                         self._db.update_thread(self._thread_id, status="rejected")
-                        click.echo("  Paper REJECTED")
+                        self._display.paper_rejected()
                 else:
                     # Desk rejected
                     self._db.update_thread(self._thread_id, status="rejected")
@@ -350,7 +367,7 @@ class OrchestrationEngine:
             try:
                 from paradigm.agents.memory import generate_reflections
 
-                click.echo("Generating agent memories via reflection...")
+                self._display.memory_generating()
                 all_messages = self._collect_all_messages()
                 thread = self._db.get_thread(self._thread_id)
                 outcome = thread.get("status", "completed") if thread else "completed"
@@ -368,7 +385,7 @@ class OrchestrationEngine:
                 total = sum(len(r.memories) for r in reflections)
                 for r in reflections:
                     self._memory_store.add_memories(r.memories)
-                click.echo(f"  Stored {total} memories across {len(reflections)} agents.")
+                self._display.memory_stored(total, len(reflections))
                 self._logger.log(
                     EventType.MEMORY_GENERATED,
                     content={
@@ -379,7 +396,7 @@ class OrchestrationEngine:
                     thread_id=self._thread_id,
                 )
             except Exception as e:
-                click.echo(f"  Warning: memory reflection failed ({e}), continuing.")
+                self._display.memory_error(e)
 
         return self._thread_id
 
@@ -418,7 +435,7 @@ class OrchestrationEngine:
 
         try:
             for round_num in range(1, max_rounds + 1):
-                click.echo(f"  Experiment round {round_num}/{max_rounds}...")
+                self._display.experiment_round(round_num, max_rounds)
                 self._literature.search_count_this_round = 0
 
                 # Find experimenter (prefer experimentalist, fallback to analyst)
@@ -426,7 +443,7 @@ class OrchestrationEngine:
                 if experimenter is None:
                     experimenter = self._find_agent_by_role("analyst")
                 if experimenter is None:
-                    click.echo("    [!] No experimentalist or analyst found, skipping")
+                    self._display.experiment_no_agent()
                     break
 
                 # Build prompt
@@ -467,7 +484,7 @@ class OrchestrationEngine:
                     self._logger.log_error(
                         e, agent_id=experimenter.agent_id, thread_id=self._thread_id
                     )
-                    click.echo(f"    [!] {experimenter.agent_id} failed: {e}")
+                    self._display.agent_error(experimenter.agent_id, e)
                     break
 
                 self._log_agent_response(
@@ -484,17 +501,17 @@ class OrchestrationEngine:
                 # Extract code blocks
                 code_blocks = _extract_code_blocks(response.content)
                 if not code_blocks and round_num > 1:
-                    click.echo("    Agent declared experiments sufficient")
+                    self._display.experiment_declared_sufficient()
                     break
                 if not code_blocks:
-                    click.echo("    No code blocks proposed, skipping execution")
+                    self._display.experiment_no_code()
                     continue
 
                 # Execute each code block
                 round_total = 0
                 round_failures = 0
                 for exp_name, code in code_blocks:
-                    click.echo(f"    Running: {exp_name}")
+                    self._display.experiment_running(exp_name)
                     result = await self._execute_with_retry(
                         executor,
                         experimenter,
@@ -516,14 +533,11 @@ class OrchestrationEngine:
                             self._execution_figures.append((exp_name, Path(output_file.path)))
 
                     status_str = result.status.value
-                    click.echo(f"    {exp_name}: {status_str}")
+                    self._display.experiment_result(exp_name, status_str)
 
                 # Circuit breaker: if >70% of executions failed, stop experimenting
                 if round_total >= 3 and (round_failures / round_total) > 0.7:
-                    click.echo(
-                        f"    [!] High failure rate ({round_failures}/{round_total}), "
-                        "stopping experiments"
-                    )
+                    self._display.experiment_high_failure_rate(round_failures, round_total)
                     break
 
             # Build execution context for WRITING phase
@@ -539,10 +553,10 @@ class OrchestrationEngine:
                         messages=self._messages,
                         previous_checkpoint=self._checkpoint,
                     )
-                    click.echo("  Checkpoint saved (end of execution)")
+                    self._display.checkpoint_saved("end of execution")
                 except Exception as e:
                     self._logger.log_error(e, thread_id=self._thread_id)
-                    click.echo(f"  [!] Checkpoint failed: {e}")
+                    self._display.checkpoint_error(e)
 
         finally:
             await executor.cleanup()
@@ -644,7 +658,7 @@ class OrchestrationEngine:
                 )
 
             error_feedback = "\n\n".join(error_parts)
-            click.echo(f"    Retry {attempt + 1}/{_MAX_RETRIES_PER_EXPERIMENT}...")
+            self._display.experiment_retry(attempt + 1, _MAX_RETRIES_PER_EXPERIMENT)
 
             template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
             retry_prompt = template.format(
@@ -708,28 +722,28 @@ class OrchestrationEngine:
 
         for url in prompt_urls:
             rtype = classify_resource(url)
-            click.echo(f"  Resource: {url} \u2192 {rtype.value}")
+            self._display.resource_detected(url, rtype.value)
 
             if rtype == ResourceType.PAPER:
                 # Papers go through the existing corpus pipeline
                 try:
                     paper = await self._corpus.fetch_and_ingest_url(url)
                     if paper:
-                        click.echo(f"  Ingested external paper: {paper.title[:80]}")
+                        self._display.resource_ingested(paper.title)
                         # Also save raw PDF to sandbox so experimentalist can parse it
                         await self._save_pdf_for_sandbox(url)
                     else:
-                        click.echo(f"  [!] Could not extract PDF from: {url}")
+                        self._display.resource_extract_error(url)
                 except Exception as e:
                     self._logger.log_error(e, thread_id=thread_id)
-                    click.echo(f"  [!] Failed to fetch URL: {url} ({e})")
+                    self._display.resource_fetch_error(url, e)
             else:
                 # Non-paper resources: clone, download, or scrape
                 resource = await resolve_resource(url, rtype, shared_dir, self._logger)
                 if resource.error:
-                    click.echo(f"  [!] Resource error: {resource.error}")
+                    self._display.resource_error(resource.error)
                 else:
-                    click.echo(f"  Resolved: {resource.name} ({rtype.value})")
+                    self._display.resource_resolved(resource.name, rtype.value)
                 resolved.append(resource)
 
         self._resolved_resources = resolved
@@ -763,7 +777,7 @@ class OrchestrationEngine:
                 self._graveyard_context = ""
         except Exception as e:
             self._logger.log_error(e, thread_id=thread_id)
-            click.echo(f"  [!] Graveyard search failed: {e}")
+            self._display.graveyard_error(e)
             self._graveyard_context = ""
 
         return thread_id
@@ -784,7 +798,7 @@ class OrchestrationEngine:
         scheduler = Scheduler(list(self._agents.values()), mode="phase_appropriate")
 
         for round_num in range(1, max_rounds + 1):
-            click.echo(f"  Round {round_num}/{max_rounds}...")
+            self._display.round_start(round_num, max_rounds)
             await self._run_round(phase, round_num, scheduler)
             scheduler.advance_round()
 
@@ -802,10 +816,10 @@ class OrchestrationEngine:
                         messages=self._messages,
                         previous_checkpoint=self._checkpoint,
                     )
-                    click.echo(f"  Checkpoint saved (round {round_num})")
+                    self._display.checkpoint_saved(f"round {round_num}")
                 except Exception as e:
                     self._logger.log_error(e, thread_id=self._thread_id)
-                    click.echo(f"  [!] Checkpoint failed: {e}")
+                    self._display.checkpoint_error(e)
 
         # Final checkpoint at end of phase
         if self._messages and self._config.orchestrator.enable_checkpointing:
@@ -817,10 +831,10 @@ class OrchestrationEngine:
                     messages=self._messages,
                     previous_checkpoint=self._checkpoint,
                 )
-                click.echo("  Checkpoint saved (end of phase)")
+                self._display.checkpoint_saved("end of phase")
             except Exception as e:
                 self._logger.log_error(e, thread_id=self._thread_id)
-                click.echo(f"  [!] Final checkpoint failed: {e}")
+                self._display.checkpoint_error(e)
 
     async def _run_round(
         self,
@@ -853,7 +867,7 @@ class OrchestrationEngine:
                 response = await agent.generate(prompt)
             except Exception as e:
                 self._logger.log_error(e, agent_id=agent_id, thread_id=self._thread_id)
-                click.echo(f"    [!] {agent_id} failed: {e}")
+                self._display.agent_error(agent_id, e)
                 continue  # Skip this agent for this round
 
             # Create structured message
@@ -870,7 +884,7 @@ class OrchestrationEngine:
             self._messages.append(msg_dict)
 
             total_tokens = response.usage.input_tokens + response.usage.output_tokens
-            click.echo(f"    {agent_id}: {total_tokens} tokens")
+            self._display.agent_response(agent_id, total_tokens)
 
             # Log message and token usage
             self._logger.log_agent_message(
@@ -1067,7 +1081,7 @@ class OrchestrationEngine:
             message_type: Type of message.
         """
         total_tokens = response.usage.input_tokens + response.usage.output_tokens
-        click.echo(f"    {agent_id}: {total_tokens} tokens")
+        self._display.agent_response(agent_id, total_tokens)
 
         self._logger.log_agent_message(
             agent_id=agent_id,
@@ -1120,10 +1134,10 @@ class OrchestrationEngine:
 
             dest = papers_dir / name
             dest.write_bytes(pdf_bytes)
-            click.echo(f"  Saved PDF for sandbox: {name}")
+            self._display.pdf_saved(name)
         except Exception as e:
             self._logger.log_error(e, metadata_key="pdf_sandbox_save", url=url)
-            click.echo(f"  [!] Could not save PDF for sandbox: {e}")
+            self._display.pdf_save_error(e)
 
     def _save_search_log(self, paper_id: str) -> None:
         """Write literature_searches.md to the paper directory.
@@ -1284,10 +1298,7 @@ class OrchestrationEngine:
         else:
             time_str = f"{seconds}s"
 
-        click.echo(
-            f"\nToken usage: {total_k:.1f}K total ({input_k:.1f}K input, {output_k:.1f}K output)"
-        )
-        click.echo(f"Elapsed time: {time_str}")
+        self._display.token_summary(total_k, input_k, output_k, time_str)
 
         self._logger.log(
             EventType.STATE_CHANGE,

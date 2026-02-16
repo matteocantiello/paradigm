@@ -8,8 +8,6 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import click
-
 from paradigm.journal.paper import (
     SECTION_ASSIGNMENTS,
     PaperDraft,
@@ -45,11 +43,11 @@ class WritingHandler:
         draft = PaperDraft()
 
         # Round 1: Section Drafting — each agent drafts their assigned sections
-        click.echo("  Round 1: Section drafting...")
+        self._engine._display.writing_section_drafting()
         await self.run_section_drafting(draft)
 
         # Round 2: Assembly — writer combines all sections
-        click.echo("  Round 2: Assembly...")
+        self._engine._display.writing_assembly()
         assembled_body = await self.run_assembly(draft)
 
         # Post-process: ensure figure image tags are embedded inline
@@ -58,10 +56,7 @@ class WritingHandler:
 
         # Validate paper length — if all agents failed, the draft is empty
         if len(draft.assembled_body) < _MIN_PAPER_LENGTH:
-            click.echo(
-                f"  [!] Paper too short ({len(draft.assembled_body)} chars, "
-                f"minimum {_MIN_PAPER_LENGTH}). Writing phase failed."
-            )
+            self._engine._display.paper_too_short(len(draft.assembled_body), _MIN_PAPER_LENGTH)
             self._engine._logger.log_error(
                 ValueError(
                     f"Writing phase produced insufficient content "
@@ -98,7 +93,7 @@ class WritingHandler:
         # Write markdown file to papers directory
         self.save_paper_file(paper_id, draft.assembled_body)
 
-        click.echo(f"  Paper saved: {paper_id}")
+        self._engine._display.paper_saved(paper_id)
         return draft
 
     async def run_section_drafting(self, draft: PaperDraft) -> None:
@@ -152,7 +147,7 @@ class WritingHandler:
                 self._engine._logger.log_error(
                     e, agent_id=agent_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] {agent_id} failed: {e}")
+                self._engine._display.agent_error(agent_id, e)
                 continue
 
             # Parse sections from response
@@ -190,7 +185,7 @@ class WritingHandler:
         writer_agent = self._engine._find_agent_by_role("writer")
         if writer_agent is None:
             # Fallback: render from sections directly
-            click.echo("    [!] No writer agent found, assembling from sections")
+            self._engine._display.writing_no_writer()
             return draft.to_markdown()
 
         checkpoint_context = ""
@@ -232,7 +227,7 @@ class WritingHandler:
             self._engine._logger.log_error(
                 e, agent_id=writer_agent.agent_id, thread_id=self._engine._thread_id
             )
-            click.echo(f"    [!] Writer assembly failed: {e}")
+            self._engine._display.writing_assembly_error(e)
             return draft.to_markdown()
 
     def embed_figures_inline(self, body: str) -> str:
@@ -338,7 +333,7 @@ class WritingHandler:
             dest_name = self.figure_dest_name(exp_name, src_path)
             dest_path = figures_dir / dest_name
             shutil.copy2(src_path, dest_path)
-            click.echo(f"  Figure copied: {dest_path.name}")
+            self._engine._display.figure_copied(dest_path.name)
 
     @staticmethod
     def figure_dest_name(exp_name: str, src_path: Path) -> str:

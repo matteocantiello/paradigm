@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import click
-
 from paradigm.literature.prompt_utils import parse_challenge_requests
 from paradigm.logging.events import EventType
 from paradigm.orchestrator.constants import (
@@ -78,19 +76,21 @@ class DebateHandler:
 
             # Target must exist
             if target_id not in self._engine._agents:
-                click.echo(f"    [!] Debate skipped: target '{target_id}' not found")
+                self._engine._display.debate_skipped(target_id, f"target '{target_id}' not found")
                 continue
 
             # Target must be active in this phase
             if active_roles is not None:
                 target_role = self._engine._agents[target_id].skill_profile
                 if target_role not in active_roles:
-                    click.echo(f"    [!] Debate skipped: '{target_id}' not active in {phase_key}")
+                    self._engine._display.debate_skipped(
+                        target_id, f"'{target_id}' not active in {phase_key}"
+                    )
                     continue
 
             # Budget check (re-check inside loop in case of prior skip)
             if self.debate_counts.get(phase_key, 0) >= max_debates:
-                click.echo(f"    [!] Debate budget exhausted ({max_debates}/{phase_key}), skipping")
+                self._engine._display.debate_budget_exhausted(max_debates, phase_key)
                 break
 
             # Trigger the debate
@@ -130,7 +130,7 @@ class DebateHandler:
         phase_key = str(phase)
         max_exchanges = self._engine._config.orchestrator.max_debate_exchanges
 
-        click.echo(f"    >>> Debate: {challenger_id} vs {defender_id} — {debate_topic[:60]}")
+        self._engine._display.debate_start(challenger_id, defender_id, debate_topic)
 
         self._engine._logger.log(
             EventType.DEBATE_TRIGGERED,
@@ -169,7 +169,7 @@ class DebateHandler:
                 self._engine._logger.log_error(
                     e, agent_id=defender_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] Debate error ({defender_id}): {e}")
+                self._engine._display.debate_error(defender_id, e)
                 resolution_type = "error"
                 resolution_statement = f"Debate ended due to error: {e}"
                 break
@@ -185,12 +185,12 @@ class DebateHandler:
             if resolved_match:
                 resolution_type = "resolved"
                 resolution_statement = resolved_match.group(1).strip()
-                click.echo(f"    <<< Debate resolved by {defender_id}")
+                self._engine._display.debate_resolved(defender_id)
                 break
             if concede_match:
                 resolution_type = "concede_defender"
                 resolution_statement = concede_match.group(1).strip()
-                click.echo(f"    <<< {defender_id} concedes")
+                self._engine._display.debate_concede(defender_id)
                 break
 
             # On the final exchange, only the defender speaks
@@ -210,7 +210,7 @@ class DebateHandler:
                 self._engine._logger.log_error(
                     e, agent_id=challenger_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] Debate error ({challenger_id}): {e}")
+                self._engine._display.debate_error(challenger_id, e)
                 resolution_type = "error"
                 resolution_statement = f"Debate ended due to error: {e}"
                 break
@@ -227,12 +227,12 @@ class DebateHandler:
             if resolved_match:
                 resolution_type = "resolved"
                 resolution_statement = resolved_match.group(1).strip()
-                click.echo(f"    <<< Debate resolved by {challenger_id}")
+                self._engine._display.debate_resolved(challenger_id)
                 break
             if concede_match:
                 resolution_type = "concede_challenger"
                 resolution_statement = concede_match.group(1).strip()
-                click.echo(f"    <<< {challenger_id} concedes")
+                self._engine._display.debate_concede(challenger_id)
                 break
 
         # Synthesize debate outcome
@@ -279,7 +279,7 @@ class DebateHandler:
         )
 
         self.debate_counts[phase_key] = self.debate_counts.get(phase_key, 0) + 1
-        click.echo(f"    <<< Debate complete ({resolution_type}, {len(transcript)} turns)")
+        self._engine._display.debate_complete(resolution_type, len(transcript))
 
     async def synthesize_debate(
         self,
@@ -340,7 +340,7 @@ class DebateHandler:
                 self._engine._logger.log_error(
                     e, agent_id=synthesizer_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] Synthesis failed, using mechanical fallback: {e}")
+                self._engine._display.synthesis_error(e)
 
         # Mechanical fallback
         return self.mechanical_debate_synthesis(

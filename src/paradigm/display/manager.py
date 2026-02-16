@@ -1,0 +1,949 @@
+"""DisplayManager — central display coordinator for the Paradigm UI.
+
+Maintains a DisplayState and delegates rendering to either Rich components
+(when stdout is a TTY and verbose is off) or PlainTextFallback.
+"""
+
+from __future__ import annotations
+
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+from paradigm.display.fallback import PlainTextFallback
+from paradigm.orchestrator.phases import ResearchPhase
+
+
+@dataclass
+class DisplayState:
+    """Mutable state tracked by the DisplayManager for live rendering."""
+
+    current_phase: ResearchPhase | None = None
+    completed_phases: list[ResearchPhase] = field(default_factory=list)
+    round_num: int = 0
+    max_rounds: int = 0
+    active_agents: dict[str, str] = field(default_factory=dict)  # agent_id -> activity
+    recent_events: list[dict[str, str]] = field(default_factory=list)  # capped at 20
+    total_tokens: int = 0
+    total_searches: int = 0
+    papers_count: int = 0
+    start_time: float = field(default_factory=time.monotonic)
+
+    def add_event(self, event_type: str, message: str) -> None:
+        """Add an event to the recent events list (capped at 20)."""
+        self.recent_events.append(
+            {
+                "type": event_type,
+                "message": message,
+                "time": datetime.now(UTC).strftime("%H:%M:%S"),
+            }
+        )
+        if len(self.recent_events) > 20:
+            self.recent_events = self.recent_events[-20:]
+
+    @property
+    def elapsed_seconds(self) -> float:
+        return time.monotonic() - self.start_time
+
+
+class DisplayManager:
+    """Central display coordinator.
+
+    When Rich mode is active, renders live-updating panels and styled output.
+    When in plain-text mode (verbose=True or non-TTY), delegates to
+    PlainTextFallback for behavioral parity with the original click.echo calls.
+    """
+
+    def __init__(self, *, verbose: bool = False) -> None:
+        self._use_rich = not verbose and sys.stdout.isatty()
+        self._state = DisplayState()
+        self._fallback = PlainTextFallback()
+
+        # Rich components (lazy-initialized in start())
+        self._console: object | None = None
+        self._live: object | None = None
+
+    @property
+    def state(self) -> DisplayState:
+        return self._state
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        """Start the display system."""
+        if self._use_rich:
+            try:
+                from rich.console import Console
+
+                from paradigm.display.layout import create_live_display
+
+                self._console = Console()
+                self._live = create_live_display(self._console)
+                self._live.start()  # type: ignore[union-attr]
+            except Exception:
+                # Fallback if Rich initialization fails
+                self._use_rich = False
+        self._fallback.start()
+
+    def stop(self) -> None:
+        """Stop the display system."""
+        if self._live is not None:
+            try:
+                self._live.stop()  # type: ignore[union-attr]
+            except Exception:
+                pass
+            self._live = None
+        self._fallback.stop()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _refresh(self) -> None:
+        """Refresh the Live display if active."""
+        if self._live is not None:
+            try:
+                from paradigm.display.layout import build_live_layout
+
+                self._live.update(build_live_layout(self._state))  # type: ignore[union-attr]
+            except Exception:
+                pass
+
+    def _print_rich(self, renderable: object) -> None:
+        """Print a Rich renderable, temporarily pausing Live if needed."""
+        if self._console is None:
+            return
+        if self._live is not None:
+            try:
+                self._live.stop()  # type: ignore[union-attr]
+                self._console.print(renderable)  # type: ignore[union-attr]
+                self._live.start()  # type: ignore[union-attr]
+            except Exception:
+                pass
+        else:
+            try:
+                self._console.print(renderable)  # type: ignore[union-attr]
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # Phase transitions
+    # ------------------------------------------------------------------
+
+    def phase_transition(
+        self,
+        phase_name: str,
+        *,
+        max_rounds: int | None = None,
+        active_agents: int | None = None,
+        total_agents: int | None = None,
+    ) -> None:
+        # Update state
+        if self._state.current_phase is not None:
+            self._state.completed_phases.append(self._state.current_phase)
+        try:
+            self._state.current_phase = ResearchPhase(phase_name.lower())
+        except ValueError:
+            pass
+        if max_rounds is not None:
+            self._state.max_rounds = max_rounds
+        self._state.round_num = 0
+        self._state.add_event("phase", f"Phase: {phase_name}")
+
+        if self._use_rich:
+            from paradigm.display.components import build_phase_banner
+
+            banner = build_phase_banner(phase_name, self._state)
+            self._print_rich(banner)
+            self._refresh()
+        else:
+            self._fallback.phase_transition(
+                phase_name,
+                max_rounds=max_rounds,
+                active_agents=active_agents,
+                total_agents=total_agents,
+            )
+
+    def phase_aborted(self) -> None:
+        self._state.add_event("phase", "Research cycle aborted")
+        if self._use_rich:
+            from paradigm.display.components import build_status_message
+
+            self._print_rich(
+                build_status_message("Research cycle aborted by intervention hook.", "error")
+            )
+        else:
+            self._fallback.phase_aborted()
+
+    def phase_paused(self) -> None:
+        self._state.add_event("phase", "Research cycle paused")
+        if self._use_rich:
+            from paradigm.display.components import build_status_message
+
+            self._print_rich(
+                build_status_message("Research cycle paused by intervention hook.", "warning")
+            )
+        else:
+            self._fallback.phase_paused()
+
+    # ------------------------------------------------------------------
+    # Rounds
+    # ------------------------------------------------------------------
+
+    def round_start(self, round_num: int, max_rounds: int) -> None:
+        self._state.round_num = round_num
+        self._state.max_rounds = max_rounds
+        self._state.add_event("round", f"Round {round_num}/{max_rounds}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.round_start(round_num, max_rounds)
+
+    # ------------------------------------------------------------------
+    # Agent activity
+    # ------------------------------------------------------------------
+
+    def agent_response(self, agent_id: str, total_tokens: int) -> None:
+        self._state.total_tokens += total_tokens
+        self._state.active_agents[agent_id] = f"{total_tokens} tokens"
+        self._state.add_event("agent", f"{agent_id}: {total_tokens} tokens")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.agent_response(agent_id, total_tokens)
+
+    def agent_error(self, agent_id: str, error: str | Exception) -> None:
+        self._state.add_event("error", f"{agent_id} failed: {error}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.agent_error(agent_id, error)
+
+    # ------------------------------------------------------------------
+    # Literature / search
+    # ------------------------------------------------------------------
+
+    def search_result(
+        self, agent_id: str, query: str, total_results: int, new_results: int
+    ) -> None:
+        self._state.total_searches += 1
+        self._state.papers_count += new_results
+        self._state.add_event("search", f"{agent_id}: '{query[:40]}' \u2192 {new_results} new")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.search_result(agent_id, query, total_results, new_results)
+
+    def search_skipped(self, query: str, *, reason: str = "similar") -> None:
+        self._state.add_event("skip", f"Skipped {reason} query")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.search_skipped(query, reason=reason)
+
+    def search_budget_exhausted(self, budget: int, query: str) -> None:
+        self._state.add_event("warning", "Search budget exhausted")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.search_budget_exhausted(budget, query)
+
+    def search_agent_cap(self, agent_id: str, cap: int, query: str) -> None:
+        self._state.add_event("warning", f"{agent_id}: per-agent cap reached")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.search_agent_cap(agent_id, cap, query)
+
+    def search_error(self, query: str, error: str | Exception) -> None:
+        self._state.add_event("error", f"Search failed: {query[:40]}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.search_error(query, error)
+
+    def search_stale(self, agent_id: str, count: int = 2) -> None:
+        self._state.add_event("warning", f"{agent_id}: stale searches")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.search_stale(agent_id, count)
+
+    def follow_result(self, agent_id: str, arxiv_id: str, count: int) -> None:
+        self._state.papers_count += count
+        self._state.add_event("search", f"{agent_id} followed {arxiv_id} \u2192 {count}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.follow_result(agent_id, arxiv_id, count)
+
+    def follow_budget_exhausted(self, arxiv_id: str) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.follow_budget_exhausted(arxiv_id)
+
+    def follow_skipped(self, arxiv_id: str) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.follow_skipped(arxiv_id)
+
+    def follow_error(self, arxiv_id: str, error: str | Exception) -> None:
+        self._state.add_event("error", f"Follow failed: {arxiv_id}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.follow_error(arxiv_id, error)
+
+    def cited_by_result(self, agent_id: str, arxiv_id: str, count: int) -> None:
+        self._state.papers_count += count
+        self._state.add_event("search", f"{agent_id} cited-by {arxiv_id} \u2192 {count}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.cited_by_result(agent_id, arxiv_id, count)
+
+    def cited_by_budget_exhausted(self, arxiv_id: str) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.cited_by_budget_exhausted(arxiv_id)
+
+    def cited_by_skipped(self, arxiv_id: str) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.cited_by_skipped(arxiv_id)
+
+    def cited_by_error(self, arxiv_id: str, error: str | Exception) -> None:
+        self._state.add_event("error", f"Cited-by failed: {arxiv_id}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.cited_by_error(arxiv_id, error)
+
+    def read_result(self, agent_id: str, arxiv_id: str, title: str, chars: int) -> None:
+        self._state.add_event("search", f"{agent_id} read {arxiv_id}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.read_result(agent_id, arxiv_id, title, chars)
+
+    def read_budget_exhausted(self, arxiv_id: str) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.read_budget_exhausted(arxiv_id)
+
+    def read_skipped(self, arxiv_id: str) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.read_skipped(arxiv_id)
+
+    def read_error(self, arxiv_id: str, error: str | Exception) -> None:
+        self._state.add_event("error", f"Read failed: {arxiv_id}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.read_error(arxiv_id, error)
+
+    def read_not_found(self, arxiv_id: str) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.read_not_found(arxiv_id)
+
+    # ------------------------------------------------------------------
+    # Resources (seeding phase)
+    # ------------------------------------------------------------------
+
+    def resource_detected(self, url: str, resource_type: str) -> None:
+        self._state.add_event("resource", f"{resource_type}: {url[:50]}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.resource_detected(url, resource_type)
+
+    def resource_ingested(self, title: str) -> None:
+        self._state.add_event("resource", f"Ingested: {title[:50]}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.resource_ingested(title)
+
+    def resource_resolved(self, name: str, resource_type: str) -> None:
+        self._state.add_event("resource", f"Resolved: {name}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.resource_resolved(name, resource_type)
+
+    def resource_error(self, message: str) -> None:
+        self._state.add_event("error", message)
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.resource_error(message)
+
+    def resource_fetch_error(self, url: str, error: str | Exception) -> None:
+        self._state.add_event("error", f"Fetch failed: {url[:40]}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.resource_fetch_error(url, error)
+
+    def resource_extract_error(self, url: str) -> None:
+        self._state.add_event("error", f"Extract failed: {url[:40]}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.resource_extract_error(url)
+
+    def pdf_saved(self, name: str) -> None:
+        self._state.add_event("resource", f"PDF saved: {name}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.pdf_saved(name)
+
+    def pdf_save_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "PDF save failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.pdf_save_error(error)
+
+    def graveyard_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "Graveyard search failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.graveyard_error(error)
+
+    # ------------------------------------------------------------------
+    # Debates
+    # ------------------------------------------------------------------
+
+    def debate_start(self, challenger_id: str, defender_id: str, topic: str) -> None:
+        self._state.add_event("debate", f"{challenger_id} vs {defender_id}")
+        if self._use_rich:
+            from paradigm.display.components import build_debate_panel
+
+            panel = build_debate_panel(challenger_id, defender_id, topic)
+            self._print_rich(panel)
+            self._refresh()
+        else:
+            self._fallback.debate_start(challenger_id, defender_id, topic)
+
+    def debate_turn(self, agent_id: str, event: str) -> None:
+        self._state.add_event("debate", event)
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.debate_turn(agent_id, event)
+
+    def debate_resolved(self, agent_id: str) -> None:
+        self._state.add_event("debate", f"Resolved by {agent_id}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.debate_resolved(agent_id)
+
+    def debate_concede(self, agent_id: str) -> None:
+        self._state.add_event("debate", f"{agent_id} concedes")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.debate_concede(agent_id)
+
+    def debate_error(self, agent_id: str, error: str | Exception) -> None:
+        self._state.add_event("error", f"Debate error: {agent_id}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.debate_error(agent_id, error)
+
+    def debate_complete(self, resolution_type: str, num_turns: int) -> None:
+        self._state.add_event("debate", f"Complete: {resolution_type}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.debate_complete(resolution_type, num_turns)
+
+    def debate_skipped(self, target_id: str, reason: str) -> None:
+        self._state.add_event("skip", f"Debate skipped: {reason}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.debate_skipped(target_id, reason)
+
+    def debate_budget_exhausted(self, max_debates: int, phase: str) -> None:
+        self._state.add_event("warning", "Debate budget exhausted")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.debate_budget_exhausted(max_debates, phase)
+
+    def synthesis_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "Synthesis failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.synthesis_error(error)
+
+    # ------------------------------------------------------------------
+    # Execution / experiments
+    # ------------------------------------------------------------------
+
+    def experiment_round(self, round_num: int, max_rounds: int) -> None:
+        self._state.round_num = round_num
+        self._state.add_event("experiment", f"Experiment round {round_num}/{max_rounds}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_round(round_num, max_rounds)
+
+    def experiment_no_agent(self) -> None:
+        self._state.add_event("warning", "No experimentalist found")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_no_agent()
+
+    def experiment_declared_sufficient(self) -> None:
+        self._state.add_event("experiment", "Experiments sufficient")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_declared_sufficient()
+
+    def experiment_no_code(self) -> None:
+        self._state.add_event("skip", "No code blocks proposed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_no_code()
+
+    def experiment_running(self, exp_name: str) -> None:
+        self._state.add_event("experiment", f"Running: {exp_name}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_running(exp_name)
+
+    def experiment_result(self, exp_name: str, status: str) -> None:
+        self._state.add_event("experiment", f"{exp_name}: {status}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_result(exp_name, status)
+
+    def experiment_retry(self, attempt: int, max_retries: int) -> None:
+        self._state.add_event("experiment", f"Retry {attempt}/{max_retries}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_retry(attempt, max_retries)
+
+    def experiment_high_failure_rate(self, failures: int, total: int) -> None:
+        self._state.add_event("warning", f"High failure rate ({failures}/{total})")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_high_failure_rate(failures, total)
+
+    # ------------------------------------------------------------------
+    # Writing
+    # ------------------------------------------------------------------
+
+    def writing_round(self, round_name: str) -> None:
+        self._state.add_event("writing", f"Round {round_name}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.writing_round(round_name)
+
+    def writing_section_drafting(self) -> None:
+        self._state.add_event("writing", "Section drafting")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.writing_section_drafting()
+
+    def writing_assembly(self) -> None:
+        self._state.add_event("writing", "Assembly")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.writing_assembly()
+
+    def writing_no_writer(self) -> None:
+        self._state.add_event("warning", "No writer agent found")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.writing_no_writer()
+
+    def writing_assembly_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "Assembly failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.writing_assembly_error(error)
+
+    def paper_saved(self, paper_id: str) -> None:
+        self._state.add_event("writing", f"Paper saved: {paper_id}")
+        if self._use_rich:
+            from paradigm.display.components import build_status_message
+
+            self._print_rich(build_status_message(f"Paper saved: {paper_id}", "success"))
+            self._refresh()
+        else:
+            self._fallback.paper_saved(paper_id)
+
+    def paper_too_short(self, length: int, minimum: int) -> None:
+        self._state.add_event("error", f"Paper too short ({length}/{minimum})")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.paper_too_short(length, minimum)
+
+    def figure_copied(self, filename: str) -> None:
+        self._state.add_event("writing", f"Figure: {filename}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.figure_copied(filename)
+
+    def writing_failed_skip_review(self) -> None:
+        self._state.add_event("error", "Writing failed, skipping review")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.writing_failed_skip_review()
+
+    def writing_failed_review_exhausted(self) -> None:
+        self._state.add_event("error", "Internal review never accepted paper")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.writing_failed_review_exhausted()
+
+    # ------------------------------------------------------------------
+    # Review
+    # ------------------------------------------------------------------
+
+    def review_iteration(self, iteration: int, max_iterations: int) -> None:
+        self._state.add_event("review", f"Review iteration {iteration}/{max_iterations}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.review_iteration(iteration, max_iterations)
+
+    def review_no_editor(self) -> None:
+        self._state.add_event("warning", "No editor agent found")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.review_no_editor()
+
+    def review_editor_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "Editor review failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.review_editor_error(error)
+
+    def review_recommendation(self, recommendation: str, num_changes: int) -> None:
+        self._state.add_event("review", f"Editor: {recommendation} ({num_changes} changes)")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.review_recommendation(recommendation, num_changes)
+
+    def review_revising(self) -> None:
+        self._state.add_event("review", "Revising...")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.review_revising()
+
+    def review_max_iterations(self) -> None:
+        self._state.add_event("warning", "Max review iterations reached")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.review_max_iterations()
+
+    def review_too_short(self, length: int) -> None:
+        self._state.add_event("warning", f"Paper too short for review ({length})")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.review_too_short(length)
+
+    def revision_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "Revision failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.revision_error(error)
+
+    # ------------------------------------------------------------------
+    # Submission / desk review
+    # ------------------------------------------------------------------
+
+    def desk_review_result(self, passed: bool) -> None:
+        label = "passed" if passed else "REJECTED"
+        self._state.add_event("review", f"Desk review: {label}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.desk_review_result(passed)
+
+    def desk_review_no_editor(self) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.desk_review_no_editor()
+
+    def desk_review_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "Desk review failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.desk_review_error(error)
+
+    # ------------------------------------------------------------------
+    # Peer review
+    # ------------------------------------------------------------------
+
+    def peer_review_start(self, num_reviewers: int) -> None:
+        self._state.add_event("review", f"Peer review: {num_reviewers} reviewers")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.peer_review_start(num_reviewers)
+
+    def peer_review_result(self, reviewer_id: str, recommendation: str, avg_score: float) -> None:
+        self._state.add_event("review", f"{reviewer_id}: {recommendation} ({avg_score:.1f})")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.peer_review_result(reviewer_id, recommendation, avg_score)
+
+    def peer_review_error(self, reviewer_id: str, error: str | Exception) -> None:
+        self._state.add_event("error", f"{reviewer_id} review failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.peer_review_error(reviewer_id, error)
+
+    def peer_review_decision(self, decision: str) -> None:
+        self._state.add_event("review", f"Decision: {decision}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.peer_review_decision(decision)
+
+    # ------------------------------------------------------------------
+    # Revision (peer review)
+    # ------------------------------------------------------------------
+
+    def revision_start(self) -> None:
+        self._state.add_event("revision", "Revision started")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.revision_start()
+
+    def revision_no_writer(self) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.revision_no_writer()
+
+    def revision_complete(self) -> None:
+        self._state.add_event("revision", "Revision complete")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.revision_complete()
+
+    def revision_phase_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "Revision failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.revision_phase_error(error)
+
+    # ------------------------------------------------------------------
+    # Publication
+    # ------------------------------------------------------------------
+
+    def paper_published(self) -> None:
+        self._state.add_event("publication", "Paper PUBLISHED")
+        if self._use_rich:
+            from paradigm.display.components import build_status_message
+
+            self._print_rich(build_status_message("Paper PUBLISHED", "success"))
+        else:
+            self._fallback.paper_published()
+
+    def paper_rejected(self) -> None:
+        self._state.add_event("publication", "Paper REJECTED")
+        if self._use_rich:
+            from paradigm.display.components import build_status_message
+
+            self._print_rich(build_status_message("Paper REJECTED", "error"))
+        else:
+            self._fallback.paper_rejected()
+
+    # ------------------------------------------------------------------
+    # Checkpoints
+    # ------------------------------------------------------------------
+
+    def checkpoint_saved(self, label: str) -> None:
+        self._state.add_event("checkpoint", f"Saved: {label}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.checkpoint_saved(label)
+
+    def checkpoint_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "Checkpoint failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.checkpoint_error(error)
+
+    # ------------------------------------------------------------------
+    # Token usage / summary
+    # ------------------------------------------------------------------
+
+    def token_summary(self, total_k: float, input_k: float, output_k: float, time_str: str) -> None:
+        if self._use_rich:
+            from paradigm.display.components import build_final_summary
+
+            panel = build_final_summary(
+                total_k=total_k,
+                input_k=input_k,
+                output_k=output_k,
+                time_str=time_str,
+                state=self._state,
+            )
+            self._print_rich(panel)
+        else:
+            self._fallback.token_summary(total_k, input_k, output_k, time_str)
+
+    # ------------------------------------------------------------------
+    # Memory
+    # ------------------------------------------------------------------
+
+    def memory_generating(self) -> None:
+        self._state.add_event("memory", "Generating reflections")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.memory_generating()
+
+    def memory_stored(self, total: int, agent_count: int) -> None:
+        self._state.add_event("memory", f"Stored {total} memories")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.memory_stored(total, agent_count)
+
+    def memory_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", "Memory reflection failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.memory_error(error)
+
+    # ------------------------------------------------------------------
+    # General info / warning / error
+    # ------------------------------------------------------------------
+
+    def info(self, message: str) -> None:
+        self._state.add_event("info", message)
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.info(message)
+
+    def warning(self, message: str) -> None:
+        self._state.add_event("warning", message)
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.warning(message)
+
+    def error(self, message: str, *, err: bool = False) -> None:
+        self._state.add_event("error", message)
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.error(message, err=err)
+
+    # ------------------------------------------------------------------
+    # Main.py specific
+    # ------------------------------------------------------------------
+
+    def testing_mode(self) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.testing_mode()
+
+    def cycle_complete(self, thread_id: str) -> None:
+        self._state.add_event("complete", f"Thread: {thread_id}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.cycle_complete(thread_id)
+
+    def cycle_interrupted(self) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.cycle_interrupted()
+
+    def cycle_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", str(error))
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.cycle_error(error)
+
+    def prompt_loaded(self, path: str, length: int) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.prompt_loaded(path, length)
+
+    def starting_cycle(self, mode: str) -> None:
+        self._state.add_event("info", f"Starting {mode} research cycle")
+        if self._use_rich:
+            from paradigm.display.components import build_status_message
+
+            self._print_rich(build_status_message(f"Starting {mode} research cycle...", "info"))
+        else:
+            self._fallback.starting_cycle(mode)
+
+    def rounds_override(self, rounds: int) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.rounds_override(rounds)
+
+    def interactive_mode(self) -> None:
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.interactive_mode()

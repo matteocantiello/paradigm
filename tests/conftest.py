@@ -51,3 +51,11 @@ def mock_corpus():
     corpus.search = AsyncMock(return_value=[])
     corpus.ingest_internal_paper = MagicMock()
     return corpus
+
+
+@pytest.fixture
+def display():
+    """Create a DisplayManager in verbose mode (plain text fallback)."""
+    from paradigm.display import DisplayManager
+
+    return DisplayManager(verbose=True)

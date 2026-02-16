@@ -16,6 +16,7 @@ def _run_research(
     rounds: int | None = None,
     interactive: bool = False,
     testing: bool = False,
+    verbose: bool = False,
 ) -> None:
     """Run a research cycle synchronously (wraps async engine).
 
@@ -26,11 +27,16 @@ def _run_research(
         rounds: Optional rounds-per-phase override.
         interactive: Whether to prompt for confirmation before phase transitions.
         testing: Whether to apply testing_overrides (swap to open-weight models).
+        verbose: Use plain-text output instead of Rich UI.
     """
+    from paradigm.display import DisplayManager
+
+    display = DisplayManager(verbose=verbose)
+
     # Apply testing overrides before creating any agents
     if testing:
         config.apply_testing_overrides()
-        click.echo("Testing mode: all agents using open-weight models via Together.ai")
+        display.testing_mode()
     from paradigm.agents.factory import AgentFactory
     from paradigm.agents.skills import SkillRegistry
     from paradigm.literature.corpus import Corpus
@@ -91,18 +97,21 @@ def _run_research(
         agent_factory=factory,
         intervention_hook=hook,
         memory_store=memory_store,
+        display=display,
     )
 
+    display.start()
     try:
         thread_id = asyncio.run(engine.run_research_cycle(seed_prompt=seed_prompt, mode=mode))
-        click.echo(f"Research cycle complete. Thread ID: {thread_id}")
+        display.cycle_complete(thread_id)
     except KeyboardInterrupt:
-        click.echo("\nResearch cycle interrupted.", err=True)
+        display.cycle_interrupted()
         sys.exit(130)
     except Exception as e:
-        click.echo(f"Error during research cycle: {e}", err=True)
+        display.cycle_error(e)
         sys.exit(1)
     finally:
+        display.stop()
         database.close()
 
 
@@ -167,6 +176,12 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     default=False,
     help="Use open-weight models only (no Anthropic API calls)",
 )
+@click.option(
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Use plain-text output instead of Rich terminal UI",
+)
 @click.pass_obj
 def run(
     config: Config,
@@ -177,6 +192,7 @@ def run(
     rounds: int | None,
     interactive: bool,
     testing: bool,
+    verbose: bool,
 ) -> None:
     """Run a research cycle.
 
@@ -185,6 +201,10 @@ def run(
         paradigm run --mode directed --prompt-file prompt.md
         paradigm run --mode explore --topic "massive star variability"
     """
+    from paradigm.display import DisplayManager
+
+    display = DisplayManager(verbose=verbose)
+
     # Read prompt from file if provided
     if prompt_file:
         if prompt:
@@ -194,7 +214,7 @@ def run(
         if not prompt:
             click.echo(f"Error: prompt file is empty: {prompt_file}", err=True)
             sys.exit(1)
-        click.echo(f"Loaded prompt from {prompt_file} ({len(prompt)} chars)")
+        display.prompt_loaded(str(prompt_file), len(prompt))
 
     if mode == "directed" and not prompt:
         click.echo("Error: --prompt or --prompt-file required for directed mode", err=True)
@@ -205,13 +225,19 @@ def run(
         sys.exit(1)
 
     seed_prompt = prompt or topic or ""
-    click.echo(f"Starting {mode} research cycle...")
+    display.starting_cycle(mode)
     if rounds is not None:
-        click.echo(f"Rounds per phase: {rounds} (override)")
+        display.rounds_override(rounds)
     if interactive:
-        click.echo("Interactive mode: will pause before major phase transitions")
+        display.interactive_mode()
     _run_research(
-        config, seed_prompt, mode, rounds=rounds, interactive=interactive, testing=testing
+        config,
+        seed_prompt,
+        mode,
+        rounds=rounds,
+        interactive=interactive,
+        testing=testing,
+        verbose=verbose,
     )
 
 

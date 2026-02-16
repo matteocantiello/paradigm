@@ -1550,3 +1550,36 @@ it just stripped prefixes and returned whatever string it got.
 - `configs/default.yaml` — Add google provider, route analyst/synthesizer/writer to Opus, skeptic/editor to Gemini, update testing overrides
 - `docs/MANUAL.md` — Add providers section, model assignment tables, multi-provider setup docs
 - `HISTORY.md` — This prompt logged
+---
+
+## 2026-02-16
+
+### Prompt — Rich Terminal UI Implementation
+
+> Implement the following plan: Rich Terminal UI for Paradigm using the `rich` library. Replace all 155 `click.echo()` calls with a DisplayManager that supports both rich terminal output and plain text fallback. Implementation in 4 phases: Phase 0 (scaffolding + click.echo replacement), Phase 1 (phase bar + stats), Phase 2 (live layout), Phase 3 (polish).
+
+**Artifacts:** `src/paradigm/display/` package (theme.py, manager.py, fallback.py, components.py, layout.py), modifications to engine.py, literature.py, debate.py, writing.py, review.py, main.py, tests.
+
+### Prompt — Replace click.echo in Handler Files with DisplayManager Calls
+
+> Replace ALL `click.echo` calls in these 4 handler files with `self._engine._display.method()` calls. Remove `import click` from each file: literature.py, debate.py, writing.py, review.py.
+
+**Key decisions:**
+- Each handler accesses display via `self._engine._display`
+- Display methods already defined on DisplayManager (manager.py) with both Rich and plain-text fallback
+- `import click` removed from all 4 handler files
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/literature.py` — 19 click.echo → display method calls
+- `src/paradigm/orchestrator/debate.py` — 12 click.echo → display method calls
+- `src/paradigm/orchestrator/writing.py` — 8 click.echo → display method calls
+- `src/paradigm/orchestrator/review.py` — 21 click.echo → display method calls
+- `HISTORY.md` — This prompt logged
+
+### Prompt — Replace click.echo in engine.py with DisplayManager
+
+> Replace ALL `click.echo` calls in engine.py with calls to `self._display` (a DisplayManager instance). Add `display: DisplayManager | None = None` parameter to `__init__()`, store as `self._display`, remove `import click`. Replace each click.echo with the appropriate DisplayManager method (phase_transition, phase_aborted, phase_paused, agent_response, agent_error, experiment_round, checkpoint_saved, token_summary, etc.).
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Replaced all 40+ click.echo calls with DisplayManager method calls, added display parameter to __init__, removed click import
+- `HISTORY.md` — This prompt logged

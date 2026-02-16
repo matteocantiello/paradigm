@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import click
-
 from paradigm.literature.prompt_utils import (
     format_cited_by_results,
     format_follow_results,
@@ -168,24 +166,18 @@ class LiteratureHandler:
             # Fuzzy dedup: skip queries that are near-duplicates of previous ones
             new_kw = _normalize_query_keywords(query)
             if _is_duplicate_query(new_kw, self.searched_query_keywords):
-                click.echo(f"    [~] Skipping similar query: {query[:60]}")
+                self._engine._display.search_skipped(query, reason="similar")
                 continue
 
             # Check per-round budget
             if self.search_count_this_round >= max_searches:
-                click.echo(
-                    f"    [!] Search budget exhausted ({max_searches}/round), "
-                    f"skipping: {query[:60]}"
-                )
+                self._engine._display.search_budget_exhausted(max_searches, query)
                 break
 
             # Check per-agent cap
             agent_count = self.agent_search_count.get(agent_id, 0)
             if agent_count >= per_agent_cap:
-                click.echo(
-                    f"    [!] {agent_id}: per-agent cap reached ({per_agent_cap}), "
-                    f"skipping: {query[:60]}"
-                )
+                self._engine._display.search_agent_cap(agent_id, per_agent_cap, query)
                 break
 
             try:
@@ -196,7 +188,7 @@ class LiteratureHandler:
                 self._engine._logger.log_error(
                     e, agent_id=agent_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] Search failed for '{query[:60]}': {e}")
+                self._engine._display.search_error(query, e)
                 continue
 
             self.searched_queries.add(query_key)
@@ -243,10 +235,7 @@ class LiteratureHandler:
             self.search_count_this_round += 1
             self.agent_search_count[agent_id] = self.agent_search_count.get(agent_id, 0) + 1
 
-            click.echo(
-                f"    {agent_id} searched: '{query[:60]}' \u2192 "
-                f"{len(papers)} results ({len(new_papers)} new)"
-            )
+            self._engine._display.search_result(agent_id, query, len(papers), len(new_papers))
 
             self._engine._logger.log(
                 EventType.LITERATURE_SEARCH,
@@ -269,7 +258,7 @@ class LiteratureHandler:
 
             # Early termination: 2 consecutive stale searches from this agent
             if consecutive_stale >= 2:
-                click.echo(f"    [!] {agent_id}: 2 consecutive stale searches, stopping keywords")
+                self._engine._display.search_stale(agent_id, 2)
                 examples = self._build_follow_examples(3)
                 stall_warning = (
                     "\n\n> **Warning:** Keyword searches are exhausted for this topic. "
@@ -321,11 +310,11 @@ class LiteratureHandler:
         # Process [FOLLOW: arxiv_id] requests
         for arxiv_id in parse_follow_requests(response_text):
             if self.follow_count_this_round >= lit_config.follow_budget_per_round:
-                click.echo(f"    [!] Follow budget exhausted, skipping: {arxiv_id}")
+                self._engine._display.follow_budget_exhausted(arxiv_id)
                 break
 
             if arxiv_id in self.followed_paper_ids:
-                click.echo(f"    [skip] Already followed refs of {arxiv_id}, skipping duplicate")
+                self._engine._display.follow_skipped(arxiv_id)
                 continue
 
             try:
@@ -336,7 +325,7 @@ class LiteratureHandler:
                 self._engine._logger.log_error(
                     e, agent_id=agent_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] Follow failed for '{arxiv_id}': {e}")
+                self._engine._display.follow_error(arxiv_id, e)
                 continue
 
             # Track discovered paper IDs
@@ -375,9 +364,7 @@ class LiteratureHandler:
                 }
             )
 
-            click.echo(
-                f"    {agent_id} followed refs of {arxiv_id} \u2192 {len(papers)} references"
-            )
+            self._engine._display.follow_result(agent_id, arxiv_id, len(papers))
 
             self._engine._logger.log(
                 EventType.LITERATURE_FOLLOW,
@@ -394,13 +381,11 @@ class LiteratureHandler:
         # Process [CITED_BY: arxiv_id] requests
         for arxiv_id in parse_cited_by_requests(response_text):
             if self.cited_by_count_this_round >= lit_config.cited_by_budget_per_round:
-                click.echo(f"    [!] Cited-by budget exhausted, skipping: {arxiv_id}")
+                self._engine._display.cited_by_budget_exhausted(arxiv_id)
                 break
 
             if arxiv_id in self.cited_by_paper_ids:
-                click.echo(
-                    f"    [skip] Already fetched citations of {arxiv_id}, skipping duplicate"
-                )
+                self._engine._display.cited_by_skipped(arxiv_id)
                 continue
 
             try:
@@ -411,7 +396,7 @@ class LiteratureHandler:
                 self._engine._logger.log_error(
                     e, agent_id=agent_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] Cited-by failed for '{arxiv_id}': {e}")
+                self._engine._display.cited_by_error(arxiv_id, e)
                 continue
 
             # Track discovered paper IDs
@@ -449,7 +434,7 @@ class LiteratureHandler:
                 }
             )
 
-            click.echo(f"    {agent_id} cited-by {arxiv_id} \u2192 {len(papers)} citations")
+            self._engine._display.cited_by_result(agent_id, arxiv_id, len(papers))
 
             self._engine._logger.log(
                 EventType.LITERATURE_CITED_BY,
@@ -466,11 +451,11 @@ class LiteratureHandler:
         # Process [READ: arxiv_id] requests
         for arxiv_id in parse_read_requests(response_text):
             if self.read_count_this_round >= lit_config.read_budget_per_round:
-                click.echo(f"    [!] Read budget exhausted, skipping: {arxiv_id}")
+                self._engine._display.read_budget_exhausted(arxiv_id)
                 break
 
             if arxiv_id in self.read_paper_ids:
-                click.echo(f"    [skip] Already read {arxiv_id}, skipping duplicate")
+                self._engine._display.read_skipped(arxiv_id)
                 continue
 
             try:
@@ -481,11 +466,11 @@ class LiteratureHandler:
                 self._engine._logger.log_error(
                     e, agent_id=agent_id, thread_id=self._engine._thread_id
                 )
-                click.echo(f"    [!] Read failed for '{arxiv_id}': {e}")
+                self._engine._display.read_error(arxiv_id, e)
                 continue
 
             if result is None:
-                click.echo(f"    [!] Could not read paper {arxiv_id}")
+                self._engine._display.read_not_found(arxiv_id)
                 continue
 
             title, extracted_text = result
@@ -499,9 +484,7 @@ class LiteratureHandler:
             self.read_count_this_round += 1
             self.read_paper_ids.add(arxiv_id)
 
-            click.echo(
-                f"    {agent_id} read {arxiv_id}: {title[:60]} ({len(extracted_text)} chars)"
-            )
+            self._engine._display.read_result(agent_id, arxiv_id, title, len(extracted_text))
 
             self._engine._logger.log(
                 EventType.LITERATURE_READ,
