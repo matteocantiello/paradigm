@@ -16,6 +16,7 @@ _LOG_OUTPUT_LIMIT: int = 2048
 # Agents frequently use standard aliases (np, pd, plt) without explicit imports;
 # this prevents NameError crashes for the most common scientific libraries.
 _SCIENCE_PREAMBLE = """\
+import re
 import numpy as np
 import scipy
 import matplotlib

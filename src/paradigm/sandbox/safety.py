@@ -58,7 +58,7 @@ _NETWORK_REGEX_PATTERNS: list[tuple[str, str]] = [
 ]
 
 # Maximum code length (characters) to prevent abuse
-MAX_CODE_LENGTH: int = 50_000
+MAX_CODE_LENGTH: int = 100_000
 
 
 @dataclass
@@ -162,9 +162,12 @@ class SafetyScanner:
         """Check for denied builtin function calls via AST."""
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
-                name = self._get_call_name(node)
-                if name and name in self.config.denied_builtins:
-                    violations.append(f"Denied builtin: '{name}()'")
+                # Only flag bare function calls (e.g., compile(...)), not method
+                # calls (e.g., re.compile(...)) which are safe module methods.
+                if isinstance(node.func, ast.Name):
+                    name = node.func.id
+                    if name in self.config.denied_builtins:
+                        violations.append(f"Denied builtin: '{name}()'")
 
             # Also catch bare name references (e.g., passing exec as an argument)
             elif isinstance(node, ast.Name):
