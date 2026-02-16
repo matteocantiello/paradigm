@@ -1583,3 +1583,23 @@ it just stripped prefixes and returned whatever string it got.
 **Artifacts modified:**
 - `src/paradigm/orchestrator/engine.py` — Replaced all 40+ click.echo calls with DisplayManager method calls, added display parameter to __init__, removed click import
 - `HISTORY.md` — This prompt logged
+
+## 2026-02-16
+
+### Prompt 30 — Fix Rich UI final summary disappearing
+
+> It works. One issue is that at the end of the execution the rich visualization disappears, and no information is provided to the user. There should be a static, final summary of the important information provided to the user, including where to find the paper.
+
+**Key decisions:**
+- Final summary panel is now printed **after** the Live display is torn down in `stop()`, so it persists on screen
+- `token_summary()` in Rich mode saves data for later rather than printing mid-Live (where it would be overwritten)
+- `DisplayState` extended with `thread_id`, `paper_id`, `paper_path`, and `outcome` fields
+- `build_final_summary()` now includes outcome status, thread ID, paper file path, token usage, elapsed time, and stats
+- Panel border color reflects outcome (green for success, red for failure)
+- Paper path is passed from `WritingHandler.save_paper_file()` through to the display
+
+**Artifacts modified:**
+- `src/paradigm/display/manager.py` — Added state fields, saved token summary, print final panel in stop()
+- `src/paradigm/display/components.py` — Extended build_final_summary() with outcome, thread, paper path
+- `src/paradigm/orchestrator/writing.py` — Pass paper_path to display.paper_saved()
+- `HISTORY.md` — This prompt logged

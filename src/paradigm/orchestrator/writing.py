@@ -93,7 +93,11 @@ class WritingHandler:
         # Write markdown file to papers directory
         self.save_paper_file(paper_id, draft.assembled_body)
 
-        self._engine._display.paper_saved(paper_id)
+        paper_path = ""
+        papers_dir = self._engine._config.storage.papers_dir
+        if papers_dir is not None:
+            paper_path = str(papers_dir / paper_id / f"{paper_id}.md")
+        self._engine._display.paper_saved(paper_id, paper_path=paper_path)
         return draft
 
     async def run_section_drafting(self, draft: PaperDraft) -> None:

@@ -270,6 +270,34 @@ def build_final_summary(
     content.append_text(build_phase_bar(state))
     content.append("\n\n")
 
+    # Outcome
+    if state.outcome:
+        outcome_style = {
+            "published": "bold green",
+            "completed": "bold green",
+            "reviewed": "bold green",
+            "rejected": "bold red",
+            "aborted": "bold red",
+            "writing_failed": "bold red",
+        }.get(state.outcome, "bold yellow")
+        content.append("Outcome: ", style="bold")
+        content.append(f"{state.outcome.upper()}\n", style=outcome_style)
+
+    # Thread ID
+    if state.thread_id:
+        content.append("Thread: ", style="bold")
+        content.append(f"{state.thread_id}\n", style="dim")
+
+    # Paper location
+    if state.paper_path:
+        content.append("Paper: ", style="bold")
+        content.append(f"{state.paper_path}\n", style="cyan")
+    elif state.paper_id:
+        content.append("Paper ID: ", style="bold")
+        content.append(f"{state.paper_id}\n", style="cyan")
+
+    content.append("\n")
+
     # Token usage
     content.append("Token usage: ", style="bold")
     content.append(f"{total_k:.1f}K total", style="magenta")
@@ -285,10 +313,13 @@ def build_final_summary(
     content.append("Searches: ", style="bold")
     content.append(f"{state.total_searches}\n", style="yellow")
 
+    # Border color matches outcome
+    border = "green" if state.outcome in ("published", "completed", "reviewed", "") else "red"
+
     return Panel(
         content,
         title="Research Cycle Complete",
-        border_style="green",
+        border_style=border,
         padding=(1, 2),
     )
 

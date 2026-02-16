@@ -29,6 +29,11 @@ class DisplayState:
     total_searches: int = 0
     papers_count: int = 0
     start_time: float = field(default_factory=time.monotonic)
+    # End-of-cycle info for the final summary
+    thread_id: str = ""
+    paper_id: str = ""
+    paper_path: str = ""
+    outcome: str = ""  # published, rejected, reviewed, etc.
 
     def add_event(self, event_type: str, message: str) -> None:
         """Add an event to the recent events list (capped at 20)."""
@@ -63,6 +68,8 @@ class DisplayManager:
         # Rich components (lazy-initialized in start())
         self._console: object | None = None
         self._live: object | None = None
+        # Saved token summary for the final static panel printed in stop()
+        self._token_summary: dict[str, object] = {}
 
     @property
     def state(self) -> DisplayState:
@@ -89,7 +96,7 @@ class DisplayManager:
         self._fallback.start()
 
     def stop(self) -> None:
-        """Stop the display system."""
+        """Stop the display system and print a static final summary."""
         if self._live is not None:
             try:
                 self._live.stop()  # type: ignore[union-attr]
@@ -97,6 +104,19 @@ class DisplayManager:
                 pass
             self._live = None
         self._fallback.stop()
+
+        # Print a static final summary that persists after the live display ends
+        if self._use_rich and self._console is not None and self._token_summary:
+            try:
+                from paradigm.display.components import build_final_summary
+
+                panel = build_final_summary(
+                    state=self._state,
+                    **self._token_summary,
+                )
+                self._console.print(panel)  # type: ignore[union-attr]
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -168,6 +188,7 @@ class DisplayManager:
             )
 
     def phase_aborted(self) -> None:
+        self._state.outcome = "aborted"
         self._state.add_event("phase", "Research cycle aborted")
         if self._use_rich:
             from paradigm.display.components import build_status_message
@@ -596,7 +617,10 @@ class DisplayManager:
         else:
             self._fallback.writing_assembly_error(error)
 
-    def paper_saved(self, paper_id: str) -> None:
+    def paper_saved(self, paper_id: str, *, paper_path: str = "") -> None:
+        self._state.paper_id = paper_id
+        if paper_path:
+            self._state.paper_path = paper_path
         self._state.add_event("writing", f"Paper saved: {paper_id}")
         if self._use_rich:
             from paradigm.display.components import build_status_message
@@ -621,6 +645,7 @@ class DisplayManager:
             self._fallback.figure_copied(filename)
 
     def writing_failed_skip_review(self) -> None:
+        self._state.outcome = "writing_failed"
         self._state.add_event("error", "Writing failed, skipping review")
         if self._use_rich:
             self._refresh()
@@ -628,6 +653,7 @@ class DisplayManager:
             self._fallback.writing_failed_skip_review()
 
     def writing_failed_review_exhausted(self) -> None:
+        self._state.outcome = "writing_failed"
         self._state.add_event("error", "Internal review never accepted paper")
         if self._use_rich:
             self._refresh()
@@ -787,20 +813,18 @@ class DisplayManager:
     # ------------------------------------------------------------------
 
     def paper_published(self) -> None:
+        self._state.outcome = "published"
         self._state.add_event("publication", "Paper PUBLISHED")
         if self._use_rich:
-            from paradigm.display.components import build_status_message
-
-            self._print_rich(build_status_message("Paper PUBLISHED", "success"))
+            self._refresh()
         else:
             self._fallback.paper_published()
 
     def paper_rejected(self) -> None:
+        self._state.outcome = "rejected"
         self._state.add_event("publication", "Paper REJECTED")
         if self._use_rich:
-            from paradigm.display.components import build_status_message
-
-            self._print_rich(build_status_message("Paper REJECTED", "error"))
+            self._refresh()
         else:
             self._fallback.paper_rejected()
 
@@ -827,17 +851,17 @@ class DisplayManager:
     # ------------------------------------------------------------------
 
     def token_summary(self, total_k: float, input_k: float, output_k: float, time_str: str) -> None:
+        # Save for the static final summary printed in stop()
+        self._token_summary = {
+            "total_k": total_k,
+            "input_k": input_k,
+            "output_k": output_k,
+            "time_str": time_str,
+        }
         if self._use_rich:
-            from paradigm.display.components import build_final_summary
-
-            panel = build_final_summary(
-                total_k=total_k,
-                input_k=input_k,
-                output_k=output_k,
-                time_str=time_str,
-                state=self._state,
-            )
-            self._print_rich(panel)
+            # Don't print now — the final summary is printed in stop() after
+            # the Live display is torn down so it persists on screen.
+            self._refresh()
         else:
             self._fallback.token_summary(total_k, input_k, output_k, time_str)
 
@@ -902,6 +926,9 @@ class DisplayManager:
             self._fallback.testing_mode()
 
     def cycle_complete(self, thread_id: str) -> None:
+        self._state.thread_id = thread_id
+        if not self._state.outcome:
+            self._state.outcome = "completed"
         self._state.add_event("complete", f"Thread: {thread_id}")
         if self._use_rich:
             self._refresh()
