@@ -15,7 +15,7 @@ providers:
   google:
     type: openai_compatible
     api_key_env: GEMINI_API_KEY
-    base_url: https://generativelanguage.googleapis.com/v1beta/
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
     default_model: gemini-3-pro-preview
 
 # Agent configuration

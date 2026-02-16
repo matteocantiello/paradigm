@@ -172,6 +172,7 @@ class OrchestrationEngine:
         self._agents = {a.agent_id: a for a in agents}
 
         # Phase 1: SEEDING
+        self._display.phase_transition(ResearchPhase.SEEDING)
         self._thread_id = await self._run_seeding_phase(seed_prompt, mode)
 
         # Initialize phase manager (starts at SEEDING, transition to IDEATION)

@@ -113,6 +113,114 @@ def strip_agent_scaffolding(text: str) -> str:
     return cleaned.strip()
 
 
+# ---------------------------------------------------------------------------
+# Unicode → LaTeX math post-processing
+# ---------------------------------------------------------------------------
+
+# Mapping of Unicode characters to their LaTeX equivalents (without $ delimiters).
+# The replacement function wraps each in $...$ only when the character appears
+# outside an existing math environment.
+_UNICODE_TO_LATEX: dict[str, str] = {
+    # Greek lowercase
+    "α": r"\alpha",
+    "β": r"\beta",
+    "γ": r"\gamma",
+    "δ": r"\delta",
+    "ε": r"\epsilon",
+    "ζ": r"\zeta",
+    "η": r"\eta",
+    "θ": r"\theta",
+    "λ": r"\lambda",
+    "μ": r"\mu",
+    "ν": r"\nu",
+    "ξ": r"\xi",
+    "π": r"\pi",
+    "ρ": r"\rho",
+    "σ": r"\sigma",
+    "τ": r"\tau",
+    "χ": r"\chi",
+    "ψ": r"\psi",
+    "ω": r"\omega",
+    # Greek uppercase
+    "Γ": r"\Gamma",
+    "Δ": r"\Delta",
+    "Λ": r"\Lambda",
+    "Σ": r"\Sigma",
+    "Ω": r"\Omega",
+    # Subscripts
+    "₀": "_0",
+    "₁": "_1",
+    "₂": "_2",
+    "₃": "_3",
+    "₄": "_4",
+    "₅": "_5",
+    "₆": "_6",
+    "₇": "_7",
+    "₈": "_8",
+    "₉": "_9",
+    # Superscripts
+    "⁰": "^0",
+    "¹": "^1",
+    "²": "^2",
+    "³": "^3",
+    "⁴": "^4",
+    "⁵": "^5",
+    "⁶": "^6",
+    "⁷": "^7",
+    "⁸": "^8",
+    "⁹": "^9",
+    "⁻": "^-",
+    # Math operators and relations
+    "≈": r"\approx",
+    "≥": r"\geq",
+    "≤": r"\leq",
+    "≠": r"\neq",
+    "∝": r"\propto",
+    "∈": r"\in",
+    "±": r"\pm",
+    "×": r"\times",
+    "→": r"\rightarrow",
+    "∞": r"\infty",
+    # Astronomy / special
+    "☉": r"\odot",
+    # Script / calligraphic letters
+    "ℒ": r"\mathcal{L}",
+    "ℳ": r"\mathcal{M}",
+    "𝒩": r"\mathcal{N}",
+}
+
+# Pre-compile a regex matching any of the Unicode characters in the mapping.
+_UNICODE_MATH_RE = re.compile("[" + re.escape("".join(_UNICODE_TO_LATEX.keys())) + "]")
+
+
+def sanitize_unicode_math(text: str) -> str:
+    """Replace Unicode math characters with LaTeX equivalents.
+
+    Splits the text on ``$`` delimiters so that characters already inside
+    math environments are left untouched.  Only non-math segments are
+    processed.
+
+    Args:
+        text: Markdown paper body, possibly containing Unicode math chars.
+
+    Returns:
+        Text with Unicode math replaced by ``$\\latex$`` equivalents.
+    """
+    if not text:
+        return text
+
+    # Fast path: nothing to replace
+    if not _UNICODE_MATH_RE.search(text):
+        return text
+
+    # Split on $ boundaries.  Even-indexed segments are outside math mode,
+    # odd-indexed segments are inside math mode.
+    parts = text.split("$")
+    for i in range(0, len(parts), 2):  # only non-math segments
+        parts[i] = _UNICODE_MATH_RE.sub(lambda m: f"${_UNICODE_TO_LATEX[m.group()]}$", parts[i])
+    return "$".join(parts)
+
+
 def parse_sections_from_markdown(markdown: str) -> dict[str, str]:
     """Extract sections from markdown text using ## headers.
 

@@ -14,6 +14,7 @@ from paradigm.journal.paper import (
     PaperSection,
     SectionDraft,
     parse_sections_from_markdown,
+    sanitize_unicode_math,
     strip_agent_scaffolding,
 )
 from paradigm.orchestrator.constants import (
@@ -314,6 +315,8 @@ class WritingHandler:
         path = paper_dir / f"{paper_id}.md"
         # Ensure figure image tags are embedded before writing
         body = self.embed_figures_inline(body)
+        # Convert any remaining Unicode math to LaTeX
+        body = sanitize_unicode_math(body)
         path.write_text(body)
         if self._engine._execution_figures:
             self.copy_figures_to_paper_dir(paper_id)

@@ -188,7 +188,7 @@ class ReviewHandler:
         self._engine._phase_manager.transition_to(ResearchPhase.SUBMITTED)
         self._engine._log_phase_transition(ResearchPhase.INTERNAL_REVIEW, ResearchPhase.SUBMITTED)
         self._engine._messages = []
-        self._engine._display.phase_transition("SUBMITTED (desk review)")
+        self._engine._display.phase_transition(ResearchPhase.SUBMITTED)
 
         # Update submitted_at in database
         thread = self._engine._db.get_thread(self._engine._thread_id)
@@ -282,6 +282,7 @@ class ReviewHandler:
         self._engine._log_phase_transition(ResearchPhase.SUBMITTED, ResearchPhase.PEER_REVIEW)
         self._engine._messages = []
         num_reviewers = self._engine._config.orchestrator.num_reviewers
+        self._engine._display.phase_transition(ResearchPhase.PEER_REVIEW)
         self._engine._display.peer_review_start(num_reviewers)
 
         # Create fresh reviewer agents (not reusing team agents)

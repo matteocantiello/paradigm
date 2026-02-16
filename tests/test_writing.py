@@ -15,6 +15,7 @@ from paradigm.journal.paper import (
     SectionDraft,
     parse_review_feedback,
     parse_sections_from_markdown,
+    sanitize_unicode_math,
     strip_agent_scaffolding,
 )
 from paradigm.orchestrator.engine import OrchestrationEngine
@@ -198,6 +199,53 @@ class TestStripAgentScaffolding:
         )
         result = strip_agent_scaffolding(text)
         assert result.startswith("# Title")
+
+
+# --- Unicode Math Sanitization Tests ---
+
+
+class TestSanitizeUnicodeMath:
+    def test_greek_letters(self):
+        assert sanitize_unicode_math("The value α is small") == r"The value $\alpha$ is small"
+
+    def test_subscripts(self):
+        assert sanitize_unicode_math("mass m₁") == "mass m$_1$"
+
+    def test_superscripts(self):
+        assert sanitize_unicode_math("x² + y²") == "x$^2$ + y$^2$"
+
+    def test_math_operators(self):
+        assert sanitize_unicode_math("a ≈ b") == r"a $\approx$ b"
+
+    def test_solar_symbol(self):
+        assert sanitize_unicode_math("M☉") == r"M$\odot$"
+
+    def test_no_double_wrap(self):
+        """Characters already inside $...$ should not be wrapped again."""
+        text = r"The spin $\chi$ is small"
+        assert sanitize_unicode_math(text) == text
+
+    def test_mixed_inline_and_outside(self):
+        text = r"We find α in $\beta$ and γ"
+        result = sanitize_unicode_math(text)
+        assert r"$\alpha$" in result
+        assert r"$\gamma$" in result
+        # The β inside math should stay untouched
+        assert r"$\beta$" in result
+
+    def test_empty_string(self):
+        assert sanitize_unicode_math("") == ""
+
+    def test_no_unicode(self):
+        text = "Plain text with no math"
+        assert sanitize_unicode_math(text) is text  # same object, fast path
+
+    def test_script_letters(self):
+        assert sanitize_unicode_math("the likelihood ℒ") == r"the likelihood $\mathcal{L}$"
+
+    def test_display_math_untouched(self):
+        text = "Text\n$$\n\\alpha + \\beta\n$$\nmore text"
+        assert sanitize_unicode_math(text) == text
 
 
 # --- Parsing Tests ---

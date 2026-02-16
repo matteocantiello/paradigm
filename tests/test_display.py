@@ -37,13 +37,13 @@ class TestDisplayState:
         assert state.recent_events[0]["message"] == "Found 5 papers"
         assert "time" in state.recent_events[0]
 
-    def test_events_capped_at_20(self):
+    def test_events_capped_at_50(self):
         state = DisplayState()
-        for i in range(30):
+        for i in range(60):
             state.add_event("test", f"Event {i}")
-        assert len(state.recent_events) == 20
+        assert len(state.recent_events) == 50
         # Should keep most recent
-        assert state.recent_events[-1]["message"] == "Event 29"
+        assert state.recent_events[-1]["message"] == "Event 59"
         assert state.recent_events[0]["message"] == "Event 10"
 
     def test_elapsed_seconds(self):

@@ -1625,3 +1625,33 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/agents/base.py` — Updated default max_tokens parameter
 - `tests/test_config.py` — Updated assertion for new default
 - `HISTORY.md` — This prompt logged
+
+### Prompt 41 — Fix Phase Display for Seeding, Internal, Submitted, Peer-Review, Published
+
+> In display (where the rich visualization is implemented) we need to make sure that 'seeding' is shown at the beginning as active and then marked as executed (green) once done. Currently it doesn't show. Same for internal, submitted, peer-review and published (if it gets there)
+
+**Key decisions:**
+- Add `phase_transition("SEEDING")` call before seeding phase runs
+- Add `phase_transition("PUBLISHED")` / `phase_transition("REJECTED")` in engine.py terminal states
+- Update `paper_published()` / `paper_rejected()` to move current phase to completed
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Added phase_transition calls for SEEDING, PUBLISHED, REJECTED
+- `src/paradigm/display/manager.py` — Updated paper_published/paper_rejected to update phase state
+- `HISTORY.md` — This prompt logged
+
+### Prompt 31 — LaTeX math notation in paper output
+
+> Ensure Paradigm's paper output uses LaTeX math notation instead of Unicode characters. Update writer and editor agent system prompts to require LaTeX math mode. Add a post-processing safety net that converts remaining Unicode math characters to LaTeX equivalents, being careful not to double-wrap characters already inside $...$ blocks.
+
+**Key decisions:**
+- Writer and editor system prompts updated with explicit LaTeX math rules
+- Post-processing regex pass added after final paper markdown is assembled
+- Unicode-to-LaTeX mapping covers Greek letters, sub/superscripts, math operators, astronomy symbols, script letters
+- Replacement logic splits on $ delimiters to avoid double-wrapping
+
+**Artifacts modified:**
+- Writer agent system prompt
+- Editor agent system prompt  
+- Post-processing step in writing pipeline
+- HISTORY.md — This prompt logged
