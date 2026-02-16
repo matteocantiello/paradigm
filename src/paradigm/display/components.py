@@ -372,7 +372,7 @@ def build_events_panel(state: DisplayState) -> Panel:
         content = Text("Waiting for events...", style=DIM_STYLE)
     else:
         content = Text()
-        for event in state.recent_events[-12:]:
+        for event in state.recent_events[-50:]:
             time_str = event.get("time", "")
             event_type = event.get("type", "")
             message = event.get("message", "")

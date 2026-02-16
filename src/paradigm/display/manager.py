@@ -24,7 +24,7 @@ class DisplayState:
     round_num: int = 0
     max_rounds: int = 0
     active_agents: dict[str, str] = field(default_factory=dict)  # agent_id -> activity
-    recent_events: list[dict[str, str]] = field(default_factory=list)  # capped at 20
+    recent_events: list[dict[str, str]] = field(default_factory=list)  # capped at 50
     total_tokens: int = 0
     total_searches: int = 0
     papers_count: int = 0
@@ -36,7 +36,7 @@ class DisplayState:
     outcome: str = ""  # published, rejected, reviewed, etc.
 
     def add_event(self, event_type: str, message: str) -> None:
-        """Add an event to the recent events list (capped at 20)."""
+        """Add an event to the recent events list (capped at 50)."""
         self.recent_events.append(
             {
                 "type": event_type,
@@ -44,8 +44,8 @@ class DisplayState:
                 "time": datetime.now(UTC).strftime("%H:%M:%S"),
             }
         )
-        if len(self.recent_events) > 20:
-            self.recent_events = self.recent_events[-20:]
+        if len(self.recent_events) > 50:
+            self.recent_events = self.recent_events[-50:]
 
     @property
     def elapsed_seconds(self) -> float:
@@ -155,7 +155,7 @@ class DisplayManager:
 
     def phase_transition(
         self,
-        phase_name: str,
+        phase_name: str | ResearchPhase,
         *,
         max_rounds: int | None = None,
         active_agents: int | None = None,
@@ -164,24 +164,41 @@ class DisplayManager:
         # Update state
         if self._state.current_phase is not None:
             self._state.completed_phases.append(self._state.current_phase)
-        try:
-            self._state.current_phase = ResearchPhase(phase_name.lower())
-        except ValueError:
-            pass
+
+        # Resolve phase: accept ResearchPhase enum, enum value, or enum member name
+        if isinstance(phase_name, ResearchPhase):
+            self._state.current_phase = phase_name
+        else:
+            resolved = None
+            clean = phase_name.strip().lower()
+            # Try as enum value first (e.g. "seeding", "internal", "peer_review")
+            for member in ResearchPhase:
+                if member.value == clean:
+                    resolved = member
+                    break
+            # Fallback: try as enum member name (e.g. "INTERNAL_REVIEW" -> "internal")
+            if resolved is None:
+                try:
+                    resolved = ResearchPhase[clean.upper()]
+                except KeyError:
+                    pass
+            if resolved is not None:
+                self._state.current_phase = resolved
         if max_rounds is not None:
             self._state.max_rounds = max_rounds
         self._state.round_num = 0
-        self._state.add_event("phase", f"Phase: {phase_name}")
+        display_name = phase_name if isinstance(phase_name, str) else phase_name.value.upper()
+        self._state.add_event("phase", f"Phase: {display_name}")
 
         if self._use_rich:
             from paradigm.display.components import build_phase_banner
 
-            banner = build_phase_banner(phase_name, self._state)
+            banner = build_phase_banner(display_name, self._state)
             self._print_rich(banner)
             self._refresh()
         else:
             self._fallback.phase_transition(
-                phase_name,
+                display_name,
                 max_rounds=max_rounds,
                 active_agents=active_agents,
                 total_agents=total_agents,
@@ -813,6 +830,11 @@ class DisplayManager:
     # ------------------------------------------------------------------
 
     def paper_published(self) -> None:
+        # Move current phase to completed and set PUBLISHED as current
+        if self._state.current_phase is not None:
+            self._state.completed_phases.append(self._state.current_phase)
+        self._state.current_phase = ResearchPhase.PUBLISHED
+        self._state.completed_phases.append(ResearchPhase.PUBLISHED)
         self._state.outcome = "published"
         self._state.add_event("publication", "Paper PUBLISHED")
         if self._use_rich:
@@ -821,6 +843,10 @@ class DisplayManager:
             self._fallback.paper_published()
 
     def paper_rejected(self) -> None:
+        # Move current phase to completed and set REJECTED as current
+        if self._state.current_phase is not None:
+            self._state.completed_phases.append(self._state.current_phase)
+        self._state.current_phase = ResearchPhase.REJECTED
         self._state.outcome = "rejected"
         self._state.add_event("publication", "Paper REJECTED")
         if self._use_rich:
