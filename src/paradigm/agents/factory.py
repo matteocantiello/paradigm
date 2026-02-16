@@ -112,6 +112,12 @@ class AgentFactory:
         # Resolve provider + model for this role
         provider, resolved_model = self._config.get_provider_and_model_for_role(role)
 
+        # Resolve per-role max_tokens (override → global default)
+        override = self._config.agent.overrides.get(role)
+        role_max_tokens = self._config.agent.max_tokens
+        if override and override.max_tokens is not None:
+            role_max_tokens = override.max_tokens
+
         # Build Agent kwargs
         agent_kwargs: dict[str, Any] = {
             "agent_id": agent_id,
@@ -119,7 +125,7 @@ class AgentFactory:
             "system_prompt": system_prompt,
             "provider": provider,
             "model": kwargs.pop("model", resolved_model),
-            "max_tokens": kwargs.pop("max_tokens", self._config.agent.max_tokens),
+            "max_tokens": kwargs.pop("max_tokens", role_max_tokens),
             "temperature": kwargs.pop("temperature", self._config.agent.temperature),
         }
         agent_kwargs.update(kwargs)

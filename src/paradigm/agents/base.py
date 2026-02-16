@@ -51,7 +51,7 @@ class Agent:
         system_prompt: str,
         provider: LLMProvider,
         model: str = "claude-sonnet-4-5-20250929",
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
         temperature: float = 1.0,
     ) -> None:
         """Initialize agent.

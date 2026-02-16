@@ -22,7 +22,7 @@ providers:
 agent:
   default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
   opus_model: "claude-opus-4-6"
-  max_tokens: 4096
+  max_tokens: 8192
   temperature: 1.0
   token_budget_per_thread: 1000000
   token_budget_per_agent: 100000
@@ -31,18 +31,24 @@ agent:
     theorist:
       provider: anthropic
       model: claude-opus-4-6
+      token_budget_per_agent: 300000
     experimentalist:
       provider: anthropic
       model: claude-opus-4-6
+      token_budget_per_agent: 300000
     analyst:
       provider: anthropic
       model: claude-opus-4-6
+      token_budget_per_agent: 300000
     synthesizer:
       provider: anthropic
       model: claude-opus-4-6
+      token_budget_per_agent: 300000
     writer:
       provider: anthropic
       model: claude-opus-4-6
+      max_tokens: 16384
+      token_budget_per_agent: 300000
     skeptic:
       provider: google
       model: gemini-3-pro-preview

@@ -19,6 +19,8 @@ class AgentOverrideConfig(BaseModel):
 
     provider: str | None = None  # name from providers registry
     model: str | None = None
+    max_tokens: int | None = None
+    token_budget_per_agent: int | None = None
 
 
 class AgentConfig(BaseModel):
@@ -26,7 +28,7 @@ class AgentConfig(BaseModel):
 
     default_model: str = "claude-sonnet-4-5-20250929"
     opus_model: str = "claude-opus-4-6-20250514"
-    max_tokens: int = 4096
+    max_tokens: int = 8192
     temperature: float = 1.0
     token_budget_per_thread: int = 1_000_000
     token_budget_per_agent: int = 100_000

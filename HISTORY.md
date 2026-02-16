@@ -1603,3 +1603,25 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/display/components.py` — Extended build_final_summary() with outcome, thread, paper path
 - `src/paradigm/orchestrator/writing.py` — Pass paper_path to display.paper_saved()
 - `HISTORY.md` — This prompt logged
+
+## 2026-02-16
+
+### Prompt 40 — Adjust Token Budgets and Max Tokens
+
+> Let's have a look at paradigm configuration file
+> Are these values for max_tokens and token_budget reasonable?
+> Let's adjust this. Let's increase max_tokens: 16384 for writers and 8192 as default. Let's raise token_budget_per_agent: 300,000 for heavy-use roles
+
+**Key decisions:**
+- Global `max_tokens` raised from 4096 → 8192
+- Writer role gets `max_tokens: 16384` (papers need more output room)
+- Heavy-use roles (theorist, experimentalist, analyst, synthesizer, writer) get `token_budget_per_agent: 300,000` (up from 100K global default)
+- `AgentOverrideConfig` extended to support per-role `max_tokens` and `token_budget_per_agent`
+
+**Artifacts modified:**
+- `configs/default.yaml` — Updated token values and per-role overrides
+- `src/paradigm/config.py` — Extended AgentOverrideConfig, updated default max_tokens
+- `src/paradigm/agents/factory.py` — Resolve per-role max_tokens from overrides
+- `src/paradigm/agents/base.py` — Updated default max_tokens parameter
+- `tests/test_config.py` — Updated assertion for new default
+- `HISTORY.md` — This prompt logged
