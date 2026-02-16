@@ -132,7 +132,31 @@ def parse_sections_from_markdown(markdown: str) -> dict[str, str]:
 
     # parts[0] is text before first ##, then alternating header/content
     for i in range(1, len(parts) - 1, 2):
-        header = parts[i].strip().lower()
+        header = parts[i].strip().rstrip(":").lower()
+        content = parts[i + 1].strip()
+        sections[header] = content
+
+    return sections
+
+
+def _parse_h3_sections(markdown: str) -> dict[str, str]:
+    """Extract sections from markdown text using ### headers.
+
+    Used as a fallback when ## parsing misses sections because the editor
+    used ### headers (e.g. under a ## wrapper heading).
+
+    Args:
+        markdown: Markdown text with ### section headers.
+
+    Returns:
+        Dict mapping section name (lowercase) to section content.
+    """
+    sections: dict[str, str] = {}
+    pattern = r"^###\s+(.+?)$"
+    parts = re.split(pattern, markdown, flags=re.MULTILINE)
+
+    for i in range(1, len(parts) - 1, 2):
+        header = parts[i].strip().rstrip(":").lower()
         content = parts[i + 1].strip()
         sections[header] = content
 
@@ -143,6 +167,7 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
     """Parse structured review feedback from editor's response.
 
     Expects markdown with sections: Strengths, Weaknesses, Required Changes, Recommendation.
+    Falls back to ### headers and full-text scanning if ## parsing fails.
 
     Args:
         text: Editor's review text.
@@ -151,6 +176,13 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
         ReviewFeedback with parsed fields.
     """
     sections = parse_sections_from_markdown(text)
+
+    # Fallback: if ## parsing didn't find a recommendation, try ### headers
+    if "recommendation" not in sections:
+        h3_sections = _parse_h3_sections(text)
+        for key, value in h3_sections.items():
+            if key not in sections:
+                sections[key] = value
 
     def _extract_list(content: str) -> list[str]:
         """Extract bullet points from markdown list."""
@@ -168,8 +200,17 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
     required_changes = _extract_list(sections.get("required changes", ""))
 
     # Parse recommendation
-    rec_text = sections.get("recommendation", "revise").strip().lower()
-    recommendation = "accept" if "accept" in rec_text else "revise"
+    if "recommendation" in sections:
+        rec_text = sections["recommendation"].strip().lower()
+        recommendation = "accept" if "accept" in rec_text else "revise"
+    else:
+        # Full-text fallback: scan body for accept/revise when recommendation
+        # section is missing entirely (e.g. due to truncation)
+        text_lower = text.lower()
+        if "accept" in text_lower and "revise" not in text_lower:
+            recommendation = "accept"
+        else:
+            recommendation = "revise"
 
     return ReviewFeedback(
         strengths=strengths,

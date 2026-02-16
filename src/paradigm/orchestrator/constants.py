@@ -248,6 +248,9 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "You are reviewing a research paper for internal quality control.\n"
             "Topic: {seed_prompt}\n\n"
             "## Paper Draft\n{current_draft}\n\n"
+            "IMPORTANT: You MUST include the ## Recommendation section. "
+            "Keep your review concise to ensure all sections are included. "
+            "Use exactly ## headers (not ###).\n\n"
             "Provide a structured review with these sections (use ## headers):\n"
             "## Strengths\n- What works well\n\n"
             "## Weaknesses\n- What needs improvement\n\n"
@@ -422,6 +425,7 @@ _PHASE_CONTEXT_NEEDS: dict[ResearchPhase, set[str]] = {
 # ---------------------------------------------------------------------------
 
 _WRITING_MAX_TOKENS = 32768
+_REVIEW_MAX_TOKENS = 8192
 _PAPER_CONTEXT_LIMIT = 50000
 _LITERATURE_CONTEXT_LIMIT = 15000
 _MIN_PAPER_LENGTH = 10000

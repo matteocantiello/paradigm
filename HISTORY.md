@@ -1503,3 +1503,35 @@ it just stripped prefixes and returned whatever string it got.
 **Artifacts modified:**
 - `docs/MANUAL.md` — New literature search section + config updates
 - `HISTORY.md` — This prompt logged
+
+---
+
+## 2026-02-16
+
+### Prompt 43 — Fix Editor Review Parsing + Missing Token Summary
+
+> Implement the following plan: Fix Editor Review Parsing + Missing Token Summary
+>
+> The latest Paradigm run (thread-f77c4ffcc059) hit `writing_failed` after 3 internal review iterations despite the editor having 0 required changes on iterations 2-3. Three compounding issues:
+> 1. Max tokens truncation — Editor `generate()` uses default `max_tokens=4096`. The prompt puts Recommendation last, so it gets cut off. Iterations 2-3 both hit exactly 4096 tokens.
+> 2. Header level mismatch — Editor used `### Recommendation` (h3) under a `## Scientific Editorial Review` wrapper. The parser only matches `##` headers.
+> 3. Unsafe default — When recommendation section is missing (truncation or wrong header), `parse_review_feedback` defaults to "revise". Any parsing failure = revise.
+>
+> Additionally, the `writing_failed` early return from the previous commit skips `_print_token_summary()` and `_save_auxiliary_files()`.
+>
+> Fixes: (1) Add token summary to writing_failed early return, (2) Increase editor review max_tokens to 8192, (3) Make parse_review_feedback resilient to ### headers and truncation, (4) Strengthen editor review prompt, (5) Add tests.
+
+**Key decisions:**
+- `_REVIEW_MAX_TOKENS = 8192` — prevents truncation of Recommendation section
+- `_parse_h3_sections()` local helper — fallback for ### headers without changing shared parser
+- Full-text fallback — if no Recommendation section found, scan for "accept" vs "revise" in body
+- Strip trailing colons from header keys in both parsers
+- Prompt strengthened to require `## Recommendation` and `##` headers
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — Add `_save_auxiliary_files` + `_print_token_summary` to writing_failed return
+- `src/paradigm/orchestrator/constants.py` — Add `_REVIEW_MAX_TOKENS = 8192`, strengthen editor_review prompt
+- `src/paradigm/orchestrator/review.py` — Pass `max_tokens=_REVIEW_MAX_TOKENS` to editor.generate()
+- `src/paradigm/journal/paper.py` — Add `_parse_h3_sections`, enhance `parse_review_feedback` with fallbacks, strip colons from keys
+- `tests/test_writing.py` — Add 3 tests for parse_review_feedback edge cases
+- `HISTORY.md` — This prompt logged

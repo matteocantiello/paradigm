@@ -284,6 +284,10 @@ class OrchestrationEngine:
             thread = self._db.get_thread(self._thread_id)
             if thread and thread.get("status") == "writing_failed":
                 click.echo("  Writing failed — internal review never accepted the paper.")
+                paper_id = thread.get("current_draft_id") if thread else None
+                if paper_id:
+                    self._save_auxiliary_files(paper_id)
+                self._print_token_summary()
                 return self._thread_id
 
             # Phase 6: PEER REVIEW PIPELINE (optional)

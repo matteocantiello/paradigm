@@ -257,6 +257,36 @@ class TestParseReviewFeedback:
         fb = parse_review_feedback(review)
         assert len(fb.strengths) == 2
 
+    def test_h3_headers_fallback(self):
+        """### headers are parsed when ## parsing misses recommendation."""
+        review = (
+            "## Scientific Editorial Review\n\n"
+            "### Strengths\n- Good analysis\n\n"
+            "### Weaknesses\n- Needs more data\n\n"
+            "### Required Changes\n- None\n\n"
+            "### Recommendation\nAccept"
+        )
+        fb = parse_review_feedback(review)
+        assert fb.recommendation == "accept"
+        assert len(fb.strengths) == 1
+
+    def test_missing_recommendation_fulltext_fallback(self):
+        """When no Recommendation section exists, scan full text."""
+        review = (
+            "## Strengths\n- Excellent methodology\n\n"
+            "## Weaknesses\n- Minor formatting issues\n\n"
+            "## Required Changes\n- None\n\n"
+            "Overall this paper is ready to accept for publication."
+        )
+        fb = parse_review_feedback(review)
+        assert fb.recommendation == "accept"
+
+    def test_header_with_trailing_colon(self):
+        """## Recommendation: (with colon) is parsed correctly."""
+        review = "## Strengths:\n- Clear writing\n\n## Recommendation:\nAccept"
+        fb = parse_review_feedback(review)
+        assert fb.recommendation == "accept"
+
 
 # --- Engine Integration Tests ---
 

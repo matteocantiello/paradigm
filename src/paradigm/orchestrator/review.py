@@ -19,6 +19,7 @@ from paradigm.orchestrator.constants import (
     _MIN_PAPER_LENGTH,
     _PAPER_CONTEXT_LIMIT,
     _PHASE_INSTRUCTIONS,
+    _REVIEW_MAX_TOKENS,
     _WRITING_MAX_TOKENS,
 )
 from paradigm.orchestrator.phases import ResearchPhase
@@ -71,7 +72,7 @@ class ReviewHandler:
             )
 
             try:
-                response = await editor.generate(prompt)
+                response = await editor.generate(prompt, max_tokens=_REVIEW_MAX_TOKENS)
             except Exception as e:
                 self._engine._logger.log_error(
                     e, agent_id=editor.agent_id, thread_id=self._engine._thread_id
