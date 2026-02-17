@@ -91,3 +91,48 @@ def test_env_var_override():
 
         # Cleanup
         del os.environ["PARADIGM_DATA_DIR"]
+
+
+def test_citation_config_defaults():
+    """Test CitationConfig default values."""
+    os.environ["ANTHROPIC_API_KEY"] = "test-key"
+    config = Config()
+
+    assert config.citation.enable_citation_grounding is False
+    assert config.citation.perplexity_api_key_env == "PERPLEXITY_API_KEY"
+    assert config.citation.citation_sections == ["introduction", "methods"]
+    assert config.citation.max_retries_per_paragraph == 2
+    assert config.citation.perplexity_timeout == 120.0
+    assert config.citation.enable_novelty_check is False
+    assert config.citation.novelty_mode == "semantic_scholar"
+    assert config.citation.futurehouse_api_key_env == "FUTURE_HOUSE_API_KEY"
+    assert config.citation.novelty_max_iterations == 5
+
+
+def test_citation_config_from_yaml():
+    """Test loading CitationConfig from YAML."""
+    os.environ["ANTHROPIC_API_KEY"] = "test-key"
+
+    with TemporaryDirectory() as tmpdir:
+        config_path = Path(tmpdir) / "test_config.yaml"
+
+        config_data = {
+            "citation": {
+                "enable_citation_grounding": True,
+                "citation_sections": ["introduction", "methods", "discussion"],
+                "perplexity_timeout": 60.0,
+                "enable_novelty_check": True,
+                "novelty_mode": "futurehouse",
+            },
+        }
+
+        with open(config_path, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_config(config_path)
+
+        assert config.citation.enable_citation_grounding is True
+        assert config.citation.citation_sections == ["introduction", "methods", "discussion"]
+        assert config.citation.perplexity_timeout == 60.0
+        assert config.citation.enable_novelty_check is True
+        assert config.citation.novelty_mode == "futurehouse"

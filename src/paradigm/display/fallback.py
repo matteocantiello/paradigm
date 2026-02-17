@@ -431,3 +431,42 @@ class PlainTextFallback:
 
     def interactive_mode(self) -> None:
         click.echo("Interactive mode: will pause before major phase transitions")
+
+    # ------------------------------------------------------------------
+    # Seed discovery
+    # ------------------------------------------------------------------
+
+    def seed_discovery_start(self) -> None:
+        click.echo("  Seed discovery: querying Perplexity for initial literature...")
+
+    def seed_discovery_complete(self, num_papers: int) -> None:
+        click.echo(f"  Seed discovery complete: {num_papers} papers found")
+
+    def seed_discovery_error(self, error: str | Exception) -> None:
+        click.echo(f"  [!] Seed discovery failed: {error}")
+
+    # ------------------------------------------------------------------
+    # Citation grounding
+    # ------------------------------------------------------------------
+
+    def citation_grounding_start(self) -> None:
+        click.echo("  Citation grounding: processing sections...")
+
+    def citation_grounding_complete(self, num_citations: int) -> None:
+        click.echo(f"  Citation grounding complete: {num_citations} citations added")
+
+    def citation_grounding_error(self, error: str | Exception) -> None:
+        click.echo(f"  [!] Citation grounding failed: {error}")
+
+    # ------------------------------------------------------------------
+    # Novelty checking
+    # ------------------------------------------------------------------
+
+    def novelty_check_start(self, mode: str) -> None:
+        click.echo(f"  Novelty check ({mode})...")
+
+    def novelty_warning(self, result: object) -> None:
+        click.echo("  [!] Novelty check: idea may not be novel")
+
+    def novelty_confirmed(self) -> None:
+        click.echo("  Novelty check: idea appears novel")

@@ -137,3 +137,19 @@ memory:
   recency_half_life_days: 30.0
   collection_name: "agent_memories"
   max_memory_chars: 2000
+
+# Citation grounding and novelty checking
+citation:
+  enable_citation_grounding: true
+  perplexity_api_key_env: "PERPLEXITY_API_KEY"
+  citation_sections:
+    - "introduction"
+    - "methods"
+  max_retries_per_paragraph: 2
+  perplexity_timeout: 120.0
+  enable_novelty_check: false
+  novelty_mode: "semantic_scholar"
+  futurehouse_api_key_env: "FUTURE_HOUSE_API_KEY"
+  novelty_max_iterations: 5
+  enable_seed_discovery: true
+  seed_discovery_max_papers: 10

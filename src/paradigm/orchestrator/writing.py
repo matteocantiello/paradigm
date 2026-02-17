@@ -55,6 +55,14 @@ class WritingHandler:
         assembled_body = self.embed_figures_inline(assembled_body)
         draft.assembled_body = assembled_body
 
+        # Citation grounding (non-fatal on failure)
+        if self._engine._config.citation.enable_citation_grounding:
+            try:
+                draft = await self._engine._citation_handler.run_citation_grounding(draft)
+            except Exception as e:
+                self._engine._logger.log_error(e, thread_id=self._engine._thread_id)
+                self._engine._display.citation_grounding_error(e)
+
         # Validate paper length — if all agents failed, the draft is empty
         if len(draft.assembled_body) < _MIN_PAPER_LENGTH:
             self._engine._display.paper_too_short(len(draft.assembled_body), _MIN_PAPER_LENGTH)

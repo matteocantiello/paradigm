@@ -47,6 +47,7 @@ from paradigm.orchestrator.constants import (
     _is_vacuous_success,
     _list_shared_files,
 )
+from paradigm.orchestrator.citation_handler import CitationHandler
 from paradigm.orchestrator.debate import DebateHandler
 from paradigm.orchestrator.literature import LiteratureHandler
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
@@ -131,6 +132,7 @@ class OrchestrationEngine:
         self._debate = DebateHandler(self)
         self._writing = WritingHandler(self)
         self._review = ReviewHandler(self)
+        self._citation_handler = CitationHandler(self)
 
     async def run_research_cycle(
         self,
@@ -178,6 +180,16 @@ class OrchestrationEngine:
         # Initialize phase manager (starts at SEEDING, transition to IDEATION)
         self._phase_manager = PhaseManager(ResearchPhase.SEEDING)
 
+        # Seed discovery via Perplexity (optional, pre-populates literature context)
+        if self._config.citation.enable_seed_discovery:
+            try:
+                n = await self._literature.run_seed_discovery(seed_prompt)
+                if n > 0:
+                    self._display.seed_discovery_complete(n)
+            except Exception as e:
+                self._logger.log_error(e, thread_id=self._thread_id)
+                self._display.seed_discovery_error(e)
+
         # Phase 2: IDEATION
         max_rounds = self._config.orchestrator.max_rounds_per_phase
         checkpoint_interval = self._config.orchestrator.checkpoint_interval
@@ -202,6 +214,21 @@ class OrchestrationEngine:
             max_rounds=max_rounds,
             checkpoint_interval=checkpoint_interval,
         )
+
+        # Novelty check (optional, after IDEATION)
+        if self._config.citation.enable_novelty_check:
+            try:
+                novelty = await self._citation_handler.check_novelty(
+                    seed_prompt, self._config.citation.novelty_mode
+                )
+                if not novelty.is_novel:
+                    self._display.warning(
+                        f"Novelty check: idea may not be novel "
+                        f"(confidence: {novelty.confidence:.0%}, "
+                        f"{novelty.papers_found} related papers found)"
+                    )
+            except Exception as e:
+                self._logger.log_error(e, thread_id=self._thread_id)
 
         # Phase 3: PLANNING (intervention check)
         intervention = self._check_intervention("ideation", "planning")

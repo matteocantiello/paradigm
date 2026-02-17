@@ -1000,3 +1000,79 @@ class DisplayManager:
             self._refresh()
         else:
             self._fallback.interactive_mode()
+
+    # ------------------------------------------------------------------
+    # Seed discovery
+    # ------------------------------------------------------------------
+
+    def seed_discovery_start(self) -> None:
+        self._state.add_event("seed_discovery", "Querying Perplexity for initial literature")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.seed_discovery_start()
+
+    def seed_discovery_complete(self, num_papers: int) -> None:
+        self._state.papers_count += num_papers
+        self._state.add_event("seed_discovery", f"{num_papers} papers found")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.seed_discovery_complete(num_papers)
+
+    def seed_discovery_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", f"Seed discovery failed: {error}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.seed_discovery_error(error)
+
+    # ------------------------------------------------------------------
+    # Citation grounding
+    # ------------------------------------------------------------------
+
+    def citation_grounding_start(self) -> None:
+        self._state.add_event("citation", "Citation grounding started")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.citation_grounding_start()
+
+    def citation_grounding_complete(self, num_citations: int) -> None:
+        self._state.add_event("citation", f"{num_citations} citations added")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.citation_grounding_complete(num_citations)
+
+    def citation_grounding_error(self, error: str | Exception) -> None:
+        self._state.add_event("error", f"Citation grounding failed: {error}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.citation_grounding_error(error)
+
+    # ------------------------------------------------------------------
+    # Novelty checking
+    # ------------------------------------------------------------------
+
+    def novelty_check_start(self, mode: str) -> None:
+        self._state.add_event("novelty", f"Novelty check ({mode})")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.novelty_check_start(mode)
+
+    def novelty_warning(self, result: object) -> None:
+        self._state.add_event("warning", "Idea may not be novel")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.novelty_warning(result)
+
+    def novelty_confirmed(self) -> None:
+        self._state.add_event("novelty", "Idea appears novel")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.novelty_confirmed()

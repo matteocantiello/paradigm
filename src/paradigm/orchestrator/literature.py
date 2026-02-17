@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import TYPE_CHECKING, Any
 
+from paradigm.literature.bibliography import extract_arxiv_id_from_url
+from paradigm.literature.perplexity import PerplexityClient
 from paradigm.literature.prompt_utils import (
     format_cited_by_results,
     format_follow_results,
@@ -25,6 +29,8 @@ from paradigm.orchestrator.phases import ResearchPhase
 
 if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
+
+_logger = logging.getLogger(__name__)
 
 
 class LiteratureHandler:
@@ -120,6 +126,84 @@ class LiteratureHandler:
             lines.append(f"- [{arxiv_id}] {first_author}: {short_title}")
         lines.append("")
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Seed discovery (Perplexity-based pre-seeding)
+    # ------------------------------------------------------------------
+
+    async def run_seed_discovery(self, seed_prompt: str) -> int:
+        """Query Perplexity to discover foundational papers before IDEATION.
+
+        Args:
+            seed_prompt: The research topic / seed prompt.
+
+        Returns:
+            Number of papers successfully ingested.
+        """
+        config = self._engine._config
+        if not config.citation.enable_seed_discovery:
+            return 0
+
+        api_key = os.environ.get(config.citation.perplexity_api_key_env)
+        if not api_key:
+            self._engine._logger.log_error(
+                "Seed discovery: PERPLEXITY_API_KEY not set",
+                thread_id=self._engine._thread_id,
+            )
+            return 0
+
+        self._engine._display.seed_discovery_start()
+
+        max_papers = config.citation.seed_discovery_max_papers
+        client = PerplexityClient(
+            api_key=api_key,
+            event_logger=self._engine._logger,
+            timeout=config.citation.perplexity_timeout,
+        )
+
+        try:
+            urls = await client.discover_papers(seed_prompt)
+        except Exception as e:
+            _logger.warning("Seed discovery Perplexity call failed: %s", e)
+            await client.close()
+            return 0
+
+        papers = []
+        for url in urls[:max_papers]:
+            arxiv_id = extract_arxiv_id_from_url(url)
+            if not arxiv_id or arxiv_id in self.seen_paper_ids:
+                continue
+
+            try:
+                paper = await self._engine._corpus._arxiv.get_paper(arxiv_id)
+                if paper is None:
+                    continue
+                await self._engine._corpus.ingest_paper(paper)
+                self.seen_paper_ids.add(arxiv_id)
+                first_author = paper.authors[0] if paper.authors else "Unknown"
+                self._track_paper(arxiv_id, paper.title, first_author)
+                papers.append(paper)
+            except Exception as e:
+                _logger.warning("Seed discovery: failed to ingest %s: %s", arxiv_id, e)
+                continue
+
+        if papers:
+            formatted = format_search_results("Seed discovery", papers)
+            self.literature_context = formatted
+
+        await client.close()
+
+        self._engine._logger.log(
+            EventType.SEED_DISCOVERY,
+            content={
+                "seed_prompt": seed_prompt[:200],
+                "urls_found": len(urls),
+                "papers_ingested": len(papers),
+            },
+            thread_id=self._engine._thread_id,
+        )
+
+        return len(papers)
 
     # ------------------------------------------------------------------
     # Search requests ([SEARCH: ...])

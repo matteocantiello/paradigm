@@ -135,6 +135,24 @@ class MemoryConfig(BaseModel):
     max_memory_chars: int = 2000
 
 
+class CitationConfig(BaseModel):
+    """Configuration for citation grounding and novelty checking."""
+
+    enable_citation_grounding: bool = False
+    perplexity_api_key_env: str = "PERPLEXITY_API_KEY"
+    citation_sections: list[str] = Field(
+        default_factory=lambda: ["introduction", "methods"]
+    )
+    max_retries_per_paragraph: int = 2
+    perplexity_timeout: float = 120.0
+    enable_novelty_check: bool = False
+    novelty_mode: str = "semantic_scholar"  # or "futurehouse"
+    futurehouse_api_key_env: str = "FUTURE_HOUSE_API_KEY"
+    novelty_max_iterations: int = 5
+    enable_seed_discovery: bool = False
+    seed_discovery_max_papers: int = 10
+
+
 class ProviderConfigEntry(BaseModel):
     """Configuration for a single LLM provider in the registry."""
 
@@ -154,6 +172,7 @@ class Config(BaseModel):
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    citation: CitationConfig = Field(default_factory=CitationConfig)
     providers: dict[str, ProviderConfigEntry] = Field(default_factory=dict)
     testing_overrides: dict[str, AgentOverrideConfig] = Field(default_factory=dict)
     api_key: str | None = Field(default=None, validate_default=True)

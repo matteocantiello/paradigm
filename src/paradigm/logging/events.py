@@ -28,6 +28,9 @@ class EventType(StrEnum):
     LITERATURE_FOLLOW = "literature_follow"
     LITERATURE_CITED_BY = "literature_cited_by"
     LITERATURE_READ = "literature_read"
+    CITATION_GROUNDING = "citation_grounding"
+    NOVELTY_CHECK = "novelty_check"
+    SEED_DISCOVERY = "seed_discovery"
 
 
 class Event(BaseModel):

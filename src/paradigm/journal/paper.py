@@ -49,6 +49,7 @@ class PaperDraft(BaseModel):
     title: str = ""
     sections: dict[PaperSection, SectionDraft] = Field(default_factory=dict)
     assembled_body: str = ""  # Full markdown after writer assembly
+    references: list[dict] = Field(default_factory=list)
 
     def add_section(self, draft: SectionDraft) -> None:
         """Add or replace a section draft."""
