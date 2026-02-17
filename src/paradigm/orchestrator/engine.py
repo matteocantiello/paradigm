@@ -32,17 +32,12 @@ from paradigm.orchestrator.constants import (
     _CONVERGENCE_CHECK_PROMPT,
     _DEBATE_ENABLED_PHASES,
     _GENERAL_LATER_ROUND_REINFORCEMENT,
-    _LITERATURE_INSTRUCTION,
     _MODE_PROMPT_OVERRIDES,
     _PHASE_ACTIVE_ROLES,
     _PHASE_CONTEXT_NEEDS,
     _PHASE_INSTRUCTIONS,
     _RECENT_MESSAGES_LIMIT,
-    _ROLE_LATER_ROUND_REINFORCEMENTS,
-    _ROLE_SEARCH_STRATEGIES,
     _SEARCH_ENABLED_PHASES,
-    DEFAULT_TEAM_ROLES,
-    MODE_TEAM_ROLES,
     InterventionHook,
 )
 from paradigm.orchestrator.debate import DebateHandler
@@ -150,14 +145,29 @@ class OrchestrationEngine:
         Args:
             seed_prompt: The research question or topic.
             mode: Operating mode (directed, explore, etc.).
-            team_roles: Agent roles to include. Defaults to DEFAULT_TEAM_ROLES.
+            team_roles: Agent roles to include. Defaults to profile-defined roles.
 
         Returns:
             Thread ID of the completed cycle.
         """
         self._mode = mode
         if team_roles is None:
-            team_roles = list(MODE_TEAM_ROLES.get(mode, DEFAULT_TEAM_ROLES))
+            if self._profile is not None and self._profile.default_roles:
+                # Use domain profile for team composition
+                default_fallback = list(
+                    next(iter(self._profile.default_roles.values()), [])
+                )
+                team_roles = list(
+                    self._profile.default_roles.get(mode, default_fallback)
+                )
+            else:
+                # Fallback to hardcoded science defaults
+                from paradigm.orchestrator.constants import (
+                    DEFAULT_TEAM_ROLES,
+                    MODE_TEAM_ROLES,
+                )
+
+                team_roles = list(MODE_TEAM_ROLES.get(mode, DEFAULT_TEAM_ROLES))
 
         self._seed_prompt = seed_prompt
         self._messages = []
@@ -811,8 +821,17 @@ class OrchestrationEngine:
         if round_num > 1:
             # General anti-repetition rule for all agents
             formatted += _GENERAL_LATER_ROUND_REINFORCEMENT
-            # Role-specific reinforcement
-            reinforcement = _ROLE_LATER_ROUND_REINFORCEMENTS.get(agent.skill_profile, "")
+            # Role-specific reinforcement (from profile or hardcoded fallback)
+            if self._profile is not None:
+                reinforcement = self._profile.role_later_round_reinforcements.get(
+                    agent.skill_profile, ""
+                )
+            else:
+                from paradigm.orchestrator.constants import _ROLE_LATER_ROUND_REINFORCEMENTS
+
+                reinforcement = _ROLE_LATER_ROUND_REINFORCEMENTS.get(
+                    agent.skill_profile, ""
+                )
             if reinforcement:
                 formatted += reinforcement
 
@@ -825,9 +844,21 @@ class OrchestrationEngine:
 
         # Append literature search instructions for search-enabled phases
         if phase in _SEARCH_ENABLED_PHASES:
-            formatted += _LITERATURE_INSTRUCTION
+            if self._profile is not None and self._profile.literature_instruction:
+                formatted += self._profile.literature_instruction
+            else:
+                from paradigm.orchestrator.constants import _LITERATURE_INSTRUCTION
+
+                formatted += _LITERATURE_INSTRUCTION
             # Role-specific search strategy to differentiate agent searches
-            role_strategy = _ROLE_SEARCH_STRATEGIES.get(agent.skill_profile, "")
+            if self._profile is not None:
+                role_strategy = self._profile.role_search_strategies.get(
+                    agent.skill_profile, ""
+                )
+            else:
+                from paradigm.orchestrator.constants import _ROLE_SEARCH_STRATEGIES
+
+                role_strategy = _ROLE_SEARCH_STRATEGIES.get(agent.skill_profile, "")
             if role_strategy:
                 formatted += role_strategy
 
