@@ -144,9 +144,7 @@ class TestAgentFactory:
         agent = factory.create_agent("t1", role="theorist", skill_mode="none")
         assert agent.model == config.agent.default_model
 
-    def test_create_agent_override_model(
-        self, config: Config, science_prompts_dir: Path
-    ) -> None:
+    def test_create_agent_override_model(self, config: Config, science_prompts_dir: Path) -> None:
         factory = AgentFactory(config, prompts_dir=science_prompts_dir)
         agent = factory.create_agent(
             "t1", role="theorist", skill_mode="none", model="claude-opus-4-6-20250514"

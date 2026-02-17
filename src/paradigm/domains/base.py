@@ -127,7 +127,9 @@ class DomainProfile(BaseModel):
     name: str
     description: str = ""
     source_providers: list[SourceProviderConfig] = Field(default_factory=list)
-    document_template: DocumentTemplate = Field(default_factory=lambda: DocumentTemplate(name="default"))
+    document_template: DocumentTemplate = Field(
+        default_factory=lambda: DocumentTemplate(name="default")
+    )
     prompts_dir: Path = Field(default_factory=lambda: Path("."))
     default_roles: dict[str, list[str]] = Field(default_factory=dict)
     role_search_strategies: dict[str, str] = Field(default_factory=dict)

@@ -19,6 +19,7 @@ def score_categories_from_criteria(criteria: list) -> list[str]:
     """
     return [c.name for c in criteria]
 
+
 # Valid recommendation values
 VALID_RECOMMENDATIONS = {"accept", "minor_revision", "major_revision", "reject"}
 

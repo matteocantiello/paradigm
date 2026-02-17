@@ -1,6 +1,5 @@
 """Tests for science domain profile."""
 
-
 from paradigm.domains.registry import _clear_registry, get_domain
 
 

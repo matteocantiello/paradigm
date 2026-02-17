@@ -154,12 +154,8 @@ class OrchestrationEngine:
         if team_roles is None:
             if self._profile is not None and self._profile.default_roles:
                 # Use domain profile for team composition
-                default_fallback = list(
-                    next(iter(self._profile.default_roles.values()), [])
-                )
-                team_roles = list(
-                    self._profile.default_roles.get(mode, default_fallback)
-                )
+                default_fallback = list(next(iter(self._profile.default_roles.values()), []))
+                team_roles = list(self._profile.default_roles.get(mode, default_fallback))
             else:
                 # Fallback to hardcoded science defaults
                 from paradigm.domains.science.constants import (
@@ -831,9 +827,7 @@ class OrchestrationEngine:
                     ROLE_LATER_ROUND_REINFORCEMENTS as _ROLE_LATER_ROUND_REINFORCEMENTS,
                 )
 
-                reinforcement = _ROLE_LATER_ROUND_REINFORCEMENTS.get(
-                    agent.skill_profile, ""
-                )
+                reinforcement = _ROLE_LATER_ROUND_REINFORCEMENTS.get(agent.skill_profile, "")
             if reinforcement:
                 formatted += reinforcement
 
@@ -856,9 +850,7 @@ class OrchestrationEngine:
                 formatted += _LITERATURE_INSTRUCTION
             # Role-specific search strategy to differentiate agent searches
             if self._profile is not None:
-                role_strategy = self._profile.role_search_strategies.get(
-                    agent.skill_profile, ""
-                )
+                role_strategy = self._profile.role_search_strategies.get(agent.skill_profile, "")
             else:
                 from paradigm.domains.science.constants import (
                     ROLE_SEARCH_STRATEGIES as _ROLE_SEARCH_STRATEGIES,

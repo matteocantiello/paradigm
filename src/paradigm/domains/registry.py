@@ -44,9 +44,7 @@ def get_domain(name: str) -> DomainProfile:
         load_domain(name)
     if name not in _REGISTRY:
         available = ", ".join(sorted(_REGISTRY.keys())) or "(none)"
-        raise ValueError(
-            f"Domain '{name}' not found. Available domains: {available}"
-        )
+        raise ValueError(f"Domain '{name}' not found. Available domains: {available}")
     return _REGISTRY[name]
 
 
@@ -79,9 +77,7 @@ def load_domain(name: str) -> None:
         else:
             importlib.import_module(module_path)
     except ImportError as e:
-        raise ValueError(
-            f"Could not load domain '{name}': no module '{module_path}' found"
-        ) from e
+        raise ValueError(f"Could not load domain '{name}': no module '{module_path}' found") from e
 
 
 def _clear_registry() -> None:

@@ -67,8 +67,14 @@ class TestAgentCreationFromProfile:
         roles = factory.list_roles()
         assert len(roles) == 8
         expected = {
-            "theorist", "analyst", "experimentalist", "synthesizer",
-            "skeptic", "writer", "editor", "reviewer",
+            "theorist",
+            "analyst",
+            "experimentalist",
+            "synthesizer",
+            "skeptic",
+            "writer",
+            "editor",
+            "reviewer",
         }
         assert set(roles) == expected
 
@@ -109,9 +115,7 @@ class TestSectionAssignments:
 
         _clear_registry()
         profile = get_domain("science")
-        assignments = section_assignments_from_template(
-            profile.document_template.sections
-        )
+        assignments = section_assignments_from_template(profile.document_template.sections)
 
         assert "writer" in assignments
         assert "abstract" in assignments["writer"]
@@ -140,9 +144,7 @@ class TestReviewCriteria:
 
         _clear_registry()
         profile = get_domain("science")
-        criteria = score_categories_from_criteria(
-            profile.document_template.review_criteria
-        )
+        criteria = score_categories_from_criteria(profile.document_template.review_criteria)
         assert criteria == SCORE_CATEGORIES
 
     def test_criteria_have_descriptions(self):
@@ -150,9 +152,7 @@ class TestReviewCriteria:
         _clear_registry()
         profile = get_domain("science")
         for criterion in profile.document_template.review_criteria:
-            assert criterion.description, (
-                f"Criterion '{criterion.name}' has no description"
-            )
+            assert criterion.description, f"Criterion '{criterion.name}' has no description"
 
 
 class TestProfileConsistency:
@@ -162,49 +162,34 @@ class TestProfileConsistency:
         """All roles in default_roles have corresponding YAML prompt files."""
         _clear_registry()
         profile = get_domain("science")
-        yaml_roles = {
-            f.stem for f in profile.prompts_dir.glob("*.yaml")
-        }
+        yaml_roles = {f.stem for f in profile.prompts_dir.glob("*.yaml")}
         for mode, roles in profile.default_roles.items():
             for role in roles:
-                assert role in yaml_roles, (
-                    f"Role '{role}' in mode '{mode}' has no YAML prompt file"
-                )
+                assert role in yaml_roles, f"Role '{role}' in mode '{mode}' has no YAML prompt file"
 
     def test_section_roles_have_prompts(self):
         """All roles assigned to sections have corresponding prompt files."""
         _clear_registry()
         profile = get_domain("science")
-        yaml_roles = {
-            f.stem for f in profile.prompts_dir.glob("*.yaml")
-        }
+        yaml_roles = {f.stem for f in profile.prompts_dir.glob("*.yaml")}
         for section in profile.document_template.sections:
             for role in section.assigned_roles:
                 assert role in yaml_roles, (
-                    f"Section '{section.name}' assigns role '{role}' "
-                    f"which has no YAML prompt file"
+                    f"Section '{section.name}' assigns role '{role}' which has no YAML prompt file"
                 )
 
     def test_search_strategy_roles_have_prompts(self):
         """All roles with search strategies have corresponding prompt files."""
         _clear_registry()
         profile = get_domain("science")
-        yaml_roles = {
-            f.stem for f in profile.prompts_dir.glob("*.yaml")
-        }
+        yaml_roles = {f.stem for f in profile.prompts_dir.glob("*.yaml")}
         for role in profile.role_search_strategies:
-            assert role in yaml_roles, (
-                f"Search strategy for role '{role}' has no YAML prompt file"
-            )
+            assert role in yaml_roles, f"Search strategy for role '{role}' has no YAML prompt file"
 
     def test_reinforcement_roles_have_prompts(self):
         """All roles with reinforcements have corresponding prompt files."""
         _clear_registry()
         profile = get_domain("science")
-        yaml_roles = {
-            f.stem for f in profile.prompts_dir.glob("*.yaml")
-        }
+        yaml_roles = {f.stem for f in profile.prompts_dir.glob("*.yaml")}
         for role in profile.role_later_round_reinforcements:
-            assert role in yaml_roles, (
-                f"Reinforcement for role '{role}' has no YAML prompt file"
-            )
+            assert role in yaml_roles, f"Reinforcement for role '{role}' has no YAML prompt file"

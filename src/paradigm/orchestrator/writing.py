@@ -259,9 +259,7 @@ class WritingHandler:
             if section_name in draft.sections:
                 sd = draft.sections[section_name]
                 heading = section_name.replace("_", " ").title()
-                section_drafts_text += (
-                    f"## {heading} (by {sd.author})\n\n{sd.content}\n\n"
-                )
+                section_drafts_text += f"## {heading} (by {sd.author})\n\n{sd.content}\n\n"
 
         template = _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["assembly"]
         prompt = template.format(

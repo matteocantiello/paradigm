@@ -1931,3 +1931,9 @@ Full implementation of domain profiles abstraction: define interfaces, create sc
 - Fixed import sorting (I001) in `base.py`, `engine.py`, `test_orchestrator.py`
 - Removed unused `Path` import (F401) from `test_domain_integration.py` and `test_domain_science.py`
 - Removed unused `list_domains` import (F401) from `test_domain_science.py`
+
+### Prompt 153 — Fix ruff format CI failures
+
+> still some linting issues Run ruff format --check src/ tests/ — 8 files would be reformatted
+
+**Action:** Ran `ruff format src/ tests/` to auto-format 8 files: `base.py`, `registry.py`, `review.py`, `engine.py`, `writing.py`, `test_domain_integration.py`, `test_domain_science.py`, `test_factory.py`
