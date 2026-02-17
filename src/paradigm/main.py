@@ -89,6 +89,9 @@ def _run_research(
             collection_name=config.memory.collection_name,
         )
 
+    # Load domain profile
+    domain_profile = config.get_domain_profile()
+
     engine = OrchestrationEngine(
         config=config,
         database=database,
@@ -98,6 +101,7 @@ def _run_research(
         intervention_hook=hook,
         memory_store=memory_store,
         display=display,
+        domain_profile=domain_profile,
     )
 
     display.start()

@@ -73,6 +73,7 @@ class OrchestrationEngine:
         intervention_hook: InterventionHook | None = None,
         memory_store: Any | None = None,
         display: DisplayManager | None = None,
+        domain_profile: Any | None = None,
     ) -> None:
         """Initialize the orchestration engine.
 
@@ -86,6 +87,7 @@ class OrchestrationEngine:
                 Returns "continue", "pause", or "abort".
             memory_store: Optional AgentMemoryStore for cross-cycle episodic memory.
             display: Optional DisplayManager for terminal output.
+            domain_profile: Optional DomainProfile. If None, loaded from config.domain.
         """
         self._config = config
         self._db = database
@@ -94,6 +96,7 @@ class OrchestrationEngine:
         self._factory = agent_factory
         self._intervention_hook = intervention_hook
         self._memory_store = memory_store
+        self._profile = domain_profile
         if display is not None:
             self._display = display
         else:
