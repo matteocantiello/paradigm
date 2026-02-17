@@ -137,6 +137,26 @@ class OrchestrationEngine:
         self._experimentation = ExperimentationHandler(self)
         self._memory = MemoryHandler(self)
 
+    def _get_phase_active_roles(self, phase: ResearchPhase) -> set[str] | None:
+        """Get the set of active roles for a given phase.
+
+        Checks domain profile phase_active_roles first, then falls back
+        to the hardcoded _PHASE_ACTIVE_ROLES from constants.
+
+        Args:
+            phase: The research phase.
+
+        Returns:
+            Set of active role names, or None if all roles are active.
+        """
+        if self._profile is not None and self._profile.phase_active_roles is not None:
+            phase_key = phase.value
+            roles = self._profile.phase_active_roles.get(phase_key)
+            if roles is not None:
+                return set(roles)
+            return None
+        return _PHASE_ACTIVE_ROLES.get(phase)
+
     async def run_research_cycle(
         self,
         seed_prompt: str,
@@ -217,7 +237,7 @@ class OrchestrationEngine:
 
         self._phase_manager.transition_to(ResearchPhase.IDEATION)
         self._log_phase_transition(ResearchPhase.SEEDING, ResearchPhase.IDEATION)
-        active_ideation = _PHASE_ACTIVE_ROLES.get(ResearchPhase.IDEATION)
+        active_ideation = self._get_phase_active_roles(ResearchPhase.IDEATION)
         active_ideation_count = (
             sum(1 for a in self._agents.values() if a.skill_profile in active_ideation)
             if active_ideation
@@ -264,7 +284,7 @@ class OrchestrationEngine:
         self._phase_manager.transition_to(ResearchPhase.PLANNING)
         self._log_phase_transition(ResearchPhase.IDEATION, ResearchPhase.PLANNING)
         self._messages = []  # Reset messages for new phase
-        active_planning = _PHASE_ACTIVE_ROLES.get(ResearchPhase.PLANNING)
+        active_planning = self._get_phase_active_roles(ResearchPhase.PLANNING)
         active_planning_count = (
             sum(1 for a in self._agents.values() if a.skill_profile in active_planning)
             if active_planning
@@ -325,7 +345,7 @@ class OrchestrationEngine:
             self._messages = []
             # Shorter discussion: cap at 2 rounds
             post_exec_rounds = min(2, max_rounds)
-            active_post_exec = _PHASE_ACTIVE_ROLES.get(ResearchPhase.POST_EXECUTION)
+            active_post_exec = self._get_phase_active_roles(ResearchPhase.POST_EXECUTION)
             active_post_exec_count = (
                 sum(1 for a in self._agents.values() if a.skill_profile in active_post_exec)
                 if active_post_exec
@@ -576,7 +596,7 @@ class OrchestrationEngine:
         scheduler = Scheduler(list(self._agents.values()), mode="phase_appropriate")
 
         # Compute active agent count for convergence detection
-        active_roles = _PHASE_ACTIVE_ROLES.get(phase)
+        active_roles = self._get_phase_active_roles(phase)
         if active_roles is not None:
             active_count = sum(1 for a in self._agents.values() if a.skill_profile in active_roles)
         else:
@@ -659,7 +679,7 @@ class OrchestrationEngine:
         speaker_order = scheduler.get_speaker_order(phase)
 
         # Phase-appropriate filtering: skip roles not active in this phase
-        active_roles = _PHASE_ACTIVE_ROLES.get(phase)
+        active_roles = self._get_phase_active_roles(phase)
         if active_roles is not None:
             speaker_order = [
                 aid for aid in speaker_order if self._agents[aid].skill_profile in active_roles

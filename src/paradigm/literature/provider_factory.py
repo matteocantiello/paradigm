@@ -11,8 +11,11 @@ from paradigm.literature.arxiv import ArxivClient
 from paradigm.literature.embeddings import EmbeddingStore
 from paradigm.literature.providers import (
     ArxivSourceProvider,
+    FREDSourceProvider,
     InternalCorpusProvider,
+    SECEdgarSourceProvider,
     SemanticScholarSourceProvider,
+    SSRNSourceProvider,
 )
 from paradigm.literature.semantic_scholar import SemanticScholarClient
 from paradigm.logging.events import EventLogger
@@ -70,6 +73,17 @@ def create_source_providers(
                 vector_db_path=storage_config.vector_db_path,
             )
             providers[name] = InternalCorpusProvider(embedding_store, database)
+
+        elif name == "ssrn":
+            providers[name] = SSRNSourceProvider()
+
+        elif name == "sec_edgar":
+            providers[name] = SECEdgarSourceProvider()
+
+        elif name == "fred":
+            providers[name] = FREDSourceProvider(
+                api_key=os.getenv("FRED_API_KEY"),
+            )
 
         else:
             _logger.warning("Unknown source provider: %s — skipping", name)

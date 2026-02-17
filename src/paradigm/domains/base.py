@@ -135,6 +135,7 @@ class DomainProfile(BaseModel):
     role_search_strategies: dict[str, str] = Field(default_factory=dict)
     role_later_round_reinforcements: dict[str, str] = Field(default_factory=dict)
     literature_instruction: str = ""
+    phase_active_roles: dict[str, list[str]] | None = None
 
 
 # ---------------------------------------------------------------------------

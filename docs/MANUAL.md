@@ -9,22 +9,23 @@ A comprehensive guide for scientist-operators running Paradigm, the agentic scie
 1. [Overview](#1-overview)
 2. [Quick Start](#2-quick-start)
 3. [CLI Reference](#3-cli-reference)
-4. [Operating Modes](#4-operating-modes)
-5. [The Research Cycle](#5-the-research-cycle)
-6. [The Agent Team](#6-the-agent-team)
-7. [Interactive Mode](#7-interactive-mode)
-8. [Multi-Cycle Research](#8-multi-cycle-research)
-9. [Literature Search System](#9-literature-search-system)
-10. [Configuration Reference](#10-configuration-reference)
-11. [Data and Storage](#11-data-and-storage)
-12. [Cost Management](#12-cost-management)
-13. [Docker Sandbox](#13-docker-sandbox)
-14. [Troubleshooting](#14-troubleshooting)
-15. [Recipes](#15-recipes)
-16. [Terminal Display System](#16-terminal-display-system)
-17. [Citation Grounding & Seed Discovery](#17-citation-grounding--seed-discovery)
-18. [Novelty Checking](#18-novelty-checking)
-19. [Agent Memory & Reflection](#19-agent-memory--reflection)
+4. [Domain Profiles](#4-domain-profiles)
+5. [Operating Modes](#5-operating-modes)
+6. [The Research Cycle](#6-the-research-cycle)
+7. [The Agent Team](#7-the-agent-team)
+8. [Interactive Mode](#8-interactive-mode)
+9. [Multi-Cycle Research](#9-multi-cycle-research)
+10. [Literature Search System](#10-literature-search-system)
+11. [Configuration Reference](#11-configuration-reference)
+12. [Data and Storage](#12-data-and-storage)
+13. [Cost Management](#13-cost-management)
+14. [Docker Sandbox](#14-docker-sandbox)
+15. [Troubleshooting](#15-troubleshooting)
+16. [Recipes](#16-recipes)
+17. [Terminal Display System](#17-terminal-display-system)
+18. [Citation Grounding & Seed Discovery](#18-citation-grounding--seed-discovery)
+19. [Novelty Checking](#19-novelty-checking)
+20. [Agent Memory & Reflection](#20-agent-memory--reflection)
 
 ---
 
@@ -36,7 +37,7 @@ Paradigm is an agentic science platform where teams of AI agents collaborate to 
 You provide a research question or topic. A team of specialized AI agents (theorist, analyst, synthesizer, experimentalist, writer, skeptic) discuss the topic, search the literature, form a research plan, draft a paper, and submit it to independent peer reviewers (editor, reviewers). Published papers enter an internal corpus where future research cycles can discover and cite them, building an interconnected body of knowledge over time.
 
 **Key properties:**
-- **Domain-agnostic** --- no hardcoded scientific assumptions. Works for astrophysics, biology, economics, or any field.
+- **Domain-agnostic** --- pluggable domain profiles adapt agent roles, data sources, and output formats to any field. Built-in domains: science and finance. See [Domain Profiles](#4-domain-profiles).
 - **Full pipeline** --- from seed question to published, peer-reviewed paper in the internal corpus.
 - **Transparent** --- every agent message, token cost, and phase transition is logged. You can inspect, pause, and steer at any point.
 - **Composable** --- agents are equipped with scientific skills from a library of 142 skill definitions that shape their expertise.
@@ -254,7 +255,51 @@ Created:  2026-02-12T15:30:00
 
 ---
 
-## 4. Operating Modes
+## 4. Domain Profiles
+
+Paradigm uses a pluggable **domain profile** system that adapts the entire research pipeline --- agent roles, research modes, document template, review criteria, and literature sources --- to different fields.
+
+### Available Domains
+
+| Domain | Config File | Description |
+|--------|-------------|-------------|
+| **science** (default) | `configs/default.yaml` | Academic science research with arXiv and Semantic Scholar. Agents: theorist, analyst, synthesizer, skeptic, experimentalist, writer, editor. Output: academic paper. |
+| **finance** | `configs/finance.yaml` | Financial research with SSRN, SEC EDGAR, FRED, and Semantic Scholar. Agents: economist, quant, strategist, risk_analyst, experimentalist, writer, editor, reviewer. Output: research report. |
+
+### Switching Domains
+
+Set the `domain` key in your config file:
+
+```yaml
+# configs/finance.yaml
+domain: finance
+mode: directed
+```
+
+Then pass the config to the CLI:
+
+```bash
+paradigm run --config configs/finance.yaml --prompt "Analyze the yield curve inversion as a recession predictor"
+```
+
+If no `domain` key is set, Paradigm defaults to `science`.
+
+### What Changes Per Domain
+
+Each domain defines its own:
+
+- **Agent roles** --- different personas with domain-specific expertise
+- **Research modes** --- different team compositions for different investigation styles
+- **Document template** --- different output sections (e.g., "executive summary" vs "abstract")
+- **Review criteria** --- different scoring dimensions for peer review
+- **Source providers** --- different literature and data sources
+- **Sandbox environment** --- different pre-installed Python packages
+
+For full details on each domain's configuration, see [docs/DOMAINS.md](DOMAINS.md).
+
+---
+
+## 5. Operating Modes
 
 Each mode assembles a different team and provides mode-specific prompts that shape how agents approach the research.
 
@@ -324,7 +369,7 @@ paradigm run --mode replication --prompt "Replicate the period-luminosity relati
 
 ---
 
-## 5. The Research Cycle
+## 6. The Research Cycle
 
 Every research cycle progresses through a series of phases. The orchestrator manages transitions, and each phase has specific agents, prompts, and outputs.
 
@@ -375,7 +420,7 @@ PUBLISHED  (paper enters internal corpus)
 
 The orchestrator initializes a research thread, creates a unique thread ID, and registers the agent team. If the seed prompt contains URLs to papers (e.g., A&A, Nature, IOP Science PDFs), the orchestrator fetches and ingests them into the local corpus as external papers. It also searches the graveyard for lessons from past failed or rejected research related to the seed prompt.
 
-If **Perplexity seed discovery** is enabled (`citation.enable_seed_discovery: true`), the orchestrator queries the Perplexity API to discover foundational papers on the seed topic and pre-populates the literature corpus before agents begin. This gives agents a head start on relevant literature without consuming their search budgets. See [Citation Grounding & Seed Discovery](#17-citation-grounding--seed-discovery) for details.
+If **Perplexity seed discovery** is enabled (`citation.enable_seed_discovery: true`), the orchestrator queries the Perplexity API to discover foundational papers on the seed topic and pre-populates the literature corpus before agents begin. This gives agents a head start on relevant literature without consuming their search budgets. See [Citation Grounding & Seed Discovery](#18-citation-grounding--seed-discovery) for details.
 
 Literature search is **not** performed during seeding — instead, agents drive their own literature searches during deliberation phases (see [Agent-Driven Literature Search](#agent-driven-literature-search) below).
 
@@ -473,8 +518,8 @@ Three-step process:
    - **Analyst:** Results (with computational results if EXECUTION ran)
    - **Synthesizer:** Discussion
 2. **Assembly** --- The writer agent combines all sections into a coherent paper, harmonizing style and adding transitions. If figures were generated during EXECUTION, they are referenced as `![Figure N](figures/filename.png)`.
-3. **LaTeX Math Enforcement** --- A post-processing pass converts any remaining Unicode math characters (Greek letters, subscripts, superscripts, operators) to LaTeX notation, preserving existing `$...$` delimiters. See [Terminal Display System](#16-terminal-display-system) section note.
-4. **Citation Grounding** (if enabled) --- The Perplexity API inserts arXiv reference markers (`[1]`, `[2]`, ...) into citable sections (default: Introduction, Methods) and appends a bibliography. See [Citation Grounding & Seed Discovery](#17-citation-grounding--seed-discovery).
+3. **LaTeX Math Enforcement** --- A post-processing pass converts any remaining Unicode math characters (Greek letters, subscripts, superscripts, operators) to LaTeX notation, preserving existing `$...$` delimiters. See [Terminal Display System](#17-terminal-display-system) section note.
+4. **Citation Grounding** (if enabled) --- The Perplexity API inserts arXiv reference markers (`[1]`, `[2]`, ...) into citable sections (default: Introduction, Methods) and appends a bibliography. See [Citation Grounding & Seed Discovery](#18-citation-grounding--seed-discovery).
 5. **Refinement** (optional) --- Additional rounds of polishing.
 
 **Output:** Complete paper draft saved as `paper-<id>` in the database and as a `.md` file in `data/papers/`. Papers with figures use a subdirectory layout: `data/papers/<paper-id>/<paper-id>.md` with a `figures/` subdirectory.
@@ -523,7 +568,7 @@ The paper is rejected. The orchestrator:
 
 ---
 
-## 6. The Agent Team
+## 7. The Agent Team
 
 ### Research Agents
 
@@ -560,7 +605,7 @@ Role prompts are defined in `src/paradigm/agents/prompts/*.yaml` and compose wit
 
 ---
 
-## 7. Interactive Mode
+## 8. Interactive Mode
 
 Run with `--interactive` to pause for confirmation before major phase transitions.
 
@@ -599,7 +644,7 @@ You can press `Ctrl+C` at any time to interrupt a running cycle. The thread will
 
 ---
 
-## 8. Multi-Cycle Research
+## 9. Multi-Cycle Research
 
 Paradigm's internal corpus grows over time. Published papers are indexed in ChromaDB and become discoverable by future research cycles.
 
@@ -656,7 +701,7 @@ paradigm papers --status published
 
 ---
 
-## 9. Literature Search System
+## 10. Literature Search System
 
 Paradigm implements a multi-backend, budget-constrained literature search system that agents drive through action tags in their responses. Rather than the orchestrator searching upfront, agents decide what to search for and when, guided by stall detection and budget enforcement.
 
@@ -759,7 +804,7 @@ This solves a key limitation: the sandbox runs with `--network=none` by default,
 
 ---
 
-## 10. Configuration Reference
+## 11. Configuration Reference
 
 Configuration is loaded from a YAML file (default: `configs/default.yaml`). Override with `--config` or the `PARADIGM_CONFIG` environment variable.
 
@@ -934,7 +979,7 @@ PERPLEXITY_API_KEY=pplx-...
 
 ---
 
-## 11. Data and Storage
+## 12. Data and Storage
 
 ### Directory Layout
 
@@ -1013,7 +1058,7 @@ Each paper folder is a self-contained research artifact. Alongside the paper mar
 
 ---
 
-## 12. Cost Management
+## 13. Cost Management
 
 Paradigm uses Claude API calls extensively. A full research cycle with default settings (10 rounds per phase, 6 agents, 2 reviewers) can use 300K-500K+ tokens.
 
@@ -1076,7 +1121,7 @@ Token usage is tracked per API call in the `token_usage` database table and logg
 
 ---
 
-## 13. Docker Sandbox
+## 14. Docker Sandbox
 
 The computational sandbox executes Python code in isolated Docker containers. By default, containers have no network access, but this can be overridden with the `--network-access` flag.
 
@@ -1156,7 +1201,7 @@ sandbox:
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 ### Common Errors
 
@@ -1263,7 +1308,7 @@ rm data/paradigm.db
 
 ---
 
-## 15. Recipes
+## 16. Recipes
 
 ### Recipe 1: Quick Test Run (Low Cost)
 
@@ -1437,7 +1482,7 @@ The EXECUTION phase will propose and run Python experiments in Docker, and the r
 
 ---
 
-## 16. Terminal Display System
+## 17. Terminal Display System
 
 Paradigm includes a Rich-based terminal UI that provides real-time visibility into a running research cycle.
 
@@ -1496,7 +1541,7 @@ Each agent role has a distinct color and icon for visual identification:
 
 ---
 
-## 17. Citation Grounding & Seed Discovery
+## 18. Citation Grounding & Seed Discovery
 
 Paradigm can use the Perplexity API to ground papers in real arXiv literature and to pre-seed the literature corpus before agents begin.
 
@@ -1550,7 +1595,7 @@ This gives agents a head start on relevant literature without consuming their pe
 
 ---
 
-## 18. Novelty Checking
+## 19. Novelty Checking
 
 Paradigm can assess the novelty of research ideas before committing to a full research cycle. Two backends are supported.
 
@@ -1596,7 +1641,7 @@ If novelty checking fails, the system defaults to assuming the idea is novel (wi
 
 ---
 
-## 19. Agent Memory & Reflection
+## 20. Agent Memory & Reflection
 
 Agents build episodic memory across research cycles. Lessons, discoveries, strategies, and collaboration insights persist in ChromaDB and are retrieved via semantic search with recency decay.
 

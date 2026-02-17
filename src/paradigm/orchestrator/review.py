@@ -12,7 +12,12 @@ from paradigm.journal.paper import (
     strip_agent_scaffolding,
 )
 from paradigm.journal.publication import reject_paper
-from paradigm.journal.review import PeerReview, parse_peer_review, synthesize_decision
+from paradigm.journal.review import (
+    PeerReview,
+    parse_peer_review,
+    score_categories_from_criteria,
+    synthesize_decision,
+)
 from paradigm.orchestrator.constants import (
     _MIN_PAPER_LENGTH,
     _PAPER_CONTEXT_LIMIT,
@@ -37,6 +42,33 @@ class ReviewHandler:
     def reset_cycle(self) -> None:
         """Reset review state for a new cycle."""
         self.review_log = []
+
+    def _get_review_categories(self) -> list[str] | None:
+        """Get review score categories from domain profile.
+
+        Returns:
+            List of category name strings, or None to use defaults.
+        """
+        profile = self._engine._profile
+        if profile is not None and profile.document_template.review_criteria:
+            return score_categories_from_criteria(profile.document_template.review_criteria)
+        return None
+
+    def _build_score_format(self) -> str:
+        """Build the score format string for the peer review prompt.
+
+        Uses domain review criteria if available, otherwise falls back
+        to the default science categories.
+
+        Returns:
+            Formatted score line like "Novelty: X/10\\nRigor: X/10\\n..."
+        """
+        categories = self._get_review_categories()
+        if categories is None:
+            from paradigm.journal.review import SCORE_CATEGORIES
+
+            categories = SCORE_CATEGORIES
+        return "\n".join(f"{cat.replace('_', ' ').title()}: X/10" for cat in categories)
 
     def _build_execution_metadata(self) -> str:
         """Build execution metadata section for peer reviewers.
@@ -356,10 +388,20 @@ class ReviewHandler:
         current_body = draft.assembled_body or draft.to_markdown()
         template = _PHASE_INSTRUCTIONS[ResearchPhase.PEER_REVIEW]["review"]
 
+        # Inject domain-specific score format into the review prompt
+        score_format = self._build_score_format()
+        template = template.replace(
+            "Novelty: X/10\nRigor: X/10\nClarity: X/10\nSignificance: X/10",
+            score_format,
+        )
+
         self._engine._literature.search_count_this_round = 0
 
         # Build execution metadata for reviewers
         execution_metadata = self._build_execution_metadata()
+
+        # Get domain-specific review categories for score parsing
+        review_categories = self._get_review_categories()
 
         reviews: list[PeerReview] = []
         for agent in reviewer_agents:
@@ -388,7 +430,9 @@ class ReviewHandler:
                 agent.agent_id, response.content, ResearchPhase.PEER_REVIEW
             )
 
-            review = parse_peer_review(agent.agent_id, response.content)
+            review = parse_peer_review(
+                agent.agent_id, response.content, categories=review_categories
+            )
             reviews.append(review)
             self.review_log.append(
                 {

@@ -12,7 +12,6 @@ from paradigm.orchestrator.constants import (
     _DEBATE_PROMPT_CHALLENGER,
     _DEBATE_PROMPT_DEFENDER,
     _DEBATE_SYNTHESIS_PROMPT,
-    _PHASE_ACTIVE_ROLES,
     _RESOLVED_RE,
 )
 from paradigm.orchestrator.phases import ResearchPhase
@@ -66,7 +65,7 @@ class DebateHandler:
             return
 
         # Only process the first valid challenge
-        active_roles = _PHASE_ACTIVE_ROLES.get(phase)
+        active_roles = self._engine._get_phase_active_roles(phase)
         for challenge in challenges:
             target_id = challenge.challenged_agent_id
 

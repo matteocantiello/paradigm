@@ -88,7 +88,9 @@ def _parse_recommendation(content: str) -> str:
     return "major_revision"
 
 
-def parse_peer_review(reviewer_id: str, text: str) -> PeerReview:
+def parse_peer_review(
+    reviewer_id: str, text: str, categories: list[str] | None = None
+) -> PeerReview:
     """Parse a structured peer review from reviewer agent output.
 
     Expects markdown with ## headers: Summary, Strengths, Weaknesses,
@@ -97,6 +99,8 @@ def parse_peer_review(reviewer_id: str, text: str) -> PeerReview:
     Args:
         reviewer_id: ID of the reviewing agent.
         text: Raw review text from the agent.
+        categories: Optional score category names (from domain template).
+            Defaults to SCORE_CATEGORIES.
 
     Returns:
         Parsed PeerReview.
@@ -116,7 +120,7 @@ def parse_peer_review(reviewer_id: str, text: str) -> PeerReview:
     weaknesses = _extract_list(sections.get("weaknesses", ""))
     questions = _extract_list(sections.get("questions", ""))
     suggestions = _extract_list(sections.get("suggestions", ""))
-    scores = _parse_scores(sections.get("scores", ""))
+    scores = _parse_scores(sections.get("scores", ""), categories=categories)
     recommendation = _parse_recommendation(sections.get("recommendation", ""))
 
     return PeerReview(

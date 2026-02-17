@@ -1,0 +1,133 @@
+# Paradigm Finance Domain Configuration
+# For financial research cycles
+
+domain: finance
+mode: directed
+
+# LLM provider registry (inherits from default.yaml if not overridden)
+providers:
+  anthropic:
+    type: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+    default_model: claude-sonnet-4-5-20250929
+  together:
+    type: openai_compatible
+    api_key_env: TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  google:
+    type: openai_compatible
+    api_key_env: GEMINI_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    default_model: gemini-3-pro-preview
+
+# Agent configuration
+agent:
+  default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+  opus_model: "claude-opus-4-6"
+  max_tokens: 8192
+  temperature: 1.0
+  token_budget_per_thread: 1000000
+  token_budget_per_agent: 100000
+  default_provider: together
+  overrides:
+    economist:
+      provider: anthropic
+      model: claude-opus-4-6
+      token_budget_per_agent: 300000
+    quant:
+      provider: anthropic
+      model: claude-opus-4-6
+      token_budget_per_agent: 300000
+    experimentalist:
+      provider: anthropic
+      model: claude-opus-4-6
+      token_budget_per_agent: 300000
+    strategist:
+      provider: anthropic
+      model: claude-opus-4-6
+      token_budget_per_agent: 300000
+    writer:
+      provider: anthropic
+      model: claude-opus-4-6
+      max_tokens: 16384
+      token_budget_per_agent: 300000
+    risk_analyst:
+      provider: google
+      model: gemini-3-pro-preview
+    editor:
+      provider: google
+      model: gemini-3-pro-preview
+
+# Sandbox configuration
+sandbox:
+  enabled: true
+  image_name: "paradigm-finance-sandbox:latest"
+  network_mode: "none"
+  cpu_limit: 2.0
+  memory_limit: "2g"
+  execution_timeout: 300
+  max_output_size: 10485760
+
+# Literature search configuration
+literature:
+  arxiv_rate_limit: 3.0
+  max_results_per_search: 50
+  enable_pdf_fetch: true
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  follow_budget_per_round: 3
+  cited_by_budget_per_round: 2
+  read_budget_per_round: 5
+  max_read_chars: 8000
+  max_citation_results: 10
+  max_reference_results: 20
+
+# Storage configuration
+storage:
+  data_dir: "./data"
+
+# Orchestrator configuration
+orchestrator:
+  max_rounds_per_phase: 4
+  enable_checkpointing: true
+  checkpoint_interval: 5
+  enable_writing: true
+  max_review_iterations: 5
+  enable_peer_review: true
+  num_reviewers: 2
+  max_revision_rounds: 4
+  enable_experimentation: true
+  max_searches_per_round: 5
+  enable_debates: true
+  max_debate_exchanges: 3
+  max_debates_per_phase: 2
+
+# Scientific skills configuration
+skills:
+  skills_dir: "vendor/claude-scientific-skills/scientific-skills"
+  default_mode: "default"
+  max_skill_chars: null
+
+# Agent episodic memory
+memory:
+  enabled: true
+  max_memories_per_prompt: 5
+  recency_half_life_days: 30.0
+  collection_name: "agent_memories"
+  max_memory_chars: 2000
+
+# Citation grounding and novelty checking
+citation:
+  enable_citation_grounding: true
+  perplexity_api_key_env: "PERPLEXITY_API_KEY"
+  citation_sections:
+    - "executive_summary"
+    - "methodology"
+  max_retries_per_paragraph: 2
+  perplexity_timeout: 120.0
+  enable_novelty_check: false
+  novelty_mode: "semantic_scholar"
+  futurehouse_api_key_env: "FUTURE_HOUSE_API_KEY"
+  novelty_max_iterations: 5
+  enable_seed_discovery: true
+  seed_discovery_max_papers: 10

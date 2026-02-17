@@ -2049,3 +2049,92 @@ Full implementation of 6 targeted fixes identified from transcript analysis:
 - 30+ new tests added across 4 test files
 - 2 existing tests updated for relevance filter compatibility (Fix 4 side-effect)
 - All 868 tests passing, ruff clean
+
+### Prompt 32 — Plan Finance Domain
+
+> Let's make a plan for creating a new domain on economy / financial research. Need to decide resource access and repository access, name of agents, what else?
+
+Planning a new "finance" domain for the platform. User decisions via Q&A:
+- Domain name: "finance"
+- Output format: Research report
+- Data sources: SSRN + SEC EDGAR + FRED + Semantic Scholar
+- Experiments: Both econometrics + quant finance
+
+**Status**: Plan written and awaiting user approval.
+
+### Prompt 33 — Continue Session (Context Recovery)
+
+> Continue from where we left off (context window continuation).
+
+Finalizing the finance domain plan and presenting for approval.
+
+### Prompt 34 — Implement Finance Domain
+
+> Implement the following plan: Finance Domain Implementation Plan
+>
+> Add a new "finance" domain to Paradigm for economy/financial research. This follows the same pattern as the existing "science" domain but with finance-specific agent roles, document template, review criteria, research modes, and data source providers. Includes: 8 agent YAML prompts, constants.py, template.py, __init__.py, modifications to base.py/engine.py/paper.py, 3 new source providers (SSRN, SEC EDGAR, FRED), finance.yaml config, Dockerfile.finance, and tests.
+
+**Key decisions:**
+- 8 agent roles: economist, quant, strategist, risk_analyst, experimentalist, writer, editor, reviewer
+- 5 research modes: directed, explore, empirical, strategy, policy
+- Document template: "research_report" with 8 sections (executive_summary through recommendations)
+- 5 review criteria: rigor, novelty, relevance, actionability, risk_awareness
+- Phase-active roles: ideation/planning/post_execution use economist, quant, strategist, risk_analyst only
+- Added `phase_active_roles` field to DomainProfile (base.py) — engine uses domain profile first, falls back to hardcoded constants
+- Made peer review scoring dynamic — review prompt and score parsing use domain criteria
+- 3 new source providers: SSRN (HTML scraping), SEC EDGAR (EFTS API), FRED (series search API)
+
+**Artifacts created:**
+- `src/paradigm/domains/finance/__init__.py` — Domain registration
+- `src/paradigm/domains/finance/constants.py` — Team roles, search strategies, reinforcements
+- `src/paradigm/domains/finance/template.py` — Research report template + review criteria
+- `src/paradigm/domains/finance/prompts/` — 8 YAML agent prompt files
+- `configs/finance.yaml` — Finance domain config
+- `docker/Dockerfile.finance` — Finance sandbox with econometrics/quant packages
+- `tests/test_finance_domain.py` — 14 domain tests
+- `tests/test_finance_providers.py` — 16 provider tests
+
+**Artifacts modified:**
+- `src/paradigm/domains/base.py` — Added `phase_active_roles` field to DomainProfile
+- `src/paradigm/orchestrator/engine.py` — Added `_get_phase_active_roles()` helper, replaced 5 direct references
+- `src/paradigm/orchestrator/debate.py` — Use engine's `_get_phase_active_roles()` instead of direct constant
+- `src/paradigm/orchestrator/review.py` — Dynamic score format, domain-aware `parse_peer_review` call
+- `src/paradigm/journal/review.py` — Added optional `categories` param to `parse_peer_review`
+- `src/paradigm/literature/providers.py` — Added SSRNSourceProvider, SECEdgarSourceProvider, FREDSourceProvider
+- `src/paradigm/literature/provider_factory.py` — Registered 3 new providers
+
+**Verification:** 898 tests passing (868 existing + 30 new), ruff clean.
+
+### Prompt 35 — Domain Documentation
+
+> Can we add a document where we describe the different domain implementations? docs/DOMAINS.md And also add some basic information about the existence of domains (and how to switch) in docs/MANUAL.md
+
+**Artifacts created:**
+- `docs/DOMAINS.md` — Detailed reference for all domain implementations
+
+**Artifacts modified:**
+- `docs/MANUAL.md` — Added domains section with switching instructions
+
+### Prompt 36 — Analyze Discussion Phase Effectiveness in paper-031da0db1190
+
+> Let's analyze the logs of paper-031da0db1190. It would be good to understand if the current implementation of phases of discussion works, or if it leads to redundant discussions or misses important insights. Are the logs revealing obvious shortcoming of the current approach and/or ways to improve?
+
+**Key decisions**: Research/analysis task — no code changes expected.
+
+### Prompt 37 — Analyze Paper and Reviews for paper-031da0db1190
+
+> Read and analyze these two files from a Paradigm AI multi-agent research run:
+> 1. paper-031da0db1190.md (the final paper)
+> 2. reviews.md (peer reviews)
+>
+> For the paper: What is the topic? What's the overall quality and novelty? Does it feel like a coherent paper or a patchwork? Are there gaps, contradictions, or weak sections? Are caveats and limitations well-handled? Are figures referenced? Do they seem legitimate?
+>
+> For the reviews: What do reviewers identify as strengths and weaknesses? Are reviewer criticisms fair and substantive, or formulaic? Do the reviews reveal problems with the multi-agent discussion process? Do reviewers catch fabricated data or unsupported claims?
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 38 — Analyze IDEATION Phase Effectiveness in paper-031da0db1190 Transcript
+
+> Read the first ~4000 lines of the transcript.md for paper-031da0db1190. Focus on the IDEATION phase. Analyze: phase identification (start/end, rounds), agent differentiation, redundancy within/across rounds, quality of ideas, anti-repetition effectiveness, convergence, and literature integration. Return detailed analysis with specific quoted examples.
+
+**Key decisions**: Analysis task — no code changes expected.

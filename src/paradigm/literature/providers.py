@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import re
+from datetime import datetime
 from typing import Any
+from urllib.parse import quote_plus
+
+import httpx
 
 from paradigm.domains.base import (
     SourceDocument,
@@ -16,6 +23,8 @@ from paradigm.literature.arxiv import ArxivClient, extract_key_sections
 from paradigm.literature.embeddings import EmbeddingStore
 from paradigm.literature.semantic_scholar import SemanticScholarClient
 from paradigm.storage.database import Database
+
+_logger = logging.getLogger(__name__)
 
 
 class ArxivSourceProvider(SourceProvider):
@@ -200,3 +209,269 @@ def _parse_json_field(value: Any, default: Any) -> Any:
         except (json.JSONDecodeError, ValueError):
             return default
     return value
+
+
+# ---------------------------------------------------------------------------
+# Finance-specific source providers
+# ---------------------------------------------------------------------------
+
+_SSRN_SEARCH_URL = "https://api.ssrn.com/content/v1/bindings/search"
+_SSRN_ABSTRACT_URL = "https://papers.ssrn.com/sol3/papers.cfm"
+_SEC_EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
+_FRED_API_URL = "https://api.stlouisfed.org/fred"
+
+
+class SSRNSourceProvider(SourceProvider):
+    """SourceProvider for SSRN (Social Science Research Network).
+
+    Searches SSRN papers via their public search endpoint and returns
+    paper metadata including title, authors, abstract, and URL.
+    """
+
+    name = "ssrn"
+
+    def __init__(self, rate_limit: float = 1.0) -> None:
+        self._rate_limit = rate_limit
+        self._client = httpx.AsyncClient(
+            timeout=30.0,
+            headers={"User-Agent": "Paradigm Research Platform (academic use)"},
+        )
+
+    async def search(self, query: str, max_results: int = 10) -> list[SourceResult]:
+        """Search SSRN for papers matching the query."""
+        try:
+            encoded_query = quote_plus(query)
+            url = f"https://papers.ssrn.com/sol3/results.cfm?txtKey_Words={encoded_query}&npage=1&cnt={max_results}"
+            response = await self._client.get(url)
+            response.raise_for_status()
+            return self._parse_search_results(response.text, max_results)
+        except httpx.HTTPError as e:
+            _logger.warning("SSRN search failed: %s", e)
+            return []
+
+    async def fetch(self, source_id: str) -> SourceDocument | None:
+        """Fetch an SSRN paper by abstract ID."""
+        try:
+            url = f"{_SSRN_ABSTRACT_URL}?abstract_id={source_id}"
+            response = await self._client.get(url)
+            response.raise_for_status()
+            return SourceDocument(
+                id=source_id,
+                source_type="ssrn",
+                title="",
+                full_text=response.text[:50000],
+                url=url,
+            )
+        except httpx.HTTPError as e:
+            _logger.warning("SSRN fetch failed for %s: %s", source_id, e)
+            return None
+
+    @staticmethod
+    def _parse_search_results(html: str, max_results: int) -> list[SourceResult]:
+        """Parse SSRN search results from HTML response.
+
+        This is a best-effort parser for SSRN's search results page.
+        """
+        results: list[SourceResult] = []
+        # Extract paper entries using simple regex patterns
+        # SSRN abstract IDs appear in URLs like abstract_id=1234567
+        id_pattern = re.compile(r"abstract_id=(\d+)")
+        title_pattern = re.compile(r"<a[^>]*abstract_id=\d+[^>]*>([^<]+)</a>", re.IGNORECASE)
+
+        ids = id_pattern.findall(html)
+        titles = title_pattern.findall(html)
+
+        for i, (paper_id, title) in enumerate(zip(ids, titles, strict=False)):
+            if i >= max_results:
+                break
+            results.append(
+                SourceResult(
+                    id=paper_id,
+                    source_type="ssrn",
+                    title=title.strip(),
+                    url=f"{_SSRN_ABSTRACT_URL}?abstract_id={paper_id}",
+                )
+            )
+        return results
+
+
+class SECEdgarSourceProvider(SourceProvider):
+    """SourceProvider for SEC EDGAR (Electronic Data Gathering, Analysis, and Retrieval).
+
+    Searches SEC EDGAR full-text search API for 10-K, 10-Q, and 8-K filings.
+    Required: User-Agent header per SEC EDGAR access policy.
+    """
+
+    name = "sec_edgar"
+
+    def __init__(self, user_agent: str = "Paradigm Research Platform academic@example.com") -> None:
+        self._client = httpx.AsyncClient(
+            timeout=30.0,
+            headers={"User-Agent": user_agent},
+        )
+
+    async def search(self, query: str, max_results: int = 10) -> list[SourceResult]:
+        """Search SEC EDGAR full-text search for filings."""
+        try:
+            params = {
+                "q": query,
+                "dateRange": "custom",
+                "startdt": "2020-01-01",
+                "enddt": datetime.now().strftime("%Y-%m-%d"),
+                "forms": "10-K,10-Q,8-K",
+            }
+            url = "https://efts.sec.gov/LATEST/search-index"
+            response = await self._client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            return self._parse_results(data, max_results)
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
+            _logger.warning("SEC EDGAR search failed: %s", e)
+            return []
+
+    async def fetch(self, source_id: str) -> SourceDocument | None:
+        """Fetch a filing by accession number."""
+        try:
+            # Accession numbers are formatted like 0001234567-20-012345
+            clean_id = source_id.replace("-", "")
+            url = f"https://www.sec.gov/Archives/edgar/data/{clean_id}"
+            response = await self._client.get(url)
+            response.raise_for_status()
+            return SourceDocument(
+                id=source_id,
+                source_type="sec_edgar",
+                title="",
+                full_text=response.text[:50000],
+                url=url,
+            )
+        except httpx.HTTPError as e:
+            _logger.warning("SEC EDGAR fetch failed for %s: %s", source_id, e)
+            return None
+
+    @staticmethod
+    def _parse_results(data: dict, max_results: int) -> list[SourceResult]:
+        """Parse SEC EDGAR search API response."""
+        results: list[SourceResult] = []
+        hits = data.get("hits", {}).get("hits", [])
+        for hit in hits[:max_results]:
+            source = hit.get("_source", {})
+            filing_id = source.get("file_num", hit.get("_id", ""))
+            form_type = source.get("form_type", "")
+            entity_name = source.get("entity_name", "")
+            filed_date = source.get("file_date", "")
+            title = f"{entity_name} — {form_type}" if entity_name else form_type
+            results.append(
+                SourceResult(
+                    id=filing_id,
+                    source_type="sec_edgar",
+                    title=title,
+                    summary=f"Filing type: {form_type}, Filed: {filed_date}",
+                    url=f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum={filing_id}",
+                    metadata={
+                        "form_type": form_type,
+                        "entity_name": entity_name,
+                        "filed_date": filed_date,
+                    },
+                )
+            )
+        return results
+
+
+class FREDSourceProvider(SourceProvider):
+    """SourceProvider for FRED (Federal Reserve Economic Data).
+
+    Searches the FRED series catalog for economic data series metadata.
+    Requires a FRED API key (env var FRED_API_KEY).
+    """
+
+    name = "fred"
+
+    def __init__(self, api_key: str | None = None) -> None:
+        self._api_key = api_key or os.getenv("FRED_API_KEY", "")
+        self._client = httpx.AsyncClient(
+            timeout=30.0,
+            headers={"User-Agent": "Paradigm Research Platform"},
+        )
+
+    async def search(self, query: str, max_results: int = 10) -> list[SourceResult]:
+        """Search FRED series catalog."""
+        if not self._api_key:
+            _logger.warning("FRED API key not set — skipping FRED search")
+            return []
+        try:
+            params = {
+                "search_text": query,
+                "api_key": self._api_key,
+                "file_type": "json",
+                "limit": max_results,
+            }
+            response = await self._client.get(f"{_FRED_API_URL}/series/search", params=params)
+            response.raise_for_status()
+            data = response.json()
+            return self._parse_results(data, max_results)
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
+            _logger.warning("FRED search failed: %s", e)
+            return []
+
+    async def fetch(self, source_id: str) -> SourceDocument | None:
+        """Fetch FRED series metadata by series ID."""
+        if not self._api_key:
+            return None
+        try:
+            params = {
+                "series_id": source_id,
+                "api_key": self._api_key,
+                "file_type": "json",
+            }
+            response = await self._client.get(f"{_FRED_API_URL}/series", params=params)
+            response.raise_for_status()
+            data = response.json()
+            series_list = data.get("seriess", [])
+            if not series_list:
+                return None
+            series = series_list[0]
+            return SourceDocument(
+                id=source_id,
+                source_type="fred",
+                title=series.get("title", ""),
+                full_text=json.dumps(series, indent=2),
+                url=f"https://fred.stlouisfed.org/series/{source_id}",
+                metadata={
+                    "frequency": series.get("frequency", ""),
+                    "units": series.get("units", ""),
+                    "seasonal_adjustment": series.get("seasonal_adjustment", ""),
+                },
+            )
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
+            _logger.warning("FRED fetch failed for %s: %s", source_id, e)
+            return None
+
+    @staticmethod
+    def _parse_results(data: dict, max_results: int) -> list[SourceResult]:
+        """Parse FRED series search response."""
+        results: list[SourceResult] = []
+        series_list = data.get("seriess", [])
+        for series in series_list[:max_results]:
+            series_id = series.get("id", "")
+            title = series.get("title", "")
+            frequency = series.get("frequency", "")
+            units = series.get("units", "")
+            start = series.get("observation_start", "")
+            end = series.get("observation_end", "")
+            summary = f"Frequency: {frequency}, Units: {units}, Range: {start} to {end}"
+            results.append(
+                SourceResult(
+                    id=series_id,
+                    source_type="fred",
+                    title=title,
+                    summary=summary,
+                    url=f"https://fred.stlouisfed.org/series/{series_id}",
+                    metadata={
+                        "frequency": frequency,
+                        "units": units,
+                        "observation_start": start,
+                        "observation_end": end,
+                    },
+                )
+            )
+        return results
