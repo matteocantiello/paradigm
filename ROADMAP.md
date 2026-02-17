@@ -159,26 +159,27 @@
 
 ---
 
-## Phase 4: Writing + Paper Generation (Week 5)
+## Phase 4: Writing + Paper Generation (Week 5) ✓ COMPLETE
 
 **Goal**: Agents can collaboratively write a paper in structured sections.
 
 ### Tasks
 
-- [ ] Define paper structure template:
+- [x] Define paper structure template:
   ```
   Title, Authors, Abstract, Introduction, Methods, Results, Discussion, Conclusion, References
   ```
-- [ ] Implement writing phase in orchestrator:
+- [x] Implement writing phase in orchestrator:
   - Assign sections to agents based on skill (writer does intro/conclusion, theorist does methods, analyst does results)
   - Each agent drafts their section with access to: research plan checkpoint, literature, experiment results
   - Writer agent assembles and edits for coherence
-  - Skeptic agent does internal review before submission
-- [ ] Implement draft management:
+  - Editor agent does internal review before submission
+- [x] Implement draft management:
   - Track paper versions
   - Store drafts in database
   - Diff between versions
-- [ ] Test: end-to-end from research plan → complete paper draft
+- [x] Test: end-to-end from research plan → complete paper draft
+- [x] LaTeX math enforcement: post-processing pass converts Unicode math to LaTeX notation
 
 ### Exit Criteria
 
@@ -228,6 +229,13 @@
 - [ ] Tune agent prompts based on output quality
 - [x] Documentation: README, operations manual (`docs/MANUAL.md`), configuration reference
 - [x] Live multi-cycle test: cycle 1 → publish → cycle 2 discovers cycle 1 paper
+- [x] Rich terminal UI (DisplayManager with 3-column live layout, plain-text fallback)
+- [x] Citation grounding pipeline (Perplexity sonar-reasoning-pro, arXiv reference insertion)
+- [x] Seed discovery (Perplexity pre-seeds literature before IDEATION)
+- [x] Novelty checking (Semantic Scholar iterative search + LLM assessment, optional FutureHouse mode)
+- [x] Agent episodic memory with end-of-cycle reflections and recency-weighted retrieval
+- [x] LaTeX math notation enforcement (Unicode-to-LaTeX post-processing)
+- [x] Experiment retry with vacuous execution detection (up to 3 attempts)
 
 ### Exit Criteria
 
@@ -246,7 +254,6 @@ These are tracked but not scheduled:
 - **Conference mode**: Synchronous multi-agent discussion events
 - **Grant mechanism**: Scarce compute resources agents compete for
 - **Retraction system**: Detect and retract flawed papers
-- **Multi-model support**: Different LLMs for different agent roles
 - **Scaling**: Move from SQLite → Postgres, single-node → distributed
 - **Pre-registration**: Agents register hypotheses before testing
 - **Domain plugins**: Domain-specific tools (MESA for stellar physics, etc.)

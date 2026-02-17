@@ -1672,3 +1672,22 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/orchestrator/engine.py` — Pass role/model/content to agent_response() calls
 - `tests/test_display.py` — Tests for agent_messages tracking + new panel
 - `HISTORY.md` — This prompt logged
+
+### Prompt 33 — Update Documentation to Reflect Recent Changes
+
+> Implement the following plan: Update Documentation to Reflect Recent Changes. The project has accumulated many features over the past ~10 commits that aren't reflected in the documentation. Bring all docs up to date: MANUAL.md (add sections for Rich terminal UI, citation grounding/Perplexity, seed discovery, novelty checking, memory/reflection, experiment retry/vacuous detection, LaTeX math enforcement), ROADMAP.md (mark Phase 4 complete, update Phase 6, trim Future Phases), README.md (add display/ module, update test count), ARCHITECTURE.md (add seed discovery + citation grounding to data flow), CLAUDE.md (add display/ to project structure).
+
+**Key decisions:**
+- Add 4 new sections to MANUAL.md (sections 16-19)
+- Update existing MANUAL.md sections 5, 10, and ToC
+- Mark Phase 4 Writing as complete in ROADMAP.md
+- Update test count from 477 to current count
+- Remove "Multi-model support" from Future Phases (already implemented)
+
+**Artifacts modified:**
+- `docs/MANUAL.md` — Add sections 16-19, update sections 5/10/ToC
+- `ROADMAP.md` — Mark Phase 4 complete, update Phase 6, trim Future Phases
+- `README.md` — Add display/ to structure, update test count
+- `ARCHITECTURE.md` — Add seed discovery + citation grounding to data flow
+- `CLAUDE.md` — Add display/ to project structure
+- `HISTORY.md` — This prompt logged

@@ -110,6 +110,7 @@
    Human provides prompt → Orchestrator creates thread → Phase: SEEDING
    ↳ Agent episodic memories retrieved from ChromaDB (per-agent, recency-ranked)
    ↳ Graveyard lessons loaded (dead-end avoidance)
+   ↳ Perplexity seed discovery (if enabled): pre-seeds literature corpus with key papers
 
 2. IDEATION (configurable rounds, research agents — writer/editor excluded)
    Round 1: Each agent proposes ideas/hypotheses (with memory context)
@@ -133,6 +134,8 @@
 5. WRITING (writer leads, all contribute sections)
    Section drafting: each role assigned specific sections
    Writer assembles and edits for coherence
+   ↳ LaTeX math enforcement: Unicode math chars converted to LaTeX notation
+   ↳ Citation grounding (if enabled): Perplexity inserts arXiv references into citable sections
    Editor does internal review → accept or revise
    Figures embedded inline from execution phase
    Output: Paper draft (markdown)

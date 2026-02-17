@@ -37,9 +37,10 @@ Read `.planning/DECISIONS.md` before making architectural changes. Key constrain
 src/paradigm/          ← All source code
   main.py              ← CLI entry point (click or argparse)
   config.py            ← YAML config loader
-  orchestrator/        ← Core orchestration engine
+  orchestrator/        ← Core orchestration engine (+ citation_handler.py)
   agents/              ← Agent definitions and prompts
-  literature/          ← arXiv API, embeddings, corpus
+  literature/          ← arXiv API, embeddings, corpus, novelty, Perplexity
+  display/             ← Rich terminal UI (live display, components, theme)
   sandbox/             ← Docker-based code execution
   journal/             ← Peer review pipeline
   storage/             ← Database, checkpoints, graveyard

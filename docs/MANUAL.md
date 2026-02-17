@@ -21,6 +21,10 @@ A comprehensive guide for scientist-operators running Paradigm, the agentic scie
 13. [Docker Sandbox](#13-docker-sandbox)
 14. [Troubleshooting](#14-troubleshooting)
 15. [Recipes](#15-recipes)
+16. [Terminal Display System](#16-terminal-display-system)
+17. [Citation Grounding & Seed Discovery](#17-citation-grounding--seed-discovery)
+18. [Novelty Checking](#18-novelty-checking)
+19. [Agent Memory & Reflection](#19-agent-memory--reflection)
 
 ---
 
@@ -365,10 +369,12 @@ PUBLISHED  (paper enters internal corpus)
 
 The orchestrator initializes a research thread, creates a unique thread ID, and registers the agent team. If the seed prompt contains URLs to papers (e.g., A&A, Nature, IOP Science PDFs), the orchestrator fetches and ingests them into the local corpus as external papers. It also searches the graveyard for lessons from past failed or rejected research related to the seed prompt.
 
+If **Perplexity seed discovery** is enabled (`citation.enable_seed_discovery: true`), the orchestrator queries the Perplexity API to discover foundational papers on the seed topic and pre-populates the literature corpus before agents begin. This gives agents a head start on relevant literature without consuming their search budgets. See [Citation Grounding & Seed Discovery](#17-citation-grounding--seed-discovery) for details.
+
 Literature search is **not** performed during seeding — instead, agents drive their own literature searches during deliberation phases (see [Agent-Driven Literature Search](#agent-driven-literature-search) below).
 
 **Input:** Seed prompt + mode
-**Output:** Thread ID, ingested external papers (if URLs present), graveyard context (if any)
+**Output:** Thread ID, ingested external papers (if URLs present), graveyard context (if any), seed-discovered papers (if Perplexity enabled)
 **Agents:** None (orchestrator-only)
 
 #### Agent-Driven Literature Search
@@ -417,7 +423,8 @@ Agents propose Python code in fenced ` ```python ` blocks with a `# EXPERIMENT: 
 **Loop** (up to `max_experiment_rounds` rounds):
 1. Round 1: the experimentalist proposes initial experiments based on the research plan.
 2. Round 2+: the agent reviews previous results and either proposes follow-up experiments or signals completion (by responding without code blocks).
-3. Each code block is safety-scanned, then executed in Docker. If the code is rejected by the safety scanner or fails at runtime, the agent receives error feedback and can retry (up to 2 retries per experiment).
+3. Each code block is safety-scanned, then executed in Docker. If the code is rejected by the safety scanner or fails at runtime, the agent receives error feedback and can retry (up to 2 retries per experiment, for a maximum of 3 total attempts).
+4. **Vacuous execution detection:** If an experiment exits successfully but produces no meaningful output (no output files AND stdout is empty or dominated by error-like messages such as "file not found" or "no data available"), it is treated as a failure and triggers a retry with error feedback. This prevents experiments that silently do nothing from being accepted as results.
 
 **Available libraries:** NumPy, SciPy, Matplotlib, Pandas, scikit-learn, SymPy, Astropy.
 
@@ -440,7 +447,9 @@ Three-step process:
    - **Analyst:** Results (with computational results if EXECUTION ran)
    - **Synthesizer:** Discussion
 2. **Assembly** --- The writer agent combines all sections into a coherent paper, harmonizing style and adding transitions. If figures were generated during EXECUTION, they are referenced as `![Figure N](figures/filename.png)`.
-3. **Refinement** (optional) --- Additional rounds of polishing.
+3. **LaTeX Math Enforcement** --- A post-processing pass converts any remaining Unicode math characters (Greek letters, subscripts, superscripts, operators) to LaTeX notation, preserving existing `$...$` delimiters. See [Terminal Display System](#16-terminal-display-system) section note.
+4. **Citation Grounding** (if enabled) --- The Perplexity API inserts arXiv reference markers (`[1]`, `[2]`, ...) into citable sections (default: Introduction, Methods) and appends a bibliography. See [Citation Grounding & Seed Discovery](#17-citation-grounding--seed-discovery).
+5. **Refinement** (optional) --- Additional rounds of polishing.
 
 **Output:** Complete paper draft saved as `paper-<id>` in the database and as a `.md` file in `data/papers/`. Papers with figures use a subdirectory layout: `data/papers/<paper-id>/<paper-id>.md` with a `figures/` subdirectory.
 
@@ -812,6 +821,33 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 | `default_mode` | string | `default` | Skill loading mode: `default`, `all`, `none` |
 | `max_skill_chars` | int or null | `null` | Per-skill character truncation limit (null = no truncation) |
 
+### `citation` --- Citation Grounding & Novelty
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enable_citation_grounding` | bool | `true` | Enable Perplexity-based citation grounding on paper drafts |
+| `perplexity_api_key_env` | string | `PERPLEXITY_API_KEY` | Environment variable name for the Perplexity API key |
+| `citation_sections` | list | `["introduction", "methods"]` | Which paper sections to process for citation insertion |
+| `max_retries_per_paragraph` | int | `2` | Max retries for Perplexity citation calls per paragraph |
+| `perplexity_timeout` | float | `120.0` | Timeout in seconds for Perplexity API calls |
+| `enable_novelty_check` | bool | `false` | Enable novelty assessment during ideation |
+| `novelty_mode` | string | `semantic_scholar` | Novelty checking backend: `semantic_scholar` or `futurehouse` |
+| `novelty_max_iterations` | int | `5` | Max search iterations for Semantic Scholar novelty check |
+| `futurehouse_api_key_env` | string | `FUTURE_HOUSE_API_KEY` | Environment variable name for FutureHouse API key |
+| `enable_seed_discovery` | bool | `true` | Enable Perplexity-based seed discovery before IDEATION |
+| `seed_discovery_max_papers` | int | `10` | Max papers to discover during seed discovery |
+
+### `memory` --- Agent Episodic Memory
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable agent episodic memory across cycles |
+| `max_memories_per_prompt` | int | `5` | Max memories injected per agent per prompt |
+| `recency_half_life_days` | float | `30.0` | Half-life for recency decay scoring (days) |
+| `reflection_model` | string | `claude-sonnet-4-5-20250929` | Model used for end-of-cycle reflection generation |
+| `collection_name` | string | `agent_memories` | ChromaDB collection name for memories |
+| `max_memory_chars` | int | `2000` | Max characters of memory context per agent prompt |
+
 ### `storage` --- Data Storage
 
 | Key | Type | Default | Description |
@@ -829,6 +865,8 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 | `ANTHROPIC_API_KEY` | Anthropic API key (**required** for default mode) | --- |
 | `GEMINI_API_KEY` | Google Gemini API key (**required** for default mode) | --- |
 | `TOGETHER_API_KEY` | Together.ai API key (**required** for testing mode) | --- |
+| `PERPLEXITY_API_KEY` | Perplexity API key (for citation grounding and seed discovery) | --- |
+| `FUTURE_HOUSE_API_KEY` | FutureHouse API key (for FutureHouse novelty checking mode) | --- |
 | `PARADIGM_CONFIG` | Path to config YAML file | `configs/default.yaml` |
 | `PARADIGM_DATA_DIR` | Override data directory | `./data` |
 | `PARADIGM_LOG_LEVEL` | Logging level | `INFO` |
@@ -839,6 +877,7 @@ Place your API keys in a `.env` file in the project root:
 ANTHROPIC_API_KEY=sk-ant-...
 GEMINI_API_KEY=...
 TOGETHER_API_KEY=...
+PERPLEXITY_API_KEY=pplx-...
 ```
 
 ---
@@ -1298,3 +1337,229 @@ ls data/papers/
 ```
 
 The EXECUTION phase will propose and run Python experiments in Docker, and the results (including figures) will be automatically incorporated into the paper's Results and Methods sections.
+
+---
+
+## 16. Terminal Display System
+
+Paradigm includes a Rich-based terminal UI that provides real-time visibility into a running research cycle.
+
+### Live Display Layout
+
+When running in a TTY terminal (and not in `--verbose` mode), Paradigm renders a live 3-column layout that refreshes 4 times per second:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  🌱 SEEDING ─── ● IDEATION ─── ○ PLANNING ─── ○ WRITING ─── ...   │  ← Phase bar
+│  ⏱ 2m 31s  │  📄 0 papers  │  🔍 4 searches  │  🪙 45.2K tokens  │  ← Stats bar
+├──────────────┬────────────────────┬─────────────────────────────────┤
+│  Agents      │  Agent Messages    │  Events                         │
+│              │                    │                                 │
+│  🔭 theorist│  🔭 theorist-0     │  12:30:01 agent_response        │
+│     active   │  claude-opus-4-6   │  12:30:05 literature_search     │
+│  📊 analyst │  "The period-lum..." │  12:30:08 agent_response        │
+│     active   │                    │  12:30:12 literature_search     │
+│  ...         │  📊 analyst-1      │  ...                            │
+│              │  gemini-3-pro      │                                 │
+│              │  "I'd like to..."  │                                 │
+└──────────────┴────────────────────┴─────────────────────────────────┘
+```
+
+**Columns:**
+- **Agents** --- Shows each agent on the team with their role icon and status (active/idle).
+- **Agent Messages** --- Displays the most recent agent outputs with role, model name, and a preview of the response (first ~500 characters). Capped at 8 entries.
+- **Events** --- Timestamped stream of system events (agent responses, literature searches, phase transitions, etc.). Capped at 50 entries.
+
+**Header:**
+- **Phase bar** --- Horizontal progress through the research phases. Completed phases show a checkmark, the current phase is highlighted, and future phases are dimmed.
+- **Stats bar** --- Elapsed time, papers produced, literature searches performed, and total token usage.
+
+### Plain-Text Fallback
+
+When the terminal is not a TTY (e.g., piped output, CI environments) or when `--verbose` is passed, the display falls back to plain-text output via `click.echo()`. All the same information is printed as sequential log lines.
+
+### Final Summary
+
+When a research cycle completes, the live display is replaced by a static summary panel showing the final outcome (published/rejected), total tokens used, elapsed time, and paper ID.
+
+### Agent Theme
+
+Each agent role has a distinct color and icon for visual identification:
+
+| Role | Icon | Color |
+|------|------|-------|
+| Theorist | 🔭 | Blue |
+| Analyst | 📊 | Orange |
+| Experimentalist | 🧪 | Green |
+| Skeptic | 🔍 | Red |
+| Synthesizer | 🔗 | Purple |
+| Writer | ✍️ | Cyan |
+| Editor | 📋 | Yellow |
+| Reviewer | ⚖️ | Magenta |
+
+---
+
+## 17. Citation Grounding & Seed Discovery
+
+Paradigm can use the Perplexity API to ground papers in real arXiv literature and to pre-seed the literature corpus before agents begin.
+
+### Citation Grounding
+
+Citation grounding is a post-processing pipeline that runs after the writing phase assembles a paper draft. It uses the Perplexity `sonar-reasoning-pro` model to insert arXiv reference markers into the paper text.
+
+**How it works:**
+
+1. The paper is parsed into sections by `##` headers.
+2. Only configured sections are processed (default: Introduction and Methods). Other sections are left untouched.
+3. Each section is split into paragraphs. Headers, tables, images, display math (`$$`), and short lines are skipped.
+4. For each paragraph, Perplexity is asked to add `[1]`, `[2]`, ... citation markers with corresponding arXiv references.
+5. Citations are renumbered globally across all sections.
+6. A bibliography section is appended to the paper with full arXiv metadata.
+
+**Configuration:**
+
+```yaml
+citation:
+  enable_citation_grounding: true
+  perplexity_api_key_env: PERPLEXITY_API_KEY
+  citation_sections:
+    - introduction
+    - methods
+  max_retries_per_paragraph: 2
+  perplexity_timeout: 120.0
+```
+
+**Requirements:** Set the `PERPLEXITY_API_KEY` environment variable.
+
+### Seed Discovery
+
+Seed discovery runs during the SEEDING phase, before agents begin ideation. It queries Perplexity to find the most relevant foundational papers for the seed topic and pre-populates the literature corpus.
+
+**How it works:**
+
+1. The seed prompt is sent to Perplexity with a discovery prompt requesting the 10 most relevant arXiv papers.
+2. arXiv URLs are extracted from the response (both from API citation metadata and via regex fallback).
+3. Discovered papers are fetched and ingested into the local corpus, making them immediately available to agents.
+
+**Configuration:**
+
+```yaml
+citation:
+  enable_seed_discovery: true
+  seed_discovery_max_papers: 10
+```
+
+This gives agents a head start on relevant literature without consuming their per-round search budgets during IDEATION.
+
+---
+
+## 18. Novelty Checking
+
+Paradigm can assess the novelty of research ideas before committing to a full research cycle. Two backends are supported.
+
+### Semantic Scholar Mode (Default)
+
+The default novelty checker uses a multi-step process:
+
+1. **Query extraction** --- An LLM extracts 3-5 search queries from the idea text.
+2. **Literature search** --- Each query is searched on Semantic Scholar (limit 10 results per query, up to 5 iterations).
+3. **Deduplication** --- Results are deduplicated by paper ID.
+4. **Novelty assessment** --- An LLM evaluates the idea against the discovered related work and returns a verdict (`NOVEL: yes/no`), confidence score (0.0-1.0), and reasoning.
+
+**Configuration:**
+
+```yaml
+citation:
+  enable_novelty_check: true       # default: false
+  novelty_mode: semantic_scholar    # default
+  novelty_max_iterations: 5
+```
+
+### FutureHouse Mode (Optional)
+
+An alternative that uses the FutureHouse proprietary novelty checking API. Requires the optional `futurehouse_client` package and a FutureHouse API key.
+
+```yaml
+citation:
+  enable_novelty_check: true
+  novelty_mode: futurehouse
+  futurehouse_api_key_env: FUTURE_HOUSE_API_KEY
+```
+
+### Output
+
+Both modes return a `NoveltyResult` with:
+- `is_novel` --- Boolean verdict
+- `confidence` --- Confidence score (0.0-1.0)
+- `related_work` --- Top 5 related paper titles
+- `papers_found` --- Total papers found
+- `source` --- Which backend was used
+
+If novelty checking fails, the system defaults to assuming the idea is novel (with low confidence) and proceeds.
+
+---
+
+## 19. Agent Memory & Reflection
+
+Agents build episodic memory across research cycles. Lessons, discoveries, strategies, and collaboration insights persist in ChromaDB and are retrieved via semantic search with recency decay.
+
+### Memory Lifecycle
+
+**End of cycle (reflection):**
+
+After a research cycle completes (whether the paper is published or rejected), each agent that contributed undergoes a reflection step:
+
+1. The agent's messages from the cycle are collected.
+2. A reflection prompt (including the seed prompt, outcome summary, and agent role) is sent to an LLM (default: `claude-sonnet-4-5-20250929`, temperature 0.3).
+3. The LLM extracts 3-5 episodic memories, each tagged with a type.
+4. Memories are stored in ChromaDB with the agent ID and timestamp.
+
+**Start of next cycle (retrieval):**
+
+When building an agent's prompt for a new cycle:
+
+1. The seed prompt is used as a semantic query against the agent's memory collection.
+2. Results are re-ranked using a combined score: `similarity x recency_weight`.
+3. The recency weight uses exponential decay: `0.5^(age_days / half_life_days)` (default half-life: 30 days).
+4. The top 5 memories (by combined score) are formatted and injected into the agent's prompt, up to 2000 characters.
+
+### Memory Types
+
+| Type | Description |
+|------|-------------|
+| `insight` | A scientific insight or discovery made during research |
+| `mistake` | An error or wrong approach that should be avoided |
+| `strategy` | A methodological strategy that worked well |
+| `collaboration` | An observation about working with other agents |
+
+### Configuration
+
+```yaml
+memory:
+  enabled: true
+  max_memories_per_prompt: 5
+  recency_half_life_days: 30.0
+  reflection_model: claude-sonnet-4-5-20250929
+  collection_name: agent_memories
+  max_memory_chars: 2000
+```
+
+### CLI Commands
+
+```bash
+# List memories for a specific agent
+paradigm memory list --agent theorist-0
+
+# Semantic search across all agent memories
+paradigm memory search --query "stellar pulsation period-luminosity"
+
+# Prune old memories
+paradigm memory clear --older-than 90d
+```
+
+### Key Properties
+
+- **Per-agent isolation** --- Each agent sees only their own memories. A theorist's insights are not visible to the analyst.
+- **Recency decay** --- Older memories fade: a 30-day-old memory has half the weight of a fresh one.
+- **Bounded** --- Max 5 memories and 2000 characters per agent per prompt, preventing memory from dominating the context.
+- **Non-fatal** --- Reflection failures (API errors, parsing issues) are logged but do not block the research cycle.

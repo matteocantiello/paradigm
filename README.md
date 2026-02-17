@@ -211,12 +211,13 @@ src/paradigm/
     providers.py       Multi-backend LLM abstraction
     prompts/           8 role-specific YAML prompt templates
   literature/          arXiv API, embeddings, corpus, citations
+  display/             Rich terminal UI (live layout, components, theme)
   sandbox/             Docker-based code execution
   journal/             Peer review + publication pipeline
   storage/             SQLite database, checkpoints, graveyard
   logging/             Structured JSON event logging
 configs/               YAML configuration files
-tests/                 477 tests (pytest + pytest-asyncio)
+tests/                 726 tests (pytest + pytest-asyncio)
 ```
 
 ## Documentation
