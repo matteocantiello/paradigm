@@ -1,17 +1,14 @@
 """Tests for the citation handler orchestrator integration."""
 
 import os
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from helpers import LONG_RESPONSE, make_mock_agent, patch_config_provider
 
 from paradigm.config import Config
-from paradigm.journal.paper import PaperDraft, PaperSection, SectionDraft
+from paradigm.journal.paper import PaperDraft
 from paradigm.literature.arxiv import ArxivPaper
-from paradigm.literature.bibliography import Reference
-from paradigm.literature.perplexity import CitedParagraph
 from paradigm.orchestrator.citation_handler import CitationHandler
 from paradigm.orchestrator.literature import LiteratureHandler
 
@@ -128,12 +125,12 @@ class TestCitationHandlerEnabled:
 
         with patch(
             "paradigm.orchestrator.citation_handler.PerplexityClient"
-        ) as MockClient:
+        ) as mock_client_cls:
             mock_instance = AsyncMock()
             mock_instance.cite_section = mock_cite_section
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=False)
-            MockClient.return_value = mock_instance
+            mock_client_cls.return_value = mock_instance
 
             result = await handler.run_citation_grounding(draft)
 
@@ -158,12 +155,12 @@ class TestCitationHandlerEnabled:
 
         with patch(
             "paradigm.orchestrator.citation_handler.PerplexityClient"
-        ) as MockClient:
+        ) as mock_client_cls:
             mock_instance = AsyncMock()
             mock_instance.cite_section = AsyncMock(side_effect=mock_cite_section)
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=False)
-            MockClient.return_value = mock_instance
+            mock_client_cls.return_value = mock_instance
 
             await handler.run_citation_grounding(draft)
 
@@ -196,10 +193,10 @@ class TestNoveltyCheck:
 
             with patch(
                 "paradigm.literature.semantic_scholar.SemanticScholarClient"
-            ) as MockS2:
+            ) as mock_s2_cls:
                 mock_s2 = AsyncMock()
                 mock_s2.close = AsyncMock()
-                MockS2.return_value = mock_s2
+                mock_s2_cls.return_value = mock_s2
 
                 result = await handler.check_novelty("test idea", "semantic_scholar")
 
@@ -228,10 +225,10 @@ class TestNoveltyCheck:
 
             with patch(
                 "paradigm.literature.semantic_scholar.SemanticScholarClient"
-            ) as MockS2:
+            ) as mock_s2_cls:
                 mock_s2 = AsyncMock()
                 mock_s2.close = AsyncMock()
-                MockS2.return_value = mock_s2
+                mock_s2_cls.return_value = mock_s2
 
                 result = await handler.check_novelty("old idea", "semantic_scholar")
 
@@ -326,11 +323,11 @@ class TestSeedDiscovery:
 
         with patch(
             "paradigm.orchestrator.literature.PerplexityClient"
-        ) as MockClient:
+        ) as mock_client_cls:
             mock_instance = AsyncMock()
             mock_instance.discover_papers = mock_discover
             mock_instance.close = AsyncMock()
-            MockClient.return_value = mock_instance
+            mock_client_cls.return_value = mock_instance
 
             result = await handler.run_seed_discovery("stellar convection")
 

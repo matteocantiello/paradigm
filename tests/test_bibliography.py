@@ -8,7 +8,6 @@ from paradigm.literature.bibliography import (
     extract_arxiv_id_from_url,
 )
 
-
 # ---------------------------------------------------------------------------
 # extract_arxiv_id_from_url
 # ---------------------------------------------------------------------------

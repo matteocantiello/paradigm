@@ -193,7 +193,7 @@ class BibliographyBuilder:
 
         renumbered_sections: list[str] = []
 
-        for text, urls in zip(section_texts, section_url_lists):
+        for text, urls in zip(section_texts, section_url_lists, strict=False):
             # Build local->global mapping for this section
             local_to_global: dict[int, int] = {}
             for local_idx, url in enumerate(urls):
@@ -204,9 +204,11 @@ class BibliographyBuilder:
                 local_to_global[local_idx + 1] = url_to_global[url]
 
             # Replace [N] markers with global numbers
-            def _replace_marker(match: re.Match) -> str:
+            mapping = local_to_global
+
+            def _replace_marker(match: re.Match, _m: dict[int, int] = mapping) -> str:
                 local_num = int(match.group(1))
-                global_num = local_to_global.get(local_num, local_num)
+                global_num = _m.get(local_num, local_num)
                 return f"[{global_num}]"
 
             renumbered = re.sub(r"\[(\d+)\]", _replace_marker, text)

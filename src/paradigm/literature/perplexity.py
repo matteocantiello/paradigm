@@ -7,7 +7,6 @@ numbered citation markers ([1], [2], ...) and collect arXiv citation URLs.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 

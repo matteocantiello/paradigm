@@ -24,6 +24,7 @@ from paradigm.literature.resources import (
     resolve_resource,
 )
 from paradigm.logging.events import EventLogger, EventType
+from paradigm.orchestrator.citation_handler import CitationHandler
 from paradigm.orchestrator.constants import (
     _CHALLENGE_INSTRUCTION,
     _DEBATE_ENABLED_PHASES,
@@ -47,7 +48,6 @@ from paradigm.orchestrator.constants import (
     _is_vacuous_success,
     _list_shared_files,
 )
-from paradigm.orchestrator.citation_handler import CitationHandler
 from paradigm.orchestrator.debate import DebateHandler
 from paradigm.orchestrator.literature import LiteratureHandler
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase

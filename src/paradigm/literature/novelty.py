@@ -82,7 +82,7 @@ async def check_novelty_semantic_scholar(
     all_papers: list[dict[str, str]] = []
     seen_ids: set[str] = set()
 
-    for iteration, query in enumerate(queries[:max_iterations]):
+    for _iteration, query in enumerate(queries[:max_iterations]):
         try:
             papers = await s2_client.search(query, limit=10)
             for paper in papers:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import TYPE_CHECKING
 
 from paradigm.journal.paper import PaperDraft, parse_sections_from_markdown
@@ -102,24 +103,25 @@ class CitationHandler:
                 url_to_global[url] = len(global_url_list) + 1
                 global_url_list.append(url)
 
-        for section_name, original_content, cited_text, urls in zip(
+        for _name, original_content, cited_text, urls in zip(
             cited_section_names,
             [sections[name] for name in cited_section_names],
             section_texts,
             section_url_lists,
+            strict=False,
         ):
             # Build local->global mapping for this section
-            import re
-
             local_to_global: dict[int, int] = {}
             for local_idx, url in enumerate(urls):
                 local_to_global[local_idx + 1] = url_to_global.get(
                     url, local_idx + 1
                 )
 
-            def _replace_marker(match: re.Match) -> str:
+            mapping = local_to_global
+
+            def _replace_marker(match: re.Match, _m: dict[int, int] = mapping) -> str:
                 local_num = int(match.group(1))
-                global_num = local_to_global.get(local_num, local_num)
+                global_num = _m.get(local_num, local_num)
                 return f"[{global_num}]"
 
             renumbered = re.sub(r"\[(\d+)\]", _replace_marker, cited_text)
