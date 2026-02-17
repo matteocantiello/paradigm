@@ -135,3 +135,105 @@ class DomainProfile(BaseModel):
     role_search_strategies: dict[str, str] = Field(default_factory=dict)
     role_later_round_reinforcements: dict[str, str] = Field(default_factory=dict)
     literature_instruction: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Conversion helpers — ArxivPaper / SemanticPaper ↔ SourceResult
+# ---------------------------------------------------------------------------
+
+
+def arxiv_paper_to_source_result(paper: object) -> SourceResult:
+    """Convert an ArxivPaper to a SourceResult.
+
+    Uses deferred import to avoid circular dependency.
+
+    Args:
+        paper: An ArxivPaper instance.
+
+    Returns:
+        Equivalent SourceResult.
+    """
+    from paradigm.literature.arxiv import ArxivPaper
+
+    assert isinstance(paper, ArxivPaper)
+    return SourceResult(
+        id=paper.arxiv_id,
+        source_type="arxiv",
+        title=paper.title,
+        authors=paper.authors,
+        summary=paper.abstract,
+        url=paper.abs_url,
+        date=paper.published,
+        content=paper.body,
+        metadata={
+            "categories": paper.categories,
+            "primary_category": paper.primary_category,
+            "pdf_url": paper.pdf_url,
+        },
+    )
+
+
+def semantic_paper_to_source_result(paper: object) -> SourceResult:
+    """Convert a SemanticPaper to a SourceResult.
+
+    Uses deferred import to avoid circular dependency.
+
+    Args:
+        paper: A SemanticPaper instance.
+
+    Returns:
+        Equivalent SourceResult.
+    """
+    from paradigm.literature.semantic_scholar import SemanticPaper
+
+    assert isinstance(paper, SemanticPaper)
+    source_id = paper.arxiv_id or paper.paper_id
+    date = datetime(paper.year, 1, 1) if paper.year else None
+    return SourceResult(
+        id=source_id,
+        source_type="semantic_scholar",
+        title=paper.title,
+        authors=paper.authors,
+        summary=paper.abstract,
+        url=paper.url,
+        date=date,
+        metadata={
+            "paper_id": paper.paper_id,
+            "arxiv_id": paper.arxiv_id,
+            "year": paper.year,
+            "citation_count": paper.citation_count,
+        },
+    )
+
+
+def source_result_to_arxiv_paper(result: SourceResult) -> object:
+    """Convert a SourceResult back to an ArxivPaper for ingestion paths.
+
+    Uses deferred import to avoid circular dependency.
+
+    Args:
+        result: A SourceResult instance.
+
+    Returns:
+        Equivalent ArxivPaper.
+    """
+    from paradigm.literature.arxiv import ArxivPaper
+
+    categories = result.metadata.get("categories", [])
+    primary_category = result.metadata.get("primary_category", "")
+    pdf_url = result.metadata.get("pdf_url", f"http://arxiv.org/pdf/{result.id}")
+    published = result.date or datetime(2000, 1, 1)
+
+    return ArxivPaper(
+        arxiv_id=result.id,
+        title=result.title,
+        abstract=result.summary,
+        authors=result.authors,
+        categories=categories,
+        primary_category=primary_category,
+        published=published,
+        updated=published,
+        pdf_url=pdf_url,
+        abs_url=result.url or f"http://arxiv.org/abs/{result.id}",
+        body=result.content,
+    )

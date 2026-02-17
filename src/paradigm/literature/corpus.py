@@ -6,11 +6,16 @@ import os
 from typing import Any
 
 from paradigm.config import LiteratureConfig, StorageConfig
+from paradigm.domains.base import (
+    SourceProvider,
+    SourceResult,
+    arxiv_paper_to_source_result,
+)
 from paradigm.literature.arxiv import ArxivClient, ArxivPaper, extract_key_sections
 from paradigm.literature.citations import CitationTracker
 from paradigm.literature.embeddings import EmbeddingStore
 from paradigm.literature.prompt_utils import make_external_paper
-from paradigm.literature.semantic_scholar import SemanticPaper, SemanticScholarClient
+from paradigm.literature.semantic_scholar import SemanticScholarClient
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.storage.database import Database
 
@@ -20,6 +25,11 @@ class Corpus:
 
     Combines arXiv API search, local semantic search (ChromaDB),
     and citation tracking into a single high-level API.
+
+    When ``source_providers`` is supplied, search/get_references/get_citations/
+    read_paper delegate to those providers and return ``SourceResult`` objects.
+    When omitted, the legacy path creates clients internally and returns
+    ``ArxivPaper`` / ``SemanticPaper`` as before.
     """
 
     def __init__(
@@ -31,6 +41,7 @@ class Corpus:
         arxiv_client: ArxivClient | None = None,
         embedding_store: EmbeddingStore | None = None,
         semantic_scholar_client: SemanticScholarClient | None = None,
+        source_providers: dict[str, SourceProvider] | None = None,
     ) -> None:
         """Initialize corpus.
 
@@ -42,10 +53,15 @@ class Corpus:
             arxiv_client: Optional pre-configured ArxivClient (for testing).
             embedding_store: Optional pre-configured EmbeddingStore (for testing).
             semantic_scholar_client: Optional pre-configured S2 client (for testing).
+            source_providers: Optional dict of named SourceProvider instances.
+                When supplied, search/references/citations delegate to these
+                providers and return SourceResult. Legacy clients are still
+                created for ingestion and PDF fetch.
         """
         self._db = database
         self._config = literature_config
         self._logger = logger
+        self._providers = source_providers
 
         self._arxiv = arxiv_client or ArxivClient(
             rate_limit=literature_config.arxiv_rate_limit,
@@ -60,6 +76,27 @@ class Corpus:
             logger=logger,
         )
 
+        # When providers are supplied, extract underlying clients for
+        # operations that still need direct access (ingestion, close).
+        if source_providers:
+            from paradigm.literature.providers import (
+                ArxivSourceProvider,
+                InternalCorpusProvider,
+                SemanticScholarSourceProvider,
+            )
+
+            for provider in source_providers.values():
+                if isinstance(provider, ArxivSourceProvider):
+                    self._arxiv = provider._client
+                elif isinstance(provider, SemanticScholarSourceProvider):
+                    self._s2 = provider._client
+                elif isinstance(provider, InternalCorpusProvider):
+                    self._embeddings = provider._embeddings
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+
     async def search(
         self,
         query: str,
@@ -67,12 +104,12 @@ class Corpus:
         include_local: bool = True,
         include_arxiv: bool = True,
         categories: list[str] | None = None,
-    ) -> list[ArxivPaper]:
+    ) -> list[SourceResult]:
         """Search both local corpus and arXiv, deduplicate, and return.
 
-        Builds local and arXiv result lists independently, then merges them
-        (local first, then arXiv-only papers) capped at max_results. This
-        ensures arXiv results are not crowded out by local duplicates.
+        When providers are configured, delegates to each provider's search()
+        and merges + deduplicates the results. Otherwise, falls back to the
+        legacy path (direct ArxivClient + EmbeddingStore calls).
 
         Args:
             query: Search query text.
@@ -82,57 +119,71 @@ class Corpus:
             categories: Optional arXiv category filters.
 
         Returns:
-            Deduplicated list of ArxivPaper objects.
+            Deduplicated list of SourceResult objects.
         """
         if max_results is None:
             max_results = self._config.max_results_per_search
 
-        local_papers: list[ArxivPaper] = []
-        local_ids: set[str] = set()
-        arxiv_only: list[ArxivPaper] = []
-        num_arxiv_results = 0
-
-        # Search local embeddings
-        if include_local and self._embeddings.count() > 0:
-            local_results = self._embeddings.search(query, n_results=max_results)
-            for result in local_results:
-                doc_id = result["arxiv_id"]
-                # Skip Paradigm's own generated papers from search results
-                if doc_id.startswith("paper-"):
-                    continue
-                # All non-paper IDs (arXiv and ext-*) use "arxiv:" prefix in the database
-                db_key = f"arxiv:{doc_id}"
-                db_paper = self._db.get_paper(db_key)
-                if db_paper and db_paper.get("status") in ("published", "external"):
-                    paper = self._db_row_to_paper(db_paper)
-                    if paper and doc_id not in local_ids:
-                        local_papers.append(paper)
-                        local_ids.add(doc_id)
-
-        # Search arXiv API
-        if include_arxiv:
-            arxiv_results = await self._arxiv.search(
-                query,
-                max_results=max_results,
-                categories=categories,
+        if self._providers:
+            return await self._search_via_providers(
+                query, max_results, include_local, include_arxiv
             )
-            num_arxiv_results = len(arxiv_results)
-            for paper in arxiv_results:
-                if paper.arxiv_id not in local_ids:
-                    arxiv_only.append(paper)
 
-        # Merge: local first, then arXiv-only, capped at max_results
-        papers = (local_papers + arxiv_only)[:max_results]
+        return await self._search_legacy(
+            query, max_results, include_local, include_arxiv, categories
+        )
+
+    async def _search_via_providers(
+        self,
+        query: str,
+        max_results: int,
+        include_local: bool,
+        include_arxiv: bool,
+    ) -> list[SourceResult]:
+        """Provider-based search: delegate to SourceProvider instances."""
+        all_results: list[SourceResult] = []
+        seen_ids: set[str] = set()
+
+        # Local corpus provider first (results appear before external)
+        if include_local and "internal_corpus" in self._providers:
+            local_results = await self._providers["internal_corpus"].search(
+                query, max_results=max_results
+            )
+            for r in local_results:
+                if r.id not in seen_ids:
+                    all_results.append(r)
+                    seen_ids.add(r.id)
+
+        # arXiv provider
+        if include_arxiv and "arxiv" in self._providers:
+            arxiv_results = await self._providers["arxiv"].search(query, max_results=max_results)
+            for r in arxiv_results:
+                if r.id not in seen_ids:
+                    all_results.append(r)
+                    seen_ids.add(r.id)
+
+        # Any other providers (e.g. semantic_scholar for keyword search)
+        for name, provider in self._providers.items():
+            if name in ("internal_corpus", "arxiv"):
+                continue
+            try:
+                extra_results = await provider.search(query, max_results=max_results)
+                for r in extra_results:
+                    if r.id not in seen_ids:
+                        all_results.append(r)
+                        seen_ids.add(r.id)
+            except Exception:
+                pass  # Non-critical providers can fail silently
+
+        results = all_results[:max_results]
 
         if self._logger:
             self._logger.log(
                 EventType.LITERATURE_SEARCH,
                 content={
                     "query": query,
-                    "local_results": len(local_papers),
-                    "arxiv_results": num_arxiv_results,
-                    "arxiv_new": len(arxiv_only),
-                    "total_results": len(papers),
+                    "total_results": len(results),
+                    "providers": list(self._providers.keys()),
                     "sources": {
                         "local": include_local,
                         "arxiv": include_arxiv,
@@ -140,7 +191,176 @@ class Corpus:
                 },
             )
 
+        return results
+
+    async def _search_legacy(
+        self,
+        query: str,
+        max_results: int,
+        include_local: bool,
+        include_arxiv: bool,
+        categories: list[str] | None,
+    ) -> list[SourceResult]:
+        """Legacy search: direct ArxivClient + EmbeddingStore, converted to SourceResult."""
+        local_results: list[SourceResult] = []
+        local_ids: set[str] = set()
+        arxiv_only: list[SourceResult] = []
+        num_arxiv_results = 0
+
+        # Search local embeddings
+        if include_local and self._embeddings.count() > 0:
+            local_raw = self._embeddings.search(query, n_results=max_results)
+            for result in local_raw:
+                doc_id = result["arxiv_id"]
+                if doc_id.startswith("paper-"):
+                    continue
+                db_key = f"arxiv:{doc_id}"
+                db_paper = self._db.get_paper(db_key)
+                if db_paper and db_paper.get("status") in ("published", "external"):
+                    paper = self._db_row_to_paper(db_paper)
+                    if paper and doc_id not in local_ids:
+                        local_results.append(arxiv_paper_to_source_result(paper))
+                        local_ids.add(doc_id)
+
+        # Search arXiv API
+        if include_arxiv:
+            arxiv_papers = await self._arxiv.search(
+                query, max_results=max_results, categories=categories
+            )
+            num_arxiv_results = len(arxiv_papers)
+            for paper in arxiv_papers:
+                if paper.arxiv_id not in local_ids:
+                    arxiv_only.append(arxiv_paper_to_source_result(paper))
+
+        papers = (local_results + arxiv_only)[:max_results]
+
+        if self._logger:
+            self._logger.log(
+                EventType.LITERATURE_SEARCH,
+                content={
+                    "query": query,
+                    "local_results": len(local_results),
+                    "arxiv_results": num_arxiv_results,
+                    "arxiv_new": len(arxiv_only),
+                    "total_results": len(papers),
+                    "sources": {"local": include_local, "arxiv": include_arxiv},
+                },
+            )
+
         return papers
+
+    # ------------------------------------------------------------------
+    # References & Citations
+    # ------------------------------------------------------------------
+
+    async def get_references(self, arxiv_id: str, max_results: int = 20) -> list[SourceResult]:
+        """Get papers referenced by this paper.
+
+        Delegates to the semantic_scholar provider if available,
+        otherwise falls back to the legacy S2 client.
+
+        Args:
+            arxiv_id: arXiv paper ID.
+            max_results: Maximum number of references to return.
+
+        Returns:
+            List of SourceResult objects.
+        """
+        if self._providers and "semantic_scholar" in self._providers:
+            results = await self._providers["semantic_scholar"].get_references(arxiv_id)
+            return results[:max_results]
+
+        from paradigm.domains.base import semantic_paper_to_source_result
+
+        papers = await self._s2.get_references(arxiv_id, limit=max_results)
+        return [semantic_paper_to_source_result(p) for p in papers]
+
+    async def get_citations(self, arxiv_id: str, max_results: int = 10) -> list[SourceResult]:
+        """Get papers that cite this paper.
+
+        Delegates to the semantic_scholar provider if available,
+        otherwise falls back to the legacy S2 client.
+
+        Args:
+            arxiv_id: arXiv paper ID.
+            max_results: Maximum number of citations to return.
+
+        Returns:
+            List of SourceResult objects.
+        """
+        if self._providers and "semantic_scholar" in self._providers:
+            results = await self._providers["semantic_scholar"].get_citing(arxiv_id)
+            return results[:max_results]
+
+        from paradigm.domains.base import semantic_paper_to_source_result
+
+        papers = await self._s2.get_citations(arxiv_id, limit=max_results)
+        return [semantic_paper_to_source_result(p) for p in papers]
+
+    # ------------------------------------------------------------------
+    # Read paper
+    # ------------------------------------------------------------------
+
+    async def read_paper(self, arxiv_id: str, max_chars: int = 8000) -> tuple[str, str] | None:
+        """Fetch and extract key sections from a paper.
+
+        Checks local DB body first; falls back to PDF fetch + extraction.
+        When providers are configured, also tries provider fetch().
+
+        Args:
+            arxiv_id: arXiv paper ID.
+            max_chars: Maximum characters to return.
+
+        Returns:
+            Tuple of (title, extracted_text), or None if paper cannot be read.
+        """
+        # Check local DB for cached body text
+        db_paper = self._db.get_paper(f"arxiv:{arxiv_id}")
+        if db_paper and db_paper.get("body"):
+            title = db_paper.get("title", arxiv_id)
+            return title, extract_key_sections(db_paper["body"], max_chars)
+
+        # Try providers if available
+        if self._providers:
+            for provider in self._providers.values():
+                try:
+                    doc = await provider.fetch(arxiv_id)
+                    if doc and doc.full_text:
+                        # Cache in DB
+                        self._cache_body_text(arxiv_id, doc.full_text)
+                        return doc.title, extract_key_sections(doc.full_text, max_chars)
+                except Exception:
+                    continue
+
+        # Fall back to fetching from arXiv directly
+        paper = await self._arxiv.get_paper(arxiv_id)
+        if paper is None:
+            return None
+
+        pdf_text = await self._arxiv.fetch_pdf_text(paper)
+        if pdf_text is None:
+            return None
+
+        # Cache the body text in DB
+        paper_key = f"arxiv:{arxiv_id}"
+        existing = self._db.get_paper(paper_key)
+        if existing:
+            self._db.update_paper(paper_key, body=pdf_text)
+        else:
+            await self.ingest_paper(paper.model_copy(update={"body": pdf_text}))
+
+        return paper.title, extract_key_sections(pdf_text, max_chars)
+
+    def _cache_body_text(self, arxiv_id: str, body: str) -> None:
+        """Cache body text in the database if entry exists."""
+        paper_key = f"arxiv:{arxiv_id}"
+        existing = self._db.get_paper(paper_key)
+        if existing:
+            self._db.update_paper(paper_key, body=body)
+
+    # ------------------------------------------------------------------
+    # Ingestion (stays on ArxivPaper)
+    # ------------------------------------------------------------------
 
     async def ingest_paper(self, paper: ArxivPaper, fetch_pdf: bool = False) -> None:
         """Add a paper to local storage (SQLite + ChromaDB).
@@ -232,6 +452,10 @@ class Corpus:
         await self.ingest_paper(paper, fetch_pdf=False)
         return paper
 
+    # ------------------------------------------------------------------
+    # Other queries
+    # ------------------------------------------------------------------
+
     async def semantic_search(self, query: str, n_results: int = 10) -> list[dict[str, Any]]:
         """Search local corpus by semantic similarity only.
 
@@ -290,39 +514,38 @@ class Corpus:
         lines = [f"## Relevant Literature for: {topic}\n"]
 
         for i, paper in enumerate(papers, 1):
-            is_internal = paper.arxiv_id.startswith("paper-")
+            is_internal = paper.id.startswith("paper-")
             authors_str = ", ".join(paper.authors[:3])
             if len(paper.authors) > 3:
                 authors_str += " et al."
 
-            date_str = paper.published.strftime("%Y-%m-%d")
+            date_str = paper.date.strftime("%Y-%m-%d") if paper.date else "Unknown"
+            categories = paper.metadata.get("categories", [])
 
             lines.append(f"### [{i}] {paper.title}")
             lines.append(f"**Authors:** {authors_str}")
             if is_internal:
                 lines.append(f"**Published:** {date_str} | **Source:** Paradigm internal")
-                lines.append(f"**ID:** {paper.arxiv_id}")
+                lines.append(f"**ID:** {paper.id}")
             else:
-                cats = ", ".join(paper.categories[:3])
+                cats = ", ".join(categories[:3]) if categories else ""
                 lines.append(f"**Published:** {date_str} | **Categories:** {cats}")
-                lines.append(f"**arXiv:** {paper.arxiv_id}")
-            lines.append(f"\n{paper.abstract}\n")
+                lines.append(f"**arXiv:** {paper.id}")
+            lines.append(f"\n{paper.summary}\n")
             lines.append("---\n")
 
         # References section
         lines.append("## References\n")
         for i, paper in enumerate(papers, 1):
-            is_internal = paper.arxiv_id.startswith("paper-")
+            is_internal = paper.id.startswith("paper-")
             authors_short = paper.authors[0] if paper.authors else "Unknown"
             if len(paper.authors) > 1:
                 authors_short += " et al."
-            year = paper.published.strftime("%Y")
+            year = paper.date.strftime("%Y") if paper.date else "?"
             if is_internal:
-                lines.append(f'[{i}] {authors_short} ({year}). "{paper.title}". {paper.arxiv_id}')
+                lines.append(f'[{i}] {authors_short} ({year}). "{paper.title}". {paper.id}')
             else:
-                lines.append(
-                    f'[{i}] {authors_short} ({year}). "{paper.title}". arXiv:{paper.arxiv_id}'
-                )
+                lines.append(f'[{i}] {authors_short} ({year}). "{paper.title}". arXiv:{paper.id}')
 
         return "\n".join(lines)
 
@@ -356,72 +579,15 @@ class Corpus:
         }
 
         self._embeddings.add_paper(
-            arxiv_id=paper_id,  # arxiv_id param is just a document ID, accepts any string
+            arxiv_id=paper_id,
             title=title,
             abstract=abstract,
             metadata=metadata,
         )
 
-    async def get_references(self, arxiv_id: str, max_results: int = 20) -> list[SemanticPaper]:
-        """Get papers referenced by this paper via Semantic Scholar.
-
-        Args:
-            arxiv_id: arXiv paper ID.
-            max_results: Maximum number of references to return.
-
-        Returns:
-            List of SemanticPaper objects.
-        """
-        return await self._s2.get_references(arxiv_id, limit=max_results)
-
-    async def get_citations(self, arxiv_id: str, max_results: int = 10) -> list[SemanticPaper]:
-        """Get papers that cite this paper via Semantic Scholar.
-
-        Args:
-            arxiv_id: arXiv paper ID.
-            max_results: Maximum number of citations to return.
-
-        Returns:
-            List of SemanticPaper objects (with arXiv IDs, sorted by year).
-        """
-        return await self._s2.get_citations(arxiv_id, limit=max_results)
-
-    async def read_paper(self, arxiv_id: str, max_chars: int = 8000) -> tuple[str, str] | None:
-        """Fetch and extract key sections from a paper.
-
-        Checks local DB body first; falls back to PDF fetch + extraction.
-
-        Args:
-            arxiv_id: arXiv paper ID.
-            max_chars: Maximum characters to return.
-
-        Returns:
-            Tuple of (title, extracted_text), or None if paper cannot be read.
-        """
-        # Check local DB for cached body text
-        db_paper = self._db.get_paper(f"arxiv:{arxiv_id}")
-        if db_paper and db_paper.get("body"):
-            title = db_paper.get("title", arxiv_id)
-            return title, extract_key_sections(db_paper["body"], max_chars)
-
-        # Fall back to fetching from arXiv
-        paper = await self._arxiv.get_paper(arxiv_id)
-        if paper is None:
-            return None
-
-        pdf_text = await self._arxiv.fetch_pdf_text(paper)
-        if pdf_text is None:
-            return None
-
-        # Cache the body text in DB
-        paper_id = f"arxiv:{arxiv_id}"
-        existing = self._db.get_paper(paper_id)
-        if existing:
-            self._db.update_paper(paper_id, body=pdf_text)
-        else:
-            await self.ingest_paper(paper.model_copy(update={"body": pdf_text}))
-
-        return paper.title, extract_key_sections(pdf_text, max_chars)
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     @property
     def citations(self) -> CitationTracker:

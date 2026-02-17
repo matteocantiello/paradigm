@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from paradigm.domains.base import SourceResult
 from paradigm.literature.arxiv import ArxivPaper
 
 # Match http/https URLs, stopping at whitespace, quotes, angle brackets, or closing parens
@@ -171,12 +172,12 @@ def parse_challenge_requests(text: str) -> list[ChallengeRequest]:
     return challenges
 
 
-def format_search_results(query: str, papers: list[ArxivPaper], max_papers: int = 3) -> str:
+def format_search_results(query: str, papers: list[SourceResult], max_papers: int = 3) -> str:
     """Format search results as compact markdown for agent context.
 
     Args:
         query: The search query that produced these results.
-        papers: List of ArxivPaper results.
+        papers: List of SourceResult objects.
         max_papers: Maximum number of papers to include.
 
     Returns:
@@ -190,13 +191,12 @@ def format_search_results(query: str, papers: list[ArxivPaper], max_papers: int 
         authors_str = ", ".join(paper.authors[:3])
         if len(paper.authors) > 3:
             authors_str += " et al."
-        year = paper.published.strftime("%Y")
-        abstract_trunc = paper.abstract[:200].strip()
-        if len(paper.abstract) > 200:
+        year = paper.date.strftime("%Y") if paper.date else "?"
+        abstract_trunc = paper.summary[:200].strip()
+        if len(paper.summary) > 200:
             abstract_trunc += "..."
         lines.append(
-            f"{i}. **{paper.title}** — {authors_str} ({year}) "
-            f"[{paper.arxiv_id}]\n   {abstract_trunc}"
+            f"{i}. **{paper.title}** — {authors_str} ({year}) [{paper.id}]\n   {abstract_trunc}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -344,12 +344,12 @@ def parse_data_requests(text: str) -> list[str]:
     return urls
 
 
-def format_follow_results(arxiv_id: str, papers: list, max_papers: int = 15) -> str:
+def format_follow_results(arxiv_id: str, papers: list[SourceResult], max_papers: int = 15) -> str:
     """Format reference list as markdown for agent context.
 
     Args:
         arxiv_id: The source paper whose references were fetched.
-        papers: List of SemanticPaper objects.
+        papers: List of SourceResult objects.
         max_papers: Maximum number of papers to include.
 
     Returns:
@@ -363,24 +363,23 @@ def format_follow_results(arxiv_id: str, papers: list, max_papers: int = 15) -> 
         authors_str = ", ".join(paper.authors[:3])
         if len(paper.authors) > 3:
             authors_str += " et al."
-        year = paper.year or "?"
-        abstract_trunc = (paper.abstract or "")[:200].strip()
-        if len(paper.abstract or "") > 200:
+        year = paper.date.strftime("%Y") if paper.date else "?"
+        abstract_trunc = paper.summary[:200].strip()
+        if len(paper.summary) > 200:
             abstract_trunc += "..."
-        id_str = paper.arxiv_id or paper.paper_id
         lines.append(
-            f"{i}. **{paper.title}** — {authors_str} ({year}) [{id_str}]\n   {abstract_trunc}"
+            f"{i}. **{paper.title}** — {authors_str} ({year}) [{paper.id}]\n   {abstract_trunc}"
         )
     lines.append("")
     return "\n".join(lines)
 
 
-def format_cited_by_results(arxiv_id: str, papers: list, max_papers: int = 10) -> str:
+def format_cited_by_results(arxiv_id: str, papers: list[SourceResult], max_papers: int = 10) -> str:
     """Format citation-forward results as markdown for agent context.
 
     Args:
         arxiv_id: The source paper whose citations were fetched.
-        papers: List of SemanticPaper objects.
+        papers: List of SourceResult objects.
         max_papers: Maximum number of papers to include.
 
     Returns:
@@ -394,15 +393,15 @@ def format_cited_by_results(arxiv_id: str, papers: list, max_papers: int = 10) -
         authors_str = ", ".join(paper.authors[:3])
         if len(paper.authors) > 3:
             authors_str += " et al."
-        year = paper.year or "?"
-        cite_count = f", {paper.citation_count} citations" if paper.citation_count else ""
-        abstract_trunc = (paper.abstract or "")[:200].strip()
-        if len(paper.abstract or "") > 200:
+        year = paper.date.strftime("%Y") if paper.date else "?"
+        citation_count = paper.metadata.get("citation_count")
+        cite_count = f", {citation_count} citations" if citation_count else ""
+        abstract_trunc = paper.summary[:200].strip()
+        if len(paper.summary) > 200:
             abstract_trunc += "..."
-        id_str = paper.arxiv_id or paper.paper_id
         lines.append(
             f"{i}. **{paper.title}** — {authors_str} ({year}{cite_count}) "
-            f"[{id_str}]\n   {abstract_trunc}"
+            f"[{paper.id}]\n   {abstract_trunc}"
         )
     lines.append("")
     return "\n".join(lines)

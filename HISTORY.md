@@ -1937,3 +1937,16 @@ Full implementation of domain profiles abstraction: define interfaces, create sc
 > still some linting issues Run ruff format --check src/ tests/ — 8 files would be reformatted
 
 **Action:** Ran `ruff format src/ tests/` to auto-format 8 files: `base.py`, `registry.py`, `review.py`, `engine.py`, `writing.py`, `test_domain_integration.py`, `test_domain_science.py`, `test_factory.py`
+
+## 2026-02-17
+
+### Prompt — Implement Source Provider Adapter Layer
+
+> Implement the following plan: Source Provider Adapter Layer — Implementation Plan
+> Full migration: Refactor Corpus to delegate to SourceProvider instances and return SourceResult instead of ArxivPaper/SemanticPaper. Update format functions and LiteratureHandler to work with SourceResult. Create concrete adapter classes that wrap existing clients.
+
+**Key decisions**: Full migration approach (not dual-mode). 9 implementation steps covering conversion helpers, provider adapters, factory, Corpus refactor, format function updates, LiteratureHandler updates, main.py wiring, exports, and tests.
+
+**Artifacts**: domains/base.py (modified), literature/providers.py (new), literature/provider_factory.py (new), literature/corpus.py (modified), literature/prompt_utils.py (modified), orchestrator/literature.py (modified), main.py (modified), literature/__init__.py (modified), tests/test_source_providers.py (new), tests/test_orchestrator.py (modified), tests/test_corpus.py (modified), tests/test_prompt_utils.py (modified)
+
+**Verification**: All 838 tests pass. Ruff lint and format checks pass. Fixed 4 remaining SemanticPaper → SourceResult mock conversions in test_orchestrator.py (follow/cited_by tests in both TestLiteratureGraphTraversal and TestLiteratureDedup classes).

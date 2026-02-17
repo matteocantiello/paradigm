@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime
 
-from paradigm.literature.arxiv import ArxivPaper
+from paradigm.domains.base import SourceResult
 from paradigm.literature.prompt_utils import (
     extract_search_query,
     extract_urls,
@@ -19,7 +19,6 @@ from paradigm.literature.prompt_utils import (
     parse_read_requests,
     parse_search_requests,
 )
-from paradigm.literature.semantic_scholar import SemanticPaper
 
 # --- extract_urls tests ---
 
@@ -178,20 +177,22 @@ class TestMakeExternalPaper:
 # --- parse_search_requests tests ---
 
 
-def _make_paper(arxiv_id: str = "2301.12345", title: str = "Test Paper") -> ArxivPaper:
-    """Helper to create a minimal ArxivPaper for testing."""
+def _make_paper(arxiv_id: str = "2301.12345", title: str = "Test Paper") -> SourceResult:
+    """Helper to create a minimal SourceResult for testing format functions."""
     now = datetime.now(UTC)
-    return ArxivPaper(
-        arxiv_id=arxiv_id,
+    return SourceResult(
+        id=arxiv_id,
+        source_type="arxiv",
         title=title,
-        abstract="This is a test abstract that is long enough to exercise truncation.",
         authors=["Alice", "Bob", "Charlie", "Diana"],
-        categories=["astro-ph.SR"],
-        primary_category="astro-ph.SR",
-        published=now,
-        updated=now,
-        pdf_url=f"http://arxiv.org/pdf/{arxiv_id}",
-        abs_url=f"http://arxiv.org/abs/{arxiv_id}",
+        summary="This is a test abstract that is long enough to exercise truncation.",
+        url=f"http://arxiv.org/abs/{arxiv_id}",
+        date=now,
+        metadata={
+            "categories": ["astro-ph.SR"],
+            "primary_category": "astro-ph.SR",
+            "pdf_url": f"http://arxiv.org/pdf/{arxiv_id}",
+        },
     )
 
 
@@ -277,17 +278,22 @@ def _make_s2_paper(
     arxiv_id: str = "2301.12345",
     title: str = "S2 Paper",
     year: int = 2023,
-) -> SemanticPaper:
-    """Helper to create a SemanticPaper for testing."""
-    return SemanticPaper(
-        paper_id="abc123",
-        arxiv_id=arxiv_id,
+) -> SourceResult:
+    """Helper to create a SourceResult (from Semantic Scholar) for testing."""
+    return SourceResult(
+        id=arxiv_id,
+        source_type="semantic_scholar",
         title=title,
         authors=["Alice", "Bob", "Charlie", "Diana"],
-        abstract="A test abstract about stellar physics.",
-        year=year,
-        citation_count=42,
+        summary="A test abstract about stellar physics.",
         url="https://www.semanticscholar.org/paper/abc123",
+        date=datetime(year, 1, 1, tzinfo=UTC),
+        metadata={
+            "paper_id": "abc123",
+            "arxiv_id": arxiv_id,
+            "year": year,
+            "citation_count": 42,
+        },
     )
 
 

@@ -6,6 +6,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
+from paradigm.domains.base import arxiv_paper_to_source_result
 from paradigm.literature.bibliography import extract_arxiv_id_from_url
 from paradigm.literature.perplexity import PerplexityClient
 from paradigm.literature.prompt_utils import (
@@ -221,7 +222,8 @@ class LiteratureHandler:
                 continue
 
         if papers:
-            formatted = format_search_results("Seed discovery", papers)
+            source_results = [arxiv_paper_to_source_result(p) for p in papers]
+            formatted = format_search_results("Seed discovery", source_results)
             self.literature_context = formatted
 
         await client.close()
@@ -324,10 +326,10 @@ class LiteratureHandler:
                     "phase": str(phase),
                     "papers": [
                         {
-                            "arxiv_id": p.arxiv_id,
+                            "arxiv_id": p.id,
                             "title": p.title,
                             "authors": p.authors[:3],
-                            "year": p.published.strftime("%Y"),
+                            "year": p.date.strftime("%Y") if p.date else "?",
                         }
                         for p in papers
                     ],
@@ -335,11 +337,11 @@ class LiteratureHandler:
             )
 
             # Filter out papers already shown to agents in previous searches
-            new_papers = [p for p in papers if p.arxiv_id not in self.seen_paper_ids]
+            new_papers = [p for p in papers if p.id not in self.seen_paper_ids]
             for p in new_papers:
-                self.seen_paper_ids.add(p.arxiv_id)
+                self.seen_paper_ids.add(p.id)
                 first_author = p.authors[0] if p.authors else "Unknown"
-                self._track_paper(p.arxiv_id, p.title, first_author)
+                self._track_paper(p.id, p.title, first_author)
 
             if new_papers:
                 consecutive_stale = 0
@@ -444,10 +446,10 @@ class LiteratureHandler:
 
             # Track discovered paper IDs
             for p in papers:
-                if p.arxiv_id:
-                    self.seen_paper_ids.add(p.arxiv_id)
+                if p.id:
+                    self.seen_paper_ids.add(p.id)
                     first_author = p.authors[0] if p.authors else "Unknown"
-                    self._track_paper(p.arxiv_id, p.title, first_author)
+                    self._track_paper(p.id, p.title, first_author)
 
             formatted = format_follow_results(
                 arxiv_id, papers, max_papers=lit_config.max_reference_results
@@ -463,10 +465,10 @@ class LiteratureHandler:
                     "phase": str(phase),
                     "papers": [
                         {
-                            "arxiv_id": p.arxiv_id or p.paper_id,
+                            "arxiv_id": p.id,
                             "title": p.title,
                             "authors": p.authors[:3],
-                            "year": str(p.year or "?"),
+                            "year": p.date.strftime("%Y") if p.date else "?",
                         }
                         for p in papers
                     ],
@@ -510,10 +512,10 @@ class LiteratureHandler:
 
             # Track discovered paper IDs
             for p in papers:
-                if p.arxiv_id:
-                    self.seen_paper_ids.add(p.arxiv_id)
+                if p.id:
+                    self.seen_paper_ids.add(p.id)
                     first_author = p.authors[0] if p.authors else "Unknown"
-                    self._track_paper(p.arxiv_id, p.title, first_author)
+                    self._track_paper(p.id, p.title, first_author)
 
             formatted = format_cited_by_results(
                 arxiv_id, papers, max_papers=lit_config.max_citation_results
@@ -529,10 +531,10 @@ class LiteratureHandler:
                     "phase": str(phase),
                     "papers": [
                         {
-                            "arxiv_id": p.arxiv_id or p.paper_id,
+                            "arxiv_id": p.id,
                             "title": p.title,
                             "authors": p.authors[:3],
-                            "year": str(p.year or "?"),
+                            "year": p.date.strftime("%Y") if p.date else "?",
                         }
                         for p in papers
                     ],

@@ -467,22 +467,19 @@ class TestOrchestrationEngine:
         """_search_log accumulates entries when agents make [SEARCH:] requests."""
         from datetime import UTC, datetime
 
-        from paradigm.literature.arxiv import ArxivPaper
+        from paradigm.domains.base import SourceResult
 
-        # Mock corpus that returns actual ArxivPaper objects
+        # Mock corpus that returns SourceResult objects
         corpus = MagicMock()
         now = datetime.now(UTC)
-        mock_paper = ArxivPaper(
-            arxiv_id="2401.12345",
+        mock_paper = SourceResult(
+            id="2401.12345",
+            source_type="arxiv",
             title="Test Paper on Cepheids",
-            abstract="Abstract text",
+            summary="Abstract text",
             authors=["Author One", "Author Two"],
-            categories=["astro-ph.SR"],
-            primary_category="astro-ph.SR",
-            published=now,
-            updated=now,
-            pdf_url="https://arxiv.org/pdf/2401.12345",
-            abs_url="https://arxiv.org/abs/2401.12345",
+            date=now,
+            metadata={"categories": ["astro-ph.SR"]},
         )
         corpus.build_literature_context = AsyncMock(return_value="No papers.")
         corpus.search = AsyncMock(return_value=[mock_paper])
@@ -992,32 +989,26 @@ class TestOrchestrationEngine:
         """Papers already shown to agents are filtered from subsequent search results."""
         from datetime import UTC, datetime
 
-        from paradigm.literature.arxiv import ArxivPaper
+        from paradigm.domains.base import SourceResult
 
         now = datetime.now(UTC)
-        paper_a = ArxivPaper(
-            arxiv_id="2401.00001",
+        paper_a = SourceResult(
+            id="2401.00001",
+            source_type="arxiv",
             title="Paper A",
-            abstract="Abstract A",
+            summary="Abstract A",
             authors=["Author A"],
-            categories=["astro-ph.SR"],
-            primary_category="astro-ph.SR",
-            published=now,
-            updated=now,
-            pdf_url="https://arxiv.org/pdf/2401.00001",
-            abs_url="https://arxiv.org/abs/2401.00001",
+            date=now,
+            metadata={"categories": ["astro-ph.SR"]},
         )
-        paper_b = ArxivPaper(
-            arxiv_id="2401.00002",
+        paper_b = SourceResult(
+            id="2401.00002",
+            source_type="arxiv",
             title="Paper B",
-            abstract="Abstract B",
+            summary="Abstract B",
             authors=["Author B"],
-            categories=["astro-ph.SR"],
-            primary_category="astro-ph.SR",
-            published=now,
-            updated=now,
-            pdf_url="https://arxiv.org/pdf/2401.00002",
-            abs_url="https://arxiv.org/abs/2401.00002",
+            date=now,
+            metadata={"categories": ["astro-ph.SR"]},
         )
 
         # First search returns both papers, second search returns same papers
@@ -1225,22 +1216,24 @@ class TestLiteratureGraphTraversal:
     @pytest.mark.asyncio
     async def test_follow_requests_processed(self, mock_config, tmp_db, tmp_logger):
         """[FOLLOW:] triggers corpus.get_references()."""
-        from paradigm.literature.semantic_scholar import SemanticPaper
+        from datetime import UTC, datetime
+
+        from paradigm.domains.base import SourceResult
 
         corpus = MagicMock()
         corpus.build_literature_context = AsyncMock(return_value="No papers.")
         corpus.search = AsyncMock(return_value=[])
         corpus.get_references = AsyncMock(
             return_value=[
-                SemanticPaper(
-                    paper_id="s2-1",
-                    arxiv_id="2301.001",
+                SourceResult(
+                    id="2301.001",
+                    source_type="semantic_scholar",
                     title="Referenced Paper",
                     authors=["Author"],
-                    abstract="Abstract",
-                    year=2023,
-                    citation_count=5,
+                    summary="Abstract",
                     url="",
+                    date=datetime(2023, 1, 1, tzinfo=UTC),
+                    metadata={"paper_id": "s2-1", "citation_count": 5},
                 )
             ]
         )
@@ -1280,7 +1273,9 @@ class TestLiteratureGraphTraversal:
     @pytest.mark.asyncio
     async def test_cited_by_requests_processed(self, mock_config, tmp_db, tmp_logger):
         """[CITED_BY:] triggers corpus.get_citations()."""
-        from paradigm.literature.semantic_scholar import SemanticPaper
+        from datetime import UTC, datetime
+
+        from paradigm.domains.base import SourceResult
 
         corpus = MagicMock()
         corpus.build_literature_context = AsyncMock(return_value="No papers.")
@@ -1288,15 +1283,15 @@ class TestLiteratureGraphTraversal:
         corpus.get_references = AsyncMock(return_value=[])
         corpus.get_citations = AsyncMock(
             return_value=[
-                SemanticPaper(
-                    paper_id="s2-2",
-                    arxiv_id="2401.001",
+                SourceResult(
+                    id="2401.001",
+                    source_type="semantic_scholar",
                     title="Citing Paper",
                     authors=["Author"],
-                    abstract="Abstract",
-                    year=2024,
-                    citation_count=3,
+                    summary="Abstract",
                     url="",
+                    date=datetime(2024, 1, 1, tzinfo=UTC),
+                    metadata={"paper_id": "s2-2", "citation_count": 3},
                 )
             ]
         )
@@ -1425,20 +1420,17 @@ class TestLiteratureGraphTraversal:
         """Hint appears when keyword search returns 0 new papers."""
         from datetime import UTC, datetime
 
-        from paradigm.literature.arxiv import ArxivPaper
+        from paradigm.domains.base import SourceResult
 
         now = datetime.now(UTC)
-        paper = ArxivPaper(
-            arxiv_id="2401.12345",
+        paper = SourceResult(
+            id="2401.12345",
+            source_type="arxiv",
             title="Seen Paper",
-            abstract="Abstract",
+            summary="Abstract",
             authors=["Author"],
-            categories=["astro-ph.SR"],
-            primary_category="astro-ph.SR",
-            published=now,
-            updated=now,
-            pdf_url="https://arxiv.org/pdf/2401.12345",
-            abs_url="https://arxiv.org/abs/2401.12345",
+            date=now,
+            metadata={"categories": ["astro-ph.SR"]},
         )
 
         corpus = MagicMock()
@@ -1495,20 +1487,17 @@ class TestLiteratureGraphTraversal:
         """After 2 consecutive 0-new results, remaining searches are skipped."""
         from datetime import UTC, datetime
 
-        from paradigm.literature.arxiv import ArxivPaper
+        from paradigm.domains.base import SourceResult
 
         now = datetime.now(UTC)
-        paper = ArxivPaper(
-            arxiv_id="2401.12345",
+        paper = SourceResult(
+            id="2401.12345",
+            source_type="arxiv",
             title="Seen Paper",
-            abstract="Abstract",
+            summary="Abstract",
             authors=["Author"],
-            categories=["astro-ph.SR"],
-            primary_category="astro-ph.SR",
-            published=now,
-            updated=now,
-            pdf_url="https://arxiv.org/pdf/2401.12345",
-            abs_url="https://arxiv.org/abs/2401.12345",
+            date=now,
+            metadata={"categories": ["astro-ph.SR"]},
         )
 
         corpus = MagicMock()
@@ -1661,7 +1650,7 @@ class TestLiteratureGraphTraversal:
         """A single agent cannot use the entire round's search budget."""
         from datetime import UTC, datetime
 
-        from paradigm.literature.arxiv import ArxivPaper
+        from paradigm.domains.base import SourceResult
 
         now = datetime.now(UTC)
         call_counter = [0]
@@ -1669,17 +1658,14 @@ class TestLiteratureGraphTraversal:
         async def _unique_search(query, max_results=10):
             call_counter[0] += 1
             return [
-                ArxivPaper(
-                    arxiv_id=f"2401.{call_counter[0]:05d}",
+                SourceResult(
+                    id=f"2401.{call_counter[0]:05d}",
+                    source_type="arxiv",
                     title=f"Paper {call_counter[0]}",
-                    abstract="Abstract",
+                    summary="Abstract",
                     authors=["Author"],
-                    categories=["astro-ph.SR"],
-                    primary_category="astro-ph.SR",
-                    published=now,
-                    updated=now,
-                    pdf_url=f"https://arxiv.org/pdf/2401.{call_counter[0]:05d}",
-                    abs_url=f"https://arxiv.org/abs/2401.{call_counter[0]:05d}",
+                    date=now,
+                    metadata={"categories": ["astro-ph.SR"]},
                 )
             ]
 
@@ -1745,29 +1731,29 @@ class TestLiteratureGraphTraversal:
         """Stall hint appears regardless of follow/cited_by count."""
         from datetime import UTC, datetime
 
-        from paradigm.literature.arxiv import ArxivPaper
+        from paradigm.domains.base import SourceResult
 
         now = datetime.now(UTC)
-        paper = ArxivPaper(
-            arxiv_id="2401.99999",
+        paper = SourceResult(
+            id="2401.99999",
+            source_type="arxiv",
             title="Seen Paper",
-            abstract="Abstract",
+            summary="Abstract",
             authors=["Author"],
-            categories=["astro-ph.SR"],
-            primary_category="astro-ph.SR",
-            published=now,
-            updated=now,
-            pdf_url="https://arxiv.org/pdf/2401.99999",
-            abs_url="https://arxiv.org/abs/2401.99999",
+            date=now,
+            metadata={"categories": ["astro-ph.SR"]},
         )
 
-        # SemanticScholarPaper-like mock for get_references return
-        sem_paper = MagicMock()
-        sem_paper.arxiv_id = "2401.88888"
-        sem_paper.title = "Referenced Paper"
-        sem_paper.abstract = "Abstract of referenced paper"
-        sem_paper.authors = ["Ref Author"]
-        sem_paper.year = 2024
+        # SourceResult for get_references return
+        sem_paper = SourceResult(
+            id="2401.88888",
+            source_type="semantic_scholar",
+            title="Referenced Paper",
+            summary="Abstract of referenced paper",
+            authors=["Ref Author"],
+            date=datetime(2024, 1, 1, tzinfo=UTC),
+            metadata={"year": 2024},
+        )
 
         corpus = MagicMock()
         corpus.build_literature_context = AsyncMock(return_value="No papers.")
@@ -2019,20 +2005,17 @@ class TestDiscoveredPaperIndex:
         """Paper index is prepended to agent prompt in round 2+ of search-enabled phases."""
         from datetime import UTC, datetime
 
-        from paradigm.literature.arxiv import ArxivPaper
+        from paradigm.domains.base import SourceResult
 
         now = datetime.now(UTC)
-        paper = ArxivPaper(
-            arxiv_id="2401.12345",
+        paper = SourceResult(
+            id="2401.12345",
+            source_type="arxiv",
             title="Test Paper",
-            abstract="Abstract",
+            summary="Abstract",
             authors=["Smith"],
-            categories=["astro-ph.SR"],
-            primary_category="astro-ph.SR",
-            published=now,
-            updated=now,
-            pdf_url="https://arxiv.org/pdf/2401.12345",
-            abs_url="https://arxiv.org/abs/2401.12345",
+            date=now,
+            metadata={"categories": ["astro-ph.SR"]},
         )
 
         corpus = MagicMock()
@@ -2233,22 +2216,24 @@ class TestFollowCitedByDeduplication:
     @pytest.mark.asyncio
     async def test_follow_dedup_skips_duplicate(self, mock_config, tmp_db, tmp_logger):
         """Two [FOLLOW: same_id] requests — get_references() called only once."""
-        from paradigm.literature.semantic_scholar import SemanticPaper
+        from datetime import UTC, datetime
+
+        from paradigm.domains.base import SourceResult
 
         corpus = MagicMock()
         corpus.build_literature_context = AsyncMock(return_value="No papers.")
         corpus.search = AsyncMock(return_value=[])
         corpus.get_references = AsyncMock(
             return_value=[
-                SemanticPaper(
-                    paper_id="s2-1",
-                    arxiv_id="2301.001",
+                SourceResult(
+                    id="2301.001",
+                    source_type="semantic_scholar",
                     title="Referenced Paper",
                     authors=["Author"],
-                    abstract="Abstract",
-                    year=2023,
-                    citation_count=5,
+                    summary="Abstract",
                     url="",
+                    date=datetime(2023, 1, 1, tzinfo=UTC),
+                    metadata={"paper_id": "s2-1", "citation_count": 5},
                 )
             ]
         )
@@ -2300,7 +2285,9 @@ class TestFollowCitedByDeduplication:
     @pytest.mark.asyncio
     async def test_cited_by_dedup_skips_duplicate(self, mock_config, tmp_db, tmp_logger):
         """Two [CITED_BY: same_id] requests — get_citations() called only once."""
-        from paradigm.literature.semantic_scholar import SemanticPaper
+        from datetime import UTC, datetime
+
+        from paradigm.domains.base import SourceResult
 
         corpus = MagicMock()
         corpus.build_literature_context = AsyncMock(return_value="No papers.")
@@ -2308,15 +2295,15 @@ class TestFollowCitedByDeduplication:
         corpus.get_references = AsyncMock(return_value=[])
         corpus.get_citations = AsyncMock(
             return_value=[
-                SemanticPaper(
-                    paper_id="s2-2",
-                    arxiv_id="2401.001",
+                SourceResult(
+                    id="2401.001",
+                    source_type="semantic_scholar",
                     title="Citing Paper",
                     authors=["Author"],
-                    abstract="Abstract",
-                    year=2024,
-                    citation_count=3,
+                    summary="Abstract",
                     url="",
+                    date=datetime(2024, 1, 1, tzinfo=UTC),
+                    metadata={"paper_id": "s2-2", "citation_count": 3},
                 )
             ]
         )
@@ -2472,7 +2459,7 @@ class TestSearchExcludesParadigmPapers:
 
         # Should only return the real arXiv paper, not the paper-* one
         assert len(results) == 1
-        assert results[0].arxiv_id == "2401.12345"
+        assert results[0].id == "2401.12345"
         assert results[0].title == "Real ArXiv Paper"
 
 

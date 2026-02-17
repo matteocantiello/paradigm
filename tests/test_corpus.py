@@ -131,7 +131,7 @@ async def test_search_deduplicates(corpus, mock_arxiv, embedding_store):
     results = await corpus.search("duplicate paper")
 
     # Should appear only once
-    arxiv_ids = [p.arxiv_id for p in results]
+    arxiv_ids = [p.id for p in results]
     assert arxiv_ids.count("2301.001") == 1
 
 
@@ -282,7 +282,7 @@ async def test_search_excludes_internal_papers(corpus, db, embedding_store):
     results = await corpus.search("stellar oscillations", include_arxiv=False)
 
     # Internal paper-* IDs should be filtered out
-    found_ids = [p.arxiv_id for p in results]
+    found_ids = [p.id for p in results]
     assert "paper-abc123def456" not in found_ids
 
 
@@ -335,7 +335,7 @@ async def test_search_filters_internal_keeps_arxiv(corpus, db, mock_arxiv, embed
 
     results = await corpus.search("mixing", include_arxiv=True)
 
-    ids = [p.arxiv_id for p in results]
+    ids = [p.id for p in results]
     assert "paper-aabbccddeeff" not in ids
     assert "2401.001" in ids
 
@@ -377,7 +377,7 @@ async def test_search_excludes_non_published_internal(corpus, db, embedding_stor
 
     results = await corpus.search("mixing", include_arxiv=False)
 
-    found_ids = [p.arxiv_id for p in results]
+    found_ids = [p.id for p in results]
     assert "paper-draft111222" not in found_ids
     assert "paper-rejected333" not in found_ids
 
@@ -390,7 +390,7 @@ async def test_search_includes_external_papers(corpus, db, embedding_store):
 
     results = await corpus.search("mixing", include_arxiv=False)
 
-    found_ids = [p.arxiv_id for p in results]
+    found_ids = [p.id for p in results]
     assert "2501.001" in found_ids
 
 
@@ -411,7 +411,7 @@ async def test_search_interleaves_local_and_arxiv(corpus, db, mock_arxiv, embedd
     # Search with max_results=5 — should get locals + arXiv, not just locals
     results = await corpus.search("topic", max_results=5)
 
-    arxiv_ids = {p.arxiv_id for p in results}
+    arxiv_ids = {p.id for p in results}
 
     # Should have at least some arXiv papers (not all crowded out by local)
     arxiv_count = sum(1 for pid in arxiv_ids if pid.startswith("arxiv."))
@@ -434,7 +434,7 @@ async def test_search_arxiv_only_no_local_crowding(corpus, mock_arxiv, embedding
     assert len(results) == 5
     # All should be arXiv papers
     for p in results:
-        assert p.arxiv_id.startswith("2401.")
+        assert p.id.startswith("2401.")
 
 
 # --- Semantic Scholar integration tests ---

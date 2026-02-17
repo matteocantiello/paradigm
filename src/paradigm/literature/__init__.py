@@ -11,6 +11,12 @@ from paradigm.literature.novelty import (
     check_novelty_semantic_scholar,
 )
 from paradigm.literature.perplexity import CitedParagraph, PerplexityClient
+from paradigm.literature.provider_factory import create_source_providers
+from paradigm.literature.providers import (
+    ArxivSourceProvider,
+    InternalCorpusProvider,
+    SemanticScholarSourceProvider,
+)
 from paradigm.literature.resources import (
     ResolvedResource,
     ResourceType,
@@ -22,11 +28,13 @@ from paradigm.literature.semantic_scholar import SemanticPaper, SemanticScholarC
 __all__ = [
     "ArxivClient",
     "ArxivPaper",
+    "ArxivSourceProvider",
     "BibliographyBuilder",
     "CitationTracker",
     "CitedParagraph",
     "Corpus",
     "EmbeddingStore",
+    "InternalCorpusProvider",
     "NoveltyResult",
     "PerplexityClient",
     "Reference",
@@ -34,8 +42,10 @@ __all__ = [
     "ResourceType",
     "SemanticPaper",
     "SemanticScholarClient",
+    "SemanticScholarSourceProvider",
     "check_novelty_futurehouse",
     "check_novelty_semantic_scholar",
     "classify_resource",
+    "create_source_providers",
     "resolve_resource",
 ]

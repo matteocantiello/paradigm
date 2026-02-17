@@ -58,16 +58,26 @@ def _run_research(
         except Exception:
             pass
 
+    from paradigm.literature.provider_factory import create_source_providers
+
     factory = AgentFactory(
         config,
         skill_registry=skill_registry,
         prompts_dir=domain_profile.prompts_dir,
+    )
+    source_providers = create_source_providers(
+        provider_configs=domain_profile.source_providers,
+        literature_config=config.literature,
+        storage_config=config.storage,
+        database=database,
+        logger=logger,
     )
     corpus = Corpus(
         database=database,
         literature_config=config.literature,
         storage_config=config.storage,
         logger=logger,
+        source_providers=source_providers or None,
     )
     # Override rounds per phase if specified
     if rounds is not None:
