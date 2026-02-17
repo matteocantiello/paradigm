@@ -1655,3 +1655,20 @@ it just stripped prefixes and returned whatever string it got.
 - Editor agent system prompt  
 - Post-processing step in writing pipeline
 - HISTORY.md — This prompt logged
+
+### Prompt 32 — Agent Messages Panel in Rich Live Display
+
+> Implement the following plan: Add a third panel to the Rich live display showing real-time agent output (role, model, and first ~500 chars of response). Expand DisplayState with agent_messages, update DisplayManager.agent_response() signature, create build_agent_messages_panel() component, change layout to 3-column, and forward role/model/content from engine.py.
+
+**Key decisions:**
+- agent_messages capped at 8 entries in DisplayState
+- 3-column layout with ratios agents=1, messages=2, events=2
+- New kwargs (role, model, content) are optional to preserve PlainTextFallback compatibility
+
+**Artifacts modified:**
+- `src/paradigm/display/manager.py` — agent_messages field + add_agent_message() + expand agent_response()
+- `src/paradigm/display/components.py` — Add build_agent_messages_panel()
+- `src/paradigm/display/layout.py` — Import + add messages panel as third column
+- `src/paradigm/orchestrator/engine.py` — Pass role/model/content to agent_response() calls
+- `tests/test_display.py` — Tests for agent_messages tracking + new panel
+- `HISTORY.md` — This prompt logged

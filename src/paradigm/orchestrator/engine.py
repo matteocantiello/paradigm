@@ -912,7 +912,13 @@ class OrchestrationEngine:
             self._messages.append(msg_dict)
 
             total_tokens = response.usage.input_tokens + response.usage.output_tokens
-            self._display.agent_response(agent_id, total_tokens)
+            self._display.agent_response(
+                agent_id,
+                total_tokens,
+                role=agent.skill_profile,
+                model=response.model,
+                content=response.content,
+            )
 
             # Log message and token usage
             self._logger.log_agent_message(
@@ -1109,7 +1115,14 @@ class OrchestrationEngine:
             message_type: Type of message.
         """
         total_tokens = response.usage.input_tokens + response.usage.output_tokens
-        self._display.agent_response(agent_id, total_tokens)
+        agent = self._agents.get(agent_id)
+        self._display.agent_response(
+            agent_id,
+            total_tokens,
+            role=agent.skill_profile if agent else "",
+            model=response.model,
+            content=response.content,
+        )
 
         self._logger.log_agent_message(
             agent_id=agent_id,

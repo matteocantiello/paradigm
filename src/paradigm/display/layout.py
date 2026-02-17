@@ -13,6 +13,7 @@ from rich.layout import Layout
 from rich.live import Live
 
 from paradigm.display.components import (
+    build_agent_messages_panel,
     build_agents_panel,
     build_events_panel,
     build_phase_bar,
@@ -49,11 +50,11 @@ def build_live_layout(state: DisplayState) -> Layout:
     """Build the full live layout from current state.
 
     Layout structure:
-        ┌──────────────────────────┐
-        │     Phase Bar + Stats    │  (header)
-        ├────────────┬─────────────┤
-        │   Agents   │   Events    │  (body)
-        └────────────┴─────────────┘
+        ┌──────────────────────────────┐
+        │       Phase Bar + Stats      │  (header)
+        ├────────┬──────────┬──────────┤
+        │ Agents │ Messages │  Events  │  (body)
+        └────────┴──────────┴──────────┘
 
     Args:
         state: Current display state.
@@ -71,8 +72,9 @@ def build_live_layout(state: DisplayState) -> Layout:
 
     header = Panel(header_content, border_style="blue", padding=(0, 1))
 
-    # Body: agents + events side by side
+    # Body: agents + messages + events side by side
     agents_panel = build_agents_panel(state)
+    messages_panel = build_agent_messages_panel(state)
     events_panel = build_events_panel(state)
 
     layout.split_column(
@@ -81,6 +83,7 @@ def build_live_layout(state: DisplayState) -> Layout:
     )
     layout["body"].split_row(
         Layout(agents_panel, name="agents", ratio=1),
+        Layout(messages_panel, name="messages", ratio=2),
         Layout(events_panel, name="events", ratio=2),
     )
 

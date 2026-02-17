@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 from paradigm.display import DisplayManager, DisplayState
+from paradigm.display.components import build_agent_messages_panel
 from paradigm.display.fallback import PlainTextFallback
 from paradigm.display.theme import (
     AGENT_STYLES,
@@ -45,6 +46,34 @@ class TestDisplayState:
         # Should keep most recent
         assert state.recent_events[-1]["message"] == "Event 59"
         assert state.recent_events[0]["message"] == "Event 10"
+
+    def test_agent_messages_initial(self):
+        state = DisplayState()
+        assert state.agent_messages == []
+
+    def test_add_agent_message(self):
+        state = DisplayState()
+        state.add_agent_message("theorist-0", "theorist", "claude-opus-4-6", "Some content")
+        assert len(state.agent_messages) == 1
+        assert state.agent_messages[0]["agent_id"] == "theorist-0"
+        assert state.agent_messages[0]["role"] == "theorist"
+        assert state.agent_messages[0]["model"] == "claude-opus-4-6"
+        assert state.agent_messages[0]["content"] == "Some content"
+
+    def test_agent_messages_capped_at_8(self):
+        state = DisplayState()
+        for i in range(12):
+            state.add_agent_message(f"agent-{i}", "role", "model", f"Message {i}")
+        assert len(state.agent_messages) == 8
+        # Should keep most recent
+        assert state.agent_messages[-1]["content"] == "Message 11"
+        assert state.agent_messages[0]["content"] == "Message 4"
+
+    def test_agent_message_content_truncated(self):
+        state = DisplayState()
+        long_content = "x" * 1000
+        state.add_agent_message("a-0", "role", "model", long_content)
+        assert len(state.agent_messages[0]["content"]) == 500
 
     def test_elapsed_seconds(self):
         state = DisplayState()
@@ -245,6 +274,24 @@ class TestDisplayManager:
         assert dm.state.total_tokens == 1500
         assert "theorist-0" in dm.state.active_agents
 
+    def test_agent_response_with_content(self, capsys):
+        dm = DisplayManager(verbose=True)
+        dm.agent_response(
+            "theorist-0",
+            2000,
+            role="theorist",
+            model="claude-opus-4-6",
+            content="We propose a new theory...",
+        )
+        assert dm.state.total_tokens == 2000
+        assert len(dm.state.agent_messages) == 1
+        assert dm.state.agent_messages[0]["content"] == "We propose a new theory..."
+
+    def test_agent_response_without_content_no_message(self, capsys):
+        dm = DisplayManager(verbose=True)
+        dm.agent_response("theorist-0", 1000)
+        assert len(dm.state.agent_messages) == 0
+
     def test_state_tracking_search_result(self, capsys):
         dm = DisplayManager(verbose=True)
         dm.search_result("analyst-0", "dark matter", 10, 7)
@@ -416,3 +463,28 @@ class TestDisplayManager:
         dm.interactive_mode()
 
         dm.stop()
+
+
+# ---------------------------------------------------------------------------
+# Agent messages panel component tests
+# ---------------------------------------------------------------------------
+
+
+class TestAgentMessagesPanel:
+    def test_empty_state(self):
+        state = DisplayState()
+        panel = build_agent_messages_panel(state)
+        assert panel.title is not None
+
+    def test_with_messages(self):
+        state = DisplayState()
+        state.add_agent_message(
+            "theorist-0", "theorist", "claude-opus-4-6", "We propose..."
+        )
+        state.add_agent_message(
+            "analyst-0", "analyst", "claude-opus-4-6", "Based on the data..."
+        )
+        panel = build_agent_messages_panel(state)
+        assert panel.title is not None
+        # Panel should contain agent content (rendered as Rich Text)
+        assert panel.renderable is not None

@@ -29,11 +29,27 @@ class DisplayState:
     total_searches: int = 0
     papers_count: int = 0
     start_time: float = field(default_factory=time.monotonic)
+    agent_messages: list[dict[str, str]] = field(default_factory=list)  # capped at 8
     # End-of-cycle info for the final summary
     thread_id: str = ""
     paper_id: str = ""
     paper_path: str = ""
     outcome: str = ""  # published, rejected, reviewed, etc.
+
+    def add_agent_message(
+        self, agent_id: str, role: str, model: str, content: str
+    ) -> None:
+        """Add an agent message preview (capped at 8)."""
+        self.agent_messages.append(
+            {
+                "agent_id": agent_id,
+                "role": role,
+                "model": model,
+                "content": content[:500],
+            }
+        )
+        if len(self.agent_messages) > 8:
+            self.agent_messages = self.agent_messages[-8:]
 
     def add_event(self, event_type: str, message: str) -> None:
         """Add an event to the recent events list (capped at 50)."""
@@ -244,10 +260,20 @@ class DisplayManager:
     # Agent activity
     # ------------------------------------------------------------------
 
-    def agent_response(self, agent_id: str, total_tokens: int) -> None:
+    def agent_response(
+        self,
+        agent_id: str,
+        total_tokens: int,
+        *,
+        role: str = "",
+        model: str = "",
+        content: str = "",
+    ) -> None:
         self._state.total_tokens += total_tokens
         self._state.active_agents[agent_id] = f"{total_tokens} tokens"
         self._state.add_event("agent", f"{agent_id}: {total_tokens} tokens")
+        if content:
+            self._state.add_agent_message(agent_id, role, model, content)
         if self._use_rich:
             self._refresh()
         else:

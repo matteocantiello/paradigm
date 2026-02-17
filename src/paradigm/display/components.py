@@ -362,6 +362,37 @@ def build_agents_panel(state: DisplayState) -> Panel:
 
 
 # ---------------------------------------------------------------------------
+# Agent messages panel for live layout
+# ---------------------------------------------------------------------------
+
+
+def build_agent_messages_panel(state: DisplayState) -> Panel:
+    """Build a panel showing recent agent message previews."""
+    if not state.agent_messages:
+        content = Text("No agent messages yet", style=DIM_STYLE)
+    else:
+        content = Text()
+        for entry in state.agent_messages[-8:]:
+            agent_id = entry.get("agent_id", "")
+            model = entry.get("model", "")
+            msg = entry.get("content", "")
+
+            icon = _agent_icon(agent_id)
+            style = _agent_style(agent_id)
+            content.append(f"{icon} ", style=style)
+            content.append(agent_id, style=f"bold {style}")
+            if model:
+                content.append(f" ({model})", style=DIM_STYLE)
+            content.append("\n")
+
+            # Content preview — italic, dimmed, truncated
+            preview = msg[:500].replace("\n", " ")
+            content.append(f'  "{preview}"\n\n', style=f"italic {DIM_STYLE}")
+
+    return Panel(content, title="Messages", border_style="cyan", padding=(0, 1))
+
+
+# ---------------------------------------------------------------------------
 # Events panel for live layout
 # ---------------------------------------------------------------------------
 
