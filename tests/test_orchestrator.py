@@ -1113,7 +1113,8 @@ class TestNormalizeQueryKeywords:
         assert "cepheid" in kw
         assert "period" in kw
         assert "luminosity" in kw
-        assert "relation" in kw
+        # "relation" is now a scientific filler stop word
+        assert "relation" not in kw
 
     def test_stop_words_removed(self):
         kw = _normalize_query_keywords("the effect of metallicity on the period")
@@ -1121,12 +1122,13 @@ class TestNormalizeQueryKeywords:
         assert "of" not in kw
         assert "on" not in kw
         assert "metallicity" in kw
-        assert "effect" in kw
+        # "effect" is now a scientific filler stop word
+        assert "effect" not in kw
         assert "period" in kw
 
     def test_case_insensitive(self):
-        kw1 = _normalize_query_keywords("Stellar Evolution")
-        kw2 = _normalize_query_keywords("stellar evolution")
+        kw1 = _normalize_query_keywords("Stellar Oscillation")
+        kw2 = _normalize_query_keywords("stellar oscillation")
         assert kw1 == kw2
 
     def test_punctuation_stripped(self):
@@ -1519,21 +1521,53 @@ class TestLiteratureGraphTraversal:
 
         factory = MagicMock()
 
+        # Each agent generates a unique query per call (per-agent cap is 1).
+        # All queries return the same paper → 0 new after the very first search.
+        call_counters: dict[str, int] = {}
+        # Pool of distinct queries — enough for all agents across rounds/phases
+        query_pool = [
+            "cepheid pulsation instability strip",
+            "neutron star magnetar flare",
+            "exoplanet transit spectroscopy",
+            "supernova nucleosynthesis yield",
+            "galaxy rotation dark matter",
+            "quasar accretion disk luminosity",
+            "pulsar timing millisecond binary",
+            "white dwarf crystallization cooling",
+            "gravitational wave chirp mass",
+            "solar corona heating magnetic",
+            "protoplanetary disk accretion rate",
+            "tidal disruption event fallback",
+            "cosmic ray acceleration shock",
+            "interstellar medium turbulence spectrum",
+            "stellar wind mass loss rate",
+            "binary merger kilonova lightcurve",
+            "dark energy equation state",
+            "globular cluster dynamics relaxation",
+            "reionization epoch 21cm signal",
+            "baryon acoustic oscillation distance",
+        ]
+
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
                 agent = make_mock_agent(f"{role}-0", role)
-                if role == roles[0]:
-                    # 5 searches: first one finds the paper, next 4 return 0 new
-                    response = AgentResponse(
-                        content=(
-                            "Ideas [SEARCH: query A] [SEARCH: query B] "
-                            "[SEARCH: query C] [SEARCH: query D] [SEARCH: query E]"
-                        ),
-                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
-                        model="claude-sonnet-4-5-20250929",
-                    )
-                    agent.generate = AsyncMock(return_value=response)
+                call_counters[role] = 0
+
+                def _make_generate(r):
+                    async def _gen(*args, **kwargs):
+                        idx = call_counters[r]
+                        call_counters[r] += 1
+                        topic = query_pool[idx % len(query_pool)]
+                        return AgentResponse(
+                            content=f"Ideas [SEARCH: {topic}]",
+                            usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                            model="claude-sonnet-4-5-20250929",
+                        )
+
+                    return _gen
+
+                agent.generate = _make_generate(role)
                 agents.append(agent)
             return agents
 
@@ -1556,14 +1590,15 @@ class TestLiteratureGraphTraversal:
 
         await engine.run_research_cycle(seed_prompt="Test early term", mode="directed")
 
-        # Within round 1: query A (1 new), B (0 new), C (0 new) → stops after 3
-        # queries D and E are skipped in round 1 due to early termination.
-        # Round 2: D (0 new), E (0 new) → stops after 2. Total = 5.
-        # Without early termination, total would be 10 (5 per round × 2 rounds).
-        assert corpus.search.call_count < 10
-        # Stall warning should be injected
+        # Each agent searches once per round with unique queries across calls.
+        # First search finds the paper (1 new), all subsequent return the same
+        # paper (0 new), triggering stale tracking.
+        assert corpus.search.call_count < 20
+        # Stall hint should be injected after stale searches accumulate
         lit_context = engine._literature.literature_context
-        assert "Warning" in lit_context or "exhausted" in lit_context
+        assert (
+            "Hint" in lit_context or "exhausted" in lit_context or "no new results" in lit_context
+        )
 
     @pytest.mark.asyncio
     async def test_cross_round_stale_tracking(self, mock_config, tmp_db, tmp_logger):
@@ -1578,13 +1613,19 @@ class TestLiteratureGraphTraversal:
 
         factory = MagicMock()
 
+        distinct_topics = {
+            "theorist": "stellar nucleosynthesis carbon nitrogen",
+            "analyst": "bayesian inference spectral classification",
+        }
+
         def _create_team(roles, skill_mode="default"):
             agents = []
             for role in roles:
                 agent = make_mock_agent(f"{role}-0", role)
-                # Every agent issues 2 search requests
+                # Each agent issues 1 distinct search
+                topic = distinct_topics.get(role, f"{role} specific topic")
                 response = AgentResponse(
-                    content=f"Ideas from {role} [SEARCH: {role} query 1] [SEARCH: {role} query 2]",
+                    content=f"Ideas from {role} [SEARCH: {topic}]",
                     usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
                     model="claude-sonnet-4-5-20250929",
                 )
@@ -1655,12 +1696,16 @@ class TestLiteratureGraphTraversal:
             agents = []
             for role in roles:
                 agent = make_mock_agent(f"{role}-0", role)
-                # First agent requests 5 searches
+                # First agent requests 5 distinct searches
                 if role == roles[0]:
                     response = AgentResponse(
                         content=(
-                            f"Ideas [SEARCH: {role} q1] [SEARCH: {role} q2] "
-                            f"[SEARCH: {role} q3] [SEARCH: {role} q4] [SEARCH: {role} q5]"
+                            "Ideas "
+                            "[SEARCH: cepheid pulsation instability strip] "
+                            "[SEARCH: neutron star magnetar flare] "
+                            "[SEARCH: exoplanet transit spectroscopy] "
+                            "[SEARCH: supernova nucleosynthesis yield] "
+                            "[SEARCH: galaxy rotation dark matter]"
                         ),
                         usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
                         model="claude-sonnet-4-5-20250929",
@@ -1671,7 +1716,7 @@ class TestLiteratureGraphTraversal:
 
         factory.create_team = MagicMock(side_effect=_create_team)
 
-        # max_searches_per_round=5, so per_agent_cap = max(2, 5*2//5) = 2
+        # max_searches_per_round=5, so per_agent_cap = max(1, 5*2//5) = 2
         engine = OrchestrationEngine(
             config=mock_config,
             database=tmp_db,
@@ -1686,7 +1731,7 @@ class TestLiteratureGraphTraversal:
             team_roles=["theorist", "analyst"],
         )
 
-        # With per_agent_cap=2 (max(2, 5*2//5)=2), each agent gets at most 2
+        # With per_agent_cap=2 (max(1, 5*2//5)=2), each agent gets at most 2
         # keyword searches per round. The first agent requests 5 but only gets 2.
         # Since all searches return unique papers, corpus.search.call_count
         # tells us total searches executed across 2 rounds * 2 phases.

@@ -794,6 +794,110 @@ class TestReviewLoopWritingFailedOnExhaustion:
             assert paper["status"] == "writing_failed"
 
 
+class TestExecutionMetadataInjection:
+    """Test that execution metadata (caveats + experiment output) is injected into peer review prompts."""
+
+    def test_build_metadata_with_caveats_and_context(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Metadata string includes both caveats and experiment output."""
+        factory = _make_writing_factory()
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+        engine._execution_caveats = [
+            "All experiments used synthetic/simulated data.",
+            "One experiment timed out before completion.",
+        ]
+        engine._execution_context = (
+            "### Experiment: test_correlation\n"
+            "**Status:** SUCCESS\n"
+            "**Output:**\nCorrelation r=0.85, p=0.002, N=50\n"
+        )
+
+        metadata = engine._review._build_execution_metadata()
+        assert "Execution Caveats" in metadata
+        assert "synthetic/simulated data" in metadata
+        assert "timed out" in metadata
+        assert "Raw Experiment Output" in metadata
+        assert "r=0.85" in metadata
+        assert "N=50" in metadata
+
+    def test_build_metadata_empty_when_no_execution(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        """No metadata section when there are no caveats or experiment output."""
+        factory = _make_writing_factory()
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+        engine._execution_caveats = []
+        engine._execution_context = ""
+
+        metadata = engine._review._build_execution_metadata()
+        assert metadata == ""
+
+    def test_build_metadata_caveats_only(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """Metadata works with caveats but no experiment output."""
+        factory = _make_writing_factory()
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+        engine._execution_caveats = [
+            "All experiments used synthetic/simulated data.",
+        ]
+        engine._execution_context = ""
+
+        metadata = engine._review._build_execution_metadata()
+        assert "Execution Caveats" in metadata
+        assert "synthetic/simulated data" in metadata
+        assert "Raw Experiment Output" not in metadata
+
+    def test_build_metadata_truncates_long_context(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Long experiment output is truncated."""
+        from paradigm.orchestrator.constants import _PEER_REVIEW_METADATA_LIMIT
+
+        factory = _make_writing_factory()
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+        engine._execution_caveats = []
+        engine._execution_context = "x" * (_PEER_REVIEW_METADATA_LIMIT + 1000)
+
+        metadata = engine._review._build_execution_metadata()
+        assert "truncated" in metadata
+
+    def test_review_prompt_contains_claim_verification(self):
+        """The peer review template includes the claim verification checklist."""
+        from paradigm.orchestrator.constants import _PHASE_INSTRUCTIONS
+        from paradigm.orchestrator.phases import ResearchPhase
+
+        template = _PHASE_INSTRUCTIONS[ResearchPhase.PEER_REVIEW]["review"]
+        assert "Claim Verification" in template
+        assert "quantitative claim" in template
+        assert "synthetic" in template
+        assert "internal contradictions" in template
+        assert "sample size" in template
+
+
 class TestEnginePeerReviewDisabled:
     """Test with peer review disabled."""
 

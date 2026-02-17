@@ -38,6 +38,7 @@ from paradigm.orchestrator.constants import (
     _PHASE_INSTRUCTIONS,
     _RECENT_MESSAGES_LIMIT,
     _ROLE_LATER_ROUND_REINFORCEMENTS,
+    _ROLE_SEARCH_STRATEGIES,
     _SEARCH_ENABLED_PHASES,
     DEFAULT_TEAM_ROLES,
     MODE_TEAM_ROLES,
@@ -811,6 +812,10 @@ class OrchestrationEngine:
         # Append literature search instructions for search-enabled phases
         if phase in _SEARCH_ENABLED_PHASES:
             formatted += _LITERATURE_INSTRUCTION
+            # Role-specific search strategy to differentiate agent searches
+            role_strategy = _ROLE_SEARCH_STRATEGIES.get(agent.skill_profile, "")
+            if role_strategy:
+                formatted += role_strategy
 
         # Append debate/challenge instructions for debate-enabled phases
         if phase in _DEBATE_ENABLED_PHASES and self._config.orchestrator.enable_debates:

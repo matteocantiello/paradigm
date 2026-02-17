@@ -16,6 +16,7 @@ from paradigm.journal.review import PeerReview, parse_peer_review, synthesize_de
 from paradigm.orchestrator.constants import (
     _MIN_PAPER_LENGTH,
     _PAPER_CONTEXT_LIMIT,
+    _PEER_REVIEW_METADATA_LIMIT,
     _PHASE_INSTRUCTIONS,
     _REVIEW_MAX_TOKENS,
     _WRITING_MAX_TOKENS,
@@ -36,6 +37,42 @@ class ReviewHandler:
     def reset_cycle(self) -> None:
         """Reset review state for a new cycle."""
         self.review_log = []
+
+    def _build_execution_metadata(self) -> str:
+        """Build execution metadata section for peer reviewers.
+
+        Combines execution caveats and a truncated version of the raw
+        experiment output so reviewers can verify claims against evidence.
+
+        Returns:
+            Formatted metadata string (empty if no execution data).
+        """
+        parts: list[str] = []
+
+        if self._engine._execution_caveats:
+            parts.append(
+                "## Execution Caveats (from the experiment pipeline)\n"
+                + "\n".join(f"- {c}" for c in self._engine._execution_caveats)
+            )
+
+        if self._engine._execution_context:
+            context = self._engine._execution_context
+            if len(context) > _PEER_REVIEW_METADATA_LIMIT:
+                context = (
+                    context[:_PEER_REVIEW_METADATA_LIMIT] + "\n... (experiment output truncated)"
+                )
+            parts.append("## Raw Experiment Output\n" + context)
+
+        if not parts:
+            return ""
+
+        return (
+            "---\n"
+            "**The following execution metadata is provided for your review. "
+            "Use it to verify the paper's quantitative claims.**\n\n"
+            + "\n\n".join(parts)
+            + "\n\n---\n\n"
+        )
 
     async def run_review_phase(self, draft: PaperDraft) -> None:
         """Run the INTERNAL_REVIEW phase: editor reviews, optionally loop back.
@@ -297,11 +334,16 @@ class ReviewHandler:
         template = _PHASE_INSTRUCTIONS[ResearchPhase.PEER_REVIEW]["review"]
 
         self._engine._literature.search_count_this_round = 0
+
+        # Build execution metadata for reviewers
+        execution_metadata = self._build_execution_metadata()
+
         reviews: list[PeerReview] = []
         for agent in reviewer_agents:
             prompt = template.format(
                 seed_prompt=self._engine._seed_prompt,
                 current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
+                execution_metadata=execution_metadata,
             )
 
             try:

@@ -311,8 +311,27 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "You are an independent peer reviewer evaluating a submitted manuscript.\n"
             "Topic: {seed_prompt}\n\n"
             "## Manuscript\n{current_draft}\n\n"
+            "{execution_metadata}"
+            "**MANDATORY: Claim Verification Checklist**\n"
+            "Before scoring, you MUST complete each check:\n"
+            "1. For every quantitative claim in the paper (numbers, percentages, "
+            "p-values, correlation coefficients, sample sizes), verify it appears "
+            "in the experiment output above. Flag any claim that cannot be traced "
+            "to a specific experiment result.\n"
+            "2. Check whether the data is real (observational) or synthetic/simulated. "
+            "If synthetic, does the paper clearly state this? Score Rigor accordingly.\n"
+            "3. Look for internal contradictions: do different sections report "
+            "inconsistent statistics (e.g., a chi-squared test rejecting a model "
+            "that another section claims is well-fit)?\n"
+            "4. Check sample sizes: are they stated? Are they large enough to "
+            "support the claimed statistical significance?\n"
+            "5. Check for overclaiming: does the paper claim more than the "
+            "evidence supports? Are limitations adequately discussed?\n\n"
             "Provide your review in this exact format using ## headers:\n\n"
             "## Summary\nBrief summary of the paper.\n\n"
+            "## Claim Verification\n"
+            "For each major quantitative claim, state whether you found supporting "
+            "evidence in the experiment output. Flag unverifiable or contradictory claims.\n\n"
             "## Strengths\n- Key strengths as bullet points\n\n"
             "## Weaknesses\n- Key weaknesses as bullet points\n\n"
             "## Questions\n- Questions for the authors\n\n"
@@ -411,6 +430,45 @@ _ROLE_LATER_ROUND_REINFORCEMENTS: dict[str, str] = {
     ),
 }
 
+_ROLE_SEARCH_STRATEGIES: dict[str, str] = {
+    "theorist": (
+        "\n\n## Your Search Strategy (Theorist)\n"
+        "Focus your keyword search on foundational and seminal papers — the "
+        "theoretical frameworks that underpin this topic. After finding a key "
+        "paper, use [FOLLOW:] to trace its intellectual lineage backward through "
+        "references. Build a genealogy of ideas rather than searching for "
+        "variations of the same query."
+    ),
+    "analyst": (
+        "\n\n## Your Search Strategy (Analyst)\n"
+        "Focus your keyword search on methodological papers — statistical "
+        "techniques, analysis frameworks, and data-processing pipelines relevant "
+        "to this topic. Use [FOLLOW:] on methods papers to find the original "
+        "technique descriptions and validation studies they reference."
+    ),
+    "experimentalist": (
+        "\n\n## Your Search Strategy (Experimentalist)\n"
+        "Focus your keyword search on observational techniques, instrument "
+        "papers, and datasets. Use [FOLLOW:] on observational papers to find "
+        "the calibration references, data sources, and instrument descriptions "
+        "they rely on."
+    ),
+    "skeptic": (
+        "\n\n## Your Search Strategy (Skeptic)\n"
+        "Focus your keyword search on contradicting evidence, alternative "
+        "explanations, and null results. Use [CITED_BY:] on the team's key "
+        "papers to find later work that challenges or qualifies their "
+        "conclusions."
+    ),
+    "synthesizer": (
+        "\n\n## Your Search Strategy (Synthesizer)\n"
+        "Focus your keyword search on cross-disciplinary connections and review "
+        "papers that bridge subfields. Use [CITED_BY:] on foundational papers "
+        "to find the frontier — recent work that extends or recontextualizes "
+        "established results."
+    ),
+}
+
 _CHALLENGE_INSTRUCTION = (
     "\n\n## Focused Debate\n"
     "If you strongly disagree with another agent's position and believe a "
@@ -498,6 +556,7 @@ _LITERATURE_CONTEXT_LIMIT = 15000
 _MIN_PAPER_LENGTH = 10000
 _EXECUTION_OUTPUT_LIMIT = 4000
 _EXECUTION_STDERR_LIMIT = 2000
+_PEER_REVIEW_METADATA_LIMIT = 8000
 _MAX_RETRIES_PER_EXPERIMENT = 2
 # (Also exposed as _RECENT_MESSAGES_LIMIT above)
 
@@ -507,7 +566,7 @@ _TITLE_TRUNCATION_SHORT = 60
 _STALE_SEARCH_THRESHOLD = 5
 _CONSECUTIVE_STALE_LIMIT = 2
 _FOLLOW_EXAMPLES_COUNT = 3
-_PER_AGENT_CAP_MIN = 2
+_PER_AGENT_CAP_MIN = 1
 _PER_AGENT_CAP_NUMERATOR = 2
 _PER_AGENT_CAP_DENOMINATOR = 5
 
@@ -593,6 +652,7 @@ _EXPERIMENT_NAME_RE = re.compile(r"^#\s*EXPERIMENT:\s*(.+)", re.MULTILINE)
 
 _STOP_WORDS = frozenset(
     {
+        # Standard English stop words
         "a",
         "an",
         "and",
@@ -619,6 +679,27 @@ _STOP_WORDS = frozenset(
         "were",
         "will",
         "with",
+        # Scientific filler — common in queries but carry no discriminative meaning
+        "analysis",
+        "based",
+        "between",
+        "can",
+        "during",
+        "effect",
+        "evidence",
+        "evolution",
+        "model",
+        "new",
+        "observation",
+        "observed",
+        "properties",
+        "recent",
+        "relation",
+        "role",
+        "study",
+        "using",
+        "through",
+        "which",
     }
 )
 
@@ -724,7 +805,7 @@ def _normalize_query_keywords(query: str) -> frozenset[str]:
 def _is_duplicate_query(
     new_keywords: frozenset[str],
     existing_keyword_sets: list[frozenset[str]],
-    threshold: float = 0.7,
+    threshold: float = 0.5,
 ) -> bool:
     """Check if a query is a near-duplicate of any previously executed query.
 

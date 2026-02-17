@@ -1815,3 +1815,19 @@ it just stripped prefixes and returned whatever string it got.
 
 **Key decisions:** `_ROLE_LATER_ROUND_REINFORCEMENTS` dict in constants.py mapping role names to reinforcement paragraphs; injected in `_build_agent_prompt()` after template formatting for rounds 2+; only skeptic gets an entry (extensible to other roles); skeptic system prompt sharpened to remove "Acknowledge strong evidence while still probing weaknesses" and add "Never agree with the group just to move forward".
 **Artifacts modified:** `orchestrator/constants.py`, `orchestrator/engine.py`, `agents/prompts/skeptic.yaml`
+
+### Prompt 140 — Tighter Search Deduplication
+
+> Implement tighter search deduplication. In a real run: 31 keyword searches with heavy overlap, only ~12 unique papers from 28 READ requests. Graph traversal (FOLLOW/CITED_BY) severely underused. Root causes: (1) Jaccard threshold 0.7 too lenient — reworded queries slip through, (2) all agents get identical search instructions so they independently search the same obvious terms, (3) per-agent cap of 2 lets each agent burn multiple keyword searches instead of using graph traversal.
+>
+> Changes: (1) Lower Jaccard threshold 0.7→0.5, (2) expand stop words with ~20 scientific filler words, (3) lower per-agent keyword cap 2→1, (4) add role-specific search strategy reinforcements (`_ROLE_SEARCH_STRATEGIES`), (5) inject role search strategies in `_build_agent_prompt()` after `_LITERATURE_INSTRUCTION`, (6) add tests.
+
+**Key decisions:** Jaccard 0.5 threshold; scientific filler stop words; per-agent cap 1 forces graph traversal; role-specific search strategies differentiate agent search behavior.
+**Artifacts modified:** `orchestrator/constants.py`, `orchestrator/engine.py`, `tests/test_literature_helpers.py`
+
+### Prompt 141 — Deeper Peer Review (Inject Execution Metadata)
+
+> Fix shallow peer review. Both reviewers gave 8-9/10 and missed synthetic data, sample size inflation, and contradictory chi-squared results. Inject execution metadata (sample sizes, data sources, known caveats) into peer review prompts. Require reviewers to verify specific quantitative claims against the data.
+
+**Key decisions:** Add `{execution_metadata}` to peer review template; build metadata from caveats + truncated execution context; add mandatory claim verification checklist to review instructions; inject in `run_peer_review_phase()`.
+**Artifacts modified:** `orchestrator/constants.py`, `orchestrator/review.py`, `tests/test_peer_review.py`
