@@ -104,6 +104,18 @@ class ReviewHandler:
                 current_draft=current_body[:_PAPER_CONTEXT_LIMIT],  # Truncate for context window
             )
 
+            # Inject caveats so editor verifies the paper acknowledges them
+            if self._engine._execution_caveats:
+                prompt += (
+                    "\n\n## Execution Caveats to Verify\n"
+                    "The EXECUTION phase identified these limitations. "
+                    "Check that the paper explicitly acknowledges each one. "
+                    "If the paper presents synthetic/placeholder data as real "
+                    "observational results, this is a CRITICAL issue requiring "
+                    "revision. If claims contradict known limitations, flag them.\n"
+                    + "\n".join(f"- {c}" for c in self._engine._execution_caveats)
+                )
+
             try:
                 response = await editor.generate(prompt, max_tokens=_REVIEW_MAX_TOKENS)
             except Exception as e:

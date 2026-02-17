@@ -154,18 +154,23 @@ class WritingHandler:
                     f"{self._engine._execution_context}"
                 )
 
-            # Inject execution caveats for all sections that touch results
-            if self._engine._execution_caveats and any(
-                s in (PaperSection.RESULTS, PaperSection.METHODS, PaperSection.DISCUSSION)
-                for s in assigned
-            ):
+            # Inject execution caveats for ALL section writers — every part of
+            # the paper must be consistent with known limitations
+            if self._engine._execution_caveats:
                 prompt += (
-                    "\n\n## Execution Caveats\n"
+                    "\n\n## MANDATORY Execution Caveats\n"
                     "The following limitations were identified during the EXECUTION phase. "
-                    "You MUST acknowledge these in the paper (e.g., in Methods, Results, "
-                    "or a Limitations section):\n"
-                    + "\n".join(f"- {c}" for c in self._engine._execution_caveats)
+                    "These are NOT optional — the paper MUST NOT make claims that "
+                    "contradict or ignore these caveats. If data is synthetic, say so "
+                    "explicitly. If models failed, do not present fallback results as "
+                    "if they were the intended analysis.\n"
+                    + "\n".join(f"- **{c}**" for c in self._engine._execution_caveats)
                 )
+
+            # Inject POST_EXECUTION team assessment — the research team's
+            # critical evaluation of what the results actually show
+            if self._engine._post_execution_summary:
+                prompt += "\n\n" + self._engine._post_execution_summary
 
             try:
                 response = await agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
@@ -234,6 +239,15 @@ class WritingHandler:
             section_drafts=section_drafts_text,
         )
 
+        # Inject caveats into assembly so the assembler doesn't overclaim
+        if self._engine._execution_caveats:
+            prompt += (
+                "\n\n## MANDATORY Execution Caveats\n"
+                "When assembling the paper, ensure the title, abstract, and conclusions "
+                "do NOT overclaim. These limitations apply:\n"
+                + "\n".join(f"- **{c}**" for c in self._engine._execution_caveats)
+            )
+
         # Add figure references if experiments produced output files
         if self._engine._execution_figures:
             fig_lines = ["\n\n## Figures from Computational Experiments"]
@@ -242,6 +256,16 @@ class WritingHandler:
                 dest_name = self.figure_dest_name(exp_name, fpath)
                 fig_lines.append(f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`")
             prompt += "\n".join(fig_lines)
+        else:
+            # No figures were produced — warn the writer
+            prompt += (
+                "\n\n## WARNING: No Figures Available\n"
+                "The experiments did NOT produce any figures (.png/.pdf files). "
+                "Do NOT reference 'Figure 1', 'Figure 2', etc. in the paper text "
+                "unless you include the actual generation code. If you reference "
+                "a figure, you must describe the data it would show and note that "
+                "the visualization was not generated."
+            )
 
         try:
             response = await writer_agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)

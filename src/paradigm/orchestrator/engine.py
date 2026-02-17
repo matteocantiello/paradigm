@@ -31,6 +31,7 @@ from paradigm.orchestrator.constants import (
     _CONVERGENCE_CHECK_PHASES,
     _CONVERGENCE_CHECK_PROMPT,
     _DEBATE_ENABLED_PHASES,
+    _GENERAL_LATER_ROUND_REINFORCEMENT,
     _LITERATURE_INSTRUCTION,
     _MODE_PROMPT_OVERRIDES,
     _PHASE_ACTIVE_ROLES,
@@ -119,6 +120,7 @@ class OrchestrationEngine:
         self._execution_caveats: list[str] = []
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
         self._successful_code: list[tuple[str, str]] = []  # (experiment_name, code)
+        self._post_execution_summary: str = ""  # Team consensus from POST_EXECUTION
         self._code_context: str = ""
         self._data_context: str = ""
         self._reference_context: str = ""
@@ -160,6 +162,7 @@ class OrchestrationEngine:
         self._execution_caveats = []
         self._execution_figures = []
         self._successful_code = []
+        self._post_execution_summary = ""
         self._code_context = ""
         self._data_context = ""
         self._reference_context = ""
@@ -321,6 +324,8 @@ class OrchestrationEngine:
                 checkpoint_interval=checkpoint_interval,
             )
             ran_post_execution = True
+            # Capture POST_EXECUTION discussion summary for WRITING
+            self._post_execution_summary = self._build_post_execution_summary()
 
         # Phase 4: WRITING (optional, controlled by config)
         if self._config.orchestrator.enable_writing:
@@ -799,8 +804,11 @@ class OrchestrationEngine:
             recent_messages=recent_messages,
         )
 
-        # Inject role-specific reinforcement for later rounds
+        # Inject role-specific and general reinforcements for later rounds
         if round_num > 1:
+            # General anti-repetition rule for all agents
+            formatted += _GENERAL_LATER_ROUND_REINFORCEMENT
+            # Role-specific reinforcement
             reinforcement = _ROLE_LATER_ROUND_REINFORCEMENTS.get(agent.skill_profile, "")
             if reinforcement:
                 formatted += reinforcement
@@ -842,6 +850,37 @@ class OrchestrationEngine:
         if result not in ("continue", "pause", "abort"):
             return "continue"
         return result
+
+    def _build_post_execution_summary(self) -> str:
+        """Build a compact summary of POST_EXECUTION discussion findings.
+
+        Captures each agent's key conclusions from the POST_EXECUTION phase
+        so they can be injected into WRITING prompts. Truncates each agent's
+        contribution to keep the summary concise.
+
+        Returns:
+            Formatted summary string, or empty string if no messages.
+        """
+        if not self._messages:
+            return ""
+
+        parts: list[str] = []
+        for msg in self._messages:
+            agent_id = msg.get("from", "unknown")
+            content = msg.get("content", "")
+            # Truncate to 800 chars per agent to keep summary manageable
+            if len(content) > 800:
+                content = content[:800] + "..."
+            parts.append(f"**{agent_id}**: {content}")
+
+        if not parts:
+            return ""
+
+        return (
+            "## Team Assessment (from POST_EXECUTION discussion)\n"
+            "The research team reviewed the experimental results and identified "
+            "the following issues. The paper MUST reflect these findings:\n\n" + "\n\n".join(parts)
+        )
 
     async def _check_convergence(
         self,
@@ -992,7 +1031,7 @@ class OrchestrationEngine:
             message={
                 "from": agent_id,
                 "type": message_type,
-                "content": response.content[:500],
+                "content": response.content,
             },
         )
         self._logger.log_api_call(
@@ -1210,11 +1249,11 @@ class OrchestrationEngine:
                 error = content.get("error", "")
                 lines.append(f"### Code Execution — {ts} [{status}]\n")
                 if code:
-                    lines.append(f"```python\n{code[:2000]}\n```\n")
+                    lines.append(f"```python\n{code[:5000]}\n```\n")
                 if output:
-                    lines.append(f"**Output:** {output[:500]}\n")
+                    lines.append(f"**Output:** {output[:2000]}\n")
                 if error:
-                    lines.append(f"**Error:** {error[:500]}\n")
+                    lines.append(f"**Error:** {error[:2000]}\n")
 
             elif event.event_type == EventType.LITERATURE_SEARCH:
                 agent_id = event.agent_id or "system"

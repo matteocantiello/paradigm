@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -372,6 +373,39 @@ class ExperimentationHandler:
                     "/data/workspace/\n"
                     "- Create mathematical models to simulate the data you need\n",
                 )
+
+            # Detect ModuleNotFoundError and provide package guidance
+            _module_match = re.search(
+                r"ModuleNotFoundError: No module named ['\"](\w+)['\"]", stderr_text
+            )
+            if _module_match:
+                _bad_module = _module_match.group(1)
+                _replacements: dict[str, str] = {
+                    "PyPDF2": "pypdf (use `from pypdf import PdfReader`)",
+                    "pdfminer": "pdfminer.six (use `from pdfminer.high_level import extract_text`)",
+                    "bs4": "beautifulsoup4 (use `from bs4 import BeautifulSoup`)",
+                    "cv2": "not available — use matplotlib for image processing",
+                    "pymc": "not available — use scipy.optimize or emcee instead",
+                    "tabula": "not available — use pypdf or pdfminer.six instead",
+                }
+                replacement = _replacements.get(_bad_module, "")
+                if replacement:
+                    error_parts.insert(
+                        0,
+                        f"**\u26a0 WRONG PACKAGE NAME:** `{_bad_module}` is not installed. "
+                        f"Use {replacement} instead. "
+                        f"Do NOT try to pip install — it is blocked.\n",
+                    )
+                else:
+                    error_parts.insert(
+                        0,
+                        f"**\u26a0 UNAVAILABLE PACKAGE:** `{_bad_module}` is not installed "
+                        f"and cannot be installed. Use only the available libraries: "
+                        f"numpy, scipy, matplotlib, pandas, scikit-learn, sympy, astropy, "
+                        f"seaborn, pypdf, pdfminer.six, beautifulsoup4, h5py, emcee, "
+                        f"corner, lmfit, uncertainties, statsmodels, tqdm, numba, "
+                        f"xarray, joblib, pyyaml.\n",
+                    )
 
             # Detect file-not-found errors (check both stderr and stdout for
             # scripts that caught the exception and printed to stdout)

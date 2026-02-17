@@ -117,9 +117,14 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
             "## Recent Discussion\n{recent_messages}\n\n"
-            "Respond to your colleagues: critique ideas, build on promising hypotheses, "
-            "draw connections between proposals, and help prioritize. "
-            "Be constructive but rigorous."
+            "**CRITICAL: Do NOT repeat ideas already established above.** "
+            "If a hypothesis or research direction has been proposed, do not re-propose it. "
+            "Instead:\n"
+            "- Challenge, refine, or combine existing proposals\n"
+            "- Identify gaps or contradictions between proposals\n"
+            "- Add NEW evidence, NEW references, or NEW perspectives not yet raised\n"
+            "- If you agree with everything, say so briefly and focus on what is still unresolved\n\n"
+            "Your response should contain zero redundant information."
         ),
     },
     ResearchPhase.PLANNING: {
@@ -138,9 +143,13 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
             "## Recent Discussion\n{recent_messages}\n\n"
-            "Refine the plan: challenge assumptions, identify dependencies between "
-            "experiments, suggest controls, and ensure the plan is feasible. "
-            "Focus on making the plan actionable."
+            "**Do NOT restate the plan from scratch.** The plan above already exists. "
+            "Your job is to:\n"
+            "- Identify specific weaknesses, missing controls, or unrealistic assumptions\n"
+            "- Suggest concrete improvements to specific steps\n"
+            "- Raise feasibility concerns or resource constraints\n"
+            "- If the plan is solid, say so briefly and flag remaining risks\n\n"
+            "Do NOT repeat experiments or analyses already listed."
         ),
     },
     ResearchPhase.EXECUTION: {
@@ -154,11 +163,15 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "`# EXPERIMENT: <name>` comment on the first line.\n\n"
             "{network_caveat}\n\n"
             "**Available libraries:** numpy, scipy, matplotlib, pandas, scikit-learn, "
-            "sympy, astropy, seaborn, pypdf, h5py, emcee, corner, lmfit, "
+            "sympy, astropy, seaborn, pypdf (NOT PyPDF2), pdfminer.six, "
+            "beautifulsoup4, h5py, emcee, corner, lmfit, "
             "uncertainties, statsmodels, tqdm, numba, xarray, joblib, pyyaml, "
             "and standard library modules. Note: numpy (np), pandas (pd), "
             "matplotlib.pyplot (plt), and scipy are auto-imported, but you should "
             "still import any other libraries you use.\n"
+            "**IMPORTANT:** Use `import pypdf` (NOT `import PyPDF2`). "
+            "Use `from pdfminer.high_level import extract_text` for PDF text extraction. "
+            "Do NOT try to pip install packages — it is blocked.\n"
             "**Installing extra packages:** If you need a package not already installed, run "
             "`import os; os.system('pip install --user --no-index --find-links /data/packages/ "
             "<package_name>')` at the top of your script. Packages available in the offline "
@@ -179,8 +192,12 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "so later experiments can reuse them. This is a persistent read-write directory "
             "shared across all experiments. Read previous outputs from there.\n"
             "**Output:** Print results to stdout. Save figures as .png files using "
-            "matplotlib (plt.savefig('figure_name.png')). All .png/.pdf files in the "
-            "working directory will be collected.\n"
+            "matplotlib (plt.savefig('figure_name.png', dpi=150, bbox_inches='tight')). "
+            "All .png/.pdf files in the working directory will be collected.\n"
+            "**FIGURES ARE REQUIRED:** At least one experiment MUST produce publication-quality "
+            "figures (e.g., correlation plots, parameter distributions, model comparisons). "
+            "A paper without figures will be rejected during review. Plan your experiments "
+            "so that figure-generating scripts run AFTER data analysis scripts.\n"
             "**Important:** When using LaTeX in matplotlib labels or titles, always use "
             "raw strings (r'...') to avoid invalid escape sequences. For example: "
             r"r'$M_\odot$' not '$M_\odot$'."
@@ -290,6 +307,15 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "IMPORTANT: You MUST include the ## Recommendation section. "
             "Keep your review concise to ensure all sections are included. "
             "Use exactly ## headers (not ###).\n\n"
+            "**Mandatory verification checklist** (check each before recommending accept):\n"
+            "1. **Internal consistency:** Do claims in the abstract match claims in the "
+            "body? Are numerical values consistent across sections? Flag ANY contradiction.\n"
+            "2. **Data integrity:** Check tables for duplicate rows, missing values, or "
+            "suspiciously uniform distributions. Flag if data looks fabricated.\n"
+            "3. **Figure references:** Are all referenced figures actually present? "
+            "Do not accept a paper that references figures that do not exist.\n"
+            "4. **Claim-evidence alignment:** Does each major claim have supporting "
+            "evidence (numbers, statistics, references)?\n\n"
             "Provide a structured review with these sections (use ## headers):\n"
             "## Strengths\n- What works well\n\n"
             "## Weaknesses\n- What needs improvement\n\n"
@@ -435,6 +461,15 @@ _CONVERGENCE_CHECK_PROMPT = (
     '{{"converged": true/false, "confidence": 0.0-1.0, "rationale": "one sentence"}}'
 )
 
+_GENERAL_LATER_ROUND_REINFORCEMENT = (
+    "\n\n## Anti-Repetition Rule\n"
+    "Before writing your response, review the Recent Discussion above. "
+    "If a point has already been made by any colleague, do NOT restate it. "
+    "Instead, either (a) extend it with new specifics, (b) challenge it, "
+    "or (c) skip it entirely. Responses that repeat established points "
+    "waste the team's time and token budget."
+)
+
 _ROLE_LATER_ROUND_REINFORCEMENTS: dict[str, str] = {
     "skeptic": (
         "\n\n## Your Role: Skeptic\n"
@@ -447,6 +482,32 @@ _ROLE_LATER_ROUND_REINFORCEMENTS: dict[str, str] = {
         "- Do NOT soften your critique with hedging language ('perhaps', "
         "'it might be worth considering'). Be direct: 'This is wrong because...'\n"
         "- End with an explicit list: 'Unresolved problems: 1. ... 2. ...'"
+    ),
+    "theorist": (
+        "\n\n## Your Role: Theorist (Later Rounds)\n"
+        "Focus on theoretical predictions and mathematical derivations. "
+        "Do NOT repeat the research plan or experimental design — that's "
+        "the experimentalist's job. What specific quantitative predictions "
+        "distinguish the competing hypotheses?"
+    ),
+    "analyst": (
+        "\n\n## Your Role: Analyst (Later Rounds)\n"
+        "Focus on statistical methodology and potential confounders. "
+        "Do NOT restate hypotheses — instead, specify what statistical tests "
+        "would distinguish them, what sample sizes are needed, and what "
+        "systematic biases could produce spurious results."
+    ),
+    "experimentalist": (
+        "\n\n## Your Role: Experimentalist (Later Rounds)\n"
+        "Focus on practical experimental design and data handling. "
+        "Do NOT restate theory — instead, specify code architecture, "
+        "data formats, validation checks, and failure modes."
+    ),
+    "synthesizer": (
+        "\n\n## Your Role: Synthesizer (Later Rounds)\n"
+        "Focus on integration and gaps. Do NOT restate what others said — "
+        "instead, identify where proposals conflict, what's missing, and "
+        "what the team should prioritize. Keep it brief."
     ),
 }
 
@@ -830,7 +891,10 @@ def _is_duplicate_query(
 ) -> bool:
     """Check if a query is a near-duplicate of any previously executed query.
 
-    Uses Jaccard similarity: |A ∩ B| / |A ∪ B| >= threshold.
+    Uses two checks:
+    1. Jaccard similarity: |A ∩ B| / |A ∪ B| >= threshold
+    2. Subset/superset: if new query's keywords are a subset (or superset)
+       of an existing query, it's a duplicate regardless of Jaccard score.
 
     Args:
         new_keywords: Keyword set of the new query.
@@ -845,6 +909,10 @@ def _is_duplicate_query(
     for existing in existing_keyword_sets:
         if not existing:
             continue
+        # Subset/superset check: if one query fully contains the other,
+        # the narrower query won't find anything new
+        if new_keywords <= existing or existing <= new_keywords:
+            return True
         intersection = len(new_keywords & existing)
         union = len(new_keywords | existing)
         if union > 0 and intersection / union >= threshold:

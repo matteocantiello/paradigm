@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir \
     astropy \
     requests \
     pypdf \
+    pdfminer.six \
+    beautifulsoup4 \
     h5py \
     seaborn \
     emcee \
