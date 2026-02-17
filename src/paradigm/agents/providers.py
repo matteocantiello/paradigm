@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -33,6 +33,7 @@ class LLMProvider(Protocol):
         messages: list[dict],
         max_tokens: int,
         temperature: float = 0.7,
+        extra_body: dict[str, Any] | None = None,
     ) -> tuple[str, int, int]:
         """Synchronous completion.
 
@@ -49,6 +50,7 @@ class LLMProvider(Protocol):
         messages: list[dict],
         max_tokens: int,
         temperature: float = 0.7,
+        extra_body: dict[str, Any] | None = None,
     ) -> Iterator[tuple[str, int, int]]:
         """Streaming completion.
 
@@ -79,6 +81,7 @@ class AnthropicProvider:
         messages: list[dict],
         max_tokens: int,
         temperature: float = 0.7,
+        extra_body: dict[str, Any] | None = None,
     ) -> tuple[str, int, int]:
         response = self._client.messages.create(
             model=model,
@@ -101,6 +104,7 @@ class AnthropicProvider:
         messages: list[dict],
         max_tokens: int,
         temperature: float = 0.7,
+        extra_body: dict[str, Any] | None = None,
     ) -> Iterator[tuple[str, int, int]]:
         with self._client.messages.stream(
             model=model,
@@ -147,14 +151,18 @@ class OpenAICompatibleProvider:
         messages: list[dict],
         max_tokens: int,
         temperature: float = 0.7,
+        extra_body: dict[str, Any] | None = None,
     ) -> tuple[str, int, int]:
         full_messages = [{"role": "system", "content": system}] + messages
-        response = self._client.chat.completions.create(
-            model=model,
-            messages=full_messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": full_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        response = self._client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content or ""
         usage = response.usage
         input_tokens = usage.prompt_tokens if usage else 0
@@ -169,16 +177,20 @@ class OpenAICompatibleProvider:
         messages: list[dict],
         max_tokens: int,
         temperature: float = 0.7,
+        extra_body: dict[str, Any] | None = None,
     ) -> Iterator[tuple[str, int, int]]:
         full_messages = [{"role": "system", "content": system}] + messages
-        stream = self._client.chat.completions.create(
-            model=model,
-            messages=full_messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stream=True,
-            stream_options={"include_usage": True},
-        )
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": full_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        stream = self._client.chat.completions.create(**kwargs)
         input_tokens = 0
         output_tokens = 0
         for chunk in stream:

@@ -109,8 +109,8 @@ class AgentFactory:
             max_skill_chars=max_skill_chars,
         )
 
-        # Resolve provider + model for this role
-        provider, resolved_model = self._config.get_provider_and_model_for_role(role)
+        # Resolve provider + model + extra_body for this role
+        provider, resolved_model, extra_body = self._config.get_provider_and_model_for_role(role)
 
         # Resolve per-role max_tokens (override → global default)
         override = self._config.agent.overrides.get(role)
@@ -127,6 +127,7 @@ class AgentFactory:
             "model": kwargs.pop("model", resolved_model),
             "max_tokens": kwargs.pop("max_tokens", role_max_tokens),
             "temperature": kwargs.pop("temperature", self._config.agent.temperature),
+            "extra_body": kwargs.pop("extra_body", extra_body),
         }
         agent_kwargs.update(kwargs)
 

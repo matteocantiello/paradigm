@@ -21,6 +21,7 @@ class AgentOverrideConfig(BaseModel):
     model: str | None = None
     max_tokens: int | None = None
     token_budget_per_agent: int | None = None
+    extra_body: dict[str, Any] | None = None  # provider-specific extra params
 
 
 class AgentConfig(BaseModel):
@@ -257,8 +258,8 @@ class Config(BaseModel):
             )
         )
 
-    def get_provider_and_model_for_role(self, role: str) -> tuple[Any, str]:
-        """Resolve provider + model for a given agent role.
+    def get_provider_and_model_for_role(self, role: str) -> tuple[Any, str, dict[str, Any] | None]:
+        """Resolve provider + model + extra_body for a given agent role.
 
         Override chain: role override → agent defaults → provider defaults.
 
@@ -266,7 +267,7 @@ class Config(BaseModel):
             role: Agent role name (e.g. "theorist", "skeptic").
 
         Returns:
-            (LLMProvider, model_name) tuple.
+            (LLMProvider, model_name, extra_body) tuple.
         """
         override = self.agent.overrides.get(role)
 
@@ -285,7 +286,10 @@ class Config(BaseModel):
         else:
             model = self.agent.default_model
 
-        return provider, model
+        # Determine extra_body from override
+        extra_body = override.extra_body if override else None
+
+        return provider, model, extra_body
 
 
 def load_config(config_path: str | Path | None = None) -> Config:

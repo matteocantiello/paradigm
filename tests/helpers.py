@@ -248,6 +248,6 @@ def patch_config_provider(config, checkpoint_response=None):
     object.__setattr__(
         config,
         "get_provider_and_model_for_role",
-        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929")),
+        MagicMock(return_value=(mock_provider, "claude-sonnet-4-5-20250929", None)),
     )
     return mock_provider

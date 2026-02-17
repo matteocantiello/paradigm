@@ -1850,3 +1850,24 @@ it just stripped prefixes and returned whatever string it got.
 > Let's update documentation and manual with the appropriate changes
 
 This prompt requests updating docs/MANUAL.md and other documentation files to cover the new `[DATA:]` pre-staging feature and `--network-access` CLI flag.
+
+### Prompt 145 — Update testing mode model assignments + Add `extra_body` support
+
+> In testing mode, we should have theorist and experimentalist use Qwen/Qwen3.5-397B-A17B, rest could be DeepSeek. Also use DeepSeek-V3.1 in thinking mode for the skeptic https://www.together.ai/models
+>
+> Implement plan: Update `testing_overrides` models and thread `extra_body` parameter through config → factory → agent → provider chain for Together.ai thinking mode support.
+
+**Key decisions:**
+- `extra_body: dict[str, Any] | None` added to `AgentOverrideConfig` for provider-specific params
+- `get_provider_and_model_for_role()` returns 3-tuple: `(provider, model, extra_body)`
+- `extra_body` passed through Agent → LLMProvider.complete()/complete_streaming()
+- AnthropicProvider accepts but ignores `extra_body`; OpenAICompatibleProvider passes to SDK
+- Skeptic gets `reasoning: {enabled: true}` via extra_body for Together.ai thinking mode
+
+**Artifacts modified:**
+- `src/paradigm/config.py` — `extra_body` on AgentOverrideConfig, 3-tuple return
+- `src/paradigm/agents/providers.py` — `extra_body` on protocol + both implementations
+- `src/paradigm/agents/base.py` — `extra_body` on Agent, passed to provider calls
+- `src/paradigm/agents/factory.py` — Unpack 3-tuple, pass `extra_body` to Agent
+- `configs/default.yaml` — Updated testing_overrides with new models + thinking mode
+- `HISTORY.md` — This prompt logged

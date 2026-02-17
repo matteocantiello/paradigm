@@ -53,6 +53,7 @@ class Agent:
         model: str = "claude-sonnet-4-5-20250929",
         max_tokens: int = 8192,
         temperature: float = 1.0,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         """Initialize agent.
 
@@ -64,6 +65,7 @@ class Agent:
             model: Model to use
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature
+            extra_body: Provider-specific extra parameters (e.g. thinking mode)
         """
         self.agent_id = agent_id
         self.skill_profile = skill_profile
@@ -71,6 +73,7 @@ class Agent:
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.extra_body = extra_body
 
         self.skills: list[str] = []
 
@@ -124,6 +127,7 @@ class Agent:
             messages=messages,
             max_tokens=max_tokens,
             temperature=self.temperature,
+            extra_body=self.extra_body,
         )
 
         usage = TokenUsage(
@@ -149,6 +153,7 @@ class Agent:
             messages=messages,
             max_tokens=max_tokens,
             temperature=self.temperature,
+            extra_body=self.extra_body,
         ):
             if chunk:
                 content_parts.append(chunk)

@@ -60,10 +60,10 @@ agent:
 testing_overrides:
   theorist:
     provider: together
-    model: deepseek-ai/DeepSeek-V3.1
+    model: Qwen/Qwen3.5-397B-A17B
   experimentalist:
     provider: together
-    model: deepseek-ai/DeepSeek-V3.1
+    model: Qwen/Qwen3.5-397B-A17B
   analyst:
     provider: together
     model: deepseek-ai/DeepSeek-V3.1
@@ -75,7 +75,10 @@ testing_overrides:
     model: deepseek-ai/DeepSeek-V3.1
   skeptic:
     provider: together
-    model: Qwen/Qwen3-235B-A22B-Thinking-2507
+    model: deepseek-ai/DeepSeek-V3.1
+    extra_body:
+      reasoning:
+        enabled: true
   editor:
     provider: together
     model: deepseek-ai/DeepSeek-V3.1

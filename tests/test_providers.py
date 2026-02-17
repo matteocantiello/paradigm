@@ -321,9 +321,10 @@ class TestConfigProviders:
         """Default role gets default provider + model."""
         config = Config()
         with patch("anthropic.Anthropic"):
-            provider, model = config.get_provider_and_model_for_role("theorist")
+            provider, model, extra_body = config.get_provider_and_model_for_role("theorist")
             assert isinstance(provider, AnthropicProvider)
             assert model == config.agent.default_model
+            assert extra_body is None
 
     def test_get_provider_and_model_for_role_override_model(self):
         """Role override can specify just the model."""
@@ -335,8 +336,9 @@ class TestConfigProviders:
             },
         )
         with patch("anthropic.Anthropic"):
-            provider, model = config.get_provider_and_model_for_role("skeptic")
+            provider, model, extra_body = config.get_provider_and_model_for_role("skeptic")
             assert model == "claude-opus-4-6"
+            assert extra_body is None
 
     def test_get_provider_and_model_for_role_override_provider(self):
         """Role override can specify a different provider."""
@@ -360,9 +362,10 @@ class TestConfigProviders:
             )
             mock_openai_mod = MagicMock()
             with patch.dict("sys.modules", {"openai": mock_openai_mod}):
-                provider, model = config.get_provider_and_model_for_role("skeptic")
+                provider, model, extra_body = config.get_provider_and_model_for_role("skeptic")
                 assert isinstance(provider, OpenAICompatibleProvider)
                 assert model == "deepseek-r1"
+                assert extra_body is None
         finally:
             del os.environ["TOGETHER_API_KEY"]
 
@@ -495,7 +498,7 @@ class TestTestingOverrides:
 
         mock_openai_mod = MagicMock()
         with patch.dict("sys.modules", {"openai": mock_openai_mod}):
-            provider, model = config.get_provider_and_model_for_role("theorist")
+            provider, model, extra_body = config.get_provider_and_model_for_role("theorist")
             assert isinstance(provider, OpenAICompatibleProvider)
             assert model == "deepseek-ai/DeepSeek-V3.1"
 
