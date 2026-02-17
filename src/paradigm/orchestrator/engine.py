@@ -431,7 +431,9 @@ class OrchestrationEngine:
     async def _run_experimentation_phase(self) -> None:
         """Run the EXECUTION phase: agents propose and run computational experiments."""
         explicit = self._config.orchestrator.max_experiment_rounds
-        max_rounds = explicit if explicit is not None else 2 * self._config.orchestrator.max_rounds_per_phase
+        max_rounds = (
+            explicit if explicit is not None else 2 * self._config.orchestrator.max_rounds_per_phase
+        )
 
         # Collect sandbox paths for cloned repos (PYTHONPATH injection)
         repo_paths = [
