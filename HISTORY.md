@@ -1920,3 +1920,14 @@ Full implementation of domain profiles abstraction: define interfaces, create sc
 > Update the design doc with these decisions
 
 **Action:** Updated `.planning/DOMAIN-PROFILES.md` to replace Open Questions with Resolved Decisions, add Phase 2 plan
+
+## 2026-02-17
+
+### Prompt 152 — Fix ruff CI lint failures
+
+> Some github actions test didn't pass: Run ruff check src/ tests/ — 8 errors (I001 import sorting, F401 unused imports)
+
+**Action:** Ran `ruff check --fix src/ tests/` to auto-fix all 8 errors:
+- Fixed import sorting (I001) in `base.py`, `engine.py`, `test_orchestrator.py`
+- Removed unused `Path` import (F401) from `test_domain_integration.py` and `test_domain_science.py`
+- Removed unused `list_domains` import (F401) from `test_domain_science.py`

@@ -5,7 +5,6 @@ assignments → review criteria chain works correctly for the science domain.
 """
 
 import os
-from pathlib import Path
 
 import pytest
 

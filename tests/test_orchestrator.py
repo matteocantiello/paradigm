@@ -8,8 +8,8 @@ from helpers import make_mock_agent, patch_config_provider
 
 from paradigm.agents.base import AgentResponse, TokenUsage
 from paradigm.config import Config
-from paradigm.logging.events import EventType
 from paradigm.domains.science.constants import MODE_TEAM_ROLES
+from paradigm.logging.events import EventType
 from paradigm.orchestrator.constants import (
     _LITERATURE_CONTEXT_LIMIT,
     _MIN_PAPER_LENGTH,

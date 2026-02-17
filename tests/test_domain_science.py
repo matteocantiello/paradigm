@@ -1,8 +1,7 @@
 """Tests for science domain profile."""
 
-from pathlib import Path
 
-from paradigm.domains.registry import _clear_registry, get_domain, list_domains
+from paradigm.domains.registry import _clear_registry, get_domain
 
 
 def test_science_profile_loads():
