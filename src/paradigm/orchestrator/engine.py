@@ -694,6 +694,9 @@ class OrchestrationEngine:
             # Process any [FOLLOW:], [CITED_BY:], [READ:] requests
             await self._literature.process_literature_actions(agent_id, response.content, phase)
 
+            # Process any [DATA: url] requests (pre-stage datasets for sandbox)
+            await self._literature.process_data_requests(agent_id, response.content, phase)
+
             # Process any [CHALLENGE: ...] requests in the agent's response
             await self._debate.process_challenge_requests(
                 agent_id, response.content, phase, round_num

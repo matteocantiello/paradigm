@@ -68,6 +68,7 @@ class SafetyConfig:
     denied_modules: frozenset[str] = field(default_factory=lambda: DENIED_MODULES)
     denied_builtins: frozenset[str] = field(default_factory=lambda: DENIED_BUILTINS)
     max_code_length: int = MAX_CODE_LENGTH
+    network_enabled: bool = False
 
 
 class SafetyScanner:
@@ -113,7 +114,8 @@ class SafetyScanner:
 
         # AST-based checks
         self._check_imports(tree, violations)
-        self._check_network_imports(tree, violations)
+        if not self.config.network_enabled:
+            self._check_network_imports(tree, violations)
         self._check_builtins(tree, violations)
 
         # Regex fallback for patterns AST might miss
@@ -199,6 +201,7 @@ class SafetyScanner:
             violations.append("Denied pattern: getattr-based system call detected")
 
         # Catch network access patterns via stdlib modules
-        for pattern, message in _NETWORK_REGEX_PATTERNS:
-            if re.search(pattern, code):
-                violations.append(message)
+        if not self.config.network_enabled:
+            for pattern, message in _NETWORK_REGEX_PATTERNS:
+                if re.search(pattern, code):
+                    violations.append(message)

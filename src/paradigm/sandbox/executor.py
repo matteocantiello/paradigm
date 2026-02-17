@@ -7,7 +7,7 @@ from paradigm.config import SandboxConfig
 from paradigm.logging.events import EventLogger
 from paradigm.sandbox.docker import ContainerManager
 from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, ExecutionStatus
-from paradigm.sandbox.safety import SafetyScanner
+from paradigm.sandbox.safety import SafetyConfig, SafetyScanner
 
 # Max characters of stdout/stderr to include in event logs
 _LOG_OUTPUT_LIMIT: int = 2048
@@ -46,7 +46,7 @@ class CodeExecutor:
         self.logger = logger
         self.data_dir = data_dir
         self.workspace_dir = workspace_dir
-        self.scanner = SafetyScanner()
+        self.scanner = SafetyScanner(SafetyConfig(network_enabled=config.network_mode != "none"))
         self.container_manager = ContainerManager(config)
 
     async def execute(

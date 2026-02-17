@@ -14,13 +14,16 @@ from paradigm.literature.prompt_utils import (
     format_read_result,
     format_search_results,
     parse_cited_by_requests,
+    parse_data_requests,
     parse_follow_requests,
     parse_read_requests,
     parse_search_requests,
 )
+from paradigm.literature.resources import ResourceType, classify_resource, resolve_resource
 from paradigm.logging.events import EventType
 from paradigm.orchestrator.constants import (
     _CONSECUTIVE_STALE_LIMIT,
+    _DATA_REQUESTS_PER_ROUND,
     _FOLLOW_EXAMPLES_COUNT,
     _LITERATURE_CONTEXT_LIMIT,
     _PER_AGENT_CAP_DENOMINATOR,
@@ -72,6 +75,10 @@ class LiteratureHandler:
         self.followed_paper_ids: set[str] = set()  # Papers whose refs already fetched
         self.cited_by_paper_ids: set[str] = set()  # Papers whose citations already fetched
 
+        # Data staging state
+        self.resolved_data_urls: set[str] = set()  # Cross-round dedup for [DATA:] requests
+        self.data_count_this_round: int = 0
+
     # ------------------------------------------------------------------
     # Reset helpers
     # ------------------------------------------------------------------
@@ -82,6 +89,7 @@ class LiteratureHandler:
         self.follow_count_this_round = 0
         self.cited_by_count_this_round = 0
         self.read_count_this_round = 0
+        self.data_count_this_round = 0
         self.agent_search_count = {}
 
     def reset_cycle(self) -> None:
@@ -90,6 +98,7 @@ class LiteratureHandler:
         self.follow_count_this_round = 0
         self.cited_by_count_this_round = 0
         self.read_count_this_round = 0
+        self.data_count_this_round = 0
         self.agent_search_count = {}
         self.searched_queries = set()
         self.searched_query_keywords = []
@@ -102,6 +111,7 @@ class LiteratureHandler:
         self.read_paper_ids = set()
         self.followed_paper_ids = set()
         self.cited_by_paper_ids = set()
+        self.resolved_data_urls = set()
 
     # ------------------------------------------------------------------
     # Context accumulation helper
@@ -584,6 +594,101 @@ class LiteratureHandler:
                     "agent_id": agent_id,
                     "title": title,
                     "chars_extracted": len(extracted_text),
+                    "phase": str(phase),
+                },
+                thread_id=self._engine._thread_id,
+                phase=str(phase),
+            )
+
+    # ------------------------------------------------------------------
+    # Data staging ([DATA: url])
+    # ------------------------------------------------------------------
+
+    async def process_data_requests(
+        self, agent_id: str, response_text: str, phase: ResearchPhase
+    ) -> None:
+        """Parse [DATA: url] markers and download datasets for sandbox use.
+
+        Downloads data files outside the sandbox and appends them to the
+        engine's resolved_resources list so they appear in the file listing
+        during EXECUTION.
+
+        Args:
+            agent_id: ID of the agent whose response contains data requests.
+            response_text: The agent's response text.
+            phase: Current research phase.
+        """
+        if phase not in _SEARCH_ENABLED_PHASES:
+            return
+
+        urls = parse_data_requests(response_text)
+        if not urls:
+            return
+
+        shared_dir = self._engine._config.storage.data_dir / "shared"
+
+        for url in urls:
+            # Cross-round dedup
+            if url in self.resolved_data_urls:
+                self._engine._display.data_stage_skipped(url, reason="already downloaded")
+                continue
+
+            # Per-round budget
+            if self.data_count_this_round >= _DATA_REQUESTS_PER_ROUND:
+                self._engine._display.data_stage_skipped(
+                    url, reason=f"budget exhausted ({_DATA_REQUESTS_PER_ROUND}/round)"
+                )
+                break
+
+            # Classify URL — only accept DATA type
+            rtype = classify_resource(url)
+            if rtype != ResourceType.DATA:
+                self._engine._display.data_stage_skipped(
+                    url,
+                    reason=f"URL classified as {rtype.value}, not data",
+                )
+                continue
+
+            # Download via existing resolve_resource pipeline
+            try:
+                resource = await resolve_resource(url, rtype, shared_dir, self._engine._logger)
+            except Exception as e:
+                self._engine._display.data_stage_error(url, e)
+                continue
+
+            if resource.error:
+                self._engine._display.data_stage_error(url, resource.error)
+                continue
+
+            # Track
+            self.resolved_data_urls.add(url)
+            self.data_count_this_round += 1
+            self._engine._resolved_resources.append(resource)
+
+            # Inject confirmation into literature context
+            size_str = ""
+            if resource.size_bytes is not None:
+                if resource.size_bytes > 1024 * 1024:
+                    size_str = f" ({resource.size_bytes / (1024 * 1024):.1f} MB)"
+                elif resource.size_bytes > 1024:
+                    size_str = f" ({resource.size_bytes / 1024:.1f} KB)"
+                else:
+                    size_str = f" ({resource.size_bytes} bytes)"
+            confirmation = (
+                f"Downloaded dataset: {resource.name}{size_str} \u2192 {resource.sandbox_path}"
+            )
+            self._append_to_context(confirmation)
+
+            self._engine._display.data_staged(resource.name, resource.size_bytes or 0, url)
+
+            self._engine._logger.log(
+                EventType.STATE_CHANGE,
+                content={
+                    "event": "data_staged",
+                    "url": url,
+                    "filename": resource.name,
+                    "size_bytes": resource.size_bytes,
+                    "agent_id": agent_id,
                     "phase": str(phase),
                 },
                 thread_id=self._engine._thread_id,

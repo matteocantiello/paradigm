@@ -39,6 +39,9 @@ _CITED_BY_REQUEST_RE = re.compile(r"\[CITED_BY:\s*([^\]]+?)\]", re.IGNORECASE)
 # Match [READ: arxiv_id] markers in agent text (deep reading)
 _READ_REQUEST_RE = re.compile(r"\[READ:\s*([^\]]+?)\]", re.IGNORECASE)
 
+# Match [DATA: url] markers in agent text (data staging)
+_DATA_REQUEST_RE = re.compile(r"\[DATA:\s*([^\]]+?)\]", re.IGNORECASE)
+
 # Match [CHALLENGE: agent-id: reason] markers in agent text
 _CHALLENGE_REQUEST_RE = re.compile(
     r"\[CHALLENGE:\s*([a-z]+-\d+)\s*:\s*([^\]]+?)\]",
@@ -311,6 +314,34 @@ def parse_read_requests(text: str) -> list[str]:
             seen.add(arxiv_id)
             ids.append(arxiv_id)
     return ids
+
+
+def parse_data_requests(text: str) -> list[str]:
+    """Extract [DATA: url] requests from agent text.
+
+    Deduplicates URLs case-insensitively, strips whitespace,
+    and only returns valid http/https URLs.
+
+    Args:
+        text: Agent response text.
+
+    Returns:
+        List of unique URL strings.
+    """
+    matches = _DATA_REQUEST_RE.findall(text)
+    seen: set[str] = set()
+    urls: list[str] = []
+    for match in matches:
+        url = match.strip()
+        if not url:
+            continue
+        if not url.lower().startswith(("http://", "https://")):
+            continue
+        key = url.lower()
+        if key not in seen:
+            seen.add(key)
+            urls.append(url)
+    return urls
 
 
 def format_follow_results(arxiv_id: str, papers: list, max_papers: int = 15) -> str:

@@ -1850,28 +1850,26 @@ class TestNetworkErrorHandling:
         has_network_error = any(p in stderr for p in _NETWORK_ERROR_PATTERNS)
         assert has_network_error
 
-    def test_execution_prompt_has_network_warning(self):
-        """Execution prompt should have a prominent no-network warning near the top."""
+    def test_execution_prompt_has_network_caveat_placeholder(self):
+        """Execution prompt should use {network_caveat} placeholder."""
         prompt = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["propose_experiment"]
-        # The CRITICAL warning should appear before the "Available libraries" line
-        warning_pos = prompt.find("CRITICAL: The sandbox has NO network access")
+        assert "{network_caveat}" in prompt
+        # Placeholder should appear before the "Available libraries" line
+        caveat_pos = prompt.find("{network_caveat}")
         libraries_pos = prompt.find("Available libraries:")
-        assert warning_pos != -1, "CRITICAL network warning not found in execution prompt"
-        assert warning_pos < libraries_pos, (
-            "Network warning should appear before available libraries list"
+        assert caveat_pos < libraries_pos, (
+            "Network caveat placeholder should appear before available libraries list"
         )
 
-    def test_analyze_results_has_network_reminder(self):
-        """analyze_results prompt should include a no-network reminder."""
+    def test_analyze_results_has_network_caveat_placeholder(self):
+        """analyze_results prompt should use {network_caveat} placeholder."""
         prompt = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
-        assert "NO network access" in prompt
-        assert "requests" in prompt
+        assert "{network_caveat}" in prompt
 
-    def test_retry_after_failure_has_network_reminder(self):
-        """retry_after_failure prompt should include a no-network reminder."""
+    def test_retry_after_failure_has_network_caveat_placeholder(self):
+        """retry_after_failure prompt should use {network_caveat} placeholder."""
         prompt = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
-        assert "NO network access" in prompt
-        assert "requests" in prompt
+        assert "{network_caveat}" in prompt
 
     def test_execution_prompt_no_phantom_section_refs(self):
         """Execution prompt should not reference nonexistent 'Available Code Resources' sections."""
@@ -2497,3 +2495,92 @@ class TestConfigDefaults:
 
         config = LiteratureConfig()
         assert config.read_budget_per_round == 5
+
+
+# ---------------------------------------------------------------------------
+# Data staging tests
+# ---------------------------------------------------------------------------
+
+
+class TestProcessDataRequests:
+    """Tests for LiteratureHandler.process_data_requests()."""
+
+    def _make_handler(self, tmp_path):
+        """Build a LiteratureHandler with a mocked engine."""
+        from unittest.mock import MagicMock
+
+        from paradigm.orchestrator.literature import LiteratureHandler
+
+        engine = MagicMock()
+        engine._config.storage.data_dir = tmp_path / "data"
+        engine._thread_id = "test-thread"
+        engine._resolved_resources = []
+        engine._display = MagicMock()
+        engine._logger = MagicMock()
+        return LiteratureHandler(engine)
+
+    @pytest.mark.asyncio
+    async def test_skips_non_search_phases(self, tmp_path):
+        handler = self._make_handler(tmp_path)
+        text = "[DATA: https://example.com/data.csv]"
+        # WRITING is not in _SEARCH_ENABLED_PHASES
+        await handler.process_data_requests("agent-0", text, ResearchPhase.WRITING)
+        assert handler.data_count_this_round == 0
+
+    @pytest.mark.asyncio
+    async def test_dedup_across_rounds(self, tmp_path):
+        handler = self._make_handler(tmp_path)
+        handler.resolved_data_urls.add("https://example.com/data.csv")
+        text = "[DATA: https://example.com/data.csv]"
+        await handler.process_data_requests("agent-0", text, ResearchPhase.PLANNING)
+        handler._engine._display.data_stage_skipped.assert_called_once()
+        assert handler.data_count_this_round == 0
+
+    @pytest.mark.asyncio
+    async def test_budget_enforcement(self, tmp_path):
+        from paradigm.orchestrator.constants import _DATA_REQUESTS_PER_ROUND
+
+        handler = self._make_handler(tmp_path)
+        handler.data_count_this_round = _DATA_REQUESTS_PER_ROUND
+        text = "[DATA: https://example.com/data.csv]"
+        await handler.process_data_requests("agent-0", text, ResearchPhase.PLANNING)
+        handler._engine._display.data_stage_skipped.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_data_urls(self, tmp_path):
+        handler = self._make_handler(tmp_path)
+        # arxiv.org URLs are classified as PAPER, not DATA
+        text = "[DATA: https://arxiv.org/abs/2301.12345]"
+        await handler.process_data_requests("agent-0", text, ResearchPhase.PLANNING)
+        handler._engine._display.data_stage_skipped.assert_called_once()
+        assert handler.data_count_this_round == 0
+
+
+# ---------------------------------------------------------------------------
+# Network caveat tests
+# ---------------------------------------------------------------------------
+
+
+class TestNetworkCaveat:
+    """Tests for _network_caveat() helper."""
+
+    def test_network_disabled_caveat(self):
+        from paradigm.orchestrator.constants import _network_caveat
+
+        caveat = _network_caveat(False)
+        assert "NO network access" in caveat
+        assert "requests" in caveat
+
+    def test_network_enabled_caveat(self):
+        from paradigm.orchestrator.constants import _network_caveat
+
+        caveat = _network_caveat(True)
+        assert "Network access is available" in caveat
+        assert "NO network access" not in caveat
+
+    def test_experiment_prompt_has_network_placeholder(self):
+        """Execution templates use {network_caveat} placeholder."""
+        templates = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]
+        assert "{network_caveat}" in templates["propose_experiment"]
+        assert "{network_caveat}" in templates["analyze_results"]
+        assert "{network_caveat}" in templates["retry_after_failure"]

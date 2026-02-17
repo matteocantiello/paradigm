@@ -79,6 +79,30 @@ _MODE_PROMPT_OVERRIDES: dict[str, dict[str, str]] = {
 # Phase-specific prompt templates
 # ---------------------------------------------------------------------------
 
+
+def _network_caveat(network_enabled: bool) -> str:
+    """Return the appropriate network access caveat for experiment prompts.
+
+    Args:
+        network_enabled: Whether the sandbox has network access.
+
+    Returns:
+        Caveat string to embed in experiment prompts.
+    """
+    if network_enabled:
+        return (
+            "**Network access is available.** You may use `requests`, `httpx`, "
+            "`urllib.request`, etc. to fetch data from the internet if needed."
+        )
+    return (
+        "**\u26a0 CRITICAL: The sandbox has NO network access.** Do NOT use `requests`, "
+        "`urllib.request`, `httpx`, `http.client`, `aiohttp`, or any HTTP/socket calls "
+        "— they will always fail. All data must come from: (1) files under "
+        "/data/shared/, (2) /data/workspace/, or (3) synthetic/simulated data you "
+        "generate in code."
+    )
+
+
 _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
     ResearchPhase.IDEATION: {
         "round_1": (
@@ -128,11 +152,7 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Write Python code to test the hypotheses and plans from prior discussion. "
             "Wrap each experiment in a fenced ```python block with a "
             "`# EXPERIMENT: <name>` comment on the first line.\n\n"
-            "**\u26a0 CRITICAL: The sandbox has NO network access.** Do NOT use `requests`, "
-            "`urllib.request`, `httpx`, `http.client`, `aiohttp`, or any HTTP/socket calls "
-            "— they will always fail. All data must come from: (1) files under "
-            "/data/shared/, (2) /data/workspace/, or (3) synthetic/simulated data you "
-            "generate in code.\n\n"
+            "{network_caveat}\n\n"
             "**Available libraries:** numpy, scipy, matplotlib, pandas, scikit-learn, "
             "sympy, astropy, seaborn, pypdf, h5py, emcee, corner, lmfit, "
             "uncertainties, statsmodels, tqdm, numba, xarray, joblib, pyyaml, "
@@ -144,7 +164,7 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "<package_name>')` at the top of your script. Packages available in the offline "
             "cache include: photutils, specutils, dust_extinction, galpy, healpy, "
             "plotly, bokeh, tables, netCDF4, pyarrow, and more.\n"
-            "**Environment:** Code runs inside a Docker container with no network access. "
+            "**Environment:** Code runs inside a Docker container. "
             "You can use os, pathlib, open(), io, glob, shutil, etc. for file operations. "
             "Do NOT use subprocess, ctypes, multiprocessing, exec(), or eval().\n"
             "**Shared resources:** Code repositories and data files from the research prompt "
@@ -188,9 +208,7 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "(just provide your analysis)\n\n"
             "If proposing follow-up experiments, explain what additional question "
             "they address.\n\n"
-            "**Remember:** The sandbox has NO network access. All experiments must use "
-            "synthetic/simulated data or files from /data/shared/ and /data/workspace/. "
-            "Do NOT use requests, urllib, or any HTTP calls."
+            "{network_caveat}"
         ),
         "retry_after_failure": (
             "Your previous experiment failed or was rejected.\n"
@@ -203,9 +221,7 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Instead, break it into multiple smaller `# EXPERIMENT:` blocks that each do "
             "one focused task. Save intermediate results to /data/workspace/ and load them "
             "in subsequent experiments.\n"
-            "**Remember:** The sandbox has NO network access. Do NOT use requests, "
-            "urllib, or any HTTP calls. Generate synthetic data or use files from "
-            "/data/shared/."
+            "{network_caveat}"
         ),
     },
     ResearchPhase.POST_EXECUTION: {
@@ -370,6 +386,8 @@ _LITERATURE_INSTRUCTION = (
     "  [CITED_BY: 0901.67890]\n\n"
     "**Deep reading** (get extended text from a paper):\n"
     "  [READ: 2301.12345]\n\n"
+    "**Data staging** (download a dataset for use in experiments):\n"
+    "  [DATA: https://example.com/catalog.csv]\n\n"
     "**IMPORTANT:** [FOLLOW:], [CITED_BY:], and [READ:] require an arXiv ID "
     "(e.g., 2301.12345), NOT a URL. Use the IDs shown in search results.\n\n"
     "### Search Strategy\n"
@@ -381,6 +399,8 @@ _LITERATURE_INSTRUCTION = (
     "- **If keyword search returns no new results**, stop rephrasing and "
     "switch to [FOLLOW:] or [CITED_BY:] on papers you've already found.\n"
     "- After reading a paper, explain how it changes your understanding.\n"
+    "- Use `[DATA:]` during PLANNING to request specific datasets you'll "
+    "need in EXECUTION (e.g., catalogs, survey data, spectra).\n"
 )
 
 _SEARCH_ENABLED_PHASES: set[ResearchPhase] = {
@@ -569,6 +589,7 @@ _FOLLOW_EXAMPLES_COUNT = 3
 _PER_AGENT_CAP_MIN = 1
 _PER_AGENT_CAP_NUMERATOR = 2
 _PER_AGENT_CAP_DENOMINATOR = 5
+_DATA_REQUESTS_PER_ROUND = 3
 
 # ---------------------------------------------------------------------------
 # Vacuous success detection

@@ -152,6 +152,23 @@ class PlainTextFallback:
         click.echo(f"    [!] Could not read paper {arxiv_id}")
 
     # ------------------------------------------------------------------
+    # Data staging
+    # ------------------------------------------------------------------
+
+    def data_staged(self, filename: str, size_bytes: int, url: str) -> None:
+        size_str = f"{size_bytes / 1024:.1f} KB" if size_bytes > 1024 else f"{size_bytes} B"
+        click.echo(f"    [data] Staged: {filename} ({size_str}) from {url[:60]}")
+
+    def data_stage_error(self, url: str, error: str | Exception) -> None:
+        click.echo(f"    [!] Data staging failed for {url[:60]}: {error}")
+
+    def data_stage_skipped(self, url: str, reason: str) -> None:
+        click.echo(f"    [skip] Data staging skipped for {url[:60]}: {reason}")
+
+    def network_access_warning(self) -> None:
+        click.echo("WARNING: --network-access enabled. Sandbox containers have internet access.")
+
+    # ------------------------------------------------------------------
     # Resources (seeding phase)
     # ------------------------------------------------------------------
 

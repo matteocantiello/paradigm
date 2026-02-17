@@ -1831,3 +1831,16 @@ it just stripped prefixes and returned whatever string it got.
 
 **Key decisions:** Add `{execution_metadata}` to peer review template; build metadata from caveats + truncated execution context; add mandatory claim verification checklist to review instructions; inject in `run_peer_review_phase()`.
 **Artifacts modified:** `orchestrator/constants.py`, `orchestrator/review.py`, `tests/test_peer_review.py`
+
+### Prompt 142 — Discussion: Sandbox Data Access Options
+
+> Let's talk about the last issue: Sandbox can't access real data. What options do we have to make this more permissive?
+
+**Key decisions:** Discussion only, no code changes.
+
+### Prompt 143 — Implement Data Pre-staging (`[DATA:]`) + Configurable Network Mode
+
+> Implement the following plan: Data Pre-staging (`[DATA:]`) + Configurable Network Mode. Two complementary changes: (1) Pre-staging — Agents can request data URLs during IDEATION/PLANNING via `[DATA: url]`. The orchestrator downloads them outside the sandbox and mounts them before EXECUTION. (2) Configurable network mode — Users can opt into `--network-access` at the CLI, which sets `network_mode="bridge"`, skips network-import safety checks, and adjusts agent prompts.
+
+**Key decisions:** `[DATA:]` uses existing `classify_resource()`/`resolve_resource()` pipeline; budget cap at 3 per round; `--network-access` flag overrides `config.sandbox.network_mode`; `SafetyConfig` gains `network_enabled` field; hardcoded "NO network access" strings replaced with `{network_caveat}` placeholder.
+**Artifacts modified:** `literature/prompt_utils.py`, `orchestrator/literature.py`, `orchestrator/constants.py`, `orchestrator/engine.py`, `orchestrator/experimentation.py`, `sandbox/safety.py`, `sandbox/executor.py`, `main.py`, `display/manager.py`, `display/fallback.py`, `tests/test_literature_helpers.py`, `tests/test_sandbox.py`, `tests/test_orchestrator.py`

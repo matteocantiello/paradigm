@@ -182,6 +182,12 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     default=False,
     help="Use plain-text output instead of Rich terminal UI",
 )
+@click.option(
+    "--network-access",
+    is_flag=True,
+    default=False,
+    help="Allow sandbox containers to access the network (less secure)",
+)
 @click.pass_obj
 def run(
     config: Config,
@@ -193,6 +199,7 @@ def run(
     interactive: bool,
     testing: bool,
     verbose: bool,
+    network_access: bool,
 ) -> None:
     """Run a research cycle.
 
@@ -224,8 +231,14 @@ def run(
         click.echo("Error: --topic required for exploratory mode", err=True)
         sys.exit(1)
 
+    # Override sandbox network mode if --network-access flag is set
+    if network_access:
+        config.sandbox.network_mode = "bridge"
+
     seed_prompt = prompt or topic or ""
     display.starting_cycle(mode)
+    if network_access:
+        display.network_access_warning()
     if rounds is not None:
         display.rounds_override(rounds)
     if interactive:

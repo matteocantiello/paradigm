@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock
 
+from paradigm.literature.prompt_utils import parse_data_requests
 from paradigm.orchestrator.constants import (
     _LITERATURE_CONTEXT_LIMIT,
     _PER_AGENT_CAP_MIN,
@@ -128,3 +129,58 @@ class TestPerAgentCapMin:
 
     def test_cap_is_one(self):
         assert _PER_AGENT_CAP_MIN == 1
+
+
+# ---------------------------------------------------------------------------
+# Data request parsing tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseDataRequests:
+    """Tests for parse_data_requests() extraction."""
+
+    def test_basic_extraction(self):
+        text = "We need this dataset: [DATA: https://example.com/catalog.csv]"
+        urls = parse_data_requests(text)
+        assert urls == ["https://example.com/catalog.csv"]
+
+    def test_multiple_urls(self):
+        text = "[DATA: https://example.com/a.csv] and also [DATA: https://example.com/b.fits]"
+        urls = parse_data_requests(text)
+        assert len(urls) == 2
+        assert "https://example.com/a.csv" in urls
+        assert "https://example.com/b.fits" in urls
+
+    def test_dedup_identical_urls(self):
+        text = (
+            "[DATA: https://example.com/catalog.csv] and again "
+            "[DATA: https://example.com/catalog.csv]"
+        )
+        urls = parse_data_requests(text)
+        assert len(urls) == 1
+
+    def test_dedup_case_insensitive(self):
+        text = "[DATA: https://Example.COM/Data.csv] and [DATA: https://example.com/data.csv]"
+        urls = parse_data_requests(text)
+        assert len(urls) == 1
+
+    def test_rejects_non_url_strings(self):
+        text = "[DATA: not a url] [DATA: ftp://example.com/file.dat]"
+        urls = parse_data_requests(text)
+        assert urls == []
+
+    def test_accepts_http_and_https(self):
+        text = "[DATA: http://example.com/a.csv] [DATA: https://example.com/b.csv]"
+        urls = parse_data_requests(text)
+        assert len(urls) == 2
+
+    def test_empty_text(self):
+        assert parse_data_requests("") == []
+
+    def test_no_data_markers(self):
+        assert parse_data_requests("No data requests here [SEARCH: query]") == []
+
+    def test_case_insensitive_marker(self):
+        text = "[data: https://example.com/file.csv]"
+        urls = parse_data_requests(text)
+        assert len(urls) == 1

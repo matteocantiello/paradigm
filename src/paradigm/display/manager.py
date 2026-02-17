@@ -437,6 +437,45 @@ class DisplayManager:
             self._fallback.read_not_found(arxiv_id)
 
     # ------------------------------------------------------------------
+    # Data staging
+    # ------------------------------------------------------------------
+
+    def data_staged(self, filename: str, size_bytes: int, url: str) -> None:
+        self._state.add_event("data", f"Staged: {filename}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.data_staged(filename, size_bytes, url)
+
+    def data_stage_error(self, url: str, error: str | Exception) -> None:
+        self._state.add_event("error", f"Data staging failed: {url[:40]}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.data_stage_error(url, error)
+
+    def data_stage_skipped(self, url: str, reason: str) -> None:
+        self._state.add_event("skip", f"Data skipped: {reason}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.data_stage_skipped(url, reason)
+
+    def network_access_warning(self) -> None:
+        self._state.add_event("warning", "Network access enabled for sandbox")
+        if self._use_rich:
+            from paradigm.display.components import build_status_message
+
+            self._print_rich(
+                build_status_message(
+                    "WARNING: --network-access enabled. Sandbox containers have internet access.",
+                    "warning",
+                )
+            )
+        else:
+            self._fallback.network_access_warning()
+
+    # ------------------------------------------------------------------
     # Resources (seeding phase)
     # ------------------------------------------------------------------
 

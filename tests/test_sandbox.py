@@ -412,6 +412,61 @@ class TestCodeExecutor:
         assert call_kwargs.kwargs.get("workspace_dir") == workspace
 
 
+class TestNetworkAwareSafetyScanner:
+    """Tests for network-aware safety scanning."""
+
+    def test_blocks_network_modules_by_default(self) -> None:
+        """Default scanner (network_enabled=False) blocks network modules."""
+        scanner = SafetyScanner()
+        verdict = scanner.scan("import requests\nrequests.get('http://example.com')")
+        assert verdict.safe is False
+        assert any("requests" in v for v in verdict.violations)
+
+    def test_allows_network_modules_when_enabled(self) -> None:
+        """Scanner with network_enabled=True allows network modules."""
+        config = SafetyConfig(network_enabled=True)
+        scanner = SafetyScanner(config)
+        verdict = scanner.scan("import requests\nrequests.get('http://example.com')")
+        assert verdict.safe is True
+
+    def test_allows_httpx_when_network_enabled(self) -> None:
+        config = SafetyConfig(network_enabled=True)
+        scanner = SafetyScanner(config)
+        verdict = scanner.scan("import httpx\nhttpx.get('http://example.com')")
+        assert verdict.safe is True
+
+    def test_blocks_httpx_when_network_disabled(self) -> None:
+        scanner = SafetyScanner()
+        verdict = scanner.scan("import httpx\nhttpx.get('http://example.com')")
+        assert verdict.safe is False
+
+    def test_allows_urllib_request_when_network_enabled(self) -> None:
+        config = SafetyConfig(network_enabled=True)
+        scanner = SafetyScanner(config)
+        verdict = scanner.scan("import urllib.request\nurllib.request.urlopen('http://x.com')")
+        assert verdict.safe is True
+
+    def test_blocks_urllib_request_when_network_disabled(self) -> None:
+        scanner = SafetyScanner()
+        verdict = scanner.scan("import urllib.request\nurllib.request.urlopen('http://x.com')")
+        assert verdict.safe is False
+
+    def test_still_blocks_subprocess_when_network_enabled(self) -> None:
+        """Network-enabled doesn't affect non-network denied modules."""
+        config = SafetyConfig(network_enabled=True)
+        scanner = SafetyScanner(config)
+        verdict = scanner.scan("import subprocess\nsubprocess.run(['ls'])")
+        assert verdict.safe is False
+        assert any("subprocess" in v for v in verdict.violations)
+
+    def test_still_blocks_exec_when_network_enabled(self) -> None:
+        """Network-enabled doesn't affect denied builtins."""
+        config = SafetyConfig(network_enabled=True)
+        scanner = SafetyScanner(config)
+        verdict = scanner.scan("exec('print(1)')")
+        assert verdict.safe is False
+
+
 class TestSciencePreamble:
     """Tests for auto-import preamble prepended to experiment code."""
 

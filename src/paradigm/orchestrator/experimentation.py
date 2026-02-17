@@ -18,6 +18,7 @@ from paradigm.orchestrator.constants import (
     _format_execution_result,
     _is_vacuous_success,
     _list_shared_files,
+    _network_caveat,
 )
 from paradigm.orchestrator.phases import ResearchPhase
 from paradigm.sandbox.executor import CodeExecutor
@@ -126,12 +127,15 @@ class ExperimentationHandler:
 
                 previous_results = "\n\n".join(all_results) if all_results else ""
 
+                net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
+
                 if round_num == 1:
                     template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["propose_experiment"]
                     prompt = template.format(
                         seed_prompt=engine._seed_prompt,
                         checkpoint_context=checkpoint_context,
                         previous_results=previous_results,
+                        network_caveat=net_caveat,
                     )
                 else:
                     template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
@@ -139,6 +143,7 @@ class ExperimentationHandler:
                         seed_prompt=engine._seed_prompt,
                         checkpoint_context=checkpoint_context,
                         previous_results=previous_results,
+                        network_caveat=net_caveat,
                     )
 
                 try:
@@ -385,11 +390,13 @@ class ExperimentationHandler:
             error_feedback = "\n\n".join(error_parts)
             engine._display.experiment_retry(attempt + 1, _MAX_RETRIES_PER_EXPERIMENT)
 
+            net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
             template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
             retry_prompt = template.format(
                 seed_prompt=engine._seed_prompt,
                 checkpoint_context=checkpoint_context,
                 error_feedback=error_feedback,
+                network_caveat=net_caveat,
             )
 
             try:
