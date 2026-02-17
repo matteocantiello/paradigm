@@ -810,6 +810,8 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 | `enable_post_execution_discussion` | bool | `true` | Enable POST_EXECUTION team discussion after experiments complete |
 | `max_experiment_rounds` | int or null | `null` (2 × `max_rounds_per_phase`) | Max rounds of experiment proposal/execution in EXECUTION phase. Defaults to twice the discussion rounds. |
 | `max_searches_per_round` | int | `3` | Max `[SEARCH: ...]` requests processed per round (resets each round) |
+| `enable_convergence_detection` | bool | `true` | Detect when agents converge early in discussion phases and skip remaining rounds |
+| `convergence_confidence_threshold` | float | `0.85` | Minimum confidence (0.0–1.0) to accept convergence and skip rounds |
 
 ### `literature` --- Literature Search
 

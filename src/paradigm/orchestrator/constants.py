@@ -377,6 +377,25 @@ _DEBATE_ENABLED_PHASES: set[ResearchPhase] = {
     ResearchPhase.POST_EXECUTION,
 }
 
+_CONVERGENCE_CHECK_PHASES: set[ResearchPhase] = {
+    ResearchPhase.IDEATION,
+    ResearchPhase.PLANNING,
+    ResearchPhase.POST_EXECUTION,
+}
+
+_CONVERGENCE_CHECK_PROMPT = (
+    "You are evaluating whether a group of AI research agents have converged "
+    "on their core proposals during a collaborative discussion.\n\n"
+    "## Phase: {phase}\n\n"
+    "## Agent Messages from Round {round_num}\n{messages}\n\n"
+    "Assess whether the agents have reached substantial agreement (80%+ overlap) "
+    "on their core proposals, hypotheses, or plans. Minor differences in wording "
+    "or emphasis do NOT count as divergence — focus on whether the substantive "
+    "ideas, conclusions, or recommendations are materially the same.\n\n"
+    "Respond with ONLY a JSON object (no markdown fences, no extra text):\n"
+    '{{"converged": true/false, "confidence": 0.0-1.0, "rationale": "one sentence"}}'
+)
+
 _CHALLENGE_INSTRUCTION = (
     "\n\n## Focused Debate\n"
     "If you strongly disagree with another agent's position and believe a "

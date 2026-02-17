@@ -255,6 +255,22 @@ class DisplayManager:
             self._fallback.round_start(round_num, max_rounds)
 
     # ------------------------------------------------------------------
+    # Convergence detection
+    # ------------------------------------------------------------------
+
+    def convergence_detected(self, phase: str, round_num: int, max_rounds: int) -> None:
+        rounds_skipped = max_rounds - round_num
+        self._state.add_event(
+            "convergence",
+            f"Agents converged in {phase} after round {round_num}, "
+            f"skipping {rounds_skipped} round(s)",
+        )
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.convergence_detected(phase, round_num, max_rounds)
+
+    # ------------------------------------------------------------------
     # Agent activity
     # ------------------------------------------------------------------
 

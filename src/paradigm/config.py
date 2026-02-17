@@ -113,6 +113,8 @@ class OrchestratorConfig(BaseModel):
     enable_debates: bool = True
     max_debate_exchanges: int = 3
     max_debates_per_phase: int = 2
+    enable_convergence_detection: bool = True
+    convergence_confidence_threshold: float = 0.85
 
 
 class SkillsConfig(BaseModel):

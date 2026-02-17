@@ -61,6 +61,17 @@ class PlainTextFallback:
         click.echo(f"  Round {round_num}/{max_rounds}...")
 
     # ------------------------------------------------------------------
+    # Convergence detection
+    # ------------------------------------------------------------------
+
+    def convergence_detected(self, phase: str, round_num: int, max_rounds: int) -> None:
+        rounds_skipped = max_rounds - round_num
+        click.echo(
+            f"  [convergence] Agents converged after round {round_num}, "
+            f"skipping {rounds_skipped} remaining round(s)"
+        )
+
+    # ------------------------------------------------------------------
     # Agent activity
     # ------------------------------------------------------------------
 

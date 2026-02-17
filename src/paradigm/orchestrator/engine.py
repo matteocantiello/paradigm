@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 import uuid
@@ -27,6 +28,8 @@ from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.citation_handler import CitationHandler
 from paradigm.orchestrator.constants import (
     _CHALLENGE_INSTRUCTION,
+    _CONVERGENCE_CHECK_PHASES,
+    _CONVERGENCE_CHECK_PROMPT,
     _DEBATE_ENABLED_PHASES,
     _LITERATURE_INSTRUCTION,
     _MODE_PROMPT_OVERRIDES,
@@ -546,10 +549,31 @@ class OrchestrationEngine:
         """
         scheduler = Scheduler(list(self._agents.values()), mode="phase_appropriate")
 
+        # Compute active agent count for convergence detection
+        active_roles = _PHASE_ACTIVE_ROLES.get(phase)
+        if active_roles is not None:
+            active_count = sum(1 for a in self._agents.values() if a.skill_profile in active_roles)
+        else:
+            active_count = len(self._agents)
+
         for round_num in range(1, max_rounds + 1):
             self._display.round_start(round_num, max_rounds)
             await self._run_round(phase, round_num, scheduler)
             scheduler.advance_round()
+
+            # Convergence detection: skip remaining rounds if agents agree
+            if (
+                self._config.orchestrator.enable_convergence_detection
+                and phase in _CONVERGENCE_CHECK_PHASES
+                and round_num < max_rounds
+            ):
+                try:
+                    converged = await self._check_convergence(phase, round_num, active_count)
+                    if converged:
+                        self._display.convergence_detected(str(phase), round_num, max_rounds)
+                        break
+                except Exception:
+                    pass  # Non-fatal — continue with remaining rounds
 
             # Checkpoint at intervals
             should_checkpoint = (
@@ -803,6 +827,99 @@ class OrchestrationEngine:
         if result not in ("continue", "pause", "abort"):
             return "continue"
         return result
+
+    async def _check_convergence(
+        self,
+        phase: ResearchPhase,
+        round_num: int,
+        active_agent_count: int,
+    ) -> bool:
+        """Check if agents have converged using a cheap LLM call.
+
+        Grabs the last N messages (one per active agent) from the current round,
+        truncates each to 500 chars, and asks an LLM whether agents have reached
+        substantial agreement.
+
+        Args:
+            phase: Current research phase.
+            round_num: Current round number.
+            active_agent_count: Number of active agents in this phase.
+
+        Returns:
+            True if agents have converged with sufficient confidence.
+        """
+        # Grab last N messages (N = active_agent_count)
+        recent = self._messages[-active_agent_count:]
+        if len(recent) < 2:
+            return False
+
+        # Format messages, truncating content to 500 chars
+        formatted_messages = "\n\n".join(
+            f"**{m.get('from', 'unknown')}**: {m.get('content', '')[:500]}" for m in recent
+        )
+
+        prompt_text = _CONVERGENCE_CHECK_PROMPT.format(
+            phase=str(phase).upper(),
+            round_num=round_num,
+            messages=formatted_messages,
+        )
+
+        provider = self._config.get_provider()
+        text, input_tokens, output_tokens = provider.complete(
+            model=provider.default_model,
+            system="You are a concise evaluator. Return only JSON.",
+            messages=[{"role": "user", "content": prompt_text}],
+            max_tokens=256,
+            temperature=0.2,
+        )
+
+        # Track token usage
+        self._db.record_token_usage(
+            model=provider.default_model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            agent_id="convergence_checker",
+            thread_id=self._thread_id,
+        )
+        self._logger.log_api_call(
+            agent_id="convergence_checker",
+            model=provider.default_model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+
+        # Parse JSON response (strip markdown fences if present)
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
+
+        result = json.loads(cleaned)
+        converged = bool(result.get("converged", False))
+        confidence = float(result.get("confidence", 0.0))
+        rationale = result.get("rationale", "")
+
+        threshold = self._config.orchestrator.convergence_confidence_threshold
+        is_converged = converged and confidence >= threshold
+
+        # Log the check result
+        self._logger.log(
+            EventType.STATE_CHANGE,
+            content={
+                "event": "convergence_check",
+                "phase": str(phase),
+                "round": round_num,
+                "converged": converged,
+                "confidence": confidence,
+                "threshold": threshold,
+                "rationale": rationale,
+                "skipping": is_converged,
+            },
+            thread_id=self._thread_id,
+            phase=str(phase),
+        )
+
+        return is_converged
 
     def _log_phase_transition(self, from_phase: ResearchPhase, to_phase: ResearchPhase) -> None:
         """Log a phase transition event."""

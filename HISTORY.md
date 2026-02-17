@@ -1801,3 +1801,10 @@ it just stripped prefixes and returned whatever string it got.
 
 **Key decisions:** Add POST_EXECUTION phase enum between EXECUTION and WRITING; collect structured caveats during experimentation; propagate caveats into POST_EXECUTION and WRITING prompts; add `enable_post_execution_discussion` config flag.
 **Artifacts modified:** `phases.py`, `experimentation.py`, `constants.py`, `engine.py`, `writing.py`, `config.py`, `docs/MANUAL.md`
+
+### Prompt 138 — Premature Convergence Detection
+
+> Implement premature convergence detection for discussion phases (IDEATION, PLANNING, POST_EXECUTION). After each round, use a cheap LLM call to assess whether agents have converged (80%+ overlap in core proposals). If yes, skip remaining rounds. This addresses the problem where all agents independently produce nearly identical proposals in Round 1, and Round 2 has 80%+ overlap with no new substance, wasting ~60-70% of discussion-phase tokens.
+
+**Key decisions:** LLM-based detection (not keyword Jaccard) for semantic understanding; check after every round (cheap ~300 tokens); skip all remaining rounds on convergence (no ceremonial "one more" round); enabled by default with 0.85 confidence threshold; implemented as private method in engine.py (no new module).
+**Artifacts modified:** `config.py`, `constants.py`, `engine.py`, `display/fallback.py`, `display/manager.py`, `docs/MANUAL.md`
