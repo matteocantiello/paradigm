@@ -113,12 +113,12 @@ orchestrator:
   enable_checkpointing: true
   checkpoint_interval: 5
   enable_writing: true
-  max_review_iterations: 3
+  max_review_iterations: 5
   enable_peer_review: true
   num_reviewers: 2
-  max_revision_rounds: 2
+  max_revision_rounds: 4
   enable_experimentation: true
-  max_experiment_rounds: 3
+  # max_experiment_rounds: null  # Default: 2 × max_rounds_per_phase
   max_searches_per_round: 5
   enable_debates: true
   max_debate_exchanges: 3

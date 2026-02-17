@@ -435,7 +435,7 @@ Agents propose Python code in fenced ` ```python ` blocks with a `# EXPERIMENT: 
 **Input:** Planning checkpoint
 **Output:** Execution context (formatted results + figure paths), injected into WRITING phase
 **Agents:** Experimentalist (fallback to analyst)
-**Rounds:** Configurable via `max_experiment_rounds` (default: 3)
+**Rounds:** Configurable via `max_experiment_rounds` (default: 2 × `max_rounds_per_phase`)
 
 #### WRITING
 
@@ -778,12 +778,12 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 | `enable_checkpointing` | bool | `true` | Save checkpoint summaries during phases |
 | `checkpoint_interval` | int | `5` | Save checkpoint every N rounds |
 | `enable_writing` | bool | `true` | Enable the WRITING phase (set `false` to stop after PLANNING) |
-| `max_review_iterations` | int | `3` | Max internal review-revision loops |
+| `max_review_iterations` | int | `5` | Max internal review-revision loops |
 | `enable_peer_review` | bool | `true` | Enable the peer review pipeline after internal review |
 | `num_reviewers` | int | `2` | Number of independent peer reviewers |
-| `max_revision_rounds` | int | `2` | Max peer-review revision loops before final decision |
+| `max_revision_rounds` | int | `4` | Max peer-review revision loops before final decision |
 | `enable_experimentation` | bool | `true` | Enable EXECUTION phase for modes with an experimentalist |
-| `max_experiment_rounds` | int | `3` | Max rounds of experiment proposal/execution in EXECUTION phase |
+| `max_experiment_rounds` | int or null | `null` (2 × `max_rounds_per_phase`) | Max rounds of experiment proposal/execution in EXECUTION phase. Defaults to twice the discussion rounds. |
 | `max_searches_per_round` | int | `3` | Max `[SEARCH: ...]` requests processed per round (resets each round) |
 
 ### `literature` --- Literature Search

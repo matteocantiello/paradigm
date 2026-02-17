@@ -2439,12 +2439,12 @@ class TestSearchExcludesParadigmPapers:
 class TestConfigDefaults:
     """Tests for configuration defaults."""
 
-    def test_max_review_iterations_default_is_3(self):
-        """max_review_iterations default allows two revision attempts."""
+    def test_max_review_iterations_default_is_5(self):
+        """max_review_iterations default allows four revision attempts."""
         from paradigm.config import OrchestratorConfig
 
         config = OrchestratorConfig()
-        assert config.max_review_iterations == 3
+        assert config.max_review_iterations == 5
 
     def test_read_budget_default_is_5(self):
         """read_budget_per_round default is 5 to allow 1 read per agent."""
