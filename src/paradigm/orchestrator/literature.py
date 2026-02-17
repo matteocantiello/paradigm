@@ -20,8 +20,16 @@ from paradigm.literature.prompt_utils import (
 )
 from paradigm.logging.events import EventType
 from paradigm.orchestrator.constants import (
+    _CONSECUTIVE_STALE_LIMIT,
+    _FOLLOW_EXAMPLES_COUNT,
     _LITERATURE_CONTEXT_LIMIT,
+    _PER_AGENT_CAP_DENOMINATOR,
+    _PER_AGENT_CAP_MIN,
+    _PER_AGENT_CAP_NUMERATOR,
     _SEARCH_ENABLED_PHASES,
+    _STALE_SEARCH_THRESHOLD,
+    _TITLE_TRUNCATION_INDEX,
+    _TITLE_TRUNCATION_SHORT,
     _is_duplicate_query,
     _normalize_query_keywords,
 )
@@ -96,6 +104,17 @@ class LiteratureHandler:
         self.cited_by_paper_ids = set()
 
     # ------------------------------------------------------------------
+    # Context accumulation helper
+    # ------------------------------------------------------------------
+
+    def _append_to_context(self, content: str, *, trim: bool = True) -> None:
+        """Append content to literature_context, optionally trimming to limit."""
+        lit = self.literature_context
+        self.literature_context = lit + "\n" + content if lit else content
+        if trim and len(self.literature_context) > _LITERATURE_CONTEXT_LIMIT:
+            self.literature_context = self.literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+
+    # ------------------------------------------------------------------
     # Paper index (compact reference list for agent prompts)
     # ------------------------------------------------------------------
 
@@ -122,7 +141,11 @@ class LiteratureHandler:
         ]
         for arxiv_id, title, first_author in self.discovered_papers:
             # Truncate long titles to keep the index compact
-            short_title = title[:80] + "..." if len(title) > 80 else title
+            short_title = (
+                title[:_TITLE_TRUNCATION_INDEX] + "..."
+                if len(title) > _TITLE_TRUNCATION_INDEX
+                else title
+            )
             lines.append(f"- [{arxiv_id}] {first_author}: {short_title}")
         lines.append("")
         return "\n".join(lines)
@@ -229,11 +252,16 @@ class LiteratureHandler:
 
         # Cross-round stall: after 5 cumulative stale keyword searches,
         # hard-cap keyword budget to 1 per round for the rest of the phase
-        if self.total_stale_keyword_searches >= 5:
+        if self.total_stale_keyword_searches >= _STALE_SEARCH_THRESHOLD:
             max_searches = min(max_searches, 1)
 
         # Per-agent cap: no single agent monopolizes the round's budget
-        per_agent_cap = max(2, self._engine._config.orchestrator.max_searches_per_round * 2 // 5)
+        per_agent_cap = max(
+            _PER_AGENT_CAP_MIN,
+            self._engine._config.orchestrator.max_searches_per_round
+            * _PER_AGENT_CAP_NUMERATOR
+            // _PER_AGENT_CAP_DENOMINATOR,
+        )
 
         queries = parse_search_requests(response_text)
         if not queries:
@@ -306,12 +334,7 @@ class LiteratureHandler:
             if new_papers:
                 consecutive_stale = 0
                 formatted = format_search_results(query, new_papers)
-                lit = self.literature_context
-                self.literature_context = lit + "\n" + formatted if lit else formatted
-
-                # Trim literature context if it exceeds the limit (keep most recent)
-                if len(self.literature_context) > _LITERATURE_CONTEXT_LIMIT:
-                    self.literature_context = self.literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+                self._append_to_context(formatted)
             else:
                 consecutive_stale += 1
                 self.total_stale_keyword_searches += 1
@@ -337,13 +360,12 @@ class LiteratureHandler:
             # Stall hint: always inject when keyword search returns 0 new papers
             if not new_papers:
                 hint = self._build_stall_hint()
-                lit = self.literature_context
-                self.literature_context = lit + hint if lit else hint
+                self._append_to_context(hint, trim=False)
 
             # Early termination: 2 consecutive stale searches from this agent
-            if consecutive_stale >= 2:
-                self._engine._display.search_stale(agent_id, 2)
-                examples = self._build_follow_examples(3)
+            if consecutive_stale >= _CONSECUTIVE_STALE_LIMIT:
+                self._engine._display.search_stale(agent_id, _CONSECUTIVE_STALE_LIMIT)
+                examples = self._build_follow_examples(_FOLLOW_EXAMPLES_COUNT)
                 stall_warning = (
                     "\n\n> **Warning:** Keyword searches are exhausted for this topic. "
                     "You MUST use [FOLLOW: arxiv_id] or [CITED_BY: arxiv_id] to discover "
@@ -351,13 +373,12 @@ class LiteratureHandler:
                 )
                 if examples:
                     stall_warning += examples
-                lit = self.literature_context
-                self.literature_context = lit + stall_warning if lit else stall_warning
+                self._append_to_context(stall_warning, trim=False)
                 break
 
         # Cross-round exhaustion warning: inject persistent warning
-        if self.total_stale_keyword_searches >= 5:
-            examples = self._build_follow_examples(3)
+        if self.total_stale_keyword_searches >= _STALE_SEARCH_THRESHOLD:
+            examples = self._build_follow_examples(_FOLLOW_EXAMPLES_COUNT)
             exhaustion_warning = (
                 "\n\n> \u26a0 Keyword searches are exhausted for this topic. You MUST use "
                 "[FOLLOW: arxiv_id] or [CITED_BY: arxiv_id] to discover new papers. "
@@ -365,9 +386,8 @@ class LiteratureHandler:
             )
             if examples:
                 exhaustion_warning += examples
-            lit = self.literature_context
-            if "\u26a0 Keyword searches are exhausted" not in lit:
-                self.literature_context = lit + exhaustion_warning if lit else exhaustion_warning
+            if "\u26a0 Keyword searches are exhausted" not in self.literature_context:
+                self._append_to_context(exhaustion_warning, trim=False)
 
     # ------------------------------------------------------------------
     # Literature actions ([FOLLOW:], [CITED_BY:], [READ:])
@@ -422,12 +442,7 @@ class LiteratureHandler:
             formatted = format_follow_results(
                 arxiv_id, papers, max_papers=lit_config.max_reference_results
             )
-            lit = self.literature_context
-            self.literature_context = lit + "\n" + formatted if lit else formatted
-
-            # Trim if needed
-            if len(self.literature_context) > _LITERATURE_CONTEXT_LIMIT:
-                self.literature_context = self.literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+            self._append_to_context(formatted)
 
             self.follow_count_this_round += 1
             self.followed_paper_ids.add(arxiv_id)
@@ -493,11 +508,7 @@ class LiteratureHandler:
             formatted = format_cited_by_results(
                 arxiv_id, papers, max_papers=lit_config.max_citation_results
             )
-            lit = self.literature_context
-            self.literature_context = lit + "\n" + formatted if lit else formatted
-
-            if len(self.literature_context) > _LITERATURE_CONTEXT_LIMIT:
-                self.literature_context = self.literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+            self._append_to_context(formatted)
 
             self.cited_by_count_this_round += 1
             self.cited_by_paper_ids.add(arxiv_id)
@@ -559,11 +570,7 @@ class LiteratureHandler:
 
             title, extracted_text = result
             formatted = format_read_result(arxiv_id, title, extracted_text)
-            lit = self.literature_context
-            self.literature_context = lit + "\n" + formatted if lit else formatted
-
-            if len(self.literature_context) > _LITERATURE_CONTEXT_LIMIT:
-                self.literature_context = self.literature_context[-_LITERATURE_CONTEXT_LIMIT:]
+            self._append_to_context(formatted)
 
             self.read_count_this_round += 1
             self.read_paper_ids.add(arxiv_id)
@@ -587,7 +594,7 @@ class LiteratureHandler:
     # Stall hint helpers
     # ------------------------------------------------------------------
 
-    def _build_follow_examples(self, n: int = 3) -> str:
+    def _build_follow_examples(self, n: int = _FOLLOW_EXAMPLES_COUNT) -> str:
         """Build concrete [FOLLOW:] example commands from discovered papers.
 
         Args:
@@ -601,7 +608,11 @@ class LiteratureHandler:
         examples = self.discovered_papers[:n]
         lines = ["\n> **Try these commands:**"]
         for arxiv_id, title, _ in examples:
-            short = title[:60] + "..." if len(title) > 60 else title
+            short = (
+                title[:_TITLE_TRUNCATION_SHORT] + "..."
+                if len(title) > _TITLE_TRUNCATION_SHORT
+                else title
+            )
             lines.append(f'>   [FOLLOW: {arxiv_id}]  — refs of "{short}"')
         lines.append("")
         return "\n".join(lines)
@@ -618,7 +629,7 @@ class LiteratureHandler:
             "you've already found, or [CITED_BY: arxiv_id] to find recent work "
             "building on foundational papers.\n"
         )
-        examples = self._build_follow_examples(3)
+        examples = self._build_follow_examples(_FOLLOW_EXAMPLES_COUNT)
         if examples:
             hint += examples
         return hint

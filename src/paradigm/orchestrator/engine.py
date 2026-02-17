@@ -28,34 +28,25 @@ from paradigm.orchestrator.citation_handler import CitationHandler
 from paradigm.orchestrator.constants import (
     _CHALLENGE_INSTRUCTION,
     _DEBATE_ENABLED_PHASES,
-    _EXECUTION_STDERR_LIMIT,
-    _FILE_NOT_FOUND_PATTERNS,
     _LITERATURE_INSTRUCTION,
-    _MAX_RETRIES_PER_EXPERIMENT,
     _MODE_PROMPT_OVERRIDES,
-    _NETWORK_ERROR_PATTERNS,
     _PHASE_ACTIVE_ROLES,
     _PHASE_CONTEXT_NEEDS,
     _PHASE_INSTRUCTIONS,
     _RECENT_MESSAGES_LIMIT,
     _SEARCH_ENABLED_PHASES,
-    _WRITING_MAX_TOKENS,
     DEFAULT_TEAM_ROLES,
     MODE_TEAM_ROLES,
     InterventionHook,
-    _extract_code_blocks,
-    _format_execution_result,
-    _is_vacuous_success,
-    _list_shared_files,
 )
 from paradigm.orchestrator.debate import DebateHandler
+from paradigm.orchestrator.experimentation import ExperimentationHandler
 from paradigm.orchestrator.literature import LiteratureHandler
+from paradigm.orchestrator.memory import MemoryHandler
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
 from paradigm.orchestrator.review import ReviewHandler
 from paradigm.orchestrator.scheduler import Scheduler
 from paradigm.orchestrator.writing import WritingHandler
-from paradigm.sandbox.executor import CodeExecutor
-from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, ExecutionStatus
 from paradigm.storage.checkpoints import Checkpoint, CheckpointManager
 from paradigm.storage.database import Database
 
@@ -133,6 +124,8 @@ class OrchestrationEngine:
         self._writing = WritingHandler(self)
         self._review = ReviewHandler(self)
         self._citation_handler = CitationHandler(self)
+        self._experimentation = ExperimentationHandler(self)
+        self._memory = MemoryHandler(self)
 
     async def run_research_cycle(
         self,
@@ -283,7 +276,9 @@ class OrchestrationEngine:
             self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
             self._messages = []
             self._display.phase_transition("EXECUTION")
-            await self._run_experimentation_phase()
+            exp_result = await self._experimentation.run_experimentation_phase()
+            self._execution_context = exp_result.execution_context
+            self._execution_figures = exp_result.execution_figures
 
         # Phase 4: WRITING (optional, controlled by config)
         if self._config.orchestrator.enable_writing:
@@ -391,330 +386,9 @@ class OrchestrationEngine:
         self._print_token_summary()
 
         # Generate agent episodic memories via reflection
-        if self._memory_store is not None and self._config.memory.enabled:
-            try:
-                from paradigm.agents.memory import generate_reflections
-
-                self._display.memory_generating()
-                all_messages = self._collect_all_messages()
-                thread = self._db.get_thread(self._thread_id)
-                outcome = thread.get("status", "completed") if thread else "completed"
-                _reflection_provider = self._config.get_provider()
-                reflections = await generate_reflections(
-                    agents=self._agents,
-                    messages=all_messages,
-                    seed_prompt=self._seed_prompt,
-                    thread_id=self._thread_id,
-                    outcome_summary=f"Research cycle ended with status: {outcome}",
-                    provider=_reflection_provider,
-                    model=_reflection_provider.default_model,
-                    database=self._db,
-                )
-                total = sum(len(r.memories) for r in reflections)
-                for r in reflections:
-                    self._memory_store.add_memories(r.memories)
-                self._display.memory_stored(total, len(reflections))
-                self._logger.log(
-                    EventType.MEMORY_GENERATED,
-                    content={
-                        "thread_id": self._thread_id,
-                        "total_memories": total,
-                        "agents": [r.agent_id for r in reflections],
-                    },
-                    thread_id=self._thread_id,
-                )
-            except Exception as e:
-                self._display.memory_error(e)
+        await self._memory.run_memory_generation()
 
         return self._thread_id
-
-    async def _run_experimentation_phase(self) -> None:
-        """Run the EXECUTION phase: agents propose and run computational experiments."""
-        explicit = self._config.orchestrator.max_experiment_rounds
-        max_rounds = (
-            explicit if explicit is not None else 2 * self._config.orchestrator.max_rounds_per_phase
-        )
-
-        # Collect sandbox paths for cloned repos (PYTHONPATH injection)
-        repo_paths = [
-            r.sandbox_path
-            for r in self._resolved_resources
-            if r.resource_type == ResourceType.CODE_REPO and r.sandbox_path and r.error is None
-        ]
-        # Also add parent directories of CODE_FILE resources so they are importable
-        code_file_dirs = {
-            str(Path(r.sandbox_path).parent)
-            for r in self._resolved_resources
-            if r.resource_type == ResourceType.CODE_FILE and r.sandbox_path and r.error is None
-        }
-        repo_paths.extend(sorted(code_file_dirs))
-
-        # Per-thread workspace persists across executions so experiments
-        # can read files (CSVs, data) produced by earlier experiments.
-        workspace_dir = self._config.storage.data_dir / "workspaces" / self._thread_id
-        workspace_dir.mkdir(parents=True, exist_ok=True)
-
-        executor = CodeExecutor(
-            config=self._config.sandbox,
-            logger=self._logger,
-            data_dir=self._config.storage.data_dir,
-            workspace_dir=workspace_dir,
-        )
-
-        all_results: list[str] = []
-        self._execution_figures = []
-
-        try:
-            for round_num in range(1, max_rounds + 1):
-                self._display.experiment_round(round_num, max_rounds)
-                self._literature.search_count_this_round = 0
-
-                # Find experimenter (prefer experimentalist, fallback to analyst)
-                experimenter = self._find_agent_by_role("experimentalist")
-                if experimenter is None:
-                    experimenter = self._find_agent_by_role("analyst")
-                if experimenter is None:
-                    self._display.experiment_no_agent()
-                    break
-
-                # Build prompt
-                checkpoint_context = ""
-                if self._checkpoint:
-                    checkpoint_context = self._checkpoint.to_context_string() + "\n\n"
-
-                # Inject actual file listing so agents know what exists
-                file_listing = _list_shared_files(self._config.storage.data_dir)
-                checkpoint_context = file_listing + "\n\n" + checkpoint_context
-
-                # Inject code/data context from resolved resources
-                if self._code_context:
-                    checkpoint_context += self._code_context + "\n\n"
-                if self._data_context:
-                    checkpoint_context += self._data_context + "\n\n"
-
-                previous_results = "\n\n".join(all_results) if all_results else ""
-
-                if round_num == 1:
-                    template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["propose_experiment"]
-                    prompt = template.format(
-                        seed_prompt=self._seed_prompt,
-                        checkpoint_context=checkpoint_context,
-                        previous_results=previous_results,
-                    )
-                else:
-                    template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
-                    prompt = template.format(
-                        seed_prompt=self._seed_prompt,
-                        checkpoint_context=checkpoint_context,
-                        previous_results=previous_results,
-                    )
-
-                try:
-                    response = await experimenter.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
-                except Exception as e:
-                    self._logger.log_error(
-                        e, agent_id=experimenter.agent_id, thread_id=self._thread_id
-                    )
-                    self._display.agent_error(experimenter.agent_id, e)
-                    break
-
-                self._log_agent_response(
-                    experimenter.agent_id, response, ResearchPhase.EXECUTION, "experiment_proposal"
-                )
-
-                await self._literature.process_search_requests(
-                    experimenter.agent_id, response.content, ResearchPhase.EXECUTION
-                )
-                await self._literature.process_literature_actions(
-                    experimenter.agent_id, response.content, ResearchPhase.EXECUTION
-                )
-
-                # Extract code blocks
-                code_blocks = _extract_code_blocks(response.content)
-                if not code_blocks and round_num > 1:
-                    self._display.experiment_declared_sufficient()
-                    break
-                if not code_blocks:
-                    self._display.experiment_no_code()
-                    continue
-
-                # Execute each code block
-                round_total = 0
-                round_failures = 0
-                for exp_name, code in code_blocks:
-                    self._display.experiment_running(exp_name)
-                    result = await self._execute_with_retry(
-                        executor,
-                        experimenter,
-                        exp_name,
-                        code,
-                        checkpoint_context,
-                        repo_paths=repo_paths,
-                    )
-                    formatted = _format_execution_result(exp_name, result)
-                    all_results.append(formatted)
-
-                    round_total += 1
-                    if result.status != ExecutionStatus.SUCCESS:
-                        round_failures += 1
-
-                    # Track output figures
-                    for output_file in result.output_files:
-                        if output_file.filename.endswith((".png", ".pdf")):
-                            self._execution_figures.append((exp_name, Path(output_file.path)))
-
-                    status_str = result.status.value
-                    self._display.experiment_result(exp_name, status_str)
-
-                # Circuit breaker: if >70% of executions failed, stop experimenting
-                if round_total >= 3 and (round_failures / round_total) > 0.7:
-                    self._display.experiment_high_failure_rate(round_failures, round_total)
-                    break
-
-            # Build execution context for WRITING phase
-            self._execution_context = "\n\n".join(all_results) if all_results else ""
-
-            # Checkpoint at end of execution
-            if self._config.orchestrator.enable_checkpointing:
-                try:
-                    self._checkpoint = await self._checkpoint_mgr.create_checkpoint(
-                        thread_id=self._thread_id,
-                        phase=str(ResearchPhase.EXECUTION),
-                        round_number=max_rounds,
-                        messages=self._messages,
-                        previous_checkpoint=self._checkpoint,
-                    )
-                    self._display.checkpoint_saved("end of execution")
-                except Exception as e:
-                    self._logger.log_error(e, thread_id=self._thread_id)
-                    self._display.checkpoint_error(e)
-
-        finally:
-            await executor.cleanup()
-
-    async def _execute_with_retry(
-        self,
-        executor: CodeExecutor,
-        experimenter: Agent,
-        experiment_name: str,
-        code: str,
-        checkpoint_context: str,
-        repo_paths: list[str] | None = None,
-    ) -> ExecutionResult:
-        """Execute code with retry on failure/rejection.
-
-        Args:
-            executor: CodeExecutor instance.
-            experimenter: Agent that proposed the code.
-            experiment_name: Name of the experiment.
-            code: Python code to execute.
-            checkpoint_context: Checkpoint context string.
-
-        Returns:
-            Final ExecutionResult.
-        """
-        current_code = code
-        for attempt in range(_MAX_RETRIES_PER_EXPERIMENT + 1):
-            request = ExecutionRequest(
-                code=current_code,
-                agent_id=experimenter.agent_id,
-                thread_id=self._thread_id,
-            )
-            result = await executor.execute(request, repo_paths=repo_paths)
-
-            # Timeout — return immediately
-            if result.status == ExecutionStatus.TIMEOUT:
-                return result
-
-            # Success — check for vacuous output before accepting
-            if result.status == ExecutionStatus.SUCCESS:
-                if not _is_vacuous_success(result):
-                    return result
-                # Vacuous: reclassify as failure so retry kicks in
-                result = result.model_copy(
-                    update={
-                        "status": ExecutionStatus.FAILURE,
-                        "error_message": (
-                            "Script exited successfully but produced no scientific output. "
-                            "No figures were saved and stdout contained no quantitative results. "
-                            "Ensure your script: (1) prints numerical results to stdout, "
-                            "and/or (2) saves figures with plt.savefig('name.png')."
-                        ),
-                    }
-                )
-                # Fall through to retry logic below
-
-            # Last attempt — return whatever we got
-            if attempt == _MAX_RETRIES_PER_EXPERIMENT:
-                return result
-
-            # Build error feedback for retry
-            error_parts = []
-            if result.status == ExecutionStatus.REJECTED:
-                error_parts.append(f"**Safety rejection:** {result.error_message}")
-            else:
-                error_parts.append(f"**Execution failed** (status: {result.status.value})")
-                if result.stderr:
-                    error_parts.append(f"```\n{result.stderr[:_EXECUTION_STDERR_LIMIT]}\n```")
-                if result.error_message:
-                    error_parts.append(f"Error: {result.error_message}")
-
-            # Detect network errors and prepend clear guidance
-            stderr_text = result.stderr or ""
-            if any(p in stderr_text for p in _NETWORK_ERROR_PATTERNS):
-                error_parts.insert(
-                    0,
-                    "**\u26a0 NETWORK ERROR:** This failure is because the sandbox has "
-                    "NO internet access. Do NOT use requests, urllib, httpx, or any "
-                    "HTTP calls. Instead:\n"
-                    "- Generate synthetic data that matches the expected statistical "
-                    "properties\n"
-                    "- Use files already available under /data/shared/ or "
-                    "/data/workspace/\n"
-                    "- Create mathematical models to simulate the data you need\n",
-                )
-
-            # Detect file-not-found errors (check both stderr and stdout for
-            # scripts that caught the exception and printed to stdout)
-            combined_text = stderr_text + (result.stdout or "")
-            if any(p in combined_text for p in _FILE_NOT_FOUND_PATTERNS):
-                file_listing = _list_shared_files(self._config.storage.data_dir)
-                error_parts.insert(
-                    0,
-                    "**\u26a0 FILE NOT FOUND:** Your script tried to open a file that "
-                    "does not exist in the sandbox. Do NOT guess or invent filenames.\n\n"
-                    f"{file_listing}\n"
-                    "Use ONLY the exact paths listed above. If no suitable data files "
-                    "are available, generate realistic synthetic data instead.\n",
-                )
-
-            error_feedback = "\n\n".join(error_parts)
-            self._display.experiment_retry(attempt + 1, _MAX_RETRIES_PER_EXPERIMENT)
-
-            template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
-            retry_prompt = template.format(
-                seed_prompt=self._seed_prompt,
-                checkpoint_context=checkpoint_context,
-                error_feedback=error_feedback,
-            )
-
-            try:
-                response = await experimenter.generate(retry_prompt, max_tokens=_WRITING_MAX_TOKENS)
-            except Exception as e:
-                self._logger.log_error(e, agent_id=experimenter.agent_id, thread_id=self._thread_id)
-                return result  # Return last failed result
-
-            self._log_agent_response(
-                experimenter.agent_id, response, ResearchPhase.EXECUTION, "retry"
-            )
-
-            # Extract corrected code
-            blocks = _extract_code_blocks(response.content)
-            if not blocks:
-                return result  # Agent didn't provide corrected code
-            current_code = blocks[0][1]  # Use first block
-
-        return result  # Should not reach here, but type-safety
 
     async def _run_seeding_phase(self, seed_prompt: str, mode: str) -> str:
         """Initialize the research thread. No agent calls.
@@ -1312,18 +986,6 @@ class OrchestrationEngine:
             Dict with input_tokens, output_tokens, total_tokens.
         """
         return self._db.get_token_usage(thread_id=self._thread_id)
-
-    def _collect_all_messages(self) -> list[dict[str, Any]]:
-        """Collect all agent messages from the event log for this thread.
-
-        Returns:
-            List of message dicts with keys like 'from', 'to', 'type', 'content'.
-        """
-        events = self._logger.read_events(
-            event_type=EventType.AGENT_MESSAGE,
-            thread_id=self._thread_id,
-        )
-        return [e.content for e in events if isinstance(e.content, dict)]
 
     def _print_token_summary(self) -> None:
         """Display token usage and elapsed time at end of research cycle."""

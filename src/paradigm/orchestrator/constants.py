@@ -434,6 +434,16 @@ _EXECUTION_STDERR_LIMIT = 2000
 _MAX_RETRIES_PER_EXPERIMENT = 2
 # (Also exposed as _RECENT_MESSAGES_LIMIT above)
 
+# Literature handler magic numbers
+_TITLE_TRUNCATION_INDEX = 80
+_TITLE_TRUNCATION_SHORT = 60
+_STALE_SEARCH_THRESHOLD = 5
+_CONSECUTIVE_STALE_LIMIT = 2
+_FOLLOW_EXAMPLES_COUNT = 3
+_PER_AGENT_CAP_MIN = 2
+_PER_AGENT_CAP_NUMERATOR = 2
+_PER_AGENT_CAP_DENOMINATOR = 5
+
 # ---------------------------------------------------------------------------
 # Vacuous success detection
 # ---------------------------------------------------------------------------

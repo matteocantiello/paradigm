@@ -266,7 +266,7 @@ class TestExecutionPhaseIntegration:
             duration_seconds=0.5,
         )
 
-        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
             mock_executor_instance.cleanup = AsyncMock()
@@ -312,7 +312,7 @@ class TestExecutionPhaseIntegration:
             stdout="Mean: 42.3, Std: 5.1, N=1000 samples\n",
         )
 
-        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             # First call: rejected, second call: success
             mock_executor_instance.execute = AsyncMock(
@@ -357,7 +357,7 @@ class TestExecutionPhaseIntegration:
             stdout="Result: 42.3 +/- 5.1 (N=1000)\n",
         )
 
-        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(side_effect=[failure_result, success_result])
             mock_executor_instance.cleanup = AsyncMock()
@@ -432,7 +432,7 @@ class TestExecutionPhaseIntegration:
             error_message="Process exited with code 1",
         )
 
-        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             # All executions fail (including retries)
             mock_executor_instance.execute = AsyncMock(return_value=failure_result)
@@ -511,7 +511,7 @@ class TestExecutionPhaseIntegration:
             error_message="Process exited with code 1",
         )
 
-        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(return_value=failure_result)
             mock_executor_instance.cleanup = AsyncMock()
@@ -567,7 +567,7 @@ class TestExecutionPhaseIntegration:
             duration_seconds=1.0,
         )
 
-        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
             mock_executor_instance.cleanup = AsyncMock()
@@ -628,7 +628,7 @@ class TestExecutionPhaseIntegration:
             ],
         )
 
-        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
             mock_executor_instance.cleanup = AsyncMock()
@@ -813,7 +813,7 @@ class TestVacuousSuccessRetry:
             stdout="Mean: 42.3\nStd: 5.1\nN=1000 samples\n",
         )
 
-        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(side_effect=[vacuous_result, real_result])
             mock_executor_instance.cleanup = AsyncMock()
@@ -854,7 +854,7 @@ class TestVacuousSuccessRetry:
             stdout="Generated synthetic data\nMean: 42.0\nN=500\n",
         )
 
-        with patch("paradigm.orchestrator.engine.CodeExecutor") as mock_code_executor:
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
             mock_executor_instance = AsyncMock()
             mock_executor_instance.execute = AsyncMock(side_effect=[failure_result, success_result])
             mock_executor_instance.cleanup = AsyncMock()
