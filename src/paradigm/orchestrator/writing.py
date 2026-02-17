@@ -154,6 +154,19 @@ class WritingHandler:
                     f"{self._engine._execution_context}"
                 )
 
+            # Inject execution caveats for all sections that touch results
+            if self._engine._execution_caveats and any(
+                s in (PaperSection.RESULTS, PaperSection.METHODS, PaperSection.DISCUSSION)
+                for s in assigned
+            ):
+                prompt += (
+                    "\n\n## Execution Caveats\n"
+                    "The following limitations were identified during the EXECUTION phase. "
+                    "You MUST acknowledge these in the paper (e.g., in Methods, Results, "
+                    "or a Limitations section):\n"
+                    + "\n".join(f"- {c}" for c in self._engine._execution_caveats)
+                )
+
             try:
                 response = await agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             except Exception as e:

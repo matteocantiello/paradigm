@@ -341,10 +341,14 @@ PLANNING  (N rounds of research plan development)
    |                                         (propose code, run in Docker,
    |                                          retry on failure, collect results)
    |                                               |
+   |                                       POST_EXECUTION
+   |                                       (team interprets results, flags
+   |                                        limitations, agrees on conclusions)
+   |                                               |
    +-----------------------------------------------+
    |
 WRITING   (section drafting -> assembly -> optional refinement)
-   |        (execution results injected into RESULTS/METHODS sections)
+   |        (execution results + caveats injected into RESULTS/METHODS sections)
    |
 INTERNAL_REVIEW  (editor reviews, writer revises if needed)
    |
@@ -436,6 +440,26 @@ Agents propose Python code in fenced ` ```python ` blocks with a `# EXPERIMENT: 
 **Output:** Execution context (formatted results + figure paths), injected into WRITING phase
 **Agents:** Experimentalist (fallback to analyst)
 **Rounds:** Configurable via `max_experiment_rounds` (default: 2 × `max_rounds_per_phase`)
+
+#### POST_EXECUTION (conditional)
+
+Runs automatically after EXECUTION when experiments produced results and `enable_post_execution_discussion` is `true` (default). The research team reconvenes to interpret findings before writing begins.
+
+**Purpose:** Prevent experimental results — especially synthetic data or results with significant limitations — from being presented as authoritative in the paper. The team discusses what the evidence actually shows, flags limitations, and agrees on what claims the paper can support.
+
+**Caveats propagation:** During EXECUTION, structured caveats are automatically collected for conditions like:
+- All experiments used synthetic/simulated data (no observational data in sandbox)
+- Circuit breaker fired (>70% failure rate)
+- Network errors (sandbox has no internet access)
+- Experiment timeouts
+- Vacuous successes (experiments that produced no meaningful output)
+
+These caveats are injected into both the POST_EXECUTION discussion prompts and the WRITING phase prompts, ensuring writing agents acknowledge limitations.
+
+**Input:** Execution results + caveats + planning checkpoint + literature context
+**Output:** Team consensus on what results mean, limitations to acknowledge
+**Agents:** Theorist, analyst, synthesizer, skeptic, experimentalist
+**Rounds:** Up to 2 (capped)
 
 #### WRITING
 
@@ -547,7 +571,7 @@ paradigm run --mode directed --prompt "Your question" --interactive
 The system pauses at these transition points:
 1. **IDEATION -> PLANNING** --- After ideation completes, before planning begins
 2. **PLANNING -> EXECUTION** --- (experimental/replication modes only) After the research plan is finalized, before computational experiments
-3. **EXECUTION -> WRITING** or **PLANNING -> WRITING** --- Before paper drafting begins
+3. **POST_EXECUTION -> WRITING**, **EXECUTION -> WRITING**, or **PLANNING -> WRITING** --- Before paper drafting begins
 4. **INTERNAL_REVIEW -> SUBMITTED** --- After internal review, before submission to peer review
 
 ### At Each Pause
@@ -783,6 +807,7 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 | `num_reviewers` | int | `2` | Number of independent peer reviewers |
 | `max_revision_rounds` | int | `4` | Max peer-review revision loops before final decision |
 | `enable_experimentation` | bool | `true` | Enable EXECUTION phase for modes with an experimentalist |
+| `enable_post_execution_discussion` | bool | `true` | Enable POST_EXECUTION team discussion after experiments complete |
 | `max_experiment_rounds` | int or null | `null` (2 × `max_rounds_per_phase`) | Max rounds of experiment proposal/execution in EXECUTION phase. Defaults to twice the discussion rounds. |
 | `max_searches_per_round` | int | `3` | Max `[SEARCH: ...]` requests processed per round (resets each round) |
 

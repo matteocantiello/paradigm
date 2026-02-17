@@ -208,6 +208,29 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "/data/shared/."
         ),
     },
+    ResearchPhase.POST_EXECUTION: {
+        "round_1": (
+            "You are reviewing the computational experiment results from the EXECUTION phase.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "Critically evaluate these results:\n"
+            "1. What do the results actually show? Distinguish strong evidence from suggestive trends.\n"
+            "2. What are the limitations? (synthetic data, missing observations, failed experiments)\n"
+            "3. Which hypotheses from PLANNING are supported, weakened, or untested?\n"
+            "4. What caveats MUST appear in the paper?\n\n"
+            "Be honest about what the experiments achieved and what they did not."
+        ),
+        "later_rounds": (
+            "You are discussing the experimental results with your team.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "## Recent Discussion\n{recent_messages}\n\n"
+            "Respond to your colleagues' interpretations. Focus on:\n"
+            "- Points of disagreement about what the evidence shows\n"
+            "- Additional limitations or caveats not yet mentioned\n"
+            "- What the paper should and should not claim based on these results"
+        ),
+    },
     ResearchPhase.WRITING: {
         "section_drafting": (
             "You are writing sections of a research paper.\n"
@@ -345,11 +368,13 @@ _SEARCH_ENABLED_PHASES: set[ResearchPhase] = {
     ResearchPhase.IDEATION,
     ResearchPhase.PLANNING,
     ResearchPhase.EXECUTION,
+    ResearchPhase.POST_EXECUTION,
 }
 
 _DEBATE_ENABLED_PHASES: set[ResearchPhase] = {
     ResearchPhase.IDEATION,
     ResearchPhase.PLANNING,
+    ResearchPhase.POST_EXECUTION,
 }
 
 _CHALLENGE_INSTRUCTION = (
@@ -413,11 +438,19 @@ _CONCEDE_RE = re.compile(r"\[CONCEDE:\s*([^\]]+?)\]", re.IGNORECASE)
 _PHASE_ACTIVE_ROLES: dict[ResearchPhase, set[str]] = {
     ResearchPhase.IDEATION: {"theorist", "analyst", "synthesizer", "skeptic", "experimentalist"},
     ResearchPhase.PLANNING: {"theorist", "analyst", "synthesizer", "skeptic", "experimentalist"},
+    ResearchPhase.POST_EXECUTION: {
+        "theorist",
+        "analyst",
+        "synthesizer",
+        "skeptic",
+        "experimentalist",
+    },
 }
 
 _PHASE_CONTEXT_NEEDS: dict[ResearchPhase, set[str]] = {
     ResearchPhase.IDEATION: {"literature", "references", "memory"},
     ResearchPhase.PLANNING: {"literature", "code_data", "memory"},
+    ResearchPhase.POST_EXECUTION: {"literature", "execution", "memory"},
 }
 
 # ---------------------------------------------------------------------------

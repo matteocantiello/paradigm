@@ -27,6 +27,7 @@ PHASE_ICONS: dict[ResearchPhase, str] = {
     ResearchPhase.PLANNING: "\U0001f4d0",  # 📐
     ResearchPhase.LITERATURE: "\U0001f4da",  # 📚
     ResearchPhase.EXECUTION: "\u2699\ufe0f",  # ⚙️
+    ResearchPhase.POST_EXECUTION: "\U0001f4ac",  # 💬
     ResearchPhase.WRITING: "\U0001f4dd",  # 📝
     ResearchPhase.INTERNAL_REVIEW: "\U0001f50e",  # 🔎
     ResearchPhase.SUBMITTED: "\U0001f4e8",  # 📨
@@ -45,6 +46,7 @@ PHASE_DISPLAY_ORDER: list[ResearchPhase] = [
     ResearchPhase.IDEATION,
     ResearchPhase.PLANNING,
     ResearchPhase.EXECUTION,
+    ResearchPhase.POST_EXECUTION,
     ResearchPhase.WRITING,
     ResearchPhase.INTERNAL_REVIEW,
     ResearchPhase.SUBMITTED,

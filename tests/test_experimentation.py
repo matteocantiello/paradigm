@@ -294,7 +294,7 @@ class TestExecutionPhaseIntegration:
             assert exp_agent.generate.call_count >= 3
 
         thread = tmp_db.get_thread(thread_id)
-        assert thread["current_phase"] in ("execution", "planning")
+        assert thread["current_phase"] in ("execution", "post_execution", "planning")
 
     @pytest.mark.asyncio
     async def test_retry_on_safety_rejection(

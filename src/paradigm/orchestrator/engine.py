@@ -111,6 +111,7 @@ class OrchestrationEngine:
         self._phase_manager: PhaseManager | None = None
         self._checkpoint: Checkpoint | None = None
         self._execution_context: str = ""
+        self._execution_caveats: list[str] = []
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
         self._successful_code: list[tuple[str, str]] = []  # (experiment_name, code)
         self._code_context: str = ""
@@ -151,6 +152,7 @@ class OrchestrationEngine:
         self._seed_prompt = seed_prompt
         self._messages = []
         self._execution_context = ""
+        self._execution_caveats = []
         self._execution_figures = []
         self._successful_code = []
         self._code_context = ""
@@ -280,13 +282,52 @@ class OrchestrationEngine:
             self._display.phase_transition("EXECUTION")
             exp_result = await self._experimentation.run_experimentation_phase()
             self._execution_context = exp_result.execution_context
+            self._execution_caveats = exp_result.caveats
             self._execution_figures = exp_result.execution_figures
             self._successful_code = exp_result.successful_code
 
+        # Phase 3.75: POST_EXECUTION discussion (optional — after experimentation)
+        ran_post_execution = False
+        if (
+            should_experiment
+            and self._execution_context
+            and self._config.orchestrator.enable_post_execution_discussion
+        ):
+            self._phase_manager.transition_to(ResearchPhase.POST_EXECUTION)
+            self._log_phase_transition(ResearchPhase.EXECUTION, ResearchPhase.POST_EXECUTION)
+            self._messages = []
+            # Shorter discussion: cap at 2 rounds
+            post_exec_rounds = min(2, max_rounds)
+            active_post_exec = _PHASE_ACTIVE_ROLES.get(ResearchPhase.POST_EXECUTION)
+            active_post_exec_count = (
+                sum(1 for a in self._agents.values() if a.skill_profile in active_post_exec)
+                if active_post_exec
+                else agent_count
+            )
+            self._display.phase_transition(
+                "POST_EXECUTION",
+                max_rounds=post_exec_rounds,
+                active_agents=active_post_exec_count,
+                total_agents=agent_count,
+            )
+            await self._run_phase(
+                ResearchPhase.POST_EXECUTION,
+                max_rounds=post_exec_rounds,
+                checkpoint_interval=checkpoint_interval,
+            )
+            ran_post_execution = True
+
         # Phase 4: WRITING (optional, controlled by config)
         if self._config.orchestrator.enable_writing:
-            from_phase = ResearchPhase.EXECUTION if should_experiment else ResearchPhase.PLANNING
-            from_label = "execution" if should_experiment else "planning"
+            if ran_post_execution:
+                from_phase = ResearchPhase.POST_EXECUTION
+                from_label = "post_execution"
+            elif should_experiment:
+                from_phase = ResearchPhase.EXECUTION
+                from_label = "execution"
+            else:
+                from_phase = ResearchPhase.PLANNING
+                from_label = "planning"
 
             # Intervention check before WRITING
             intervention = self._check_intervention(from_label, "writing")
@@ -680,6 +721,14 @@ class OrchestrationEngine:
 
         if "references" in context_needs and self._reference_context:
             checkpoint_context = self._reference_context + "\n\n" + checkpoint_context
+
+        if "execution" in context_needs and self._execution_context:
+            exec_block = "## Experiment Results\n" + self._execution_context
+            if self._execution_caveats:
+                exec_block += "\n\n## Execution Caveats\n" + "\n".join(
+                    f"- {c}" for c in self._execution_caveats
+                )
+            checkpoint_context = exec_block + "\n\n" + checkpoint_context
 
         if "code_data" in context_needs:
             if self._data_context:

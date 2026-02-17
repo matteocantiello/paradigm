@@ -107,6 +107,7 @@ class OrchestratorConfig(BaseModel):
     num_reviewers: int = 2
     max_revision_rounds: int = 4
     enable_experimentation: bool = True
+    enable_post_execution_discussion: bool = True
     max_experiment_rounds: int | None = None  # Default: 2 × max_rounds_per_phase
     max_searches_per_round: int = 3
     enable_debates: bool = True

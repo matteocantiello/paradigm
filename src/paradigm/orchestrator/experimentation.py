@@ -35,6 +35,7 @@ class ExperimentationResult:
     execution_context: str = ""
     execution_figures: list[tuple[str, Path]] = field(default_factory=list)
     successful_code: list[tuple[str, str]] = field(default_factory=list)
+    caveats: list[str] = field(default_factory=list)
 
 
 class ExperimentationHandler:
@@ -86,6 +87,14 @@ class ExperimentationHandler:
         all_results: list[str] = []
         execution_figures: list[tuple[str, Path]] = []
         successful_code: list[tuple[str, str]] = []
+
+        # Caveat tracking
+        _had_network_error = False
+        _had_timeout = False
+        _vacuous_count = 0
+        _circuit_breaker_fired = False
+        _total_experiments = 0
+        _total_failures = 0
 
         try:
             for round_num in range(1, max_rounds + 1):
@@ -177,11 +186,20 @@ class ExperimentationHandler:
                     formatted = _format_execution_result(exp_name, result)
                     all_results.append(formatted)
 
+                    _total_experiments += 1
                     round_total += 1
                     if result.status == ExecutionStatus.SUCCESS:
                         successful_code.append((exp_name, final_code))
                     else:
                         round_failures += 1
+                        _total_failures += 1
+
+                    # Track caveat triggers
+                    if result.status == ExecutionStatus.TIMEOUT:
+                        _had_timeout = True
+                    stderr_text = result.stderr or ""
+                    if any(p in stderr_text for p in _NETWORK_ERROR_PATTERNS):
+                        _had_network_error = True
 
                     # Track output figures
                     for output_file in result.output_files:
@@ -194,6 +212,7 @@ class ExperimentationHandler:
                 # Circuit breaker: if >70% of executions failed, stop experimenting
                 if round_total >= 3 and (round_failures / round_total) > 0.7:
                     engine._display.experiment_high_failure_rate(round_failures, round_total)
+                    _circuit_breaker_fired = True
                     break
 
             # Build execution context for WRITING phase
@@ -217,10 +236,52 @@ class ExperimentationHandler:
         finally:
             await executor.cleanup()
 
+        # Build caveats list
+        caveats: list[str] = []
+
+        # Synthetic data detection: if experiments ran but no /data/shared/ files existed
+        shared_dir = engine._config.storage.data_dir / "shared"
+        has_shared_data = shared_dir.exists() and any(
+            f.is_file() for f in shared_dir.rglob("*") if f.is_file()
+        )
+        if successful_code and not has_shared_data:
+            caveats.append(
+                "All experiments used synthetic/simulated data — "
+                "no observational data was available in the sandbox."
+            )
+
+        if _circuit_breaker_fired:
+            caveats.append(
+                "The experiment circuit breaker fired (>70% failure rate). "
+                "Many experiments failed, limiting the evidence base."
+            )
+
+        if _had_network_error:
+            caveats.append(
+                "One or more experiments encountered network errors. "
+                "The sandbox has no internet access, so any results relying "
+                "on external data retrieval are absent."
+            )
+
+        if _had_timeout:
+            caveats.append(
+                "One or more experiments timed out before completion. Results may be incomplete."
+            )
+
+        # Check for vacuous reclassifications in the results text
+        vacuous_marker = "produced no scientific output"
+        _vacuous_count = sum(1 for r in all_results if vacuous_marker in r)
+        if _vacuous_count > 0:
+            caveats.append(
+                f"{_vacuous_count} experiment(s) were reclassified from SUCCESS to "
+                f"FAILURE for producing no meaningful scientific output."
+            )
+
         return ExperimentationResult(
             execution_context=execution_context,
             execution_figures=execution_figures,
             successful_code=successful_code,
+            caveats=caveats,
         )
 
     async def _execute_with_retry(

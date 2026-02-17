@@ -1725,3 +1725,79 @@ it just stripped prefixes and returned whatever string it got.
 - `src/paradigm/orchestrator/experimentation.py` — `successful_code` field on `ExperimentationResult`, tracking in retry loop
 - `docs/MANUAL.md` — Updated directory layout in section 11
 - `HISTORY.md` — This prompt logged
+
+## 2026-02-17
+
+### Prompt — Analyze PLANNING Phase of paper-b219da65e779 Transcript
+
+> Read and analyze the PLANNING phase from the transcript at /Users/mcantiello/astro/paradigm/data/papers/paper-b219da65e779/transcript.md. The file is large (~293K), so focus on the PLANNING section (between the ## PLANNING and ## EXECUTION headers).
+>
+> For the PLANNING phase, analyze:
+> 1. How many rounds of discussion happened? How many agents participated?
+> 2. Did the plan become more concrete and actionable across rounds?
+> 3. Was there unnecessary repetition of ideas already settled in IDEATION?
+> 4. Did agents productively refine the research plan or just restate it?
+> 5. Were literature searches in this phase productive or redundant with IDEATION?
+> 6. Was the final plan clear enough for the experimentalist to act on?
+> 7. What was discussed that could have been skipped?
+> 8. What should have been discussed but wasn't?
+>
+> Quote specific examples of productive vs. wasteful exchanges. Be thorough and critical.
+
+**Key decisions:** Pure analysis task, no code changes.
+**Artifacts examined:** `data/papers/paper-b219da65e779/transcript.md` (PLANNING phase)
+
+### Prompt — Analyze IDEATION Phase of paper-b219da65e779 Transcript
+
+> Read and analyze the IDEATION phase from the transcript at /Users/mcantiello/astro/paradigm/data/papers/paper-b219da65e779/transcript.md. The file is large (~293K), so focus on the IDEATION section (between the ## IDEATION and ## PLANNING headers).
+>
+> For the IDEATION phase, analyze:
+> 1. What was the seed prompt / research topic?
+> 2. How many rounds of discussion happened? How many agents participated?
+> 3. Did agents build on each other's ideas or just repeat themselves?
+> 4. Were there genuine disagreements or challenges?
+> 5. Did the discussion converge on specific hypotheses by the end?
+> 6. Was there redundancy -- agents saying the same thing in different words?
+> 7. Were literature searches productive? Did agents find genuinely useful papers?
+> 8. What insights emerged vs. what was just generic filler?
+>
+> Quote specific examples of both productive and wasteful exchanges. Be thorough and critical.
+
+**Key decisions:** Pure analysis task, no code changes.
+**Artifacts examined:** `data/papers/paper-b219da65e779/transcript.md` (IDEATION phase, lines 17-1471)
+
+### Prompt — Analyze WRITING, INTERNAL_REVIEW, and Subsequent Phases
+
+> Read and analyze the WRITING, INTERNAL_REVIEW, and subsequent phases from the transcript at /Users/mcantiello/astro/paradigm/data/papers/paper-b219da65e779/transcript.md. Focus on everything after ## WRITING.
+>
+> Also read:
+> - The reviews file: /Users/mcantiello/astro/paradigm/data/papers/paper-b219da65e779/reviews.md
+> - The first 100 lines of the paper: /Users/mcantiello/astro/paradigm/data/papers/paper-b219da65e779/paper-b219da65e779.md (just first 100 lines to understand the topic)
+>
+> For these phases, analyze:
+> 1. WRITING: Did the paper incorporate the experimental results well? Was the writing phase productive?
+> 2. Did section drafts reflect the discussion from IDEATION/PLANNING or were they disconnected?
+> 3. INTERNAL_REVIEW: What feedback did the editor give? Was it substantive or superficial?
+> 4. Did the revision improve the paper materially?
+> 5. PEER_REVIEW: What did reviewers say? Were their critiques valid?
+> 6. Was there a gap between what the experiments showed and what the paper claims?
+> 7. What's the overall quality of the pipeline output?
+> 8. What's the biggest disconnect between phases?
+
+**Key decisions:** Pure analysis task, no code changes.
+**Artifacts examined:** `data/papers/paper-b219da65e779/transcript.md` (WRITING through PEER_REVIEW), `reviews.md`, `paper-b219da65e779.md`
+
+### Prompt — Post-Execution Discussion Phase + Caveats Propagation
+
+> Implement the following plan:
+>
+> # Plan: Post-Execution Discussion Phase + Caveats Propagation
+>
+> Transcript analysis of `paper-b219da65e779` revealed that experimental results go directly to the WRITING phase with no team discussion. The experimentalist's warnings (e.g., "this is synthetic data", "PDF extraction failed") are lost, and writing agents treat all results as authoritative. This produces papers that present synthetic placeholder data as if it were real observational results.
+>
+> Two changes address this:
+> 1. **POST_EXECUTION phase** — The research team reconvenes after experiments to interpret results, flag limitations, and agree on what the evidence supports before writing begins.
+> 2. **Caveats propagation** — Structured warnings from the execution phase (synthetic data, network errors, high failure rates, vacuous successes) are collected and injected into both the POST_EXECUTION discussion and WRITING prompts.
+
+**Key decisions:** Add POST_EXECUTION phase enum between EXECUTION and WRITING; collect structured caveats during experimentation; propagate caveats into POST_EXECUTION and WRITING prompts; add `enable_post_execution_discussion` config flag.
+**Artifacts modified:** `phases.py`, `experimentation.py`, `constants.py`, `engine.py`, `writing.py`, `config.py`, `docs/MANUAL.md`

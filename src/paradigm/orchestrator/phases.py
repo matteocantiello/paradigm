@@ -11,6 +11,7 @@ class ResearchPhase(StrEnum):
     PLANNING = "planning"
     LITERATURE = "literature"
     EXECUTION = "execution"
+    POST_EXECUTION = "post_execution"
     WRITING = "writing"
     INTERNAL_REVIEW = "internal"
     SUBMITTED = "submitted"
@@ -30,7 +31,12 @@ _TRANSITIONS: dict[ResearchPhase, list[ResearchPhase]] = {
         ResearchPhase.WRITING,
     ],
     ResearchPhase.LITERATURE: [ResearchPhase.EXECUTION, ResearchPhase.PLANNING],
-    ResearchPhase.EXECUTION: [ResearchPhase.WRITING, ResearchPhase.PLANNING],
+    ResearchPhase.EXECUTION: [
+        ResearchPhase.POST_EXECUTION,
+        ResearchPhase.WRITING,
+        ResearchPhase.PLANNING,
+    ],
+    ResearchPhase.POST_EXECUTION: [ResearchPhase.WRITING, ResearchPhase.PLANNING],
     ResearchPhase.WRITING: [ResearchPhase.INTERNAL_REVIEW],
     ResearchPhase.INTERNAL_REVIEW: [ResearchPhase.SUBMITTED, ResearchPhase.WRITING],
     ResearchPhase.SUBMITTED: [ResearchPhase.PEER_REVIEW, ResearchPhase.REJECTED],
@@ -50,6 +56,7 @@ _DESCRIPTIONS: dict[ResearchPhase, str] = {
     ResearchPhase.PLANNING: "Develop a concrete research plan: experiments, data needs, success criteria.",
     ResearchPhase.LITERATURE: "Deep literature review to inform execution.",
     ResearchPhase.EXECUTION: "Run computational experiments in sandboxed environment.",
+    ResearchPhase.POST_EXECUTION: "Team discusses experimental results: interprets findings, flags limitations, agrees on conclusions.",
     ResearchPhase.WRITING: "Draft the research paper in markdown format.",
     ResearchPhase.INTERNAL_REVIEW: "Internal quality review before submission.",
     ResearchPhase.SUBMITTED: "Paper submitted to journal for peer review.",

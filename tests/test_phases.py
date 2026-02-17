@@ -16,6 +16,7 @@ class TestResearchPhase:
             "planning",
             "literature",
             "execution",
+            "post_execution",
             "writing",
             "internal",
             "submitted",
