@@ -175,6 +175,7 @@ class Config(BaseModel):
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     citation: CitationConfig = Field(default_factory=CitationConfig)
+    domain: str = "science"
     providers: dict[str, ProviderConfigEntry] = Field(default_factory=dict)
     testing_overrides: dict[str, AgentOverrideConfig] = Field(default_factory=dict)
     api_key: str | None = Field(default=None, validate_default=True)
@@ -228,6 +229,19 @@ class Config(BaseModel):
         """Merge testing_overrides into agent.overrides for testing mode."""
         for role, override in self.testing_overrides.items():
             self.agent.overrides[role] = override
+
+    def get_domain_profile(self) -> Any:
+        """Load and return the domain profile for this config's ``domain`` key.
+
+        Returns:
+            DomainProfile instance.
+
+        Raises:
+            ValueError: If the domain cannot be loaded.
+        """
+        from paradigm.domains.registry import get_domain
+
+        return get_domain(self.domain)
 
     def get_provider(self, name: str | None = None) -> Any:
         """Get an instantiated LLMProvider by name.

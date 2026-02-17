@@ -7,6 +7,18 @@ from pydantic import BaseModel, Field
 # Score categories for peer review
 SCORE_CATEGORIES = ["novelty", "rigor", "clarity", "significance"]
 
+
+def score_categories_from_criteria(criteria: list) -> list[str]:
+    """Convert a list of CriterionDef objects to a list of category names.
+
+    Args:
+        criteria: List of CriterionDef from a DocumentTemplate.
+
+    Returns:
+        List of criterion name strings.
+    """
+    return [c.name for c in criteria]
+
 # Valid recommendation values
 VALID_RECOMMENDATIONS = {"accept", "minor_revision", "major_revision", "reject"}
 
@@ -38,10 +50,20 @@ def _extract_list(content: str) -> list[str]:
     return [item for item in items if item]
 
 
-def _parse_scores(content: str) -> dict[str, int]:
-    """Parse score lines like 'Novelty: 7/10' from text."""
+def _parse_scores(content: str, categories: list[str] | None = None) -> dict[str, int]:
+    """Parse score lines like 'Novelty: 7/10' from text.
+
+    Args:
+        content: Text containing score lines.
+        categories: Score category names to look for. Defaults to SCORE_CATEGORIES.
+
+    Returns:
+        Dict mapping category name to score (1-10).
+    """
+    if categories is None:
+        categories = SCORE_CATEGORIES
     scores: dict[str, int] = {}
-    for category in SCORE_CATEGORIES:
+    for category in categories:
         pattern = rf"{category}\s*:\s*(\d+)\s*/\s*10"
         match = re.search(pattern, content, re.IGNORECASE)
         if match:

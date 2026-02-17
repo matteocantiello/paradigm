@@ -26,10 +26,31 @@ SECTION_ASSIGNMENTS: dict[str, list[PaperSection]] = {
 }
 
 
+def section_assignments_from_template(
+    sections: list,
+) -> dict[str, list[str]]:
+    """Convert a list of SectionDef objects to a role → section names mapping.
+
+    This adapts the domain profile's DocumentTemplate into the format
+    expected by the writing handler.
+
+    Args:
+        sections: List of SectionDef from a DocumentTemplate.
+
+    Returns:
+        Dict mapping role name to list of section names.
+    """
+    assignments: dict[str, list[str]] = {}
+    for section_def in sections:
+        for role in section_def.assigned_roles:
+            assignments.setdefault(role, []).append(section_def.name)
+    return assignments
+
+
 class SectionDraft(BaseModel):
     """A draft of a single paper section."""
 
-    section: PaperSection
+    section: PaperSection | str
     content: str
     author: str  # agent_id that wrote it
 
@@ -47,17 +68,25 @@ class PaperDraft(BaseModel):
     """A complete paper draft assembled from section drafts."""
 
     title: str = ""
-    sections: dict[PaperSection, SectionDraft] = Field(default_factory=dict)
+    sections: dict[str, SectionDraft] = Field(default_factory=dict)
     assembled_body: str = ""  # Full markdown after writer assembly
     references: list[dict] = Field(default_factory=list)
+    section_order: list[str] = Field(default_factory=list)
 
     def add_section(self, draft: SectionDraft) -> None:
         """Add or replace a section draft."""
-        self.sections[draft.section] = draft
+        key = draft.section if isinstance(draft.section, str) else draft.section.value
+        self.sections[key] = draft
 
     def is_complete(self) -> bool:
-        """Check if all required sections have been drafted."""
-        return all(s in self.sections for s in PaperSection)
+        """Check if all required sections have been drafted.
+
+        Uses section_order if set (from domain template), otherwise
+        falls back to PaperSection enum.
+        """
+        if self.section_order:
+            return all(s in self.sections for s in self.section_order)
+        return all(s.value in self.sections for s in PaperSection)
 
     def to_markdown(self) -> str:
         """Render the paper as markdown from individual sections.
@@ -72,10 +101,12 @@ class PaperDraft(BaseModel):
         if self.title:
             parts.append(f"# {self.title}\n")
 
-        for section in PaperSection:
-            if section in self.sections:
-                heading = section.value.title()
-                parts.append(f"## {heading}\n\n{self.sections[section].content}")
+        # Use section_order if available, else PaperSection enum order
+        order = self.section_order or [s.value for s in PaperSection]
+        for section_name in order:
+            if section_name in self.sections:
+                heading = section_name.replace("_", " ").title()
+                parts.append(f"## {heading}\n\n{self.sections[section_name].content}")
 
         return "\n\n".join(parts)
 

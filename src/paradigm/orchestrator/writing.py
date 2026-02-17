@@ -15,6 +15,7 @@ from paradigm.journal.paper import (
     SectionDraft,
     parse_sections_from_markdown,
     sanitize_unicode_math,
+    section_assignments_from_template,
     strip_agent_scaffolding,
 )
 from paradigm.orchestrator.constants import (
@@ -34,6 +35,29 @@ class WritingHandler:
     def __init__(self, engine: OrchestrationEngine) -> None:
         self._engine = engine
 
+    def _get_section_assignments(self) -> dict[str, list[str]]:
+        """Get role → section name assignments from profile or fallback.
+
+        Returns:
+            Dict mapping role name to list of section name strings.
+        """
+        profile = self._engine._profile
+        if profile is not None and profile.document_template.sections:
+            return section_assignments_from_template(profile.document_template.sections)
+        # Fallback to hardcoded science assignments
+        return {role: [s.value for s in secs] for role, secs in SECTION_ASSIGNMENTS.items()}
+
+    def _get_section_order(self) -> list[str]:
+        """Get ordered list of section names from profile or fallback.
+
+        Returns:
+            List of section name strings in document order.
+        """
+        profile = self._engine._profile
+        if profile is not None and profile.document_template.sections:
+            return [s.name for s in profile.document_template.sections]
+        return [s.value for s in PaperSection]
+
     async def run_writing_phase(self) -> PaperDraft | None:
         """Run the WRITING phase: section drafting, assembly, optional refinement.
 
@@ -41,7 +65,7 @@ class WritingHandler:
             PaperDraft with assembled paper, or None if writing failed
             (e.g. all agents errored and the paper is empty/too short).
         """
-        draft = PaperDraft()
+        draft = PaperDraft(section_order=self._get_section_order())
 
         # Round 1: Section Drafting — each agent drafts their assigned sections
         self._engine._display.writing_section_drafting()
@@ -85,8 +109,8 @@ class WritingHandler:
         # Persist paper to database
         paper_id = f"paper-{uuid.uuid4().hex[:12]}"
         abstract = ""
-        if PaperSection.ABSTRACT in draft.sections:
-            abstract = draft.sections[PaperSection.ABSTRACT].content[:1000]
+        if "abstract" in draft.sections:
+            abstract = draft.sections["abstract"].content[:1000]
 
         authors = list(self._engine._agents.keys())
         self._engine._db.create_paper(
@@ -122,26 +146,31 @@ class WritingHandler:
 
         template = _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["section_drafting"]
 
+        # Get section assignments from profile or fallback
+        assignments = self._get_section_assignments()
+
         for agent_id, agent in self._engine._agents.items():
             role = agent.skill_profile
-            assigned = SECTION_ASSIGNMENTS.get(role)
+            assigned = assignments.get(role)
             if not assigned:
                 continue  # Roles without section assignments skip this round
 
-            section_list = ", ".join(s.value.title() for s in assigned)
+            section_list = ", ".join(s.replace("_", " ").title() for s in assigned)
             prompt = template.format(
                 seed_prompt=self._engine._seed_prompt,
                 checkpoint_context=checkpoint_context,
                 assigned_sections=section_list,
             )
 
-            # Inject execution context for RESULTS and METHODS sections
-            if self._engine._execution_context and any(
-                s in (PaperSection.RESULTS, PaperSection.METHODS) for s in assigned
+            # Inject execution context for results and methods sections
+            results_like = {"results"}
+            methods_like = {"methods"}
+            if self._engine._execution_context and (
+                results_like & set(assigned) or methods_like & set(assigned)
             ):
                 exec_label = (
                     "computational results"
-                    if PaperSection.RESULTS in assigned
+                    if results_like & set(assigned)
                     else "computational methods"
                 )
                 prompt += (
@@ -183,14 +212,14 @@ class WritingHandler:
 
             # Parse sections from response
             parsed = parse_sections_from_markdown(response.content)
-            for section in assigned:
-                content = parsed.get(section.value, "")
+            for section_name in assigned:
+                content = parsed.get(section_name, "")
                 if not content:
                     # Try title-cased header
-                    content = parsed.get(section.value.title().lower(), "")
+                    content = parsed.get(section_name.title().lower(), "")
                 if content:
                     draft.add_section(
-                        SectionDraft(section=section, content=content, author=agent_id)
+                        SectionDraft(section=section_name, content=content, author=agent_id)
                     )
 
             self._engine._log_agent_response(
@@ -225,11 +254,13 @@ class WritingHandler:
 
         # Build section drafts text
         section_drafts_text = ""
-        for section in PaperSection:
-            if section in draft.sections:
-                sd = draft.sections[section]
+        section_order = self._get_section_order()
+        for section_name in section_order:
+            if section_name in draft.sections:
+                sd = draft.sections[section_name]
+                heading = section_name.replace("_", " ").title()
                 section_drafts_text += (
-                    f"## {section.value.title()} (by {sd.author})\n\n{sd.content}\n\n"
+                    f"## {heading} (by {sd.author})\n\n{sd.content}\n\n"
                 )
 
         template = _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["assembly"]

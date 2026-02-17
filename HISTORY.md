@@ -1879,3 +1879,44 @@ This prompt requests updating docs/MANUAL.md and other documentation files to co
 **Analysis scope**: Paper, reviews, literature searches, experiments, event log (238 events), transcript (8,667 lines). Thread: thread-ea4511620a12. Final outcome: `writing_failed` after 5 internal review iterations.
 
 **Key findings**: See detailed analysis below in conversation. Identified 10 systemic issues, categorized by what's fixed vs. what's lingering.
+
+## 2026-02-17
+
+### Prompt 147 — Review Domain Profiles Design
+
+> Look at .planning/DOMAIN-PROFILES.md
+
+Reviewed the domain profiles design document. Summarized the architecture, migration path, and open questions.
+
+### Prompt 148 — Start Domain Profiles Implementation
+
+> I want to start with implementing this. But I think it would be better to create a new branch when we commit. Thoughts?
+
+**Key decisions:**
+- Create a `feature/domain-profiles` branch for this refactor
+- Keep `main` stable while iterating on the domain abstraction
+
+### Prompt 149 — Implement Domain Profiles Plan (Steps 1-2)
+
+> Implement the following plan: [Domain Profiles Implementation Plan - 8 commits]
+
+Full implementation of domain profiles abstraction: define interfaces, create science domain, wire profile through config/factory/engine/writing/review. 8 commits covering base interfaces, registry, science profile, config wiring, factory wiring, constants migration, template wiring, and cleanup.
+
+### Prompt 150 — Discuss 5 Open Questions from Domain Profiles Design
+
+> You said 5 open questions remain around role mapping, sandbox packages, corpus isolation, skill libraries, and citation grounding across domains. Let's discuss
+
+**Decisions made:**
+1. Role mapping — Shared modes, domain-specific role mappings. Add `phase_active_roles` to DomainProfile
+2. Sandbox — Add `SandboxProfile` with preamble, available_libraries, docker_image to DomainProfile
+3. Corpus isolation — Prefix ChromaDB collection with domain name. Add `corpus_namespace` to DomainProfile
+4. Skill libraries — Add `skills_dir` to DomainProfile. Make skill header configurable
+5. Citation grounding — Use postprocessor registry with `ReferenceFormatter` ABC
+
+**Priority order:** Sandbox preamble > Corpus isolation > Citation grounding > Skills wiring > Phase active roles
+
+### Prompt 151 — Update Design Doc with Resolved Decisions
+
+> Update the design doc with these decisions
+
+**Action:** Updated `.planning/DOMAIN-PROFILES.md` to replace Open Questions with Resolved Decisions, add Phase 2 plan

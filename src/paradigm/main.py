@@ -44,6 +44,9 @@ def _run_research(
     from paradigm.orchestrator.engine import InterventionHook, OrchestrationEngine
     from paradigm.storage.database import Database
 
+    # Load domain profile
+    domain_profile = config.get_domain_profile()
+
     database = Database(config.storage.db_path)
     logger = EventLogger(config.storage.log_path)
 
@@ -55,7 +58,11 @@ def _run_research(
         except Exception:
             pass
 
-    factory = AgentFactory(config, skill_registry=skill_registry)
+    factory = AgentFactory(
+        config,
+        skill_registry=skill_registry,
+        prompts_dir=domain_profile.prompts_dir,
+    )
     corpus = Corpus(
         database=database,
         literature_config=config.literature,
@@ -98,6 +105,7 @@ def _run_research(
         intervention_hook=hook,
         memory_store=memory_store,
         display=display,
+        domain_profile=domain_profile,
     )
 
     display.start()
