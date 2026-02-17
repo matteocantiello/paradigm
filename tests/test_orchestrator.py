@@ -9,6 +9,7 @@ from helpers import make_mock_agent, patch_config_provider
 from paradigm.agents.base import AgentResponse, TokenUsage
 from paradigm.config import Config
 from paradigm.logging.events import EventType
+from paradigm.domains.science.constants import MODE_TEAM_ROLES
 from paradigm.orchestrator.constants import (
     _LITERATURE_CONTEXT_LIMIT,
     _MIN_PAPER_LENGTH,
@@ -16,7 +17,6 @@ from paradigm.orchestrator.constants import (
     _PHASE_ACTIVE_ROLES,
     _PHASE_CONTEXT_NEEDS,
     _PHASE_INSTRUCTIONS,
-    MODE_TEAM_ROLES,
     _is_duplicate_query,
     _list_shared_files,
     _normalize_query_keywords,

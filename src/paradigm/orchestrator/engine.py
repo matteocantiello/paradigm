@@ -162,7 +162,7 @@ class OrchestrationEngine:
                 )
             else:
                 # Fallback to hardcoded science defaults
-                from paradigm.orchestrator.constants import (
+                from paradigm.domains.science.constants import (
                     DEFAULT_TEAM_ROLES,
                     MODE_TEAM_ROLES,
                 )
@@ -827,7 +827,7 @@ class OrchestrationEngine:
                     agent.skill_profile, ""
                 )
             else:
-                from paradigm.orchestrator.constants import _ROLE_LATER_ROUND_REINFORCEMENTS
+                from paradigm.domains.science.constants import ROLE_LATER_ROUND_REINFORCEMENTS as _ROLE_LATER_ROUND_REINFORCEMENTS
 
                 reinforcement = _ROLE_LATER_ROUND_REINFORCEMENTS.get(
                     agent.skill_profile, ""
@@ -847,7 +847,7 @@ class OrchestrationEngine:
             if self._profile is not None and self._profile.literature_instruction:
                 formatted += self._profile.literature_instruction
             else:
-                from paradigm.orchestrator.constants import _LITERATURE_INSTRUCTION
+                from paradigm.domains.science.constants import LITERATURE_INSTRUCTION as _LITERATURE_INSTRUCTION
 
                 formatted += _LITERATURE_INSTRUCTION
             # Role-specific search strategy to differentiate agent searches
@@ -856,7 +856,7 @@ class OrchestrationEngine:
                     agent.skill_profile, ""
                 )
             else:
-                from paradigm.orchestrator.constants import _ROLE_SEARCH_STRATEGIES
+                from paradigm.domains.science.constants import ROLE_SEARCH_STRATEGIES as _ROLE_SEARCH_STRATEGIES
 
                 role_strategy = _ROLE_SEARCH_STRATEGIES.get(agent.skill_profile, "")
             if role_strategy:

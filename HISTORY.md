@@ -1879,3 +1879,25 @@ This prompt requests updating docs/MANUAL.md and other documentation files to co
 **Analysis scope**: Paper, reviews, literature searches, experiments, event log (238 events), transcript (8,667 lines). Thread: thread-ea4511620a12. Final outcome: `writing_failed` after 5 internal review iterations.
 
 **Key findings**: See detailed analysis below in conversation. Identified 10 systemic issues, categorized by what's fixed vs. what's lingering.
+
+## 2026-02-17
+
+### Prompt 147 — Review Domain Profiles Design
+
+> Look at .planning/DOMAIN-PROFILES.md
+
+Reviewed the domain profiles design document. Summarized the architecture, migration path, and open questions.
+
+### Prompt 148 — Start Domain Profiles Implementation
+
+> I want to start with implementing this. But I think it would be better to create a new branch when we commit. Thoughts?
+
+**Key decisions:**
+- Create a `feature/domain-profiles` branch for this refactor
+- Keep `main` stable while iterating on the domain abstraction
+
+### Prompt 149 — Implement Domain Profiles Plan (Steps 1-2)
+
+> Implement the following plan: [Domain Profiles Implementation Plan - 8 commits]
+
+Full implementation of domain profiles abstraction: define interfaces, create science domain, wire profile through config/factory/engine/writing/review. 8 commits covering base interfaces, registry, science profile, config wiring, factory wiring, constants migration, template wiring, and cleanup.
