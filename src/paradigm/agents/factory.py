@@ -36,6 +36,7 @@ class AgentFactory:
         self,
         config: Config,
         skill_registry: SkillRegistry | None = None,
+        prompts_dir: Path | None = None,
     ) -> None:
         """Initialize with config and optional skill registry.
 
@@ -43,11 +44,13 @@ class AgentFactory:
             config: Paradigm configuration.
             skill_registry: Registry for looking up scientific skills.
                             If None, agents are created without external skills.
+            prompts_dir: Directory containing role YAML prompt files.
+                         If None, uses the default agents/prompts/ directory.
         """
         self._config = config
         self._skill_registry = skill_registry
         self._roles: dict[str, RoleTemplate] = {}
-        self._prompts_dir = Path(__file__).parent / "prompts"
+        self._prompts_dir = prompts_dir or (Path(__file__).parent / "prompts")
         self._load_roles()
 
     def _load_roles(self) -> None:
