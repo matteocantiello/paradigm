@@ -112,6 +112,7 @@ class OrchestrationEngine:
         self._checkpoint: Checkpoint | None = None
         self._execution_context: str = ""
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
+        self._successful_code: list[tuple[str, str]] = []  # (experiment_name, code)
         self._code_context: str = ""
         self._data_context: str = ""
         self._reference_context: str = ""
@@ -151,6 +152,7 @@ class OrchestrationEngine:
         self._messages = []
         self._execution_context = ""
         self._execution_figures = []
+        self._successful_code = []
         self._code_context = ""
         self._data_context = ""
         self._reference_context = ""
@@ -279,6 +281,7 @@ class OrchestrationEngine:
             exp_result = await self._experimentation.run_experimentation_phase()
             self._execution_context = exp_result.execution_context
             self._execution_figures = exp_result.execution_figures
+            self._successful_code = exp_result.successful_code
 
         # Phase 4: WRITING (optional, controlled by config)
         if self._config.orchestrator.enable_writing:
@@ -979,6 +982,125 @@ class OrchestrationEngine:
         path = paper_dir / "reviews.md"
         path.write_text("\n".join(lines))
 
+    def _save_transcript(self, paper_id: str) -> None:
+        """Write transcript.md — a full conversation log organized by phase.
+
+        Args:
+            paper_id: Paper identifier.
+        """
+        papers_dir = self._config.storage.papers_dir
+        if papers_dir is None:
+            return
+
+        events = self._logger.read_events(thread_id=self._thread_id)
+        if not events:
+            return
+
+        lines = ["# Research Transcript\n"]
+        lines.append(f"Thread: {self._thread_id}")
+        lines.append(f"Paper: {paper_id}")
+        lines.append(f"Seed prompt: {self._seed_prompt[:200]}\n")
+        lines.append("---\n")
+
+        current_phase = ""
+        for event in events:
+            ts = event.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+
+            if event.event_type == EventType.PHASE_TRANSITION:
+                content = event.content if isinstance(event.content, dict) else {}
+                phase_name = content.get("to", content.get("phase", "unknown"))
+                current_phase = phase_name.upper().replace("RESEARCHPHASE.", "")
+                lines.append(f"\n---\n\n## {current_phase}\n")
+
+            elif event.event_type == EventType.AGENT_MESSAGE:
+                agent_id = event.agent_id or "unknown"
+                content = event.content if isinstance(event.content, dict) else {}
+                msg_type = content.get("type", "message")
+                msg_content = content.get("content", "")
+                lines.append(f"### {agent_id} ({msg_type}) — {ts}\n")
+                lines.append(f"{msg_content}\n")
+
+            elif event.event_type == EventType.CODE_EXECUTION:
+                content = event.content if isinstance(event.content, dict) else {}
+                success = content.get("success", False)
+                status = "SUCCESS" if success else "FAILURE"
+                code = content.get("code", "")
+                output = content.get("output", "")
+                error = content.get("error", "")
+                lines.append(f"### Code Execution — {ts} [{status}]\n")
+                if code:
+                    lines.append(f"```python\n{code[:2000]}\n```\n")
+                if output:
+                    lines.append(f"**Output:** {output[:500]}\n")
+                if error:
+                    lines.append(f"**Error:** {error[:500]}\n")
+
+            elif event.event_type == EventType.LITERATURE_SEARCH:
+                agent_id = event.agent_id or "system"
+                content = event.content if isinstance(event.content, dict) else {}
+                query = content.get("query", str(content))
+                lines.append(f"- [{ts}] **Literature search** ({agent_id}): {query}")
+
+            elif event.event_type == EventType.DEBATE_TRIGGERED:
+                content = event.content if isinstance(event.content, dict) else {}
+                challenger = content.get("challenger", "?")
+                defender = content.get("defender", "?")
+                lines.append(f"- [{ts}] **Debate triggered**: {challenger} challenges {defender}")
+
+            elif event.event_type == EventType.ERROR:
+                content = str(event.content) if event.content else "unknown error"
+                lines.append(f"- [{ts}] **Error**: {content[:200]}")
+
+            elif event.event_type == EventType.PAPER_SUBMITTED:
+                content = event.content if isinstance(event.content, dict) else {}
+                action = content.get("action", str(content))
+                lines.append(f"- [{ts}] **Paper event**: {action}")
+
+            elif event.event_type == EventType.REVIEW_COMPLETED:
+                content = event.content if isinstance(event.content, dict) else {}
+                lines.append(f"- [{ts}] **Review completed**: {content}")
+
+        paper_dir = papers_dir / paper_id
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        path = paper_dir / "transcript.md"
+        path.write_text("\n".join(lines))
+
+    def _save_experiment_code(self, paper_id: str) -> None:
+        """Write working experiment code to experiments/ subdirectory.
+
+        Args:
+            paper_id: Paper identifier.
+        """
+        papers_dir = self._config.storage.papers_dir
+        if papers_dir is None:
+            return
+
+        paper_dir = papers_dir / paper_id
+        exp_dir = paper_dir / "experiments"
+        exp_dir.mkdir(parents=True, exist_ok=True)
+
+        readme_lines = ["# Experiments\n"]
+        readme_lines.append(
+            "Working experiment code that produced successful results during the EXECUTION phase.\n"
+        )
+
+        for exp_name, code in self._successful_code:
+            # Sanitize experiment name for filename
+            safe_name = re.sub(r"[^\w\-]", "_", exp_name).strip("_").lower()
+            if not safe_name:
+                safe_name = "experiment"
+            filename = f"{safe_name}.py"
+
+            # Write code file
+            filepath = exp_dir / filename
+            filepath.write_text(code)
+
+            readme_lines.append(f"- **{exp_name}** → `{filename}`")
+
+        # Write README
+        readme_path = exp_dir / "README.md"
+        readme_path.write_text("\n".join(readme_lines) + "\n")
+
     def _get_token_summary(self) -> dict[str, int]:
         """Get token usage for the current thread.
 
@@ -1019,7 +1141,7 @@ class OrchestrationEngine:
         )
 
     def _save_auxiliary_files(self, paper_id: str) -> None:
-        """Save search log and review log alongside the paper.
+        """Save auxiliary files alongside the paper.
 
         Args:
             paper_id: Paper identifier.
@@ -1028,3 +1150,6 @@ class OrchestrationEngine:
             self._save_search_log(paper_id)
         # Always save review log (includes token summary even without reviews)
         self._save_review_log(paper_id)
+        self._save_transcript(paper_id)
+        if self._successful_code:
+            self._save_experiment_code(paper_id)

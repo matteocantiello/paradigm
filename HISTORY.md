@@ -1691,3 +1691,37 @@ it just stripped prefixes and returned whatever string it got.
 - `ARCHITECTURE.md` — Add seed discovery + citation grounding to data flow
 - `CLAUDE.md` — Add display/ to project structure
 - `HISTORY.md` — This prompt logged
+
+### Prompt 34 — Domain Profiles Design (Extending Beyond Academic Research)
+
+> Let's discuss the possibility of extending paradigm to non-academic research. Let's say someone wanted to write a report about a specific phenomena, or for example a financial report on a company. How would you go about tailoring the current setup? [...] Let's think about a concrete design for the source provider abstraction. [...] Let's add this plan as an .md inside ./planning/
+
+**Key decisions:**
+- Domain profile abstraction instead of forking (70% of code is generic)
+- SourceProvider ABC with unified SourceResult model
+- Configurable DocumentTemplate replacing hardcoded PaperSection enum
+- Domain-specific role prompts, review criteria, and postprocessors bundled as profiles
+- `domain: science | research | financial` config key to switch modes
+
+**Artifacts produced:**
+- `.planning/DOMAIN-PROFILES.md` — Full design document for domain profiles system
+- `HISTORY.md` — This prompt logged
+
+### Prompt 35 — Add Conversation Transcript and Working Code to Paper Folders
+
+> Implement the following plan: Add Conversation Transcript and Working Code to Paper Folders
+>
+> Paper folders (`data/papers/<paper-id>/`) currently contain the paper markdown, figures, `literature_searches.md`, and `reviews.md`. For transparency and reproducibility, each paper folder should be a self-contained research artifact that also includes a full conversation transcript and the working experiment code that produced the results.
+>
+> Changes: (1) Add `_save_transcript(paper_id)` method to engine.py that reads all events for the thread and renders organized markdown by phase, (2) Add `successful_code` field to `ExperimentationResult` and track working code in retry loop, (3) Add `_save_experiment_code(paper_id)` to write experiments/ directory with working code files, (4) Wire into `_save_auxiliary_files()`, (5) Update docs/MANUAL.md section 11.
+
+**Key decisions:**
+- Transcript organized by phase with headers, agent messages shown with timestamps
+- Only non-vacuous successful experiment code is saved
+- Each experiment saved as sanitized `.py` file with `README.md` index
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py` — `_save_transcript()`, `_save_experiment_code()`, `_successful_code` field, wired into `_save_auxiliary_files()`
+- `src/paradigm/orchestrator/experimentation.py` — `successful_code` field on `ExperimentationResult`, tracking in retry loop
+- `docs/MANUAL.md` — Updated directory layout in section 11
+- `HISTORY.md` — This prompt logged

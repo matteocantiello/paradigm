@@ -898,6 +898,12 @@ data/
       figures/                   #   Generated figures from EXECUTION phase
         experiment-name_plot.png
         experiment-name_data.png
+      experiments/               #   Working experiment code (EXECUTION phase)
+        experiment_name.py       #     Code that produced successful results
+        README.md                #     Index of experiments
+      transcript.md              #   Full conversation transcript
+      literature_searches.md     #   Search queries and results log
+      reviews.md                 #   Review report with token/time summary
 ```
 
 ### Database Tables
@@ -946,6 +952,12 @@ Events are stored as JSON lines in `data/events.jsonl`. Each line is a JSON obje
 ### Paper Files
 
 Published papers are automatically saved as markdown files in `data/papers/`. Papers without figures are saved as flat files (`<paper-id>.md`). Papers with figures from the EXECUTION phase use a subdirectory layout (`<paper-id>/<paper-id>.md` with a `figures/` subdirectory). Papers are also written to disk when revised, so the file always reflects the latest version.
+
+Each paper folder is a self-contained research artifact. Alongside the paper markdown and figures, the folder includes:
+- **`transcript.md`** --- Full conversation transcript organized by phase, showing all agent messages, code executions, literature searches, and debates with timestamps.
+- **`experiments/`** --- Working Python code from experiments that produced successful (non-vacuous) results during the EXECUTION phase, with a `README.md` index.
+- **`literature_searches.md`** --- Log of all literature search queries, which agent made them, and the papers returned.
+- **`reviews.md`** --- Complete review report including internal review, desk review, peer review scores, and a session summary with token usage and elapsed time.
 
 ---
 

@@ -34,6 +34,7 @@ class ExperimentationResult:
 
     execution_context: str = ""
     execution_figures: list[tuple[str, Path]] = field(default_factory=list)
+    successful_code: list[tuple[str, str]] = field(default_factory=list)
 
 
 class ExperimentationHandler:
@@ -84,6 +85,7 @@ class ExperimentationHandler:
 
         all_results: list[str] = []
         execution_figures: list[tuple[str, Path]] = []
+        successful_code: list[tuple[str, str]] = []
 
         try:
             for round_num in range(1, max_rounds + 1):
@@ -164,7 +166,7 @@ class ExperimentationHandler:
                 round_failures = 0
                 for exp_name, code in code_blocks:
                     engine._display.experiment_running(exp_name)
-                    result = await self._execute_with_retry(
+                    result, final_code = await self._execute_with_retry(
                         executor,
                         experimenter,
                         exp_name,
@@ -176,7 +178,9 @@ class ExperimentationHandler:
                     all_results.append(formatted)
 
                     round_total += 1
-                    if result.status != ExecutionStatus.SUCCESS:
+                    if result.status == ExecutionStatus.SUCCESS:
+                        successful_code.append((exp_name, final_code))
+                    else:
                         round_failures += 1
 
                     # Track output figures
@@ -216,6 +220,7 @@ class ExperimentationHandler:
         return ExperimentationResult(
             execution_context=execution_context,
             execution_figures=execution_figures,
+            successful_code=successful_code,
         )
 
     async def _execute_with_retry(
@@ -226,7 +231,7 @@ class ExperimentationHandler:
         code: str,
         checkpoint_context: str,
         repo_paths: list[str] | None = None,
-    ) -> ExecutionResult:
+    ) -> tuple[ExecutionResult, str]:
         """Execute code with retry on failure/rejection.
 
         Args:
@@ -238,7 +243,7 @@ class ExperimentationHandler:
             repo_paths: Optional list of repo paths for PYTHONPATH.
 
         Returns:
-            Final ExecutionResult.
+            Tuple of (final ExecutionResult, final code version).
         """
         engine = self._engine
         current_code = code
@@ -252,12 +257,12 @@ class ExperimentationHandler:
 
             # Timeout — return immediately
             if result.status == ExecutionStatus.TIMEOUT:
-                return result
+                return result, current_code
 
             # Success — check for vacuous output before accepting
             if result.status == ExecutionStatus.SUCCESS:
                 if not _is_vacuous_success(result):
-                    return result
+                    return result, current_code
                 # Vacuous: reclassify as failure so retry kicks in
                 result = result.model_copy(
                     update={
@@ -274,7 +279,7 @@ class ExperimentationHandler:
 
             # Last attempt — return whatever we got
             if attempt == _MAX_RETRIES_PER_EXPERIMENT:
-                return result
+                return result, current_code
 
             # Build error feedback for retry
             error_parts = []
@@ -332,7 +337,7 @@ class ExperimentationHandler:
                 engine._logger.log_error(
                     e, agent_id=experimenter.agent_id, thread_id=engine._thread_id
                 )
-                return result  # Return last failed result
+                return result, current_code  # Return last failed result
 
             engine._log_agent_response(
                 experimenter.agent_id, response, ResearchPhase.EXECUTION, "retry"
@@ -341,7 +346,7 @@ class ExperimentationHandler:
             # Extract corrected code
             blocks = _extract_code_blocks(response.content)
             if not blocks:
-                return result  # Agent didn't provide corrected code
+                return result, current_code  # Agent didn't provide corrected code
             current_code = blocks[0][1]  # Use first block
 
-        return result  # Should not reach here, but type-safety
+        return result, current_code  # Should not reach here, but type-safety
