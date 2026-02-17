@@ -335,6 +335,109 @@ class TestParseReviewFeedback:
         fb = parse_review_feedback(review)
         assert fb.recommendation == "accept"
 
+    def test_reject_recommendation(self):
+        """Explicit reject in recommendation section is parsed correctly."""
+        review = (
+            "## Strengths\n- None\n\n"
+            "## Weaknesses\n- Fundamental flaws\n\n"
+            "## Required Changes\n- Complete rewrite needed\n\n"
+            "## Recommendation\nReject — fundamentally flawed"
+        )
+        fb = parse_review_feedback(review)
+        assert fb.recommendation == "reject"
+
+    def test_reject_fulltext_fallback(self):
+        """Reject in body text (no Recommendation section) is detected."""
+        review = (
+            "## Strengths\n- Clear writing\n\n"
+            "## Weaknesses\n- Fatal logical error\n\n"
+            "I must reject this paper due to fundamental flaws."
+        )
+        fb = parse_review_feedback(review)
+        assert fb.recommendation == "reject"
+
+    def test_reject_not_triggered_when_accept_also_present(self):
+        """If both 'reject' and 'accept' appear in text, neither wins alone."""
+        review = (
+            "I considered whether to reject or accept this paper. "
+            "Overall the paper should be revised and resubmitted. Revise."
+        )
+        fb = parse_review_feedback(review)
+        # Both reject+accept in text, but "revise" also present → fallback to revise
+        assert fb.recommendation == "revise"
+
+
+# --- Experiment Ledger Tests (Fix 3) ---
+
+
+class TestExperimentLedger:
+    def _make_engine(self, tmp_path):
+        """Create a minimal engine for unit testing."""
+        from paradigm.config import Config
+        from paradigm.storage.database import Database
+
+        config = Config(
+            api_key="fake",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={"max_rounds_per_phase": 1},
+        )
+        patch_config_provider(config)
+        db = Database(tmp_path / "test.db")
+        from paradigm.logging.events import EventLogger
+
+        logger = EventLogger(tmp_path / "events.jsonl")
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[])
+        corpus = MagicMock()
+        engine = OrchestrationEngine(
+            config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
+        )
+        db.close()
+        return engine
+
+    def test_ledger_empty_when_no_experiments(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._experiment_metadata = []
+        ledger = engine._writing._build_experiment_ledger()
+        assert ledger == ""
+
+    def test_ledger_contains_experiment_info(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._experiment_metadata = [
+            {
+                "name": "gravity_test",
+                "status": "success",
+                "stdout_preview": "Mean: 42.0",
+                "has_figures": True,
+            },
+            {
+                "name": "failed_test",
+                "status": "failure",
+                "stdout_preview": "Error occurred",
+                "has_figures": False,
+            },
+        ]
+        ledger = engine._writing._build_experiment_ledger()
+        assert "Experiment Ledger" in ledger
+        assert "gravity_test" in ledger
+        assert "failed_test" in ledger
+        assert "success" in ledger
+        assert "failure" in ledger
+        assert "MUST NOT cite results from experiments marked FAILURE" in ledger
+
+    def test_ledger_has_figures_column(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._experiment_metadata = [
+            {
+                "name": "fig_test",
+                "status": "success",
+                "stdout_preview": "",
+                "has_figures": True,
+            },
+        ]
+        ledger = engine._writing._build_experiment_ledger()
+        assert "Yes" in ledger
+
 
 # --- Engine Integration Tests ---
 

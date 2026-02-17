@@ -674,6 +674,27 @@ class DisplayManager:
         else:
             self._fallback.experiment_high_failure_rate(failures, total)
 
+    def experiment_strategy_redirect(self, category: str, count: int) -> None:
+        self._state.add_event("warning", f"Strategy redirect: {category} ({count}x)")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_strategy_redirect(category, count)
+
+    def experiment_advisory_requested(self) -> None:
+        self._state.add_event("experiment", "Requesting team advisory")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_advisory_requested()
+
+    def experiment_cross_round_breaker(self, failures: int, total: int) -> None:
+        self._state.add_event("warning", f"Cross-round breaker ({failures}/{total})")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_cross_round_breaker(failures, total)
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------
@@ -787,6 +808,13 @@ class DisplayManager:
             self._refresh()
         else:
             self._fallback.review_recommendation(recommendation, num_changes)
+
+    def review_rejected(self) -> None:
+        self._state.add_event("review", "Editor REJECTED paper")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.review_rejected()
 
     def review_revising(self) -> None:
         self._state.add_event("review", "Revising...")

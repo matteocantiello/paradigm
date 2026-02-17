@@ -1940,6 +1940,25 @@ Full implementation of domain profiles abstraction: define interfaces, create sc
 
 ## 2026-02-17
 
+### Prompt 154 — Analyze Literature Search Log for paper-8b1c0a378ab0
+
+> Read and analyze the literature search log at:
+> /Users/mcantiello/astro/paradigm/data/papers/paper-8b1c0a378ab0/literature_searches.md
+>
+> This file records all literature searches made during a multi-agent AI research discussion. Analyze:
+> 1. Search patterns: How many searches were made? What queries were used? Are they well-targeted or too broad/narrow?
+> 2. Temporal distribution: When in the discussion (which phase/round) do most searches happen? Is there a good pattern of early exploration followed by targeted follow-up, or is it random?
+> 3. Redundancy: Are there duplicate or near-duplicate searches? Do agents search for things that were already found?
+> 4. Reference utilization: Are the papers found actually used in the discussion? Or are searches performed but results ignored?
+> 5. Missing searches: Based on the topics discussed, are there obvious searches that should have been done but weren't?
+> 6. Follow/cited-by patterns: How are [FOLLOW:] and [CITED_BY:] actions used? Are they chasing relevant citation chains?
+>
+> Provide a detailed analysis with specific examples.
+
+**Action:** Full analysis of literature search log provided below.
+
+## 2026-02-17
+
 ### Prompt — Implement Source Provider Adapter Layer
 
 > Implement the following plan: Source Provider Adapter Layer — Implementation Plan
@@ -1950,3 +1969,83 @@ Full implementation of domain profiles abstraction: define interfaces, create sc
 **Artifacts**: domains/base.py (modified), literature/providers.py (new), literature/provider_factory.py (new), literature/corpus.py (modified), literature/prompt_utils.py (modified), orchestrator/literature.py (modified), main.py (modified), literature/__init__.py (modified), tests/test_source_providers.py (new), tests/test_orchestrator.py (modified), tests/test_corpus.py (modified), tests/test_prompt_utils.py (modified)
 
 **Verification**: All 838 tests pass. Ruff lint and format checks pass. Fixed 4 remaining SemanticPaper → SourceResult mock conversions in test_orchestrator.py (follow/cited_by tests in both TestLiteratureGraphTraversal and TestLiteratureDedup classes).
+
+### Prompt — Analyze transcript 8b1c0a378ab0
+
+> Let's analyze the transcript in 8b1c0a378ab0. It would be good to understand if the current implementation of phases of discussion works, or if it leads to redundant discussions or misses important insights. Are the logs revealing obvious shortcoming of the current approach and/or ways to improve?
+
+**Key decisions**: Research/analysis task — no code changes expected.
+
+### Prompt — Analyze paper and reviews from 8b1c0a378ab0
+
+> Read and analyze these two files from the paper-8b1c0a378ab0 research run:
+>
+> 1. /Users/mcantiello/astro/paradigm/data/papers/paper-8b1c0a378ab0/paper-8b1c0a378ab0.md (the final paper)
+> 2. /Users/mcantiello/astro/paradigm/data/papers/paper-8b1c0a378ab0/reviews.md (peer reviews)
+>
+> For the paper: What is the topic? What's the overall quality and novelty? Does it feel like a coherent paper or a patchwork of different agents' contributions? Are there gaps, contradictions, or weak sections?
+>
+> For the reviews: What do reviewers identify as strengths and weaknesses? Are reviewer criticisms fair and substantive, or formulaic? Do the reviews reveal problems with the multi-agent discussion process?
+
+**Key decisions**: Research/analysis task — no code changes expected.
+
+### Prompt — Summarize phase orchestration design
+
+> Read and summarize the phase orchestration design from these files in /Users/mcantiello/astro/paradigm/src/paradigm/:
+>
+> 1. orchestrator/phases.py - What phases exist, what are the transitions?
+> 2. orchestrator/engine.py - How does the engine run phases and rounds? How are agents scheduled? What context do they receive?
+> 3. orchestrator/constants.py - What phase-specific configuration exists (active roles per phase, context needs, instructions)?
+> 4. orchestrator/literature.py - How are literature actions processed during phases?
+> 5. agents/prompts/ - Look at any system prompt templates that show how agents are instructed about phases
+>
+> I need to understand:
+> - What each phase is supposed to accomplish
+> - How many rounds each phase gets
+> - Which agents are active in each phase
+> - What instructions/context agents receive per phase
+> - How phase-specific behavior is enforced (or not)
+
+**Key decisions**: Research/analysis task — no code changes expected.
+
+### Prompt 25 — Structural Analysis of Red Noise Research Transcript
+
+> Read and analyze the transcript at data/papers/paper-8b1c0a378ab0/transcript.md. This is a ~2.2MB transcript of an AI multi-agent research discussion. Provide a detailed structural analysis covering: phase progression, redundancy analysis, phase transitions, agent differentiation, literature integration, missed opportunities, and conversation dynamics.
+
+**Key decisions**: Transcript analysis — no code changes expected.
+
+### Prompt 26 — Implement 6 Architectural Fixes from Transcript Analysis
+
+> Let's implement all these fixes
+
+Referring to 6 prioritized architectural recommendations from the transcript analysis:
+1. Execution circuit breaker + multi-agent advisory
+2. Cross-phase consensus carry-forward
+3. Execution-aware writing (prevent confabulation)
+4. Search result quality filtering
+5. Plan → execution coupling
+6. Editor escalation path
+
+**Status**: Plan mode — exploring codebase and writing implementation plan.
+
+### Prompt 31 — Implement 6 Architectural Fixes
+
+> Implement the following plan: [6 Architectural Fixes for Orchestrator — Implementation Plan]
+
+Full implementation of 6 targeted fixes identified from transcript analysis:
+- Fix 6: Editor escalation path (explicit rejection)
+- Fix 4: Search result quality filtering
+- Fix 2: Cross-phase consensus carry-forward
+- Fix 3: Execution-aware writing (prevent confabulation)
+- Fix 1: Execution circuit breaker + multi-agent advisory
+- Fix 5: Plan → execution coupling
+
+**Artifacts modified**: Multiple files across orchestrator, journal, display, config, and tests.
+
+**Implementation completed** (continued session):
+- All 6 fixes implemented and verified
+- Cross-round circuit breaker added (Fix 1 completion)
+- `_extract_planning_actions()` method added to engine.py (Fix 5 completion)
+- 30+ new tests added across 4 test files
+- 2 existing tests updated for relevance filter compatibility (Fix 4 side-effect)
+- All 868 tests passing, ruff clean

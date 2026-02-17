@@ -119,6 +119,9 @@ class OrchestrationEngine:
         self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
         self._successful_code: list[tuple[str, str]] = []  # (experiment_name, code)
         self._post_execution_summary: str = ""  # Team consensus from POST_EXECUTION
+        self._consensus_summary: str = ""  # Accumulated consensus from phase boundaries
+        self._planning_action_items: str = ""  # Extracted action items from PLANNING
+        self._experiment_metadata: list[dict[str, str | bool]] = []
         self._code_context: str = ""
         self._data_context: str = ""
         self._reference_context: str = ""
@@ -172,6 +175,9 @@ class OrchestrationEngine:
         self._execution_figures = []
         self._successful_code = []
         self._post_execution_summary = ""
+        self._consensus_summary = ""
+        self._planning_action_items = ""
+        self._experiment_metadata = []
         self._code_context = ""
         self._data_context = ""
         self._reference_context = ""
@@ -276,6 +282,9 @@ class OrchestrationEngine:
             checkpoint_interval=checkpoint_interval,
         )
 
+        # Extract action items from PLANNING for EXECUTION (Fix 5)
+        self._planning_action_items = self._extract_planning_actions()
+
         # Phase 3.5: EXECUTION (optional — only when experimentalist present + sandbox enabled)
         should_experiment = (
             self._config.orchestrator.enable_experimentation
@@ -302,6 +311,7 @@ class OrchestrationEngine:
             self._execution_caveats = exp_result.caveats
             self._execution_figures = exp_result.execution_figures
             self._successful_code = exp_result.successful_code
+            self._experiment_metadata = exp_result.experiment_metadata
 
         # Phase 3.75: POST_EXECUTION discussion (optional — after experimentation)
         ran_post_execution = False
@@ -584,9 +594,16 @@ class OrchestrationEngine:
                 and round_num < max_rounds
             ):
                 try:
-                    converged = await self._check_convergence(phase, round_num, active_count)
+                    converged, rationale = await self._check_convergence(
+                        phase, round_num, active_count
+                    )
                     if converged:
                         self._display.convergence_detected(str(phase), round_num, max_rounds)
+                        consensus = self._build_consensus_summary(
+                            phase, rationale, self._messages[-active_count:]
+                        )
+                        if consensus:
+                            self._consensus_summary += consensus + "\n\n"
                         break
                 except Exception:
                     pass  # Non-fatal — continue with remaining rounds
@@ -813,6 +830,14 @@ class OrchestrationEngine:
             recent_messages=recent_messages,
         )
 
+        # Inject prior phase consensus so agents don't re-derive settled conclusions
+        if self._consensus_summary:
+            formatted += (
+                "\n\n## Prior Phase Consensus\n"
+                "The following conclusions were agreed upon in earlier phases. "
+                "Do NOT re-derive these — build on them.\n\n" + self._consensus_summary
+            )
+
         # Inject role-specific and general reinforcements for later rounds
         if round_num > 1:
             # General anti-repetition rule for all agents
@@ -914,12 +939,96 @@ class OrchestrationEngine:
             "the following issues. The paper MUST reflect these findings:\n\n" + "\n\n".join(parts)
         )
 
+    def _build_consensus_summary(
+        self,
+        phase: ResearchPhase,
+        rationale: str,
+        messages: list[dict[str, Any]],
+    ) -> str:
+        """Build a compact consensus summary from converged phase discussion.
+
+        Args:
+            phase: The phase that converged.
+            rationale: Convergence rationale from the LLM check.
+            messages: Final-round messages from active agents.
+
+        Returns:
+            Formatted consensus string, capped at 1000 chars.
+        """
+        parts = [f"### {str(phase).upper()} Consensus"]
+        if rationale:
+            parts.append(f"**Agreement:** {rationale}")
+
+        # Include truncated key points from final messages
+        for msg in messages[:5]:  # Cap at 5 agents
+            agent_id = msg.get("from", "unknown")
+            content = msg.get("content", "")[:200]
+            if content:
+                parts.append(f"- **{agent_id}:** {content}")
+
+        summary = "\n".join(parts)
+        return summary[:1000]
+
+    def _extract_planning_actions(self) -> str:
+        """Extract experiment-related action items from PLANNING messages.
+
+        Scans the last round's PLANNING messages for experiment-related keywords
+        and extracts them as numbered action items.
+
+        Returns:
+            Numbered action items string, or empty string if none found.
+        """
+        experiment_keywords = {
+            "experiment",
+            "test",
+            "simulate",
+            "compute",
+            "calculate",
+            "measure",
+            "plot",
+            "analyze",
+            "run",
+            "implement",
+            "code",
+            "script",
+            "model",
+            "fit",
+            "regression",
+            "monte carlo",
+            "numerical",
+            "benchmark",
+        }
+
+        actions: list[str] = []
+        for msg in self._messages:
+            content = msg.get("content", "")
+            if not content:
+                continue
+            # Split into sentences / bullet points
+            lines = re.split(r"[\n•\-\d+\.\)]", content)
+            for line in lines:
+                line = line.strip()
+                if len(line) < 10 or len(line) > 200:
+                    continue
+                line_lower = line.lower()
+                if any(kw in line_lower for kw in experiment_keywords):
+                    actions.append(line)
+                    if len(actions) >= 10:
+                        break
+            if len(actions) >= 10:
+                break
+
+        if not actions:
+            return ""
+
+        return "\n".join(f"{i}. {a}" for i, a in enumerate(actions, 1))
+
     async def _check_convergence(
         self,
         phase: ResearchPhase,
         round_num: int,
         active_agent_count: int,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Check if agents have converged using a cheap LLM call.
 
         Grabs the last N messages (one per active agent) from the current round,
@@ -932,12 +1041,12 @@ class OrchestrationEngine:
             active_agent_count: Number of active agents in this phase.
 
         Returns:
-            True if agents have converged with sufficient confidence.
+            Tuple of (is_converged, rationale).
         """
         # Grab last N messages (N = active_agent_count)
         recent = self._messages[-active_agent_count:]
         if len(recent) < 2:
-            return False
+            return False, ""
 
         # Format messages, truncating content to 500 chars
         formatted_messages = "\n\n".join(
@@ -1005,7 +1114,7 @@ class OrchestrationEngine:
             phase=str(phase),
         )
 
-        return is_converged
+        return is_converged, rationale
 
     def _log_phase_transition(self, from_phase: ResearchPhase, to_phase: ResearchPhase) -> None:
         """Log a phase transition event."""

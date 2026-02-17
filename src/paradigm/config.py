@@ -116,6 +116,12 @@ class OrchestratorConfig(BaseModel):
     max_debates_per_phase: int = 2
     enable_convergence_detection: bool = True
     convergence_confidence_threshold: float = 0.85
+    search_relevance_threshold: float = 0.15
+    max_strategy_retries: int = 3
+    enable_execution_advisory: bool = True
+    execution_advisory_threshold: int = 3
+    cross_round_failure_threshold: float = 0.6
+    cross_round_min_experiments: int = 5
 
 
 class SkillsConfig(BaseModel):

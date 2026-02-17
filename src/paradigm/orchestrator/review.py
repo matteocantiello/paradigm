@@ -149,6 +149,17 @@ class ReviewHandler:
                 feedback.recommendation, len(feedback.required_changes)
             )
 
+            if feedback.recommendation == "reject":
+                # Paper fundamentally flawed — stop immediately
+                self._engine._display.review_rejected()
+                thread = self._engine._db.get_thread(self._engine._thread_id)
+                if thread and thread.get("current_draft_id"):
+                    self._engine._db.update_paper(
+                        thread["current_draft_id"], status="writing_failed"
+                    )
+                self._engine._db.update_thread(self._engine._thread_id, status="writing_failed")
+                return
+
             if feedback.recommendation == "accept":
                 # Paper accepted — update status
                 thread = self._engine._db.get_thread(self._engine._thread_id)

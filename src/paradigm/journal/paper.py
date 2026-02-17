@@ -61,7 +61,7 @@ class ReviewFeedback(BaseModel):
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
     required_changes: list[str] = Field(default_factory=list)
-    recommendation: str = "revise"  # "accept" or "revise"
+    recommendation: str = "revise"  # "accept", "revise", or "reject"
 
 
 class PaperDraft(BaseModel):
@@ -339,15 +339,22 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
     weaknesses = _extract_list(sections.get("weaknesses", ""))
     required_changes = _extract_list(sections.get("required changes", ""))
 
-    # Parse recommendation
+    # Parse recommendation (reject is strongest signal, then accept, then revise)
     if "recommendation" in sections:
         rec_text = sections["recommendation"].strip().lower()
-        recommendation = "accept" if "accept" in rec_text else "revise"
+        if "reject" in rec_text:
+            recommendation = "reject"
+        elif "accept" in rec_text:
+            recommendation = "accept"
+        else:
+            recommendation = "revise"
     else:
-        # Full-text fallback: scan body for accept/revise when recommendation
+        # Full-text fallback: scan body for reject/accept/revise when recommendation
         # section is missing entirely (e.g. due to truncation)
         text_lower = text.lower()
-        if "accept" in text_lower and "revise" not in text_lower:
+        if "reject" in text_lower and "accept" not in text_lower:
+            recommendation = "reject"
+        elif "accept" in text_lower and "revise" not in text_lower:
             recommendation = "accept"
         else:
             recommendation = "revise"

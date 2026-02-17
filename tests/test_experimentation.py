@@ -15,6 +15,7 @@ from paradigm.orchestrator.constants import (
     _is_vacuous_success,
 )
 from paradigm.orchestrator.engine import OrchestrationEngine
+from paradigm.orchestrator.experimentation import _categorize_failure
 from paradigm.sandbox.models import (
     ExecutionRequest,
     ExecutionResult,
@@ -884,3 +885,277 @@ class TestVacuousSuccessRetry:
                 call for call in exp_agent.generate.call_args_list if "FILE NOT FOUND" in str(call)
             ]
             assert len(retry_calls) >= 1
+
+
+# --- Unit tests: failure categorization (Fix 1) ---
+
+
+class TestCategorizeFailure:
+    def _make_result(
+        self,
+        status: ExecutionStatus = ExecutionStatus.FAILURE,
+        stderr: str = "",
+        stdout: str = "",
+        error_message: str = "",
+    ) -> ExecutionResult:
+        return ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="exp-0", thread_id="t-1"),
+            status=status,
+            stderr=stderr,
+            stdout=stdout,
+            error_message=error_message,
+        )
+
+    def test_timeout(self):
+        result = self._make_result(status=ExecutionStatus.TIMEOUT)
+        assert _categorize_failure(result) == "timeout"
+
+    def test_safety_rejection(self):
+        result = self._make_result(status=ExecutionStatus.REJECTED)
+        assert _categorize_failure(result) == "safety_rejection"
+
+    def test_network_error(self):
+        result = self._make_result(stderr="ConnectionRefusedError: [Errno 111] Connection refused")
+        assert _categorize_failure(result) == "network_error"
+
+    def test_module_not_found(self):
+        result = self._make_result(stderr="ModuleNotFoundError: No module named 'nonexistent'")
+        assert _categorize_failure(result) == "module_not_found"
+
+    def test_file_not_found(self):
+        result = self._make_result(
+            stderr="FileNotFoundError: [Errno 2] No such file or directory: '/data/missing.csv'"
+        )
+        assert _categorize_failure(result) == "file_not_found"
+
+    def test_vacuous_output(self):
+        result = self._make_result(
+            status=ExecutionStatus.SUCCESS,
+            stdout="",
+        )
+        assert _categorize_failure(result) == "vacuous_output"
+
+    def test_generic_execution_error(self):
+        result = self._make_result(stderr="ZeroDivisionError: division by zero")
+        assert _categorize_failure(result) == "execution_error"
+
+
+# --- Unit tests: experiment metadata (Fix 3) ---
+
+
+class TestExperimentMetadata:
+    @pytest.mark.asyncio
+    async def test_metadata_populated(
+        self, mock_config, tmp_db, tmp_logger, mock_factory_with_code, mock_corpus
+    ):
+        """After execution, experiment_metadata has correct entries."""
+        mock_exec_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="Result: 42.0\n",
+            duration_seconds=0.5,
+            output_files=[
+                OutputFile(filename="plot.png", path="/tmp/plot.png", size_bytes=1024),
+            ],
+        )
+
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory_with_code,
+            )
+
+            mock_config.orchestrator.max_experiment_rounds = 1
+
+            await engine.run_research_cycle(
+                seed_prompt="Test metadata",
+                mode="experimental",
+            )
+
+            assert len(engine._experiment_metadata) >= 1
+            entry = engine._experiment_metadata[0]
+            assert "name" in entry
+            assert entry["status"] == "success"
+            assert entry["has_figures"] is True
+            assert "stdout_preview" in entry
+
+
+# --- Integration tests: cross-round circuit breaker (Fix 1) ---
+
+
+class TestCrossRoundCircuitBreaker:
+    @pytest.mark.asyncio
+    async def test_cross_round_breaker_fires(self, tmp_path, tmp_db, tmp_logger, mock_corpus):
+        """Cross-round breaker fires when failure rate > 0.6 with >= 5 experiments."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "checkpoint_interval": 1,
+                "enable_checkpointing": True,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 5,
+                "cross_round_failure_threshold": 0.6,
+                "cross_round_min_experiments": 5,
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        # Agent proposes 2 experiments per round (so 5 rounds = 10 experiments)
+        multi_code_agent = MagicMock(spec=Agent)
+        multi_code_agent.agent_id = "experimentalist-0"
+        multi_code_agent.skill_profile = "experimentalist"
+        multi_code_agent.generate = AsyncMock(
+            return_value=AgentResponse(
+                content=(
+                    "```python\n# EXPERIMENT: exp_a\nprint('a')\n```\n"
+                    "```python\n# EXPERIMENT: exp_b\nprint('b')\n```\n"
+                ),
+                usage=TokenUsage(input_tokens=50, output_tokens=80, total_tokens=130),
+                model="claude-sonnet-4-5-20250929",
+            )
+        )
+        multi_code_agent.format_message = MagicMock(
+            side_effect=lambda to, thread_id, phase, message_type, content, **kw: MagicMock(
+                model_dump=MagicMock(
+                    return_value={
+                        "from": "experimentalist-0",
+                        "to": to,
+                        "thread_id": thread_id,
+                        "phase": phase,
+                        "type": message_type,
+                        "content": content,
+                        "references": [],
+                        "metadata": {},
+                    }
+                )
+            )
+        )
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(
+            side_effect=lambda roles, skill_mode="default": [
+                multi_code_agent if r == "experimentalist" else make_mock_agent(f"{r}-0", r)
+                for r in roles
+            ]
+        )
+
+        failure_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.FAILURE,
+            stderr="Error: something broke",
+            error_message="Process exited with code 1",
+        )
+
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(return_value=failure_result)
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            await engine.run_research_cycle(
+                seed_prompt="Test cross-round breaker",
+                mode="experimental",
+            )
+
+            # Per-round breaker won't fire (only 2 experiments per round, < 3 threshold).
+            # But 2 experiments per round fail. After round 1: 2/2 = 100% > 60% but < 5 min.
+            # After round 2: 4/4 = 100% > 60% but < 5 min.
+            # After round 3: 6/6 = 100% > 60% AND >= 5 — cross-round breaker fires!
+            # So we expect 3 rounds × 2 experiments × 3 attempts = 18 calls
+            # Without cross-round breaker: 5 rounds × 2 × 3 = 30 calls
+            total_calls = mock_executor_instance.execute.call_count
+            assert total_calls < 30  # Cross-round breaker saved rounds
+            assert total_calls == 18  # 3 rounds × 2 experiments × 3 attempts
+
+
+# --- Integration tests: planning actions in execution (Fix 5) ---
+
+
+class TestPlanningActionsInExecution:
+    @pytest.mark.asyncio
+    async def test_planning_actions_injected(
+        self, mock_config, tmp_db, tmp_logger, mock_factory_with_code, mock_corpus
+    ):
+        """Planning action items are injected into execution prompts."""
+        mock_exec_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="Result: 42.0\n",
+            duration_seconds=0.5,
+        )
+
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory_with_code,
+            )
+
+            mock_config.orchestrator.max_experiment_rounds = 1
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory_with_code,
+            )
+
+            # Create agents (normally done by run_research_cycle)
+            agents = mock_factory_with_code.create_team(
+                ["experimentalist", "theorist", "analyst"], skill_mode="default"
+            )
+            engine._agents = {a.agent_id: a for a in agents}
+
+            # Manually set planning action items as if PLANNING extracted them
+            engine._planning_action_items = (
+                "1. Run a Monte Carlo simulation\n2. Calculate the period-luminosity relation"
+            )
+
+            # Set engine state as if earlier phases ran
+            engine._thread_id = "test-thread"
+            tmp_db.create_thread(
+                thread_id="test-thread", title="Test", mode="experimental", participants=[]
+            )
+            engine._seed_prompt = "Test planning actions"
+            engine._messages = []
+            engine._checkpoint = None
+            engine._resolved_resources = []
+            engine._code_context = ""
+            engine._data_context = ""
+
+            await engine._experimentation.run_experimentation_phase()
+
+            # Check that experimentalist received the planning actions
+            exp_agent = engine._find_agent_by_role("experimentalist")
+            assert exp_agent is not None
+            prompt_text = str(exp_agent.generate.call_args_list[0])
+            assert "Planned Experiments" in prompt_text
+            assert "Monte Carlo" in prompt_text

@@ -7,6 +7,7 @@ from paradigm.orchestrator.constants import (
     _LITERATURE_CONTEXT_LIMIT,
     _PER_AGENT_CAP_MIN,
     _STOP_WORDS,
+    _filter_relevant_papers,
     _is_duplicate_query,
     _normalize_query_keywords,
 )
@@ -184,3 +185,65 @@ class TestParseDataRequests:
         text = "[data: https://example.com/file.csv]"
         urls = parse_data_requests(text)
         assert len(urls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Relevance filtering tests (Fix 4)
+# ---------------------------------------------------------------------------
+
+
+def _make_paper(title: str, summary: str = "") -> MagicMock:
+    """Create a mock paper with title and optional summary."""
+    paper = MagicMock()
+    paper.title = title
+    paper.summary = summary
+    return paper
+
+
+class TestFilterRelevantPapers:
+    def test_removes_irrelevant_papers(self):
+        """Papers with zero keyword overlap should be removed."""
+        papers = [
+            _make_paper("Stellar pulsation oscillation modes"),
+            _make_paper("Deep learning for image classification"),
+        ]
+        result = _filter_relevant_papers("stellar pulsation", papers)
+        assert len(result) == 1
+        assert result[0].title == "Stellar pulsation oscillation modes"
+
+    def test_keeps_relevant_papers(self):
+        """Papers with keyword overlap should be kept."""
+        papers = [
+            _make_paper("Asteroseismology of red giant stars"),
+            _make_paper("Red giant oscillation modes and asteroseismology"),
+        ]
+        result = _filter_relevant_papers("red giant asteroseismology", papers)
+        assert len(result) == 2
+
+    def test_threshold_zero_passes_all(self):
+        """threshold=0 should keep everything."""
+        papers = [
+            _make_paper("Completely unrelated topic"),
+            _make_paper("Another unrelated thing"),
+        ]
+        result = _filter_relevant_papers("stellar pulsation", papers, threshold=0)
+        assert len(result) == 2
+
+    def test_empty_papers_returns_empty(self):
+        result = _filter_relevant_papers("stellar pulsation", [])
+        assert result == []
+
+    def test_empty_query_returns_all(self):
+        """If query has no keywords after stop word removal, return all."""
+        papers = [_make_paper("Some paper")]
+        # All words are stop words
+        result = _filter_relevant_papers("the and or of", papers)
+        assert len(result) == 1
+
+    def test_uses_summary_for_matching(self):
+        """Summary text should contribute to matching."""
+        papers = [
+            _make_paper("A study of X", summary="Stellar pulsation analysis of variable stars"),
+        ]
+        result = _filter_relevant_papers("stellar pulsation variable", papers)
+        assert len(result) == 1

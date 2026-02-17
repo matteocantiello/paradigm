@@ -258,6 +258,21 @@ class PlainTextFallback:
     def experiment_high_failure_rate(self, failures: int, total: int) -> None:
         click.echo(f"    [!] High failure rate ({failures}/{total}), stopping experiments")
 
+    def experiment_strategy_redirect(self, category: str, count: int) -> None:
+        click.echo(
+            f"    [!] Strategy redirect: {count} failures in category '{category}', "
+            f"trying fundamentally different approach"
+        )
+
+    def experiment_advisory_requested(self) -> None:
+        click.echo("    [advisory] Requesting team advisory on alternative approaches")
+
+    def experiment_cross_round_breaker(self, failures: int, total: int) -> None:
+        click.echo(
+            f"    [!] Cross-round circuit breaker fired ({failures}/{total} failed), "
+            f"stopping experiments"
+        )
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------
@@ -309,6 +324,9 @@ class PlainTextFallback:
 
     def review_recommendation(self, recommendation: str, num_changes: int) -> None:
         click.echo(f"    Editor recommendation: {recommendation} ({num_changes} required changes)")
+
+    def review_rejected(self) -> None:
+        click.echo("  [!] Editor REJECTED paper — fundamentally flawed, stopping review")
 
     def review_revising(self) -> None:
         click.echo("    Revising...")

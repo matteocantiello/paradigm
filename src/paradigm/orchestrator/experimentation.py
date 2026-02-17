@@ -30,6 +30,44 @@ if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
 
 
+def _categorize_failure(result: ExecutionResult) -> str:
+    """Categorize an execution failure into a high-level category.
+
+    Args:
+        result: Failed execution result.
+
+    Returns:
+        Category string.
+    """
+    if result.status == ExecutionStatus.TIMEOUT:
+        return "timeout"
+
+    if result.status == ExecutionStatus.REJECTED:
+        return "safety_rejection"
+
+    stderr = result.stderr or ""
+    stdout = result.stdout or ""
+    combined = stderr + stdout
+
+    # Check network errors
+    if any(p in combined for p in _NETWORK_ERROR_PATTERNS):
+        return "network_error"
+
+    # Check module not found
+    if "ModuleNotFoundError" in combined:
+        return "module_not_found"
+
+    # Check file not found
+    if any(p in combined for p in _FILE_NOT_FOUND_PATTERNS):
+        return "file_not_found"
+
+    # Check for vacuous output
+    if result.status == ExecutionStatus.SUCCESS and _is_vacuous_success(result):
+        return "vacuous_output"
+
+    return "execution_error"
+
+
 @dataclass
 class ExperimentationResult:
     """Return value of the experimentation phase."""
@@ -38,6 +76,7 @@ class ExperimentationResult:
     execution_figures: list[tuple[str, Path]] = field(default_factory=list)
     successful_code: list[tuple[str, str]] = field(default_factory=list)
     caveats: list[str] = field(default_factory=list)
+    experiment_metadata: list[dict[str, str | bool]] = field(default_factory=list)
 
 
 class ExperimentationHandler:
@@ -45,6 +84,10 @@ class ExperimentationHandler:
 
     def __init__(self, engine: OrchestrationEngine) -> None:
         self._engine = engine
+        # Cross-round failure tracking (Fix 1)
+        self._failure_categories: dict[str, int] = {}
+        self._consecutive_failures: int = 0
+        self._strategy_redirects: int = 0
 
     async def run_experimentation_phase(self) -> ExperimentationResult:
         """Run the EXECUTION phase: agents propose and run computational experiments.
@@ -89,6 +132,7 @@ class ExperimentationHandler:
         all_results: list[str] = []
         execution_figures: list[tuple[str, Path]] = []
         successful_code: list[tuple[str, str]] = []
+        experiment_metadata: list[dict[str, str | bool]] = []
 
         # Caveat tracking
         _had_network_error = False
@@ -97,6 +141,13 @@ class ExperimentationHandler:
         _circuit_breaker_fired = False
         _total_experiments = 0
         _total_failures = 0
+
+        # Reset cross-round failure tracking for this phase
+        self._failure_categories = {}
+        self._consecutive_failures = 0
+        self._strategy_redirects = 0
+        _strategy_redirect_message = ""
+        _advisory_message = ""
 
         try:
             for round_num in range(1, max_rounds + 1):
@@ -147,6 +198,22 @@ class ExperimentationHandler:
                         network_caveat=net_caveat,
                     )
 
+                # Inject planning action items (Fix 5)
+                if engine._planning_action_items:
+                    prompt += (
+                        "\n\n## Planned Experiments (from PLANNING phase)\n"
+                        "The team agreed on these experiments during planning. "
+                        "Execute them in order of priority:\n" + engine._planning_action_items
+                    )
+
+                # Inject strategy redirect and advisory messages (Fix 1)
+                if _strategy_redirect_message:
+                    prompt += _strategy_redirect_message
+                    _strategy_redirect_message = ""
+                if _advisory_message:
+                    prompt += _advisory_message
+                    _advisory_message = ""
+
                 try:
                     response = await experimenter.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
                 except Exception as e:
@@ -196,9 +263,44 @@ class ExperimentationHandler:
                     round_total += 1
                     if result.status == ExecutionStatus.SUCCESS:
                         successful_code.append((exp_name, final_code))
+                        self._consecutive_failures = 0
                     else:
                         round_failures += 1
                         _total_failures += 1
+                        self._consecutive_failures += 1
+
+                        # Categorize failure for strategy redirect
+                        category = _categorize_failure(result)
+                        self._failure_categories[category] = (
+                            self._failure_categories.get(category, 0) + 1
+                        )
+
+                        # Strategy redirect: same-category failures exceed threshold
+                        max_strat = engine._config.orchestrator.max_strategy_retries
+                        if self._failure_categories[category] >= max_strat:
+                            engine._display.experiment_strategy_redirect(
+                                category, self._failure_categories[category]
+                            )
+                            _strategy_redirect_message = (
+                                f"\n\n## STRATEGY REDIRECT\n"
+                                f"You have failed {self._failure_categories[category]} times "
+                                f"with '{category}' errors. Your current approach is NOT working. "
+                                f"Try a FUNDAMENTALLY different approach — different algorithm, "
+                                f"different data source, or different analysis entirely."
+                            )
+                            self._strategy_redirects += 1
+
+                        # Multi-agent advisory: consecutive failures exceed threshold
+                        advisory_threshold = (
+                            engine._config.orchestrator.execution_advisory_threshold
+                        )
+                        if (
+                            engine._config.orchestrator.enable_execution_advisory
+                            and self._consecutive_failures >= advisory_threshold
+                            and experimenter is not None
+                        ):
+                            _advisory_message = await self._request_advisory(experimenter.agent_id)
+                            self._consecutive_failures = 0  # Reset after advisory
 
                     # Track caveat triggers
                     if result.status == ExecutionStatus.TIMEOUT:
@@ -215,9 +317,36 @@ class ExperimentationHandler:
                     status_str = result.status.value
                     engine._display.experiment_result(exp_name, status_str)
 
-                # Circuit breaker: if >70% of executions failed, stop experimenting
+                    # Build metadata entry for the experiment ledger
+                    stdout_preview = (result.stdout or "")[:200]
+                    has_figures = any(
+                        f.filename.endswith((".png", ".pdf")) for f in result.output_files
+                    )
+                    experiment_metadata.append(
+                        {
+                            "name": exp_name,
+                            "status": status_str,
+                            "stdout_preview": stdout_preview,
+                            "has_figures": has_figures,
+                        }
+                    )
+
+                # Per-round circuit breaker: if >70% of executions failed, stop
                 if round_total >= 3 and (round_failures / round_total) > 0.7:
                     engine._display.experiment_high_failure_rate(round_failures, round_total)
+                    _circuit_breaker_fired = True
+                    break
+
+                # Cross-round circuit breaker: persistent high failure rate
+                cross_threshold = engine._config.orchestrator.cross_round_failure_threshold
+                cross_min = engine._config.orchestrator.cross_round_min_experiments
+                if (
+                    _total_experiments >= cross_min
+                    and (_total_failures / _total_experiments) > cross_threshold
+                ):
+                    engine._display.experiment_cross_round_breaker(
+                        _total_failures, _total_experiments
+                    )
                     _circuit_breaker_fired = True
                     break
 
@@ -288,6 +417,46 @@ class ExperimentationHandler:
             execution_figures=execution_figures,
             successful_code=successful_code,
             caveats=caveats,
+            experiment_metadata=experiment_metadata,
+        )
+
+    async def _request_advisory(self, experimenter_id: str) -> str:
+        """Request one-line advice from each non-experimentalist agent.
+
+        Args:
+            experimenter_id: ID of the experimentalist to exclude.
+
+        Returns:
+            Combined advisory text from team members.
+        """
+        engine = self._engine
+        engine._display.experiment_advisory_requested()
+        advisory_parts: list[str] = []
+
+        for agent_id, agent in engine._agents.items():
+            if agent_id == experimenter_id:
+                continue
+            prompt = (
+                "The experimentalist has encountered multiple consecutive failures. "
+                "Based on your expertise, suggest ONE specific alternative experimental "
+                "approach they could try. Be concrete and brief (1-2 sentences)."
+            )
+            try:
+                response = await agent.generate(prompt, max_tokens=256)
+                if response.content.strip():
+                    advisory_parts.append(
+                        f"**{agent.skill_profile}:** {response.content.strip()[:200]}"
+                    )
+                engine._log_agent_response(agent_id, response, ResearchPhase.EXECUTION, "advisory")
+            except Exception:
+                continue
+
+        if not advisory_parts:
+            return ""
+        return (
+            "\n\n## Team Advisory\n"
+            "Your teammates suggest these alternative approaches:\n"
+            + "\n".join(f"- {p}" for p in advisory_parts)
         )
 
     async def _execute_with_retry(

@@ -290,8 +290,9 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "## Strengths\n- What works well\n\n"
             "## Weaknesses\n- What needs improvement\n\n"
             "## Required Changes\n- Specific changes needed before submission\n\n"
-            "## Recommendation\n- Either 'accept' (ready for submission) or "
-            "'revise' (needs another round of revisions)"
+            "## Recommendation\n- Either 'accept' (ready for submission), "
+            "'revise' (needs another round of revisions), or "
+            "'reject' (fundamentally flawed — would not pass peer review even with revisions)"
         ),
         "revision": (
             "You are revising a research paper based on internal review feedback.\n"
@@ -749,7 +750,7 @@ def _normalize_query_keywords(query: str) -> frozenset[str]:
 def _is_duplicate_query(
     new_keywords: frozenset[str],
     existing_keyword_sets: list[frozenset[str]],
-    threshold: float = 0.5,
+    threshold: float = 0.4,
 ) -> bool:
     """Check if a query is a near-duplicate of any previously executed query.
 
@@ -780,6 +781,47 @@ def _is_duplicate_query(
         if union > 0 and intersection / union >= threshold:
             return True
     return False
+
+
+def _filter_relevant_papers(
+    query: str,
+    papers: list,
+    threshold: float = 0.15,
+) -> list:
+    """Filter search results by keyword relevance to the query.
+
+    Uses Jaccard similarity between query keywords and paper title/summary
+    keywords. Papers with zero overlap are almost certainly irrelevant.
+
+    Args:
+        query: The search query string.
+        papers: List of paper objects (must have .title and optionally .summary).
+        threshold: Minimum Jaccard similarity to keep a paper.
+
+    Returns:
+        Filtered list of papers above the threshold.
+    """
+    if threshold <= 0 or not papers:
+        return papers
+
+    query_kw = _normalize_query_keywords(query)
+    if not query_kw:
+        return papers
+
+    filtered = []
+    for paper in papers:
+        # Combine title and summary (if available) for matching
+        text = paper.title
+        if hasattr(paper, "summary") and paper.summary:
+            text += " " + paper.summary
+        paper_kw = _normalize_query_keywords(text)
+        if not paper_kw:
+            continue
+        intersection = len(query_kw & paper_kw)
+        union = len(query_kw | paper_kw)
+        if union > 0 and intersection / union >= threshold:
+            filtered.append(paper)
+    return filtered
 
 
 def _format_execution_result(experiment_name: str, result: ExecutionResult) -> str:

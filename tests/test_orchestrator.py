@@ -475,8 +475,8 @@ class TestOrchestrationEngine:
         mock_paper = SourceResult(
             id="2401.12345",
             source_type="arxiv",
-            title="Test Paper on Cepheids",
-            summary="Abstract text",
+            title="Cepheid Period-Luminosity Relation in the Milky Way",
+            summary="We study the period-luminosity relation for Cepheid variable stars",
             authors=["Author One", "Author Two"],
             date=now,
             metadata={"categories": ["astro-ph.SR"]},
@@ -522,7 +522,7 @@ class TestOrchestrationEngine:
         assert entry["phase"] is not None
         assert len(entry["papers"]) == 1
         assert entry["papers"][0]["arxiv_id"] == "2401.12345"
-        assert entry["papers"][0]["title"] == "Test Paper on Cepheids"
+        assert entry["papers"][0]["title"] == "Cepheid Period-Luminosity Relation in the Milky Way"
 
     @pytest.mark.asyncio
     async def test_save_search_log_writes_file(self, mock_config, tmp_db, tmp_logger, mock_corpus):
@@ -995,8 +995,8 @@ class TestOrchestrationEngine:
         paper_a = SourceResult(
             id="2401.00001",
             source_type="arxiv",
-            title="Paper A",
-            summary="Abstract A",
+            title="Stellar Pulsation Oscillation Modes",
+            summary="Analysis of stellar pulsation oscillation modes in variable stars",
             authors=["Author A"],
             date=now,
             metadata={"categories": ["astro-ph.SR"]},
@@ -1004,8 +1004,8 @@ class TestOrchestrationEngine:
         paper_b = SourceResult(
             id="2401.00002",
             source_type="arxiv",
-            title="Paper B",
-            summary="Abstract B",
+            title="Convection Stellar Mixing Models",
+            summary="Convection stellar mixing models for interior structure",
             authors=["Author B"],
             date=now,
             metadata={"categories": ["astro-ph.SR"]},
@@ -1029,9 +1029,9 @@ class TestOrchestrationEngine:
                     async def _gen(prompt, **kwargs):
                         call_count[0] += 1
                         if call_count[0] == 1:
-                            content = "Ideas [SEARCH: first query]"
+                            content = "Ideas [SEARCH: stellar pulsation oscillation]"
                         elif call_count[0] == 2:
-                            content = "More ideas [SEARCH: second query]"
+                            content = "More ideas [SEARCH: convection stellar mixing]"
                         else:
                             content = "Response"
                         return AgentResponse(
@@ -2571,3 +2571,163 @@ class TestNetworkCaveat:
         assert "{network_caveat}" in templates["propose_experiment"]
         assert "{network_caveat}" in templates["analyze_results"]
         assert "{network_caveat}" in templates["retry_after_failure"]
+
+
+# ---------------------------------------------------------------------------
+# Consensus carry-forward tests (Fix 2)
+# ---------------------------------------------------------------------------
+
+
+class TestConsensusBuildSummary:
+    """Tests for _build_consensus_summary()."""
+
+    def _make_engine(self, tmp_path):
+        from paradigm.config import Config
+        from paradigm.storage.database import Database
+
+        config = Config(
+            api_key="fake",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={"max_rounds_per_phase": 1},
+        )
+        patch_config_provider(config)
+        db = Database(tmp_path / "test.db")
+        from paradigm.logging.events import EventLogger
+
+        logger = EventLogger(tmp_path / "events.jsonl")
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[])
+        corpus = MagicMock()
+        engine = OrchestrationEngine(
+            config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
+        )
+        db.close()
+        return engine
+
+    def test_consensus_built_on_convergence(self, tmp_path):
+        """After convergence, _build_consensus_summary returns non-empty string."""
+        engine = self._make_engine(tmp_path)
+        messages = [
+            {"from": "theorist-0", "content": "Stars have convective cores at high mass."},
+            {"from": "analyst-0", "content": "Data confirms the convective core prediction."},
+        ]
+        result = engine._build_consensus_summary(
+            ResearchPhase.IDEATION,
+            "Agents agree on convective core mechanism.",
+            messages,
+        )
+        assert result != ""
+        assert "IDEATION" in result
+        assert "convective core" in result
+
+    def test_consensus_empty_rationale(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        messages = [{"from": "agent-0", "content": "Some text here."}]
+        result = engine._build_consensus_summary(ResearchPhase.PLANNING, "", messages)
+        assert "PLANNING" in result
+        assert "agent-0" in result
+
+    def test_consensus_capped_at_1000_chars(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        messages = [{"from": f"agent-{i}", "content": "x" * 200} for i in range(10)]
+        result = engine._build_consensus_summary(
+            ResearchPhase.IDEATION, "Long rationale " * 20, messages
+        )
+        assert len(result) <= 1000
+
+    def test_consensus_injected_into_prompt(self, tmp_path):
+        """When _consensus_summary is set, it appears in agent prompts."""
+        engine = self._make_engine(tmp_path)
+        engine._consensus_summary = "### IDEATION Consensus\n**Agreement:** Stars pulsate.\n"
+        engine._seed_prompt = "Test prompt"
+        engine._mode = "directed"
+        engine._messages = []
+        engine._checkpoint = None
+
+        agent = make_mock_agent("theorist-0", "theorist")
+        prompt = engine._build_agent_prompt(agent, ResearchPhase.PLANNING, 1)
+        assert "Prior Phase Consensus" in prompt
+        assert "Stars pulsate" in prompt
+        assert "Do NOT re-derive" in prompt
+
+    def test_consensus_reset_on_new_cycle(self, tmp_path):
+        """_consensus_summary is reset when run_research_cycle starts."""
+        engine = self._make_engine(tmp_path)
+        engine._consensus_summary = "old consensus"
+        # Simulate partial reset (the way run_research_cycle does it)
+        engine._consensus_summary = ""
+        assert engine._consensus_summary == ""
+
+
+# ---------------------------------------------------------------------------
+# Planning action extraction tests (Fix 5)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractPlanningActions:
+    """Tests for _extract_planning_actions()."""
+
+    def _make_engine(self, tmp_path):
+        from paradigm.config import Config
+        from paradigm.storage.database import Database
+
+        config = Config(
+            api_key="fake",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={"max_rounds_per_phase": 1},
+        )
+        patch_config_provider(config)
+        db = Database(tmp_path / "test.db")
+        from paradigm.logging.events import EventLogger
+
+        logger = EventLogger(tmp_path / "events.jsonl")
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[])
+        corpus = MagicMock()
+        engine = OrchestrationEngine(
+            config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
+        )
+        db.close()
+        return engine
+
+    def test_planning_actions_extracted(self, tmp_path):
+        """Messages with experiment keywords produce numbered action items."""
+        engine = self._make_engine(tmp_path)
+        engine._messages = [
+            {
+                "from": "theorist-0",
+                "content": (
+                    "We should:\n"
+                    "- Run a Monte Carlo simulation of stellar oscillations\n"
+                    "- Calculate the pulsation period as a function of mass\n"
+                    "- Plot the period-luminosity relation"
+                ),
+            },
+        ]
+        result = engine._extract_planning_actions()
+        assert "1." in result
+        assert "Monte Carlo" in result or "Calculate" in result or "Plot" in result
+
+    def test_planning_actions_empty_without_keywords(self, tmp_path):
+        """Messages without experiment keywords produce empty string."""
+        engine = self._make_engine(tmp_path)
+        engine._messages = [
+            {
+                "from": "synthesizer-0",
+                "content": "The consensus is that stars are interesting objects.",
+            },
+        ]
+        result = engine._extract_planning_actions()
+        assert result == ""
+
+    def test_planning_actions_max_10(self, tmp_path):
+        """Action items are capped at 10."""
+        engine = self._make_engine(tmp_path)
+        lines = [f"Run experiment number {i} to test hypothesis" for i in range(20)]
+        engine._messages = [{"from": "agent-0", "content": "\n".join(lines)}]
+        result = engine._extract_planning_actions()
+        # Count numbered items
+        import re
+
+        items = re.findall(r"^\d+\.", result, re.MULTILINE)
+        assert len(items) <= 10

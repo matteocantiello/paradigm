@@ -35,6 +35,35 @@ class WritingHandler:
     def __init__(self, engine: OrchestrationEngine) -> None:
         self._engine = engine
 
+    def _build_experiment_ledger(self) -> str:
+        """Build a markdown table of experiment results for writing prompts.
+
+        Returns:
+            Formatted ledger string, or empty string if no experiments ran.
+        """
+        metadata = self._engine._experiment_metadata
+        if not metadata:
+            return ""
+
+        lines = [
+            "\n\n## Experiment Ledger",
+            "| Experiment | Status | Has Figures | Output Preview |",
+            "|------------|--------|-------------|----------------|",
+        ]
+        for entry in metadata:
+            name = entry.get("name", "unnamed")
+            status = entry.get("status", "unknown")
+            has_figs = "Yes" if entry.get("has_figures") else "No"
+            preview = str(entry.get("stdout_preview", ""))[:80].replace("\n", " ")
+            lines.append(f"| {name} | {status} | {has_figs} | {preview} |")
+
+        lines.append("")
+        lines.append(
+            "**You MUST NOT cite results from experiments marked FAILURE or TIMEOUT "
+            "as evidence. Only reference results from SUCCESS experiments.**"
+        )
+        return "\n".join(lines)
+
     def _get_section_assignments(self) -> dict[str, list[str]]:
         """Get role → section name assignments from profile or fallback.
 
@@ -162,6 +191,11 @@ class WritingHandler:
                 assigned_sections=section_list,
             )
 
+            # Inject experiment ledger so writers know which experiments succeeded
+            ledger = self._build_experiment_ledger()
+            if ledger:
+                prompt += ledger
+
             # Inject execution context for results and methods sections
             results_like = {"results"}
             methods_like = {"methods"}
@@ -267,6 +301,11 @@ class WritingHandler:
             checkpoint_context=checkpoint_context,
             section_drafts=section_drafts_text,
         )
+
+        # Inject experiment ledger into assembly
+        ledger = self._build_experiment_ledger()
+        if ledger:
+            prompt += ledger
 
         # Inject caveats into assembly so the assembler doesn't overclaim
         if self._engine._execution_caveats:
