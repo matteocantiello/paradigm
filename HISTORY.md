@@ -1844,3 +1844,9 @@ it just stripped prefixes and returned whatever string it got.
 
 **Key decisions:** `[DATA:]` uses existing `classify_resource()`/`resolve_resource()` pipeline; budget cap at 3 per round; `--network-access` flag overrides `config.sandbox.network_mode`; `SafetyConfig` gains `network_enabled` field; hardcoded "NO network access" strings replaced with `{network_caveat}` placeholder.
 **Artifacts modified:** `literature/prompt_utils.py`, `orchestrator/literature.py`, `orchestrator/constants.py`, `orchestrator/engine.py`, `orchestrator/experimentation.py`, `sandbox/safety.py`, `sandbox/executor.py`, `main.py`, `display/manager.py`, `display/fallback.py`, `tests/test_literature_helpers.py`, `tests/test_sandbox.py`, `tests/test_orchestrator.py`
+
+### Prompt 144 — Update documentation and manual
+
+> Let's update documentation and manual with the appropriate changes
+
+This prompt requests updating docs/MANUAL.md and other documentation files to cover the new `[DATA:]` pre-staging feature and `--network-access` CLI flag.

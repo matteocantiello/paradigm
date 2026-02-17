@@ -47,7 +47,7 @@
 │                      CODE SANDBOX (Docker)                           │
 │                                                                      │
 │  ┌──────────────────┐  ┌──────────────────┐                         │
-│  │  Container A      │  │  Container B      │  --network=none        │
+│  │  Container A      │  │  Container B      │  --network=none (default)│
 │  │  Python 3.12      │  │  Python 3.12      │  CPU/mem limits        │
 │  │  numpy,scipy,...  │  │  numpy,scipy,...  │  5min timeout           │
 │  └──────────────────┘  └──────────────────┘                         │
@@ -125,7 +125,7 @@
 
 4. EXECUTION (experimentalist leads, analyst + theorist support)
    Agents generate Python code for experiments (```python blocks)
-   Code runs in Docker sandbox (--network=none)
+   Code runs in Docker sandbox (--network=none by default, --network-access to enable)
    Results captured, figures extracted
    Multi-round: propose → execute → analyze → retry on failure
    Circuit breaker: halt if failure rate exceeds threshold

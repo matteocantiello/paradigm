@@ -111,6 +111,8 @@ paradigm run [OPTIONS]
 | `--topic` | Text | --- | Research topic. **Required** for `explore` mode. |
 | `--rounds` | Integer | config value (10) | Rounds per phase. Overrides `orchestrator.max_rounds_per_phase`. |
 | `--interactive` | Flag | off | Pause for confirmation before each major phase transition. |
+| `--network-access` | Flag | off | Allow sandbox containers to access the network (sets `network_mode="bridge"`). See [Network Access Mode](#network-access-mode). |
+| `--verbose` | Flag | off | Enable verbose logging output. |
 
 **Examples:**
 
@@ -668,10 +670,11 @@ Agents embed these tags in their natural-language responses:
 | `[FOLLOW: arxiv_id]` | Get papers cited by this paper (references) | `[FOLLOW: 2301.12345]` |
 | `[CITED_BY: arxiv_id]` | Get papers that cite this paper | `[CITED_BY: 1903.09534]` |
 | `[READ: arxiv_id]` | Deep-read key sections of a paper | `[READ: 2301.12345]` |
+| `[DATA: url]` | Stage a dataset for use in experiments | `[DATA: https://example.com/catalog.csv]` |
 
 After every agent response, the orchestrator parses these tags and executes the corresponding actions. Results are appended to the literature context and included in subsequent agent prompts.
 
-**Search-enabled phases:** IDEATION, PLANNING, EXECUTION. Other phases (WRITING, PEER_REVIEW, etc.) disable literature actions.
+**Search-enabled phases:** IDEATION, PLANNING, EXECUTION. Other phases (WRITING, PEER_REVIEW, etc.) disable literature actions. Data staging (`[DATA:]`) is only processed during IDEATION and PLANNING.
 
 ### Search Pipeline (SEARCH)
 
@@ -731,6 +734,28 @@ The system is designed to guide agents through a natural progression:
 ### State and Reset
 
 All literature state --- query history, seen papers, stall counters, discovered paper index, dedup sets --- is scoped to a single research cycle. The `reset_cycle()` method clears everything at the start of each new cycle, so literature discovery starts fresh.
+
+### Data Pre-staging (DATA)
+
+Agents can request external datasets during IDEATION and PLANNING by embedding `[DATA: url]` tags in their responses. The orchestrator downloads the file outside the sandbox and mounts it into the shared data directory so it is available during EXECUTION.
+
+```
+[DATA: https://example.com/catalog.csv]
+```
+
+This solves a key limitation: the sandbox runs with `--network=none` by default, so experiments can only use data that was explicitly linked in the seed prompt (downloaded during SEEDING) or synthetic data generated in code. With `[DATA:]`, agents can discover and request relevant datasets during the planning phases.
+
+**How it works:**
+
+1. The orchestrator parses `[DATA: url]` tags from agent responses (IDEATION and PLANNING phases only).
+2. The URL is validated (must be `http://` or `https://`) and classified via the resource classifier (must be a `DATA` type resource).
+3. The file is downloaded using the existing resource resolver, which handles streaming, size limits, and format detection.
+4. The downloaded file is placed in `data/shared/data/` and automatically appears in the experiment file listing during EXECUTION.
+5. A confirmation message is injected into the literature context (e.g., "Downloaded dataset: catalog.csv (1.2 MB)").
+
+**Budget:** Maximum 3 data requests per round (`_DATA_REQUESTS_PER_ROUND`). URLs are deduplicated across the entire cycle --- requesting the same URL twice is silently skipped.
+
+**Intended usage:** Use `[DATA:]` during PLANNING to request specific datasets you'll need in EXECUTION. Combine with `[SEARCH:]` to find papers that reference datasets, then stage the data with `[DATA:]`.
 
 ---
 
@@ -1053,7 +1078,7 @@ Token usage is tracked per API call in the `token_usage` database table and logg
 
 ## 13. Docker Sandbox
 
-The computational sandbox executes Python code in isolated Docker containers with no network access.
+The computational sandbox executes Python code in isolated Docker containers. By default, containers have no network access, but this can be overridden with the `--network-access` flag.
 
 ### Building the Image
 
@@ -1071,6 +1096,39 @@ The sandbox image includes: Python 3.12, NumPy, SciPy, Matplotlib, Pandas, sciki
 - **Non-root user:** Code runs as an unprivileged user
 - **Pre-execution safety scan:** AST-based code scanner rejects patterns like `os.system()`, `subprocess`, network calls, and sandbox escape attempts
 - **Output size limits:** Max 10 MB of output per execution
+
+### Network Access Mode
+
+By default, sandbox containers run with `--network=none` and the safety scanner blocks all network-related imports (`requests`, `httpx`, `urllib.request`, `http.client`, `aiohttp`, etc.). This is the recommended secure configuration.
+
+If your research requires downloading data or calling APIs from within experiments, you can enable network access:
+
+```bash
+paradigm run --network-access --prompt "Your research prompt"
+```
+
+This does three things:
+
+1. **Sets `network_mode="bridge"`** --- containers can reach the internet.
+2. **Disables network-import safety checks** --- `requests`, `httpx`, `urllib.request`, etc. are allowed in experiment code. (Other safety checks like `subprocess`, `os.system()`, and `exec()` remain active.)
+3. **Adjusts experiment prompts** --- agents are told that network access is available instead of receiving the "NO network access" warning.
+
+**When to use it:**
+
+- Experiments that need to query external APIs or download data at runtime.
+- When `[DATA:]` pre-staging during PLANNING is insufficient (e.g., the dataset URL is discovered during code execution, or the agent needs to stream data programmatically).
+
+**When NOT to use it:**
+
+- Most research cycles work fine without network access. Use `[DATA:]` pre-staging to make datasets available without opening the network.
+- Enabling network access reduces the security isolation of the sandbox. Only use it when necessary.
+
+You can also set this permanently in the config:
+
+```yaml
+sandbox:
+  network_mode: "bridge"   # default: "none"
+```
 
 ### Running Without Docker
 

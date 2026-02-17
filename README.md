@@ -150,9 +150,9 @@ pip install -e ".[openai]"
 
 ## Key Features
 
-**Literature Integration** --- Agents search arXiv in real-time, fetch and parse PDFs, and build citation context via semantic search (ChromaDB). Published internal papers are citable by future cycles.
+**Literature Integration** --- Agents search arXiv in real-time, fetch and parse PDFs, and build citation context via semantic search (ChromaDB). Published internal papers are citable by future cycles. Agents can stage external datasets with `[DATA: url]` tags during planning.
 
-**Computational Sandbox** --- Experimentalist agents write Python code that runs in isolated Docker containers (`--network=none`). Results, figures, and stdout feed back into the paper.
+**Computational Sandbox** --- Experimentalist agents write Python code that runs in isolated Docker containers (`--network=none` by default). Results, figures, and stdout feed back into the paper. Use `--network-access` to allow containers to reach the internet when experiments need external data or APIs.
 
 **Structured Peer Review** --- Independent reviewer agents score papers on novelty, rigor, clarity, and significance (1--10). Papers can be accepted, revised, or rejected. Rejected papers go to the "graveyard" where future cycles learn from past failures.
 
@@ -191,7 +191,7 @@ No frameworks (no LangChain, no CrewAI). The orchestrator is plain Python with e
 
 | Command | Description |
 |---------|-------------|
-| `paradigm run` | Run a research cycle (`--mode`, `--prompt`, `--rounds`, `--interactive`) |
+| `paradigm run` | Run a research cycle (`--mode`, `--prompt`, `--rounds`, `--interactive`, `--network-access`) |
 | `paradigm status` | System statistics and token usage |
 | `paradigm papers` | List papers (filter by `--status`) |
 | `paradigm paper ID` | View or export a paper (`--export path.md`) |
@@ -217,7 +217,7 @@ src/paradigm/
   storage/             SQLite database, checkpoints, graveyard
   logging/             Structured JSON event logging
 configs/               YAML configuration files
-tests/                 726 tests (pytest + pytest-asyncio)
+tests/                 775 tests (pytest + pytest-asyncio)
 ```
 
 ## Documentation
