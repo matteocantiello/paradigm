@@ -37,6 +37,7 @@ from paradigm.orchestrator.constants import (
     _PHASE_CONTEXT_NEEDS,
     _PHASE_INSTRUCTIONS,
     _RECENT_MESSAGES_LIMIT,
+    _ROLE_LATER_ROUND_REINFORCEMENTS,
     _SEARCH_ENABLED_PHASES,
     DEFAULT_TEAM_ROLES,
     MODE_TEAM_ROLES,
@@ -793,6 +794,12 @@ class OrchestrationEngine:
             checkpoint_context=checkpoint_context,
             recent_messages=recent_messages,
         )
+
+        # Inject role-specific reinforcement for later rounds
+        if round_num > 1:
+            reinforcement = _ROLE_LATER_ROUND_REINFORCEMENTS.get(agent.skill_profile, "")
+            if reinforcement:
+                formatted += reinforcement
 
         # Inject discovered paper index for round 2+ in search-enabled phases
         # so agents always have concrete IDs for [FOLLOW:] / [CITED_BY:]

@@ -396,6 +396,21 @@ _CONVERGENCE_CHECK_PROMPT = (
     '{{"converged": true/false, "confidence": 0.0-1.0, "rationale": "one sentence"}}'
 )
 
+_ROLE_LATER_ROUND_REINFORCEMENTS: dict[str, str] = {
+    "skeptic": (
+        "\n\n## Your Role: Skeptic\n"
+        "Your job is NOT to build consensus. You are the intellectual adversary.\n"
+        "- Identify the weakest claim in the discussion so far and attack it directly\n"
+        "- Name at least one assumption the team is making without evidence\n"
+        "- Propose a concrete alternative explanation that would invalidate the "
+        "leading hypothesis\n"
+        "- If everyone agrees, that is a red flag — find what they're missing\n"
+        "- Do NOT soften your critique with hedging language ('perhaps', "
+        "'it might be worth considering'). Be direct: 'This is wrong because...'\n"
+        "- End with an explicit list: 'Unresolved problems: 1. ... 2. ...'"
+    ),
+}
+
 _CHALLENGE_INSTRUCTION = (
     "\n\n## Focused Debate\n"
     "If you strongly disagree with another agent's position and believe a "

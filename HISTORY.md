@@ -1808,3 +1808,10 @@ it just stripped prefixes and returned whatever string it got.
 
 **Key decisions:** LLM-based detection (not keyword Jaccard) for semantic understanding; check after every round (cheap ~300 tokens); skip all remaining rounds on convergence (no ceremonial "one more" round); enabled by default with 0.85 confidence threshold; implemented as private method in engine.py (no new module).
 **Artifacts modified:** `config.py`, `constants.py`, `engine.py`, `display/fallback.py`, `display/manager.py`, `docs/MANUAL.md`
+
+### Prompt 139 — Fix Skeptic Too Agreeable
+
+> Fix the skeptic agent becoming too passive in rounds 2+. The problem: all agents receive identical phase prompts with consensus-building language ("build on promising hypotheses", "respond to your colleagues"), which overrides the skeptic's adversarial system prompt. Solution: add role-specific later-round reinforcements that inject adversarial instructions for the skeptic after the phase template in rounds 2+. Also sharpen the skeptic's system prompt to remove hedging language.
+
+**Key decisions:** `_ROLE_LATER_ROUND_REINFORCEMENTS` dict in constants.py mapping role names to reinforcement paragraphs; injected in `_build_agent_prompt()` after template formatting for rounds 2+; only skeptic gets an entry (extensible to other roles); skeptic system prompt sharpened to remove "Acknowledge strong evidence while still probing weaknesses" and add "Never agree with the group just to move forward".
+**Artifacts modified:** `orchestrator/constants.py`, `orchestrator/engine.py`, `agents/prompts/skeptic.yaml`
