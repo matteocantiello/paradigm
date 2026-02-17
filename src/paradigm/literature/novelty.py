@@ -110,8 +110,7 @@ async def check_novelty_semantic_scholar(
 
     # Step 3: Ask LLM to assess novelty
     papers_text = "\n".join(
-        f"- {p['title']} ({p['year']}): {p['abstract'][:200]}"
-        for p in all_papers[:15]
+        f"- {p['title']} ({p['year']}): {p['abstract'][:200]}" for p in all_papers[:15]
     )
 
     assess_prompt = (

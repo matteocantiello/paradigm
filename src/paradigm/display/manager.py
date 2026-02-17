@@ -36,9 +36,7 @@ class DisplayState:
     paper_path: str = ""
     outcome: str = ""  # published, rejected, reviewed, etc.
 
-    def add_agent_message(
-        self, agent_id: str, role: str, model: str, content: str
-    ) -> None:
+    def add_agent_message(self, agent_id: str, role: str, model: str, content: str) -> None:
         """Add an agent message preview (capped at 8)."""
         self.agent_messages.append(
             {

@@ -76,9 +76,7 @@ class CitationHandler:
                 if section_name.lower() not in citable_sections:
                     continue
 
-                cited_text, urls = await client.cite_section(
-                    section_content, section_name
-                )
+                cited_text, urls = await client.cite_section(section_content, section_name)
                 section_texts.append(cited_text)
                 section_url_lists.append(urls)
                 cited_section_names.append(section_name)
@@ -88,9 +86,7 @@ class CitationHandler:
             return draft
 
         # Renumber citations globally
-        _, global_urls = BibliographyBuilder.renumber_citations(
-            section_texts, section_url_lists
-        )
+        _, global_urls = BibliographyBuilder.renumber_citations(section_texts, section_url_lists)
 
         # Replace sections in assembled body with cited versions
         # We need to re-renumber each section individually
@@ -113,9 +109,7 @@ class CitationHandler:
             # Build local->global mapping for this section
             local_to_global: dict[int, int] = {}
             for local_idx, url in enumerate(urls):
-                local_to_global[local_idx + 1] = url_to_global.get(
-                    url, local_idx + 1
-                )
+                local_to_global[local_idx + 1] = url_to_global.get(url, local_idx + 1)
 
             mapping = local_to_global
 
@@ -129,7 +123,9 @@ class CitationHandler:
 
         # Build bibliography
         bib_builder = BibliographyBuilder(
-            arxiv_client=self._engine._corpus._arxiv if hasattr(self._engine._corpus, "_arxiv") else None,
+            arxiv_client=self._engine._corpus._arxiv
+            if hasattr(self._engine._corpus, "_arxiv")
+            else None,
             s2_client=None,
             event_logger=self._engine._logger,
         )
@@ -192,13 +188,9 @@ class CitationHandler:
                     ),
                     thread_id=self._engine._thread_id,
                 )
-                return NoveltyResult(
-                    is_novel=True, confidence=0.0, source="futurehouse"
-                )
+                return NoveltyResult(is_novel=True, confidence=0.0, source="futurehouse")
 
-            result = await check_novelty_futurehouse(
-                idea_text, api_key, self._engine._logger
-            )
+            result = await check_novelty_futurehouse(idea_text, api_key, self._engine._logger)
         else:
             # Semantic Scholar mode
             from paradigm.literature.semantic_scholar import SemanticScholarClient

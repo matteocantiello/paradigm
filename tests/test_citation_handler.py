@@ -123,9 +123,7 @@ class TestCitationHandlerEnabled:
             )
         )
 
-        with patch(
-            "paradigm.orchestrator.citation_handler.PerplexityClient"
-        ) as mock_client_cls:
+        with patch("paradigm.orchestrator.citation_handler.PerplexityClient") as mock_client_cls:
             mock_instance = AsyncMock()
             mock_instance.cite_section = mock_cite_section
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
@@ -153,9 +151,7 @@ class TestCitationHandlerEnabled:
             cited_sections.append(section_name)
             return text, []
 
-        with patch(
-            "paradigm.orchestrator.citation_handler.PerplexityClient"
-        ) as mock_client_cls:
+        with patch("paradigm.orchestrator.citation_handler.PerplexityClient") as mock_client_cls:
             mock_instance = AsyncMock()
             mock_instance.cite_section = AsyncMock(side_effect=mock_cite_section)
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
@@ -191,9 +187,7 @@ class TestNoveltyCheck:
                 source="semantic_scholar",
             )
 
-            with patch(
-                "paradigm.literature.semantic_scholar.SemanticScholarClient"
-            ) as mock_s2_cls:
+            with patch("paradigm.literature.semantic_scholar.SemanticScholarClient") as mock_s2_cls:
                 mock_s2 = AsyncMock()
                 mock_s2.close = AsyncMock()
                 mock_s2_cls.return_value = mock_s2
@@ -223,9 +217,7 @@ class TestNoveltyCheck:
                 source="semantic_scholar",
             )
 
-            with patch(
-                "paradigm.literature.semantic_scholar.SemanticScholarClient"
-            ) as mock_s2_cls:
+            with patch("paradigm.literature.semantic_scholar.SemanticScholarClient") as mock_s2_cls:
                 mock_s2 = AsyncMock()
                 mock_s2.close = AsyncMock()
                 mock_s2_cls.return_value = mock_s2
@@ -321,9 +313,7 @@ class TestSeedDiscovery:
         engine._corpus._arxiv.get_paper = mock_get_paper
         engine._corpus.ingest_paper = mock_ingest
 
-        with patch(
-            "paradigm.orchestrator.literature.PerplexityClient"
-        ) as mock_client_cls:
+        with patch("paradigm.orchestrator.literature.PerplexityClient") as mock_client_cls:
             mock_instance = AsyncMock()
             mock_instance.discover_papers = mock_discover
             mock_instance.close = AsyncMock()

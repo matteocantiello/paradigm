@@ -30,7 +30,10 @@ class TestExtractArxivId:
         assert extract_arxiv_id_from_url("https://arxiv.org/abs/2301.00001") == "2301.00001"
 
     def test_old_style_id(self):
-        assert extract_arxiv_id_from_url("https://arxiv.org/abs/astro-ph/0601234") == "astro-ph/0601234"
+        assert (
+            extract_arxiv_id_from_url("https://arxiv.org/abs/astro-ph/0601234")
+            == "astro-ph/0601234"
+        )
 
     def test_no_match(self):
         assert extract_arxiv_id_from_url("https://example.com/paper") == ""

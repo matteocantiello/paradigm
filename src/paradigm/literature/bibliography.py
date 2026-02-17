@@ -114,9 +114,8 @@ class BibliographyBuilder:
                 if papers:
                     paper = papers[0]
                     ref.title = paper.title
-                    ref.authors = (
-                        ", ".join(paper.authors[:3])
-                        + (" et al." if len(paper.authors) > 3 else "")
+                    ref.authors = ", ".join(paper.authors[:3]) + (
+                        " et al." if len(paper.authors) > 3 else ""
                     )
                     ref.year = str(paper.year) if paper.year else ""
                     return
@@ -130,9 +129,8 @@ class BibliographyBuilder:
                 if papers:
                     paper = papers[0]
                     ref.title = paper.title
-                    ref.authors = (
-                        ", ".join(paper.authors[:3])
-                        + (" et al." if len(paper.authors) > 3 else "")
+                    ref.authors = ", ".join(paper.authors[:3]) + (
+                        " et al." if len(paper.authors) > 3 else ""
                     )
                     ref.year = paper.published[:4] if paper.published else ""
                     return

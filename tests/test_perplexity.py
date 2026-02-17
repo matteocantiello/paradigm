@@ -156,13 +156,7 @@ class TestCiteParagraphMock:
         mock_response = httpx.Response(
             200,
             json={
-                "choices": [
-                    {
-                        "message": {
-                            "content": "Stellar convection is important [1]."
-                        }
-                    }
-                ],
+                "choices": [{"message": {"content": "Stellar convection is important [1]."}}],
                 "citations": ["https://arxiv.org/abs/2301.12345"],
             },
             request=mock_request,
@@ -348,9 +342,7 @@ class TestDiscoverPapersMock:
         mock_response = httpx.Response(
             200,
             json={
-                "choices": [
-                    {"message": {"content": "I could not find any papers."}}
-                ],
+                "choices": [{"message": {"content": "I could not find any papers."}}],
                 "citations": [],
             },
             request=mock_request,

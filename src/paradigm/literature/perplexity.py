@@ -233,9 +233,7 @@ class PerplexityClient:
 
                 return _extract_arxiv_urls(cleaned, citations)
             except Exception as e:
-                logger.warning(
-                    "Perplexity discover_papers attempt %d failed: %s", attempt + 1, e
-                )
+                logger.warning("Perplexity discover_papers attempt %d failed: %s", attempt + 1, e)
                 if self._event_logger:
                     self._event_logger.log_error(
                         e, metadata_key="perplexity_discovery", attempt=attempt + 1
@@ -282,13 +280,9 @@ class PerplexityClient:
                     citation_urls=citations,
                 )
             except Exception as e:
-                logger.warning(
-                    "Perplexity cite_paragraph attempt %d failed: %s", attempt + 1, e
-                )
+                logger.warning("Perplexity cite_paragraph attempt %d failed: %s", attempt + 1, e)
                 if self._event_logger:
-                    self._event_logger.log_error(
-                        e, metadata_key="perplexity", attempt=attempt + 1
-                    )
+                    self._event_logger.log_error(e, metadata_key="perplexity", attempt=attempt + 1)
 
         return None
 

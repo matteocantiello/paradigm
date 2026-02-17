@@ -478,12 +478,8 @@ class TestAgentMessagesPanel:
 
     def test_with_messages(self):
         state = DisplayState()
-        state.add_agent_message(
-            "theorist-0", "theorist", "claude-opus-4-6", "We propose..."
-        )
-        state.add_agent_message(
-            "analyst-0", "analyst", "claude-opus-4-6", "Based on the data..."
-        )
+        state.add_agent_message("theorist-0", "theorist", "claude-opus-4-6", "We propose...")
+        state.add_agent_message("analyst-0", "analyst", "claude-opus-4-6", "Based on the data...")
         panel = build_agent_messages_panel(state)
         assert panel.title is not None
         # Panel should contain agent content (rendered as Rich Text)

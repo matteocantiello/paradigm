@@ -34,10 +34,12 @@ class TestNoveltySemanticScholar:
     async def test_novel_idea(self):
         """LLM assessment says the idea is novel."""
         s2_client = MagicMock()
-        s2_client.search = AsyncMock(return_value=[
-            _make_s2_paper("Unrelated Paper 1", "About cooking recipes"),
-            _make_s2_paper("Unrelated Paper 2", "About quantum gravity"),
-        ])
+        s2_client.search = AsyncMock(
+            return_value=[
+                _make_s2_paper("Unrelated Paper 1", "About cooking recipes"),
+                _make_s2_paper("Unrelated Paper 2", "About quantum gravity"),
+            ]
+        )
 
         mock_provider = MagicMock()
         # First call: keyword extraction
@@ -66,9 +68,11 @@ class TestNoveltySemanticScholar:
     async def test_not_novel_idea(self):
         """LLM assessment says the idea is not novel."""
         s2_client = MagicMock()
-        s2_client.search = AsyncMock(return_value=[
-            _make_s2_paper("Exact Match Paper", "Exactly what user proposed"),
-        ])
+        s2_client.search = AsyncMock(
+            return_value=[
+                _make_s2_paper("Exact Match Paper", "Exactly what user proposed"),
+            ]
+        )
 
         mock_provider = MagicMock()
         extract_response = MagicMock()
@@ -121,6 +125,7 @@ class TestNoveltyFuturehouse:
         """Raises ImportError when futurehouse_client is not installed."""
         # We mock the import to fail
         import builtins
+
         real_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):

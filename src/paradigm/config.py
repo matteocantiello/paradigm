@@ -140,9 +140,7 @@ class CitationConfig(BaseModel):
 
     enable_citation_grounding: bool = False
     perplexity_api_key_env: str = "PERPLEXITY_API_KEY"
-    citation_sections: list[str] = Field(
-        default_factory=lambda: ["introduction", "methods"]
-    )
+    citation_sections: list[str] = Field(default_factory=lambda: ["introduction", "methods"])
     max_retries_per_paragraph: int = 2
     perplexity_timeout: float = 120.0
     enable_novelty_check: bool = False
