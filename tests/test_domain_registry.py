@@ -32,11 +32,12 @@ def test_register_and_get():
     assert result.description == "alpha domain"
 
 
-def test_register_duplicate_raises():
-    """Registering a domain twice raises ValueError."""
+def test_register_duplicate_overwrites():
+    """Registering a domain twice overwrites the first (idempotent)."""
     register_domain(_make_profile("dup"))
-    with pytest.raises(ValueError, match="already registered"):
-        register_domain(_make_profile("dup"))
+    profile2 = DomainProfile(name="dup", description="updated")
+    register_domain(profile2)
+    assert get_domain("dup").description == "updated"
 
 
 def test_list_domains_empty():

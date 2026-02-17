@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import sys
 
 from paradigm.domains.base import DomainProfile
 
@@ -16,14 +17,11 @@ _REGISTRY: dict[str, DomainProfile] = {}
 def register_domain(profile: DomainProfile) -> None:
     """Register a domain profile.
 
+    Overwrites any existing registration with the same name (idempotent).
+
     Args:
         profile: Domain profile to register.
-
-    Raises:
-        ValueError: If a domain with the same name is already registered.
     """
-    if profile.name in _REGISTRY:
-        raise ValueError(f"Domain '{profile.name}' is already registered")
     _REGISTRY[profile.name] = profile
 
 
@@ -75,7 +73,11 @@ def load_domain(name: str) -> None:
     """
     module_path = f"paradigm.domains.{name}"
     try:
-        importlib.import_module(module_path)
+        if module_path in sys.modules:
+            # Module already imported — reload to re-register
+            importlib.reload(sys.modules[module_path])
+        else:
+            importlib.import_module(module_path)
     except ImportError as e:
         raise ValueError(
             f"Could not load domain '{name}': no module '{module_path}' found"
