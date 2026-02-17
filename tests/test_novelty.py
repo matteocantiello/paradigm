@@ -11,7 +11,6 @@ from paradigm.literature.novelty import (
 )
 from paradigm.literature.semantic_scholar import SemanticPaper
 
-
 # ---------------------------------------------------------------------------
 # check_novelty_semantic_scholar
 # ---------------------------------------------------------------------------

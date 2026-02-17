@@ -1,7 +1,6 @@
 """Tests for the Perplexity citation grounding module."""
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -15,7 +14,6 @@ from paradigm.literature.perplexity import (
     _split_into_paragraphs,
     _strip_think_tags,
 )
-
 
 # ---------------------------------------------------------------------------
 # _strip_think_tags
