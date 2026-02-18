@@ -2301,3 +2301,42 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `src/paradigm/orchestrator/constants.py` — `_filter_relevant_papers()`
 - `src/paradigm/literature/arxiv.py` — `_build_query()`
 - `src/paradigm/literature/semantic_scholar.py` — `_get_json()`
+
+### Prompt 186 — Analyze paper-b436ee48eb27 Logs for Pipeline Improvements
+
+> Let's analyze the logs of paper-b436ee48eb27 (thread-570c3ca5fde8). It would be good to understand if the updates we made have improved the flow of discussion and the outcome. Do we still have redundant discussions? Are we missing important insights? Are the logs revealing obvious shortcomings of the current approach and/or ways to improve?
+
+**Key objective**: Post-mortem analysis of a recent paper run to evaluate pipeline improvements and identify remaining issues.
+
+**Key findings from paper-b436ee48eb27 post-mortem**:
+1. ~65% token waste from agent redundancy and execution retries
+2. Discussion phases ~80% redundant (parallel monologues)
+3. EXECUTION 87% of transcript, achieved 1 of 7 planned experiments
+4. Data parsing consumed 85% of experiment effort (44 scripts for a 2-3 script task)
+5. Key science missing: wind variability, partial correlations, MIST tracks, key citations
+6. MIST track confabulation survived editorial review
+7. Skeptic is the highest-value agent by far
+
+**Artifacts produced**: Post-mortem analysis documented in conversation
+
+### Prompt 187 — Implement P0 Fixes from paper-b436ee48eb27 Post-Mortem
+
+> Yes, except 3) (network was available within the container, as we ran with --network-access). So that's another issue and we need to deal with it separately.
+
+**Key clarification**: Docker sandbox had `--network-access`, so VizieR/MIST download failures were due to bad agent strategy, not network restrictions. This is a separate issue.
+
+**Approved fixes (3 of 4 P0 items)**:
+1. Sequential differentiation in IDEATION/PLANNING
+2. Execution retry limits + environment memory
+3. Pre-WRITING scope gate (prevent confabulations)
+
+### Prompt 188 — Implement Three Pipeline Fixes from paper-b436ee48eb27 Post-Mortem
+
+> Implement the following plan: [Three Pipeline Fixes from paper-b436ee48eb27 Post-Mortem]
+
+**Key changes**:
+1. **Fix 1 — Sequential Differentiation**: Add `{recent_messages}` to IDEATION, PLANNING, POST_EXECUTION round_1 templates with strong differentiation instructions; add header logic in `_build_agent_prompt()` for round_1 recent messages
+2. **Fix 2 — Execution Environment Memory**: Add `_learned_constraints` list to `ExperimentationHandler`; extract constraints from ModuleNotFoundError, file-not-found, and network errors; inject into experiment and retry prompts; add experiment count cap
+3. **Fix 3 — Pre-WRITING Scope Gate**: Enhance POST_EXECUTION synthesis with FORBIDDEN claims section; add `_extract_forbidden_claims()`, `_build_forbidden_claims_block()`, `_check_forbidden_claims_violations()` to WritingHandler; inject into section drafting, assembly, and editor review
+
+**Files modified**: `constants.py`, `experimentation.py`, `writing.py`, `engine.py`, `manager.py`, `fallback.py`

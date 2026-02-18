@@ -273,6 +273,9 @@ class PlainTextFallback:
             f"stopping experiments"
         )
 
+    def experiment_budget_exhausted(self, total: int) -> None:
+        click.echo(f"    [!] Experiment budget exhausted ({total} experiments), stopping execution")
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------

@@ -13,6 +13,7 @@ from paradigm.orchestrator.constants import (
     _EXECUTION_STDERR_LIMIT,
     _FILE_NOT_FOUND_PATTERNS,
     _MAX_RETRIES_PER_EXPERIMENT,
+    _MAX_TOTAL_EXPERIMENTS_PER_PHASE,
     _NETWORK_ERROR_PATTERNS,
     _PHASE_INSTRUCTIONS,
     _WRITING_MAX_TOKENS,
@@ -161,6 +162,8 @@ class ExperimentationHandler:
         self._strategy_redirects: int = 0
         # Limit auto literature search to once per retry cycle
         self._auto_searched: bool = False
+        # Persistent memory of specific environment facts from prior failures
+        self._learned_constraints: list[str] = []
 
     async def run_experimentation_phase(self) -> ExperimentationResult:
         """Run the EXECUTION phase: agents propose and run computational experiments.
@@ -294,6 +297,14 @@ class ExperimentationHandler:
                     prompt += _advisory_message
                     _advisory_message = ""
 
+                # Inject learned constraints from prior failures
+                if self._learned_constraints:
+                    prompt += (
+                        "\n\n## LEARNED CONSTRAINTS (from prior failures — do NOT violate)\n"
+                        + "\n".join(f"- {c}" for c in self._learned_constraints)
+                        + "\n"
+                    )
+
                 try:
                     response = await experimenter.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
                 except Exception as e:
@@ -327,6 +338,11 @@ class ExperimentationHandler:
                 round_total = 0
                 round_failures = 0
                 for exp_name, code in code_blocks:
+                    # Enforce total experiment cap per phase
+                    if _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
+                        engine._display.experiment_budget_exhausted(_total_experiments)
+                        break
+
                     engine._display.experiment_running(exp_name)
                     result, final_code = await self._execute_with_retry(
                         executor,
@@ -422,6 +438,11 @@ class ExperimentationHandler:
                             "failure_reason": failure_reason,
                         }
                     )
+
+                # Total experiment budget exhausted — break outer loop too
+                if _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
+                    _circuit_breaker_fired = True
+                    break
 
                 # Per-round circuit breaker: if >70% of executions failed, stop
                 if round_total >= 3 and (round_failures / round_total) > 0.7:
@@ -644,6 +665,11 @@ class ExperimentationHandler:
             )
             if _module_match:
                 _bad_module = _module_match.group(1)
+                # Record learned constraint for future experiments
+                constraint = f"Module '{_bad_module}' is NOT available. Do NOT import it."
+                if constraint not in self._learned_constraints:
+                    self._learned_constraints.append(constraint)
+
                 _replacements: dict[str, str] = {
                     "PyPDF2": "pypdf (use `from pypdf import PdfReader`)",
                     "pdfminer": "pdfminer.six (use `from pdfminer.high_level import extract_text`)",
@@ -684,6 +710,26 @@ class ExperimentationHandler:
                     "Use ONLY the exact paths listed above. If no suitable data files "
                     "are available, generate realistic synthetic data instead.\n",
                 )
+                # Record specific missing file as learned constraint
+                fnf_match = re.search(
+                    r"No such file or directory: ['\"]([^'\"]+)['\"]", combined_text
+                )
+                if fnf_match:
+                    bad_path = fnf_match.group(1)
+                    constraint = f"File '{bad_path}' does NOT exist."
+                    if constraint not in self._learned_constraints:
+                        self._learned_constraints.append(constraint)
+
+            # Record network error constraints (when network IS enabled but URL fails)
+            url_match = re.search(
+                r"(?:ConnectionError|HTTPError|Timeout).*?(https?://[^\s'\"]+)",
+                combined_text,
+            )
+            if url_match:
+                bad_url = url_match.group(1)[:100]
+                constraint = f"URL '{bad_url}' failed. Try alternative data sources."
+                if constraint not in self._learned_constraints:
+                    self._learned_constraints.append(constraint)
 
             error_feedback = "\n\n".join(error_parts)
 
@@ -721,6 +767,14 @@ class ExperimentationHandler:
                 error_feedback=error_feedback,
                 network_caveat=net_caveat,
             )
+
+            # Inject learned constraints into retry prompt
+            if self._learned_constraints:
+                retry_prompt += (
+                    "\n\n## LEARNED CONSTRAINTS (from prior failures — do NOT violate)\n"
+                    + "\n".join(f"- {c}" for c in self._learned_constraints)
+                    + "\n"
+                )
 
             try:
                 response = await experimenter.generate(retry_prompt, max_tokens=_WRITING_MAX_TOKENS)

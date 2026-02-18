@@ -79,8 +79,17 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "You are participating in a collaborative research ideation session.\n"
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
-            "This is the opening round. Propose 1-2 concrete, testable hypotheses "
-            "related to this topic. Be specific about what you'd predict and why."
+            "{recent_messages}"
+            "Propose 1-2 concrete, testable hypotheses "
+            "related to this topic. Be specific about what you'd predict and why.\n\n"
+            "**CRITICAL DIFFERENTIATION RULE:** If prior proposals appear above, "
+            "you MUST NOT repeat hypotheses already proposed. Instead:\n"
+            "- Propose genuinely DIFFERENT hypotheses or alternative mechanisms\n"
+            "- Challenge or refine prior proposals with new evidence\n"
+            "- Identify blind spots, overlooked variables, or unstated assumptions\n"
+            "- If you agree with existing proposals, say so in ONE sentence and "
+            "spend your response on what's MISSING\n\n"
+            "Redundant proposals waste the team's entire token budget."
         ),
         "later_rounds": (
             "You are participating in a collaborative research ideation session.\n"
@@ -102,9 +111,16 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "You are developing a concrete research plan.\n"
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
+            "{recent_messages}"
             "**IMPORTANT:** The Phase Syntheses section above contains the agreed "
             "hypotheses and scope boundaries from IDEATION. Your plan MUST address "
             "these specific hypotheses — do NOT propose new research directions.\n\n"
+            "**CRITICAL DIFFERENTIATION RULE:** If prior plans appear above, "
+            "do NOT restate experiments already proposed. Instead:\n"
+            "- Add NEW experiments or analyses not yet covered\n"
+            "- Critique specific weaknesses in proposed experiments\n"
+            "- Suggest improvements to methodology or success criteria\n"
+            "- Identify missing controls, data sources, or feasibility risks\n\n"
             "Based on the ideation phase, propose specific:\n"
             "- Experiments or analyses to run\n"
             "- Data requirements and sources\n"
@@ -220,6 +236,16 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "You are reviewing the computational experiment results from the EXECUTION phase.\n"
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
+            "{recent_messages}"
+            "**CRITICAL DIFFERENTIATION RULE:** If prior evaluations appear above, "
+            "do NOT repeat the same assessment. Each team member must evaluate a "
+            "DIFFERENT dimension:\n"
+            "- If you are the FIRST to evaluate: provide the factual summary of "
+            "what experiments achieved and what they did not.\n"
+            "- If prior evaluations exist: focus ONLY on what they missed — "
+            "methodological flaws, alternative interpretations, unstated caveats, "
+            "or overlooked evidence. Do NOT restate correlation tables or results "
+            "already reported.\n\n"
             "Critically evaluate these results:\n"
             "1. What do the results actually show? Distinguish strong evidence from suggestive trends.\n"
             "2. What are the limitations? (synthetic data, missing observations, failed experiments)\n"
@@ -295,7 +321,11 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "4. **Claim-evidence alignment:** Does each major claim have supporting "
             "evidence (numbers, statistics, references)?\n"
             "5. **Anti-confabulation:** Cross-reference every quantitative claim against "
-            "the Execution Fact Sheet. Flag any number not traceable to experiment output.\n\n"
+            "the Execution Fact Sheet. Flag any number not traceable to experiment output.\n"
+            "6. **Forbidden claims:** Cross-reference every major claim against the "
+            "Forbidden Claims list. If the paper describes a failed experiment as "
+            "successful or claims results from analyses that were never completed, "
+            "that is a MANDATORY REJECT regardless of other qualities.\n\n"
             "Provide a structured review with these sections (use ## headers):\n"
             "## Strengths\n- What works well\n\n"
             "## Weaknesses\n- What needs improvement\n\n"
@@ -520,6 +550,12 @@ _SYNTHESIS_CLOSING_TEMPLATES: dict[ResearchPhase, str] = {
         "### Paper Scope Agreement\n"
         "What the paper SHOULD claim and what it MUST NOT claim, "
         "based on the actual evidence.\n\n"
+        "### FORBIDDEN CLAIMS\n"
+        "List specific claims the paper MUST NOT make, using this exact format:\n"
+        "- FORBIDDEN: [specific claim that must not appear]\n"
+        "- FORBIDDEN: [another specific claim]\n"
+        "For each failed experiment, there must be at least one FORBIDDEN entry "
+        "preventing the paper from describing that experiment as successful.\n\n"
         "Be concise — this synthesis will guide the WRITING phase."
     ),
 }
@@ -566,6 +602,7 @@ _EXECUTION_OUTPUT_LIMIT = 4000
 _EXECUTION_STDERR_LIMIT = 2000
 _PEER_REVIEW_METADATA_LIMIT = 8000
 _MAX_RETRIES_PER_EXPERIMENT = 2
+_MAX_TOTAL_EXPERIMENTS_PER_PHASE = 50
 # (Also exposed as _RECENT_MESSAGES_LIMIT above)
 
 # Literature handler magic numbers

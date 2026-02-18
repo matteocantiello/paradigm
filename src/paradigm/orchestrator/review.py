@@ -199,6 +199,20 @@ class ReviewHandler:
                     "traced to an experiment output."
                 )
 
+            # Inject forbidden claims block for the editor
+            forbidden_block = self._engine._writing._build_forbidden_claims_block()
+            if forbidden_block:
+                prompt += forbidden_block
+
+            # Inject automated forbidden claims violations if detected
+            if self._engine._forbidden_claims_violations:
+                prompt += (
+                    "\n\n## AUTOMATED VIOLATION ALERTS\n"
+                    "The following potential forbidden claim violations were "
+                    "detected automatically. Verify each one:\n"
+                    + "\n".join(f"- {v}" for v in self._engine._forbidden_claims_violations)
+                )
+
             try:
                 response = await editor.generate(prompt, max_tokens=_REVIEW_MAX_TOKENS)
             except Exception as e:

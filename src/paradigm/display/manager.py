@@ -695,6 +695,13 @@ class DisplayManager:
         else:
             self._fallback.experiment_cross_round_breaker(failures, total)
 
+    def experiment_budget_exhausted(self, total: int) -> None:
+        self._state.add_event("warning", f"Experiment budget exhausted ({total} total)")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_budget_exhausted(total)
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------

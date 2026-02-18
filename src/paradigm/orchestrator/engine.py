@@ -124,6 +124,7 @@ class OrchestrationEngine:
         self._phase_synthesis: dict[str, str] = {}  # Structured synthesis per phase
         self._planning_action_items: str = ""  # Extracted action items from PLANNING
         self._experiment_metadata: list[dict[str, str | bool]] = []
+        self._forbidden_claims_violations: list[str] = []
         self._code_context: str = ""
         self._data_context: str = ""
         self._reference_context: str = ""
@@ -853,6 +854,16 @@ class OrchestrationEngine:
             f"{m.get('content', '')[:500]}"
             for m in recent
         )
+
+        # For round_1, prepend a clear header so agents know these are
+        # prior team proposals from the same round (not prior-phase context)
+        if round_num == 1 and recent_messages:
+            # Filter to messages from current phase only
+            phase_messages = [m for m in recent if m.get("phase") == str(phase)]
+            if phase_messages:
+                recent_messages = (
+                    "## Prior Team Proposals (this round)\n" + recent_messages + "\n\n"
+                )
 
         # Phase-appropriate context injection — only inject what each phase needs
         context_needs = _PHASE_CONTEXT_NEEDS.get(phase, set())

@@ -83,6 +83,117 @@ class WritingHandler:
         )
         return "\n".join(lines)
 
+    def _extract_forbidden_claims(self) -> list[str]:
+        """Extract FORBIDDEN claims from POST_EXECUTION synthesis and experiment metadata.
+
+        Collects explicit FORBIDDEN entries from the synthesis text and
+        auto-generates entries for failed experiments.
+
+        Returns:
+            List of forbidden claim strings.
+        """
+        forbidden: list[str] = []
+
+        # From POST_EXECUTION synthesis
+        synthesis = self._engine._phase_synthesis.get(str(ResearchPhase.POST_EXECUTION), "")
+        for line in synthesis.split("\n"):
+            line = line.strip()
+            if line.upper().startswith("- FORBIDDEN:"):
+                claim = line[len("- FORBIDDEN:") :].strip()
+                if claim:
+                    forbidden.append(claim)
+
+        # Auto-generate from failed experiments
+        for entry in self._engine._experiment_metadata:
+            if entry.get("status") != "success":
+                name = entry.get("name", "unnamed")
+                reason = str(entry.get("failure_reason", "unknown error"))[:100]
+                forbidden.append(
+                    f"Do NOT describe experiment '{name}' as having produced results "
+                    f"(it FAILED: {reason})"
+                )
+
+        return forbidden
+
+    def _build_forbidden_claims_block(self) -> str:
+        """Build a prominent forbidden-claims block for writer/editor prompts.
+
+        Returns:
+            Formatted forbidden claims block, or empty string if none.
+        """
+        forbidden = self._extract_forbidden_claims()
+        if not forbidden:
+            return ""
+
+        lines = [
+            "\n\n## FORBIDDEN CLAIMS — HARD CONSTRAINT",
+            "The following claims MUST NOT appear in the paper under any circumstances. "
+            "If you write ANY of these, the paper will be rejected:",
+            "",
+        ]
+        for i, claim in enumerate(forbidden, 1):
+            lines.append(f"{i}. {claim}")
+        lines.append("")
+        lines.append(
+            "**Violation of any forbidden claim is an automatic rejection. "
+            "Cross-check your draft against this list before submitting.**"
+        )
+        return "\n".join(lines)
+
+    def _check_forbidden_claims_violations(self, paper_text: str) -> list[str]:
+        """Check assembled paper for violations of forbidden claims.
+
+        Uses keyword matching to flag potential violations where a failed
+        experiment name appears near success-indicating words.
+
+        Args:
+            paper_text: The assembled paper markdown text.
+
+        Returns:
+            List of warning strings describing potential violations.
+        """
+        if not self._engine._experiment_metadata:
+            return []
+
+        violations: list[str] = []
+        paper_lower = paper_text.lower()
+
+        # Check each failed experiment — is it described as producing results?
+        for entry in self._engine._experiment_metadata:
+            if entry.get("status") == "success":
+                continue
+            name = str(entry.get("name", "")).lower()
+            # Skip very short/generic names
+            if len(name) < 5:
+                continue
+            # Check if the experiment name appears near success-indicating words
+            keywords = name.split("_")[:3]
+            for kw in keywords:
+                if len(kw) <= 4 or kw not in paper_lower:
+                    continue
+                idx = paper_lower.find(kw)
+                context = paper_lower[max(0, idx - 100) : idx + 100]
+                success_words = [
+                    "computed",
+                    "obtained",
+                    "yielded",
+                    "produced",
+                    "show",
+                    "demonstrate",
+                    "reveals",
+                    "confirms",
+                ]
+                if any(sw in context for sw in success_words):
+                    snippet = paper_text[max(0, idx - 50) : idx + 50]
+                    violations.append(
+                        f"Possible forbidden claim violation: failed experiment "
+                        f"'{entry.get('name')}' may be described as successful "
+                        f"near: '...{snippet}...'"
+                    )
+                    break  # One violation per experiment is enough
+
+        return violations
+
     @staticmethod
     def _extract_numerical_claims(text: str) -> list[tuple[str, str, str]]:
         """Extract numerical claims from paper text.
@@ -253,6 +364,13 @@ class WritingHandler:
         assembled_body = self.embed_figures_inline(assembled_body)
         draft.assembled_body = assembled_body
 
+        # Post-assembly: check for forbidden claims violations
+        violations = self._check_forbidden_claims_violations(assembled_body)
+        if violations:
+            self._engine._forbidden_claims_violations = violations
+        else:
+            self._engine._forbidden_claims_violations = []
+
         # Citation grounding (non-fatal on failure)
         if self._engine._config.citation.enable_citation_grounding:
             try:
@@ -344,6 +462,11 @@ class WritingHandler:
                 ref_values = self._extract_reference_values(fact_sheet)
                 if ref_values:
                     prompt += ref_values
+
+            # Inject forbidden claims block to prevent confabulation
+            forbidden_block = self._build_forbidden_claims_block()
+            if forbidden_block:
+                prompt += forbidden_block
 
             # Inject execution context for results and methods sections
             results_like = {"results"}
@@ -455,6 +578,11 @@ class WritingHandler:
         fact_sheet = self._build_execution_fact_sheet()
         if fact_sheet:
             prompt += fact_sheet
+
+        # Inject forbidden claims block into assembly
+        forbidden_block = self._build_forbidden_claims_block()
+        if forbidden_block:
+            prompt += forbidden_block
 
         # Detect and inject numerical discrepancies across section drafts
         claims = self._extract_numerical_claims(section_drafts_text)
