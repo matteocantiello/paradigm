@@ -185,9 +185,7 @@ class SemanticScholarClient:
 
                 if self._logger:
                     self._logger.log_error(
-                        Exception(
-                            f"Semantic Scholar API returned {response.status_code}"
-                        ),
+                        Exception(f"Semantic Scholar API returned {response.status_code}"),
                         metadata_key="semantic_scholar",
                         url=url,
                         status_code=response.status_code,
@@ -196,9 +194,7 @@ class SemanticScholarClient:
 
             except Exception as e:
                 if self._logger:
-                    self._logger.log_error(
-                        e, metadata_key="semantic_scholar", url=url
-                    )
+                    self._logger.log_error(e, metadata_key="semantic_scholar", url=url)
                 return None
 
     async def close(self) -> None:
