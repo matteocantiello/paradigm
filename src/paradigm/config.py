@@ -122,6 +122,8 @@ class OrchestratorConfig(BaseModel):
     execution_advisory_threshold: int = 3
     cross_round_failure_threshold: float = 0.6
     cross_round_min_experiments: int = 5
+    enable_pre_execution_review: bool = False  # Opt-in (adds ~1K tokens/experiment)
+    pre_execution_review_role: str = "analyst"  # Which role reviews code
 
 
 class SkillsConfig(BaseModel):

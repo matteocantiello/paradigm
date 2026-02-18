@@ -702,6 +702,34 @@ class DisplayManager:
         else:
             self._fallback.experiment_budget_exhausted(total)
 
+    def experiment_skipped(self, exp_name: str, failed_deps: list[str]) -> None:
+        self._state.add_event("skip", f"Skipped {exp_name} (deps: {', '.join(failed_deps)})")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_skipped(exp_name, failed_deps)
+
+    def experiment_review_requested(self, exp_name: str, reviewer_role: str) -> None:
+        self._state.add_event("experiment", f"Review: {exp_name} by {reviewer_role}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_review_requested(exp_name, reviewer_role)
+
+    def experiment_review_passed(self, exp_name: str) -> None:
+        self._state.add_event("experiment", f"Review passed: {exp_name}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_review_passed(exp_name)
+
+    def experiment_review_issues(self, exp_name: str) -> None:
+        self._state.add_event("experiment", f"Review issues: {exp_name}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.experiment_review_issues(exp_name)
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------

@@ -10,9 +10,12 @@ from paradigm.agents.base import Agent, AgentResponse, TokenUsage
 from paradigm.config import Config
 from paradigm.logging.events import EventLogger
 from paradigm.orchestrator.constants import (
+    CodeBlock,
     _extract_code_blocks,
     _format_execution_result,
+    _get_downstream_dependents,
     _is_vacuous_success,
+    _topological_sort,
 )
 from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.orchestrator.experimentation import _categorize_failure
@@ -138,8 +141,8 @@ class TestExtractCodeBlocks:
         )
         blocks = _extract_code_blocks(text)
         assert len(blocks) == 1
-        assert blocks[0][0] == "test_gravity"
-        assert "import numpy" in blocks[0][1]
+        assert blocks[0].name == "test_gravity"
+        assert "import numpy" in blocks[0].code
 
     def test_multiple_blocks(self):
         text = (
@@ -156,19 +159,161 @@ class TestExtractCodeBlocks:
         )
         blocks = _extract_code_blocks(text)
         assert len(blocks) == 2
-        assert blocks[0][0] == "exp_one"
-        assert blocks[1][0] == "exp_two"
+        assert blocks[0].name == "exp_one"
+        assert blocks[1].name == "exp_two"
 
     def test_no_name_defaults(self):
         text = "```python\nprint('hello')\n```\n"
         blocks = _extract_code_blocks(text)
         assert len(blocks) == 1
-        assert blocks[0][0] == "unnamed_experiment"
+        assert blocks[0].name == "unnamed_experiment"
 
     def test_no_code_returns_empty(self):
         text = "I think we should analyze the data carefully."
         blocks = _extract_code_blocks(text)
         assert blocks == []
+
+    def test_depends_parsing(self):
+        text = (
+            "```python\n"
+            "# EXPERIMENT: analyze\n"
+            "# DEPENDS: extract_data\n"
+            "import pandas as pd\n"
+            "df = pd.read_csv('/data/workspace/data.csv')\n"
+            "```\n"
+        )
+        blocks = _extract_code_blocks(text)
+        assert len(blocks) == 1
+        assert blocks[0].name == "analyze"
+        assert blocks[0].depends_on == ("extract_data",)
+
+    def test_multiple_depends(self):
+        text = (
+            "```python\n"
+            "# EXPERIMENT: final_plot\n"
+            "# DEPENDS: extract_data, run_analysis\n"
+            "import matplotlib.pyplot as plt\n"
+            "```\n"
+        )
+        blocks = _extract_code_blocks(text)
+        assert len(blocks) == 1
+        assert blocks[0].depends_on == ("extract_data", "run_analysis")
+
+    def test_no_depends_returns_empty_tuple(self):
+        text = "```python\n# EXPERIMENT: standalone\nprint('hello')\n```\n"
+        blocks = _extract_code_blocks(text)
+        assert len(blocks) == 1
+        assert blocks[0].depends_on == ()
+
+    def test_code_block_is_frozen(self):
+        block = CodeBlock(name="test", code="print(1)", depends_on=())
+        with pytest.raises(AttributeError):
+            block.name = "other"  # type: ignore[misc]
+
+
+# --- Unit tests: topological sort ---
+
+
+class TestTopologicalSort:
+    def test_no_deps_preserves_order(self):
+        blocks = [
+            CodeBlock(name="a", code="print('a')", depends_on=()),
+            CodeBlock(name="b", code="print('b')", depends_on=()),
+            CodeBlock(name="c", code="print('c')", depends_on=()),
+        ]
+        result = _topological_sort(blocks)
+        assert [b.name for b in result] == ["a", "b", "c"]
+
+    def test_simple_chain(self):
+        blocks = [
+            CodeBlock(name="plot", code="", depends_on=("analyze",)),
+            CodeBlock(name="analyze", code="", depends_on=("extract",)),
+            CodeBlock(name="extract", code="", depends_on=()),
+        ]
+        result = _topological_sort(blocks)
+        names = [b.name for b in result]
+        assert names.index("extract") < names.index("analyze")
+        assert names.index("analyze") < names.index("plot")
+
+    def test_diamond_dependency(self):
+        blocks = [
+            CodeBlock(name="final", code="", depends_on=("left", "right")),
+            CodeBlock(name="left", code="", depends_on=("root",)),
+            CodeBlock(name="right", code="", depends_on=("root",)),
+            CodeBlock(name="root", code="", depends_on=()),
+        ]
+        result = _topological_sort(blocks)
+        names = [b.name for b in result]
+        assert names[0] == "root"
+        assert names[-1] == "final"
+        assert names.index("left") < names.index("final")
+        assert names.index("right") < names.index("final")
+
+    def test_cycle_falls_back_to_original_order(self):
+        blocks = [
+            CodeBlock(name="a", code="", depends_on=("b",)),
+            CodeBlock(name="b", code="", depends_on=("a",)),
+        ]
+        result = _topological_sort(blocks)
+        assert [b.name for b in result] == ["a", "b"]
+
+    def test_external_dep_ignored(self):
+        """Dependencies not in current batch are ignored."""
+        blocks = [
+            CodeBlock(name="b", code="", depends_on=("a_from_prior_round",)),
+            CodeBlock(name="c", code="", depends_on=("b",)),
+        ]
+        result = _topological_sort(blocks)
+        assert [b.name for b in result] == ["b", "c"]
+
+    def test_single_block(self):
+        blocks = [CodeBlock(name="only", code="print(1)", depends_on=())]
+        result = _topological_sort(blocks)
+        assert len(result) == 1
+        assert result[0].name == "only"
+
+    def test_empty_list(self):
+        assert _topological_sort([]) == []
+
+
+# --- Unit tests: downstream dependents ---
+
+
+class TestGetDownstreamDependents:
+    def test_direct_dependent(self):
+        blocks = [
+            CodeBlock(name="a", code="", depends_on=()),
+            CodeBlock(name="b", code="", depends_on=("a",)),
+        ]
+        result = _get_downstream_dependents("a", blocks)
+        assert result == {"b"}
+
+    def test_transitive_dependents(self):
+        blocks = [
+            CodeBlock(name="a", code="", depends_on=()),
+            CodeBlock(name="b", code="", depends_on=("a",)),
+            CodeBlock(name="c", code="", depends_on=("b",)),
+        ]
+        result = _get_downstream_dependents("a", blocks)
+        assert result == {"b", "c"}
+
+    def test_no_dependents(self):
+        blocks = [
+            CodeBlock(name="a", code="", depends_on=()),
+            CodeBlock(name="b", code="", depends_on=()),
+        ]
+        result = _get_downstream_dependents("a", blocks)
+        assert result == set()
+
+    def test_diamond_dependents(self):
+        blocks = [
+            CodeBlock(name="root", code="", depends_on=()),
+            CodeBlock(name="left", code="", depends_on=("root",)),
+            CodeBlock(name="right", code="", depends_on=("root",)),
+            CodeBlock(name="final", code="", depends_on=("left", "right")),
+        ]
+        result = _get_downstream_dependents("root", blocks)
+        assert result == {"left", "right", "final"}
 
 
 # --- Unit tests: result formatting ---

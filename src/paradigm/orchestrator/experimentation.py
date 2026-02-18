@@ -23,6 +23,7 @@ from paradigm.orchestrator.constants import (
     _list_shared_files,
     _network_caveat,
     _normalize_query_keywords,
+    _topological_sort,
 )
 from paradigm.orchestrator.phases import ResearchPhase
 from paradigm.sandbox.executor import CodeExecutor
@@ -224,6 +225,7 @@ class ExperimentationHandler:
         self._strategy_redirects = 0
         _strategy_redirect_message = ""
         _advisory_message = ""
+        _skipped_message = ""
 
         try:
             for round_num in range(1, max_rounds + 1):
@@ -289,13 +291,16 @@ class ExperimentationHandler:
                         "Execute them in order of priority:\n" + engine._planning_action_items
                     )
 
-                # Inject strategy redirect and advisory messages (Fix 1)
+                # Inject strategy redirect, advisory, and skipped-experiment messages
                 if _strategy_redirect_message:
                     prompt += _strategy_redirect_message
                     _strategy_redirect_message = ""
                 if _advisory_message:
                     prompt += _advisory_message
                     _advisory_message = ""
+                if _skipped_message:
+                    prompt += _skipped_message
+                    _skipped_message = ""
 
                 # Inject learned constraints from prior failures
                 if self._learned_constraints:
@@ -334,37 +339,78 @@ class ExperimentationHandler:
                     engine._display.experiment_no_code()
                     continue
 
-                # Execute each code block
+                # Sort by dependency order and execute
+                code_blocks = _topological_sort(code_blocks)
                 round_total = 0
                 round_failures = 0
-                for exp_name, code in code_blocks:
+                failed_in_round: set[str] = set()
+                skipped_experiments: list[str] = []
+
+                for block in code_blocks:
+                    # Check dependency failures — skip if upstream failed
+                    unmet = [dep for dep in block.depends_on if dep in failed_in_round]
+                    if unmet:
+                        engine._display.experiment_skipped(block.name, unmet)
+                        skipped_experiments.append(block.name)
+                        failed_in_round.add(block.name)  # Transitively propagate
+                        experiment_metadata.append(
+                            {
+                                "name": block.name,
+                                "status": "skipped",
+                                "stdout_preview": "",
+                                "stdout_full": "",
+                                "has_figures": False,
+                                "failure_reason": f"Skipped: upstream dependency failed ({', '.join(unmet)})",
+                            }
+                        )
+                        all_results.append(
+                            f"## {block.name}\n**Status:** skipped "
+                            f"(upstream dependency failed: {', '.join(unmet)})\n"
+                        )
+                        continue
+
                     # Enforce total experiment cap per phase
                     if _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
                         engine._display.experiment_budget_exhausted(_total_experiments)
                         break
 
-                    engine._display.experiment_running(exp_name)
+                    current_code = block.code
+
+                    # Pre-execution code review (opt-in)
+                    if engine._config.orchestrator.enable_pre_execution_review:
+                        review_feedback = await self._pre_execution_review(current_code, block.name)
+                        if review_feedback is not None:
+                            current_code = await self._apply_review_fixes(
+                                experimenter,
+                                current_code,
+                                block.name,
+                                review_feedback,
+                                checkpoint_context,
+                            )
+
+                    engine._display.experiment_running(block.name)
                     result, final_code = await self._execute_with_retry(
                         executor,
                         experimenter,
-                        exp_name,
-                        code,
+                        block.name,
+                        current_code,
                         checkpoint_context,
                         repo_paths=repo_paths,
                         workspace_dir=workspace_dir,
                     )
-                    formatted = _format_execution_result(exp_name, result)
+                    formatted = _format_execution_result(block.name, result)
                     all_results.append(formatted)
 
                     _total_experiments += 1
                     round_total += 1
                     if result.status == ExecutionStatus.SUCCESS:
-                        successful_code.append((exp_name, final_code))
+                        successful_code.append((block.name, final_code))
                         self._consecutive_failures = 0
                     else:
                         round_failures += 1
                         _total_failures += 1
                         self._consecutive_failures += 1
+                        failed_in_round.add(block.name)
 
                         # Categorize failure for strategy redirect
                         category = _categorize_failure(result)
@@ -409,10 +455,10 @@ class ExperimentationHandler:
                     # Track output figures
                     for output_file in result.output_files:
                         if output_file.filename.endswith((".png", ".pdf")):
-                            execution_figures.append((exp_name, Path(output_file.path)))
+                            execution_figures.append((block.name, Path(output_file.path)))
 
                     status_str = result.status.value
-                    engine._display.experiment_result(exp_name, status_str)
+                    engine._display.experiment_result(block.name, status_str)
 
                     # Build metadata entry for the execution fact sheet
                     stdout_preview = (result.stdout or "")[:200]
@@ -430,13 +476,22 @@ class ExperimentationHandler:
                             failure_reason = f"Exited with status: {status_str}"
                     experiment_metadata.append(
                         {
-                            "name": exp_name,
+                            "name": block.name,
                             "status": status_str,
                             "stdout_preview": stdout_preview,
                             "stdout_full": stdout_full,
                             "has_figures": has_figures,
                             "failure_reason": failure_reason,
                         }
+                    )
+
+                # Inject skipped-experiment message for next round
+                if skipped_experiments:
+                    _skipped_message = (
+                        "\n\n## Skipped Experiments\n"
+                        "These experiments were skipped because upstream dependencies failed:\n"
+                        + "\n".join(f"- {name}" for name in skipped_experiments)
+                        + "\nRe-propose these (or alternatives) with fixed dependencies."
                     )
 
                 # Total experiment budget exhausted — break outer loop too
@@ -571,6 +626,94 @@ class ExperimentationHandler:
             "Your teammates suggest these alternative approaches:\n"
             + "\n".join(f"- {p}" for p in advisory_parts)
         )
+
+    async def _pre_execution_review(self, code: str, experiment_name: str) -> str | None:
+        """Review code before execution. Returns feedback if issues, None if PASS.
+
+        Args:
+            code: The experiment code to review.
+            experiment_name: Name of the experiment.
+
+        Returns:
+            Review feedback string if issues found, None if PASS.
+        """
+        engine = self._engine
+        reviewer_role = engine._config.orchestrator.pre_execution_review_role
+
+        # Find reviewer agent
+        reviewer = engine._find_agent_by_role(reviewer_role)
+        if reviewer is None:
+            return None
+
+        # Skip if reviewer == experimenter (same agent reviewing own code)
+        experimenter = engine._find_agent_by_role("experimentalist")
+        if experimenter is not None and reviewer.agent_id == experimenter.agent_id:
+            return None
+
+        engine._display.experiment_review_requested(experiment_name, reviewer_role)
+
+        template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["pre_execution_review"]
+        prompt = template.format(experiment_name=experiment_name, code=code)
+
+        try:
+            response = await reviewer.generate(prompt, max_tokens=1024)
+            engine._log_agent_response(
+                reviewer.agent_id, response, ResearchPhase.EXECUTION, "pre_execution_review"
+            )
+        except Exception:
+            return None  # Non-fatal; skip review on error
+
+        content = response.content.strip()
+        if content.upper().startswith("PASS"):
+            engine._display.experiment_review_passed(experiment_name)
+            return None
+
+        engine._display.experiment_review_issues(experiment_name)
+        return content
+
+    async def _apply_review_fixes(
+        self,
+        experimenter: Agent,
+        code: str,
+        experiment_name: str,
+        review_feedback: str,
+        checkpoint_context: str,
+    ) -> str:
+        """Have experimentalist fix issues from review. Returns corrected code.
+
+        Args:
+            experimenter: The experimentalist agent.
+            code: Original experiment code.
+            experiment_name: Name of the experiment.
+            review_feedback: Feedback from the reviewer.
+            checkpoint_context: Checkpoint context string.
+
+        Returns:
+            Corrected code string (falls back to original if extraction fails).
+        """
+        engine = self._engine
+        template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["fix_after_review"]
+        prompt = template.format(
+            seed_prompt=engine._seed_prompt,
+            checkpoint_context=checkpoint_context,
+            code=code,
+            review_feedback=review_feedback,
+            experiment_name=experiment_name,
+        )
+
+        try:
+            response = await experimenter.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
+            engine._log_agent_response(
+                experimenter.agent_id, response, ResearchPhase.EXECUTION, "fix_after_review"
+            )
+        except Exception:
+            return code  # Fallback to original code
+
+        # Extract corrected code from response
+        blocks = _extract_code_blocks(response.content)
+        if not blocks:
+            return code  # Fallback to original code
+        return blocks[0].code
 
     async def _execute_with_retry(
         self,
@@ -792,6 +935,6 @@ class ExperimentationHandler:
             blocks = _extract_code_blocks(response.content)
             if not blocks:
                 return result, current_code  # Agent didn't provide corrected code
-            current_code = blocks[0][1]  # Use first block
+            current_code = blocks[0].code  # Use first block
 
         return result, current_code  # Should not reach here, but type-safety

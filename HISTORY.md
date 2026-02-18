@@ -2340,3 +2340,32 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 3. **Fix 3 — Pre-WRITING Scope Gate**: Enhance POST_EXECUTION synthesis with FORBIDDEN claims section; add `_extract_forbidden_claims()`, `_build_forbidden_claims_block()`, `_check_forbidden_claims_violations()` to WritingHandler; inject into section drafting, assembly, and editor review
 
 **Files modified**: `constants.py`, `experimentation.py`, `writing.py`, `engine.py`, `manager.py`, `fallback.py`
+
+### Prompt 189 — Deep Analysis of Execution Round Architecture
+
+> I want to understand better how to improve the execution round. Let's focus on that
+
+**Key objective**: Analyze the current execution phase architecture, identify bottlenecks and failure modes, and discuss improvement strategies.
+
+### Prompt 190 — Implement Experiment Dependency Graph + Multi-Agent Pre-Execution Review
+
+> Implement the following plan: [Feature C: Experiment Dependency Graph + Feature E: Pre-Execution Code Review]
+
+**Key changes:**
+- `CodeBlock` dataclass + `_EXPERIMENT_DEPENDS_RE` regex for parsing `# DEPENDS:` directives
+- `_topological_sort()` and `_get_downstream_dependents()` for dependency ordering
+- Dependency-aware execution loop with cascade skip logic
+- `experiment_skipped()` display method
+- `# DEPENDS:` instruction added to prompt templates
+- Config fields: `enable_pre_execution_review`, `pre_execution_review_role`
+- `pre_execution_review` and `fix_after_review` prompt templates
+- `_pre_execution_review()` and `_apply_review_fixes()` methods
+- Review display methods: `experiment_review_requested/passed/issues`
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/constants.py`
+- `src/paradigm/orchestrator/experimentation.py`
+- `src/paradigm/config.py`
+- `src/paradigm/display/manager.py`
+- `src/paradigm/display/fallback.py`
+- `tests/test_experimentation.py`

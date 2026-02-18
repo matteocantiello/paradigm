@@ -276,6 +276,18 @@ class PlainTextFallback:
     def experiment_budget_exhausted(self, total: int) -> None:
         click.echo(f"    [!] Experiment budget exhausted ({total} experiments), stopping execution")
 
+    def experiment_skipped(self, exp_name: str, failed_deps: list[str]) -> None:
+        click.echo(f"    [skip] {exp_name}: dependency failed ({', '.join(failed_deps)})")
+
+    def experiment_review_requested(self, exp_name: str, reviewer_role: str) -> None:
+        click.echo(f"    [review] {exp_name}: requesting pre-execution review from {reviewer_role}")
+
+    def experiment_review_passed(self, exp_name: str) -> None:
+        click.echo(f"    [review] {exp_name}: PASS")
+
+    def experiment_review_issues(self, exp_name: str) -> None:
+        click.echo(f"    [review] {exp_name}: issues found, requesting fixes")
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------

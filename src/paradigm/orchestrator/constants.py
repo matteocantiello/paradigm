@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from paradigm.orchestrator.phases import ResearchPhase
@@ -196,6 +197,11 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "`# EXPERIMENT:` blocks that each do one focused task (e.g., data extraction, "
             "analysis, plotting). Save intermediate results to /data/workspace/ so "
             "subsequent experiments can load them.\n"
+            "**Experiment dependencies:** If an experiment depends on output from another "
+            "experiment in the same batch (e.g., B reads a file that A creates), declare "
+            "the dependency: `# DEPENDS: <name>` on the line after `# EXPERIMENT: <name>`. "
+            "Multiple: `# DEPENDS: exp_a, exp_b`. Experiments execute in dependency order; "
+            "if an upstream dependency fails, downstream experiments are skipped.\n"
             "**Data strategy:** If the research topic references specific datasets or "
             "observations, generate realistic synthetic data that captures the key "
             "statistical properties (distributions, correlations, noise characteristics). "
@@ -214,6 +220,11 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "(just provide your analysis)\n\n"
             "If proposing follow-up experiments, explain what additional question "
             "they address.\n\n"
+            "**Experiment dependencies:** If an experiment depends on output from another "
+            "experiment in the same batch (e.g., B reads a file that A creates), declare "
+            "the dependency: `# DEPENDS: <name>` on the line after `# EXPERIMENT: <name>`. "
+            "Multiple: `# DEPENDS: exp_a, exp_b`. Experiments execute in dependency order; "
+            "if an upstream dependency fails, downstream experiments are skipped.\n\n"
             "{network_caveat}"
         ),
         "retry_after_failure": (
@@ -229,6 +240,29 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "one focused task. Save intermediate results to /data/workspace/ and load them "
             "in subsequent experiments.\n"
             "{network_caveat}"
+        ),
+        "pre_execution_review": (
+            "You are reviewing a teammate's experiment code BEFORE it runs.\n"
+            "Experiment: {experiment_name}\n\n"
+            "```python\n{code}\n```\n\n"
+            "Check for bugs that would cause the experiment to fail:\n"
+            "- Wrong module names or imports (e.g., PyPDF2 instead of pypdf)\n"
+            "- Hardcoded file paths that don't exist\n"
+            "- Logic errors (wrong variable names, off-by-one, missing return)\n"
+            "- Missing data generation (assumes files exist that weren't created)\n\n"
+            "Respond with EXACTLY one of:\n"
+            "- `PASS` — if the code looks correct and should run\n"
+            "- `ISSUES:` followed by a numbered list of specific bugs to fix\n\n"
+            "Do NOT rewrite the code. Only flag concrete bugs."
+        ),
+        "fix_after_review": (
+            "A teammate reviewed your experiment code and found issues.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "## Your Original Code\n```python\n{code}\n```\n\n"
+            "## Review Feedback\n{review_feedback}\n\n"
+            "Fix the issues listed above. Provide the corrected code in a "
+            "```python block with the same `# EXPERIMENT: {experiment_name}` header."
         ),
     },
     ResearchPhase.POST_EXECUTION: {
@@ -711,6 +745,17 @@ _DATA_ERROR_PATTERNS: list[str] = [
 
 _CODE_BLOCK_RE = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
 _EXPERIMENT_NAME_RE = re.compile(r"^#\s*EXPERIMENT:\s*(.+)", re.MULTILINE)
+_EXPERIMENT_DEPENDS_RE = re.compile(r"^#\s*DEPENDS:\s*(.+)", re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class CodeBlock:
+    """A parsed experiment code block with optional dependencies."""
+
+    name: str
+    code: str
+    depends_on: tuple[str, ...]  # empty if no dependencies
+
 
 # ---------------------------------------------------------------------------
 # Stop words for fuzzy query normalization
@@ -774,27 +819,117 @@ _STOP_WORDS = frozenset(
 # ---------------------------------------------------------------------------
 
 
-def _extract_code_blocks(text: str) -> list[tuple[str, str]]:
+def _extract_code_blocks(text: str) -> list[CodeBlock]:
     """Extract Python code blocks from agent response text.
 
     Looks for fenced ```python blocks. Extracts experiment name from
-    a ``# EXPERIMENT: name`` comment on the first line.
+    a ``# EXPERIMENT: name`` comment on the first line, and optional
+    dependencies from a ``# DEPENDS: dep1, dep2`` comment.
 
     Args:
         text: Agent response text.
 
     Returns:
-        List of (experiment_name, code) tuples.
+        List of CodeBlock instances.
     """
-    blocks: list[tuple[str, str]] = []
+    blocks: list[CodeBlock] = []
     for match in _CODE_BLOCK_RE.finditer(text):
         code = match.group(1).strip()
         if not code:
             continue
         name_match = _EXPERIMENT_NAME_RE.match(code)
         name = name_match.group(1).strip() if name_match else "unnamed_experiment"
-        blocks.append((name, code))
+        # Parse dependencies
+        deps_match = _EXPERIMENT_DEPENDS_RE.search(code)
+        if deps_match:
+            deps = tuple(d.strip() for d in deps_match.group(1).split(",") if d.strip())
+        else:
+            deps = ()
+        blocks.append(CodeBlock(name=name, code=code, depends_on=deps))
     return blocks
+
+
+def _topological_sort(blocks: list[CodeBlock]) -> list[CodeBlock]:
+    """Sort code blocks by dependency order. Cycles fall back to original order.
+
+    Dependencies referencing names not in the current batch are ignored
+    (they were likely executed in a prior round).
+
+    Args:
+        blocks: List of CodeBlock instances to sort.
+
+    Returns:
+        Topologically sorted list of CodeBlock instances.
+    """
+    if len(blocks) <= 1:
+        return list(blocks)
+
+    name_to_block = {b.name: b for b in blocks}
+    batch_names = set(name_to_block.keys())
+
+    # Build adjacency: dep → list of dependents
+    # Filter to only in-batch dependencies
+    adj: dict[str, list[str]] = {b.name: [] for b in blocks}
+    in_degree: dict[str, int] = {b.name: 0 for b in blocks}
+
+    for block in blocks:
+        for dep in block.depends_on:
+            if dep in batch_names:
+                adj[dep].append(block.name)
+                in_degree[block.name] += 1
+
+    # Kahn's algorithm
+    queue = [name for name in in_degree if in_degree[name] == 0]
+    # Stable sort: process in original order among same-level nodes
+    original_order = {b.name: i for i, b in enumerate(blocks)}
+    queue.sort(key=lambda n: original_order[n])
+
+    sorted_names: list[str] = []
+    while queue:
+        current = queue.pop(0)
+        sorted_names.append(current)
+        for dependent in adj[current]:
+            in_degree[dependent] -= 1
+            if in_degree[dependent] == 0:
+                queue.append(dependent)
+                queue.sort(key=lambda n: original_order[n])
+
+    # Cycle detected — fall back to original order
+    if len(sorted_names) != len(blocks):
+        return list(blocks)
+
+    return [name_to_block[n] for n in sorted_names]
+
+
+def _get_downstream_dependents(failed_name: str, blocks: list[CodeBlock]) -> set[str]:
+    """Find all experiments transitively depending on a failed experiment.
+
+    Args:
+        failed_name: Name of the failed experiment.
+        blocks: All code blocks in the current batch.
+
+    Returns:
+        Set of experiment names that transitively depend on failed_name.
+    """
+    batch_names = {b.name for b in blocks}
+    # Build adjacency: dep → set of direct dependents
+    adj: dict[str, set[str]] = {b.name: set() for b in blocks if b.name in batch_names}
+    for block in blocks:
+        for dep in block.depends_on:
+            if dep in adj:
+                adj[dep].add(block.name)
+
+    # BFS from failed_name
+    visited: set[str] = set()
+    frontier = list(adj.get(failed_name, set()))
+    while frontier:
+        current = frontier.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        frontier.extend(adj.get(current, set()) - visited)
+
+    return visited
 
 
 def _list_shared_files(data_dir: Path) -> str:
