@@ -874,13 +874,14 @@ def _filter_relevant_papers(
 ) -> list:
     """Filter search results by keyword relevance to the query.
 
-    Uses Jaccard similarity between query keywords and paper title/summary
-    keywords. Papers with zero overlap are almost certainly irrelevant.
+    Uses query coverage (fraction of query keywords present in paper
+    title/summary). This avoids the Jaccard penalty where papers with
+    long abstracts dilute the score despite being relevant.
 
     Args:
         query: The search query string.
         papers: List of paper objects (must have .title and optionally .summary).
-        threshold: Minimum Jaccard similarity to keep a paper.
+        threshold: Minimum query coverage to keep a paper.
 
     Returns:
         Filtered list of papers above the threshold.
@@ -901,9 +902,8 @@ def _filter_relevant_papers(
         paper_kw = _normalize_query_keywords(text)
         if not paper_kw:
             continue
-        intersection = len(query_kw & paper_kw)
-        union = len(query_kw | paper_kw)
-        if union > 0 and intersection / union >= threshold:
+        coverage = len(query_kw & paper_kw) / len(query_kw)
+        if coverage >= threshold:
             filtered.append(paper)
     return filtered
 

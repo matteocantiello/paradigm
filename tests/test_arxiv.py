@@ -145,9 +145,9 @@ async def test_get_paper_not_found(client):
 
 
 async def test_build_query_simple(client):
-    """Test basic query building."""
+    """Test basic query building — terms joined with AND, longest first."""
     query = client._build_query("stellar pulsation")
-    assert query == "all:stellar pulsation"
+    assert query == "all:pulsation AND all:stellar"
 
 
 async def test_build_query_with_categories(client):

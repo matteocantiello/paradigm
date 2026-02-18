@@ -2255,3 +2255,49 @@ Finalizing the finance domain plan and presenting for approval.
 **Key decisions**: Implementing all 7 fixes in priority order per the plan.
 
 **Artifacts modified**: `src/paradigm/config.py`, `src/paradigm/orchestrator/constants.py`, `src/paradigm/orchestrator/engine.py`, `src/paradigm/orchestrator/debate.py`, `src/paradigm/orchestrator/experimentation.py`, `src/paradigm/orchestrator/writing.py`
+
+### Prompt 50 — Analyze paper-ea24bcb33c20 logs for pipeline assessment
+
+> Let's analyze the logs of paper-ea24bcb33c20 (thread-658a131f203f). It would be good to understand if the updates we made have improved the flow of discussion and the outcome. Do we still have redundant discussions? Are we missing important insights? Are the logs revealing obvious shortcoming of the current approach and/or ways to improve?
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 51 — Deep analysis of EXECUTION phase in paper-ea24bcb33c20 transcript
+
+> Read and analyze the EXECUTION phase of the research transcript. Focus on: experiment round count, success/failure rate, repeated errors, strategy redirects, auto-search queries, workspace file tracking, network access attempts, MIST model download handling, cascading failures, circuit breaker firing, and overall code quality.
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 52 — Deep analysis of IDEATION and PLANNING phases in paper-ea24bcb33c20 transcript
+
+> Read and analyze the IDEATION through PLANNING phases of the research transcript at /Users/mcantiello/astro/paradigm/data/papers/paper-ea24bcb33c20/transcript.md (lines 1-800). Focus on: convergence detection, redundant discussion, anti-repetition rules, debates, round counts, whether PLANNING built on IDEATION synthesis, literature search quality, and agent filler vs substantive contributions.
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 53 — Deep analysis of POST_EXECUTION, WRITING, and INTERNAL_REVIEW phases
+
+> Read and analyze the POST_EXECUTION, WRITING, and INTERNAL_REVIEW phases of the research transcript at /Users/mcantiello/astro/paradigm/data/papers/paper-ea24bcb33c20/transcript.md. These phases are likely in the latter half of the file (lines 7000+). Also read the paper itself at /Users/mcantiello/astro/paradigm/data/papers/paper-ea24bcb33c20/paper-ea24bcb33c20.md and the reviews at /Users/mcantiello/astro/paradigm/data/papers/paper-ea24bcb33c20/reviews.md. Focus on: POST_EXECUTION critical evaluation, WRITING fact sheet adherence, numerical inconsistencies, paper quality, internal review accuracy, rejection reasons, synthesis injection effectiveness, and token budget efficiency.
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 54 — Investigate literature search/arXiv API failures
+
+> Last run seems to have issues downloading references. Maybe they banned our arXiv API?
+
+**Key decisions**: Investigation task — diagnose why 20/21 literature searches failed or returned irrelevant results in paper-ea24bcb33c20.
+
+### Prompt 55 — Fix literature search failures (3 fixes)
+
+> Implement the plan to fix literature search failures from paper-ea24bcb33c20 analysis.
+
+After testing, chose **coverage + title+abstract at 0.15** over title-only (tested empirically: 35/36 relevant papers pass vs 30/36 with title-only, zero irrelevant leakage in both cases).
+
+**Key decisions**:
+- Fix 1: Jaccard → query coverage metric, kept title+abstract matching (not title-only)
+- Fix 2: arXiv OR → AND query matching with 6-term cap
+- Fix 3: Semantic Scholar retry with exponential backoff on 429
+
+**Artifacts modified**:
+- `src/paradigm/orchestrator/constants.py` — `_filter_relevant_papers()`
+- `src/paradigm/literature/arxiv.py` — `_build_query()`
+- `src/paradigm/literature/semantic_scholar.py` — `_get_json()`

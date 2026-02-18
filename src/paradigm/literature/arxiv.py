@@ -373,8 +373,15 @@ class ArxivClient:
         Returns:
             Formatted arXiv query string.
         """
-        # Wrap the user query in an all-fields search
-        search_query = f"all:{query}"
+        # Split into keywords, sort by length (longer = more specific), cap
+        # at 6 terms, and join with AND for targeted matching.
+        words = re.sub(r"[^a-zA-Z0-9\s-]", " ", query).split()
+        unique_words = list(dict.fromkeys(w for w in words if len(w) > 2))
+        terms = sorted(unique_words, key=len, reverse=True)[:6]
+        if terms:
+            search_query = " AND ".join(f"all:{t}" for t in terms)
+        else:
+            search_query = f"all:{query}"
 
         if categories:
             cat_query = " OR ".join(f"cat:{cat}" for cat in categories)

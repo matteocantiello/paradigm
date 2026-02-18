@@ -149,43 +149,57 @@ class SemanticScholarClient:
 
         return papers[:limit]
 
-    async def _get_json(self, url: str, params: dict[str, Any]) -> dict[str, Any] | None:
+    async def _get_json(
+        self, url: str, params: dict[str, Any], max_retries: int = 2
+    ) -> dict[str, Any] | None:
         """Make a rate-limited GET request and return parsed JSON.
 
-        Returns None on 404, 429, or 5xx errors.
+        Retries with exponential backoff on 429 (rate limit) responses.
+        Returns None on 404, 5xx errors, or exhausted retries.
 
         Args:
             url: Request URL.
             params: Query parameters.
+            max_retries: Maximum retry attempts on 429 responses.
 
         Returns:
             Parsed JSON dict, or None on error.
         """
-        try:
-            async with self._lock:
-                elapsed = time.monotonic() - self._last_request_time
-                if elapsed < self._rate_limit:
-                    await asyncio.sleep(self._rate_limit - elapsed)
+        for attempt in range(max_retries + 1):
+            try:
+                async with self._lock:
+                    elapsed = time.monotonic() - self._last_request_time
+                    if elapsed < self._rate_limit:
+                        await asyncio.sleep(self._rate_limit - elapsed)
 
-                response = await self._client.get(url, params=params)
-                self._last_request_time = time.monotonic()
+                    response = await self._client.get(url, params=params)
+                    self._last_request_time = time.monotonic()
 
-            if response.status_code == 200:
-                return response.json()
+                if response.status_code == 200:
+                    return response.json()
 
-            if self._logger:
-                self._logger.log_error(
-                    Exception(f"Semantic Scholar API returned {response.status_code}"),
-                    metadata_key="semantic_scholar",
-                    url=url,
-                    status_code=response.status_code,
-                )
-            return None
+                if response.status_code == 429 and attempt < max_retries:
+                    backoff = 3.0 * 2**attempt  # 3s, 6s
+                    await asyncio.sleep(backoff)
+                    continue
 
-        except Exception as e:
-            if self._logger:
-                self._logger.log_error(e, metadata_key="semantic_scholar", url=url)
-            return None
+                if self._logger:
+                    self._logger.log_error(
+                        Exception(
+                            f"Semantic Scholar API returned {response.status_code}"
+                        ),
+                        metadata_key="semantic_scholar",
+                        url=url,
+                        status_code=response.status_code,
+                    )
+                return None
+
+            except Exception as e:
+                if self._logger:
+                    self._logger.log_error(
+                        e, metadata_key="semantic_scholar", url=url
+                    )
+                return None
 
     async def close(self) -> None:
         """Close the HTTP client."""
