@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -106,6 +107,46 @@ class ReviewHandler:
             + "\n\n---\n\n"
         )
 
+    @staticmethod
+    def _count_mandatory_check_failures(review_text: str) -> int:
+        """Count how many mandatory checklist items the editor marked as failed.
+
+        Looks for indicators of failure (FAILED, violated, missing, not met,
+        not found, absent) near each of the 5 mandatory check categories.
+
+        Args:
+            review_text: Editor's review response text.
+
+        Returns:
+            Number of failed checks (0-5).
+        """
+        categories = [
+            r"internal\s+consistency",
+            r"data\s+integrity",
+            r"figure\s+reference",
+            r"claim.evidence\s+alignment",
+            r"anti.confabulation",
+        ]
+        failure_indicators = re.compile(
+            r"(FAIL|fail|violated|missing|not met|not found|absent|"
+            r"no evidence|cannot be traced|fabricat|confabulat)",
+            re.IGNORECASE,
+        )
+
+        failures = 0
+        for cat_pattern in categories:
+            # Find the category mention and check nearby text (200 chars window)
+            cat_re = re.compile(cat_pattern, re.IGNORECASE)
+            match = cat_re.search(review_text)
+            if match is None:
+                continue
+            start = max(0, match.start() - 50)
+            end = min(len(review_text), match.end() + 200)
+            window = review_text[start:end]
+            if failure_indicators.search(window):
+                failures += 1
+        return failures
+
     async def run_review_phase(self, draft: PaperDraft) -> None:
         """Run the INTERNAL_REVIEW phase: editor reviews, optionally loop back.
 
@@ -148,6 +189,16 @@ class ReviewHandler:
                     + "\n".join(f"- {c}" for c in self._engine._execution_caveats)
                 )
 
+            # Inject execution fact sheet for claim verification
+            fact_sheet = self._engine._writing._build_execution_fact_sheet()
+            if fact_sheet:
+                prompt += (
+                    "\n\n" + fact_sheet + "\n\n"
+                    "Cross-reference every quantitative claim in the paper against "
+                    "the Actual Output blocks above. Flag any number that cannot be "
+                    "traced to an experiment output."
+                )
+
             try:
                 response = await editor.generate(prompt, max_tokens=_REVIEW_MAX_TOKENS)
             except Exception as e:
@@ -177,6 +228,14 @@ class ReviewHandler:
 
             # Parse review feedback
             feedback = parse_review_feedback(response.content)
+
+            # Override: if editor recommends "revise" but all mandatory checks
+            # failed, escalate to "reject" — revision won't fix fundamental issues
+            if feedback.recommendation == "revise":
+                check_failures = self._count_mandatory_check_failures(response.content)
+                if check_failures >= 4:
+                    feedback.recommendation = "reject"
+
             self._engine._display.review_recommendation(
                 feedback.recommendation, len(feedback.required_changes)
             )
@@ -248,6 +307,15 @@ class ReviewHandler:
             current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
             review_feedback=review_text[:_PAPER_CONTEXT_LIMIT],
         )
+
+        # Inject execution fact sheet to prevent re-introduction of fabricated claims
+        fact_sheet = self._engine._writing._build_execution_fact_sheet()
+        if fact_sheet:
+            prompt += (
+                "\n\n" + fact_sheet + "\n\n"
+                "When revising, do NOT introduce new quantitative claims that are "
+                "not in the Actual Output blocks above."
+            )
 
         try:
             response = await writer.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)

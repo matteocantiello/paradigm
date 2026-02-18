@@ -38,6 +38,7 @@ from paradigm.orchestrator.constants import (
     _PHASE_INSTRUCTIONS,
     _RECENT_MESSAGES_LIMIT,
     _SEARCH_ENABLED_PHASES,
+    _SYNTHESIS_CLOSING_TEMPLATES,
     InterventionHook,
 )
 from paradigm.orchestrator.debate import DebateHandler
@@ -120,6 +121,7 @@ class OrchestrationEngine:
         self._successful_code: list[tuple[str, str]] = []  # (experiment_name, code)
         self._post_execution_summary: str = ""  # Team consensus from POST_EXECUTION
         self._consensus_summary: str = ""  # Accumulated consensus from phase boundaries
+        self._phase_synthesis: dict[str, str] = {}  # Structured synthesis per phase
         self._planning_action_items: str = ""  # Extracted action items from PLANNING
         self._experiment_metadata: list[dict[str, str | bool]] = []
         self._code_context: str = ""
@@ -196,6 +198,7 @@ class OrchestrationEngine:
         self._successful_code = []
         self._post_execution_summary = ""
         self._consensus_summary = ""
+        self._phase_synthesis = {}
         self._planning_action_items = ""
         self._experiment_metadata = []
         self._code_context = ""
@@ -254,6 +257,7 @@ class OrchestrationEngine:
             max_rounds=max_rounds,
             checkpoint_interval=checkpoint_interval,
         )
+        await self._run_synthesis_round(ResearchPhase.IDEATION)
 
         # Novelty check (optional, after IDEATION)
         if self._config.citation.enable_novelty_check:
@@ -301,6 +305,7 @@ class OrchestrationEngine:
             max_rounds=max_rounds,
             checkpoint_interval=checkpoint_interval,
         )
+        await self._run_synthesis_round(ResearchPhase.PLANNING)
 
         # Extract action items from PLANNING for EXECUTION (Fix 5)
         self._planning_action_items = self._extract_planning_actions()
@@ -362,6 +367,7 @@ class OrchestrationEngine:
                 max_rounds=post_exec_rounds,
                 checkpoint_interval=checkpoint_interval,
             )
+            await self._run_synthesis_round(ResearchPhase.POST_EXECUTION)
             ran_post_execution = True
             # Capture POST_EXECUTION discussion summary for WRITING
             self._post_execution_summary = self._build_post_execution_summary()
@@ -705,9 +711,13 @@ class OrchestrationEngine:
                 content=response.content,
             )
 
-            # Store message
+            # Store message (suppress non-substantive round-1 contributions
+            # to avoid wasting context on search-only responses)
             msg_dict = msg.model_dump(by_alias=True)
-            self._messages.append(msg_dict)
+            if round_num == 1 and not self._is_substantive_contribution(response.content):
+                pass  # Search requests still processed below; skip context storage
+            else:
+                self._messages.append(msg_dict)
 
             total_tokens = response.usage.input_tokens + response.usage.output_tokens
             self._display.agent_response(
@@ -752,6 +762,47 @@ class OrchestrationEngine:
             await self._debate.process_challenge_requests(
                 agent_id, response.content, phase, round_num
             )
+
+    async def _run_synthesis_round(self, phase: ResearchPhase) -> None:
+        """Run a synthesis round at the end of a phase.
+
+        Only the synthesizer speaks, using the structured closing template.
+        The result is stored in ``_phase_synthesis`` for injection into
+        subsequent phase prompts.
+
+        Args:
+            phase: The phase being concluded.
+        """
+        template = _SYNTHESIS_CLOSING_TEMPLATES.get(phase)
+        if template is None:
+            return
+
+        synthesizer = self._find_agent_by_role("synthesizer")
+        if synthesizer is None:
+            return
+
+        # Build recent messages for the template
+        recent = self._messages[-_RECENT_MESSAGES_LIMIT:]
+        recent_messages = "\n\n".join(
+            f"**{m.get('from', 'unknown')}**: {m.get('content', '')[:500]}" for m in recent
+        )
+
+        prompt = template.format(
+            seed_prompt=self._seed_prompt,
+            recent_messages=recent_messages,
+        )
+
+        try:
+            response = await synthesizer.generate(prompt)
+        except Exception as e:
+            self._logger.log_error(e, agent_id=synthesizer.agent_id, thread_id=self._thread_id)
+            return
+
+        self._log_agent_response(synthesizer.agent_id, response, phase, "synthesis")
+
+        # Store synthesis, capped at 1500 chars
+        synthesis_text = response.content[:1500]
+        self._phase_synthesis[str(phase)] = synthesis_text
 
     def _build_agent_prompt(
         self,
@@ -850,6 +901,22 @@ class OrchestrationEngine:
             recent_messages=recent_messages,
         )
 
+        # Inject structured phase syntheses from previous phases
+        if self._phase_synthesis:
+            synthesis_parts: list[str] = []
+            for phase_key, synthesis_text in self._phase_synthesis.items():
+                phase_label = phase_key.upper().replace("RESEARCHPHASE.", "")
+                # Cap each synthesis at 1500 chars
+                capped = synthesis_text[:1500]
+                synthesis_parts.append(f"### {phase_label} Synthesis\n{capped}")
+            if synthesis_parts:
+                formatted += (
+                    "\n\n## Phase Syntheses\n"
+                    "The following structured conclusions were produced at the end of "
+                    "prior phases. Build on these — do NOT re-derive them.\n\n"
+                    + "\n\n".join(synthesis_parts)
+                )
+
         # Inject prior phase consensus so agents don't re-derive settled conclusions
         if self._consensus_summary:
             formatted += (
@@ -910,6 +977,29 @@ class OrchestrationEngine:
             formatted += _CHALLENGE_INSTRUCTION
 
         return formatted
+
+    @staticmethod
+    def _is_substantive_contribution(content: str, min_chars: int = 200) -> bool:
+        """Check if an agent's response contains substantive discussion content.
+
+        Strips out search/action tags and checks whether the remaining text
+        is long enough to constitute a real contribution.  Responses that
+        consist only of search requests waste context window space.
+
+        Args:
+            content: Agent response text.
+            min_chars: Minimum character count after stripping tags.
+
+        Returns:
+            True if the contribution is substantive.
+        """
+        stripped = re.sub(
+            r"\[(SEARCH|FOLLOW|CITED_BY|READ|DATA|CHALLENGE):[^\]]*\]",
+            "",
+            content,
+        )
+        stripped = stripped.strip()
+        return len(stripped) >= min_chars
 
     def _check_intervention(self, from_phase: str, to_phase: str) -> str:
         """Check intervention hook before a phase transition.

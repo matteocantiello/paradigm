@@ -398,8 +398,8 @@ class TestExperimentLedger:
     def test_ledger_empty_when_no_experiments(self, tmp_path):
         engine = self._make_engine(tmp_path)
         engine._experiment_metadata = []
-        ledger = engine._writing._build_experiment_ledger()
-        assert ledger == ""
+        fact_sheet = engine._writing._build_execution_fact_sheet()
+        assert fact_sheet == ""
 
     def test_ledger_contains_experiment_info(self, tmp_path):
         engine = self._make_engine(tmp_path)
@@ -408,22 +408,27 @@ class TestExperimentLedger:
                 "name": "gravity_test",
                 "status": "success",
                 "stdout_preview": "Mean: 42.0",
+                "stdout_full": "Mean: 42.0\nStd: 1.5",
                 "has_figures": True,
+                "failure_reason": "",
             },
             {
                 "name": "failed_test",
                 "status": "failure",
                 "stdout_preview": "Error occurred",
+                "stdout_full": "Error occurred",
                 "has_figures": False,
+                "failure_reason": "ValueError: invalid input",
             },
         ]
-        ledger = engine._writing._build_experiment_ledger()
-        assert "Experiment Ledger" in ledger
-        assert "gravity_test" in ledger
-        assert "failed_test" in ledger
-        assert "success" in ledger
-        assert "failure" in ledger
-        assert "MUST NOT cite results from experiments marked FAILURE" in ledger
+        fact_sheet = engine._writing._build_execution_fact_sheet()
+        assert "Execution Fact Sheet" in fact_sheet
+        assert "gravity_test" in fact_sheet
+        assert "failed_test" in fact_sheet
+        assert "success" in fact_sheet
+        assert "failure" in fact_sheet
+        assert "ANTI-CONFABULATION" in fact_sheet
+        assert "Do NOT describe this experiment as having produced results" in fact_sheet
 
     def test_ledger_has_figures_column(self, tmp_path):
         engine = self._make_engine(tmp_path)
@@ -432,11 +437,13 @@ class TestExperimentLedger:
                 "name": "fig_test",
                 "status": "success",
                 "stdout_preview": "",
+                "stdout_full": "",
                 "has_figures": True,
+                "failure_reason": "",
             },
         ]
-        ledger = engine._writing._build_experiment_ledger()
-        assert "Yes" in ledger
+        fact_sheet = engine._writing._build_execution_fact_sheet()
+        assert "Yes" in fact_sheet
 
 
 # --- Engine Integration Tests ---

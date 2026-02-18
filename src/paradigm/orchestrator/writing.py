@@ -35,34 +35,141 @@ class WritingHandler:
     def __init__(self, engine: OrchestrationEngine) -> None:
         self._engine = engine
 
-    def _build_experiment_ledger(self) -> str:
-        """Build a markdown table of experiment results for writing prompts.
+    def _build_execution_fact_sheet(self) -> str:
+        """Build an anti-confabulation execution fact sheet for writing prompts.
+
+        Each experiment gets a structured block showing its actual output
+        (for successes) or failure reason (for failures), with strict rules
+        that prevent writers from fabricating results.
 
         Returns:
-            Formatted ledger string, or empty string if no experiments ran.
+            Formatted fact sheet string, or empty string if no experiments ran.
         """
         metadata = self._engine._experiment_metadata
         if not metadata:
             return ""
 
         lines = [
-            "\n\n## Experiment Ledger",
-            "| Experiment | Status | Has Figures | Output Preview |",
-            "|------------|--------|-------------|----------------|",
+            "\n\n## Execution Fact Sheet",
+            "### CRITICAL ANTI-CONFABULATION RULE",
+            "Every number you write MUST come from an Actual Output block below. "
+            "If an experiment FAILED, you MUST NOT describe it as producing results.",
+            "",
         ]
         for entry in metadata:
             name = entry.get("name", "unnamed")
             status = entry.get("status", "unknown")
             has_figs = "Yes" if entry.get("has_figures") else "No"
-            preview = str(entry.get("stdout_preview", ""))[:80].replace("\n", " ")
-            lines.append(f"| {name} | {status} | {has_figs} | {preview} |")
 
-        lines.append("")
+            lines.append(f"#### Experiment: {name}")
+            lines.append(f"**Status:** {status} | **Figures:** {has_figs}")
+
+            if status == "success":
+                stdout_full = str(entry.get("stdout_full", entry.get("stdout_preview", "")))
+                lines.append(f"**Actual Output:**\n```\n{stdout_full}\n```")
+                lines.append("Cite ONLY these numbers. Do NOT invent additional values.")
+            else:
+                failure_reason = entry.get("failure_reason", "Unknown error")
+                lines.append(f"**Failure Reason:** {failure_reason}")
+                lines.append(
+                    "Do NOT describe this experiment as having produced results. "
+                    "Do NOT fabricate numbers for this experiment."
+                )
+            lines.append("")
+
         lines.append(
-            "**You MUST NOT cite results from experiments marked FAILURE or TIMEOUT "
-            "as evidence. Only reference results from SUCCESS experiments.**"
+            "**If you write a number not found in any Actual Output block above, "
+            "you are confabulating. Cross-check every quantitative claim.**"
         )
         return "\n".join(lines)
+
+    @staticmethod
+    def _extract_numerical_claims(text: str) -> list[tuple[str, str, str]]:
+        """Extract numerical claims from paper text.
+
+        Finds patterns like "r = -0.31", "correlation of -0.695", "N = 1000",
+        "p < 0.05", etc. and returns them with their metric keyword and section.
+
+        Args:
+            text: Paper markdown text.
+
+        Returns:
+            List of (section_name, metric_keyword, value_string) tuples.
+        """
+        # Split into sections by ## headers
+        section_pattern = re.compile(r"^##\s+(.+)", re.MULTILINE)
+        sections: list[tuple[str, str]] = []
+        matches = list(section_pattern.finditer(text))
+        for i, m in enumerate(matches):
+            name = m.group(1).strip().lower()
+            start = m.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            sections.append((name, text[start:end]))
+
+        # If no sections found, treat entire text as one section
+        if not sections:
+            sections = [("body", text)]
+
+        # Pattern to find "keyword = value" or "keyword of value" constructs
+        claim_pattern = re.compile(
+            r"(?:^|[^a-zA-Z])"
+            r"(correlation|slope|intercept|mean|median|std|sigma|"
+            r"p-value|chi-squared|chi2|rmse|rms|mae|r-squared|r2|"
+            r"coefficient|amplitude|period|frequency|sample\s+size|"
+            r"[rRnNpP])"
+            r"\s*(?:=|≈|~|of|:)\s*"
+            r"([<>≤≥]?\s*-?[\d]+\.?[\d]*(?:\s*[×x]\s*10\^?-?[\d]+)?)",
+            re.IGNORECASE,
+        )
+
+        claims: list[tuple[str, str, str]] = []
+        for section_name, section_text in sections:
+            for m in claim_pattern.finditer(section_text):
+                keyword = m.group(1).strip().lower()
+                value = m.group(2).strip()
+                claims.append((section_name, keyword, value))
+
+        return claims
+
+    @staticmethod
+    def _find_numerical_discrepancies(claims: list[tuple[str, str, str]]) -> str:
+        """Find numerical discrepancies across sections.
+
+        Groups claims by metric keyword and flags groups where the same
+        metric has different values in different sections.
+
+        Args:
+            claims: List of (section_name, metric_keyword, value_string) tuples.
+
+        Returns:
+            Markdown report of discrepancies, or empty string if none found.
+        """
+        from collections import defaultdict
+
+        # Group by keyword
+        by_keyword: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        for section, keyword, value in claims:
+            by_keyword[keyword].append((section, value))
+
+        discrepancies: list[str] = []
+        for keyword, occurrences in by_keyword.items():
+            if len(occurrences) < 2:
+                continue
+            # Check if values differ across sections
+            values = {v for _, v in occurrences}
+            if len(values) > 1:
+                details = ", ".join(f"{section}: {value}" for section, value in occurrences)
+                discrepancies.append(f"- **{keyword}**: {details}")
+
+        if not discrepancies:
+            return ""
+
+        return (
+            "\n\n## Numerical Inconsistencies Detected\n"
+            "The following metrics have different values across sections. "
+            "You MUST harmonize these — use the value from the Execution Fact Sheet "
+            "as the single source of truth:\n" + "\n".join(discrepancies)
+        )
 
     def _get_section_assignments(self) -> dict[str, list[str]]:
         """Get role → section name assignments from profile or fallback.
@@ -191,10 +298,10 @@ class WritingHandler:
                 assigned_sections=section_list,
             )
 
-            # Inject experiment ledger so writers know which experiments succeeded
-            ledger = self._build_experiment_ledger()
-            if ledger:
-                prompt += ledger
+            # Inject execution fact sheet so writers know which experiments succeeded
+            fact_sheet = self._build_execution_fact_sheet()
+            if fact_sheet:
+                prompt += fact_sheet
 
             # Inject execution context for results and methods sections
             results_like = {"results"}
@@ -302,10 +409,16 @@ class WritingHandler:
             section_drafts=section_drafts_text,
         )
 
-        # Inject experiment ledger into assembly
-        ledger = self._build_experiment_ledger()
-        if ledger:
-            prompt += ledger
+        # Inject execution fact sheet into assembly
+        fact_sheet = self._build_execution_fact_sheet()
+        if fact_sheet:
+            prompt += fact_sheet
+
+        # Detect and inject numerical discrepancies across section drafts
+        claims = self._extract_numerical_claims(section_drafts_text)
+        discrepancy_report = self._find_numerical_discrepancies(claims)
+        if discrepancy_report:
+            prompt += discrepancy_report
 
         # Inject caveats into assembly so the assembler doesn't overclaim
         if self._engine._execution_caveats:

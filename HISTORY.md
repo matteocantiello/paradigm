@@ -2138,3 +2138,57 @@ Finalizing the finance domain plan and presenting for approval.
 > Read the first ~4000 lines of the transcript.md for paper-031da0db1190. Focus on the IDEATION phase. Analyze: phase identification (start/end, rounds), agent differentiation, redundancy within/across rounds, quality of ideas, anti-repetition effectiveness, convergence, and literature integration. Return detailed analysis with specific quoted examples.
 
 **Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 39 — Analyze PLANNING Phase Effectiveness in paper-031da0db1190 Transcript
+
+> Read /Users/mcantiello/astro/paradigm/data/papers/paper-031da0db1190/transcript.md from approximately lines 4000-8000 (adjust based on phase headers you find). Look for the PLANNING phase.
+>
+> The transcript has phase headers like "## Phase: PLANNING" or similar markers. Analyze:
+>
+> 1. **Phase identification**: Where does PLANNING start and end? How many rounds?
+> 2. **Connection to IDEATION**: Does the plan build on what was discussed in ideation, or does it seem disconnected?
+> 3. **Specificity**: Are the planned experiments specific enough to be implemented? Or vague?
+> 4. **Agent roles**: Do agents contribute differently to planning? Does the experimentalist propose experiments while the analyst plans analysis?
+> 5. **Redundancy across rounds**: Do later planning rounds add new value or repeat?
+> 6. **Completeness**: Are there gaps in the plan (missing experiments, unaddressed questions)?
+> 7. **Consensus carry-forward**: Is there evidence of consensus summaries being used from ideation?
+>
+> Return a detailed analysis with specific examples.
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 40 — Analyze WRITING, INTERNAL_REVIEW, and POST_EXECUTION Phases in paper-031da0db1190 Transcript
+
+> Read the transcript from approximately line 15000 to end. Analyze the WRITING, INTERNAL_REVIEW, and any PEER_REVIEW phases.
+>
+> Analyze:
+> 1. Phase identification: Where does each phase start? How many internal review rounds?
+> 2. Caveat propagation: Do the writers acknowledge execution caveats and limitations? Or do they confabulate results that weren't achieved?
+> 3. Figure references: Do writers reference figures? Are the figure references accurate?
+> 4. Internal review quality: Does the editor catch real issues, or is it formulaic?
+> 5. Convergence: Does the editor eventually approve, or does it loop?
+> 6. Writing quality: Is the prose coherent? Does it read like one author or a patchwork?
+> 7. POST_EXECUTION summary: Is there evidence of the post-execution team assessment being used in writing?
+>
+> Return a detailed analysis with specific examples.
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 41 — Implement 7 Orchestration Pipeline Improvements
+
+> Implement the following plan:
+>
+> # Plan: 7 Orchestration Pipeline Improvements
+>
+> Analysis of paper-031da0db1190 revealed systemic issues in multi-agent discussion phases: writers fabricating results for failed experiments, execution retries losing state, numerical inconsistencies across sections, phases ending without synthesized conclusions, empty agent contributions wasting context, review pipeline terminating early, and no literature searches during execution errors.
+>
+> Implementation order: Fix 2 (incremental retry), Fix 5 (suppress empty contributions), Fix 1 (anti-confabulation fact sheet), Fix 7 (literature search on errors), Fix 6 (multi-round review enforcement), Fix 3 (cross-section number harmonization), Fix 4 (structured convergence artifacts).
+
+**Key decisions**: Implementing all 7 fixes across constants.py, experimentation.py, writing.py, review.py, and engine.py.
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/constants.py` — Updated retry template, anti-confab templates, synthesis closing templates, review enforcement
+- `src/paradigm/orchestrator/experimentation.py` — Failed code in retry, enriched metadata, auto-search on errors
+- `src/paradigm/orchestrator/writing.py` — Execution fact sheet, numerical discrepancy detection
+- `src/paradigm/orchestrator/review.py` — Fact sheet injection, mandatory check failure counting, auto-reject
+- `src/paradigm/orchestrator/engine.py` — Empty contribution suppression, synthesis rounds + state + injection

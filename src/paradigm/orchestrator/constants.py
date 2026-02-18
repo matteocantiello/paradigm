@@ -201,9 +201,10 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Your previous experiment failed or was rejected.\n"
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
+            "## Your Previous Code\n```python\n{failed_code}\n```\n\n"
             "## Error Feedback\n{error_feedback}\n\n"
-            "Fix the code and resubmit in a ```python block with "
-            "`# EXPERIMENT: <name>` header. Address the specific error above.\n\n"
+            "Fix the code above. Patch the existing code rather than rewriting from scratch — "
+            "preserve working parts and only fix the broken lines.\n\n"
             "**If the error is about code length:** Do NOT try to shorten the same script. "
             "Instead, break it into multiple smaller `# EXPERIMENT:` blocks that each do "
             "one focused task. Save intermediate results to /data/workspace/ and load them "
@@ -247,7 +248,9 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "measures, comparisons) wherever applicable. Do not write vague summaries — "
             "cite specific values, uncertainties, and trends from the experiments.\n\n"
             "Write clear, precise scientific prose. Every claim should be supported "
-            "by evidence from the research. Use active voice where possible."
+            "by evidence from the research. Use active voice where possible.\n\n"
+            "**Every quantitative claim MUST trace to the Execution Fact Sheet. "
+            "Do NOT invent numbers, statistics, or results not present in experiment output.**"
         ),
         "assembly": (
             "You are assembling a research paper from section drafts.\n"
@@ -257,7 +260,9 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Combine all section drafts into a single coherent paper. "
             "Harmonize writing style, ensure smooth transitions between sections, "
             "add a title, and make sure the paper tells a complete story. "
-            "Output the full paper in markdown with ## section headers."
+            "Output the full paper in markdown with ## section headers.\n\n"
+            "**Verify that all numerical claims are consistent with the Execution Fact Sheet. "
+            "If a number appears in the abstract, it must match the number in results.**"
         ),
         "refinement": (
             "You are refining a research paper.\n"
@@ -285,14 +290,17 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "3. **Figure references:** Are all referenced figures actually present? "
             "Do not accept a paper that references figures that do not exist.\n"
             "4. **Claim-evidence alignment:** Does each major claim have supporting "
-            "evidence (numbers, statistics, references)?\n\n"
+            "evidence (numbers, statistics, references)?\n"
+            "5. **Anti-confabulation:** Cross-reference every quantitative claim against "
+            "the Execution Fact Sheet. Flag any number not traceable to experiment output.\n\n"
             "Provide a structured review with these sections (use ## headers):\n"
             "## Strengths\n- What works well\n\n"
             "## Weaknesses\n- What needs improvement\n\n"
             "## Required Changes\n- Specific changes needed before submission\n\n"
             "## Recommendation\n- Either 'accept' (ready for submission), "
             "'revise' (needs another round of revisions), or "
-            "'reject' (fundamentally flawed — would not pass peer review even with revisions)"
+            "'reject' (fundamentally flawed — would not pass peer review even with revisions)\n\n"
+            "**If ALL mandatory checks fail, the paper should be rejected, not merely revised.**"
         ),
         "revision": (
             "You are revising a research paper based on internal review feedback.\n"
@@ -461,6 +469,54 @@ _DEBATE_SYNTHESIS_PROMPT = (
 )
 
 # ---------------------------------------------------------------------------
+# Synthesis closing templates (structured phase conclusions)
+# ---------------------------------------------------------------------------
+
+_SYNTHESIS_CLOSING_TEMPLATES: dict[ResearchPhase, str] = {
+    ResearchPhase.IDEATION: (
+        "You are the synthesizer closing the IDEATION phase.\n"
+        "Topic: {seed_prompt}\n\n"
+        "## Recent Discussion\n{recent_messages}\n\n"
+        "Write a structured synthesis with EXACTLY these sections:\n\n"
+        "### Agreed Hypotheses\n"
+        "List each hypothesis the team converged on, with one sentence of supporting rationale.\n\n"
+        "### Unresolved Questions\n"
+        "List open questions or disagreements that need resolution in PLANNING.\n\n"
+        "### Scope Boundaries\n"
+        "What is explicitly IN scope and OUT of scope for this research.\n\n"
+        "Be concise — this synthesis will be carried forward to all subsequent phases."
+    ),
+    ResearchPhase.PLANNING: (
+        "You are the synthesizer closing the PLANNING phase.\n"
+        "Topic: {seed_prompt}\n\n"
+        "## Recent Discussion\n{recent_messages}\n\n"
+        "Write a structured synthesis with EXACTLY these sections:\n\n"
+        "### Prioritized Experiment List\n"
+        "Numbered list of experiments to run, in priority order. "
+        "Each must include: objective, method, success criterion.\n\n"
+        "### Agreed Methodology\n"
+        "Key methodological decisions the team agreed on.\n\n"
+        "### Open Risks\n"
+        "Known risks, data limitations, or potential failure modes.\n\n"
+        "Be concise — this synthesis will guide the EXECUTION phase."
+    ),
+    ResearchPhase.POST_EXECUTION: (
+        "You are the synthesizer closing the POST_EXECUTION phase.\n"
+        "Topic: {seed_prompt}\n\n"
+        "## Recent Discussion\n{recent_messages}\n\n"
+        "Write a structured synthesis with EXACTLY these sections:\n\n"
+        "### Validated Findings\n"
+        "What the experiments conclusively demonstrated, with specific numbers.\n\n"
+        "### Failed or Inconclusive Analyses\n"
+        "Experiments that failed, produced ambiguous results, or were not attempted.\n\n"
+        "### Paper Scope Agreement\n"
+        "What the paper SHOULD claim and what it MUST NOT claim, "
+        "based on the actual evidence.\n\n"
+        "Be concise — this synthesis will guide the WRITING phase."
+    ),
+}
+
+# ---------------------------------------------------------------------------
 # Resolution detection regexes
 # ---------------------------------------------------------------------------
 
@@ -582,6 +638,30 @@ _NETWORK_ERROR_PATTERNS: list[str] = [
     "NewConnectionError",
     "socket.gaierror",
     "requests.exceptions",
+]
+
+# ---------------------------------------------------------------------------
+# Data-related error patterns (trigger auto literature search)
+# ---------------------------------------------------------------------------
+
+_DATA_ERROR_PATTERNS: list[str] = [
+    "negative values",
+    "NaN",
+    "nan",
+    "missing columns",
+    "ValueError",
+    "KeyError",
+    "IndexError",
+    "ZeroDivisionError",
+    "invalid value encountered",
+    "could not convert",
+    "empty DataFrame",
+    "no data",
+    "shape mismatch",
+    "singular matrix",
+    "convergence failed",
+    "overflow",
+    "underflow",
 ]
 
 # ---------------------------------------------------------------------------

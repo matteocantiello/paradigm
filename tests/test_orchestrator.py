@@ -74,10 +74,11 @@ class TestOrchestrationEngine:
         assert thread["current_phase"] == "planning"
 
         # Agents were called (5 active agents * 2 rounds * 2 phases = 20 calls)
+        # + 2 synthesis rounds (1 synthesizer call each for IDEATION and PLANNING)
         # Writer and editor are excluded from IDEATION and PLANNING phases
         # Active: theorist, analyst, experimentalist, synthesizer, skeptic
         total_generate_calls = sum(a.generate.call_count for a in engine._agents.values())
-        assert total_generate_calls == 20  # 5 agents * 2 rounds * 2 phases
+        assert total_generate_calls == 22  # 5*2*2 + 2 synthesis rounds
 
         # Token usage was recorded
         usage = tmp_db.get_token_usage(thread_id=thread_id)
@@ -800,9 +801,11 @@ class TestOrchestrationEngine:
                 )
             else:
                 # 2 rounds * 2 phases = 4 calls per active agent
+                # + synthesizer gets 2 extra calls for synthesis rounds
                 # Active roles: theorist, analyst, experimentalist, synthesizer, skeptic
-                assert agent.generate.call_count == 4, (
-                    f"{agent.skill_profile} should speak 4 times (2 rounds * 2 phases)"
+                expected = 6 if agent.skill_profile == "synthesizer" else 4
+                assert agent.generate.call_count == expected, (
+                    f"{agent.skill_profile} should speak {expected} times"
                 )
 
     @pytest.mark.asyncio

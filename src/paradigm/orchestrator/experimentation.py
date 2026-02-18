@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from paradigm.literature.resources import ResourceType
 from paradigm.orchestrator.constants import (
+    _DATA_ERROR_PATTERNS,
     _EXECUTION_STDERR_LIMIT,
     _FILE_NOT_FOUND_PATTERNS,
     _MAX_RETRIES_PER_EXPERIMENT,
@@ -88,6 +89,8 @@ class ExperimentationHandler:
         self._failure_categories: dict[str, int] = {}
         self._consecutive_failures: int = 0
         self._strategy_redirects: int = 0
+        # Limit auto literature search to once per retry cycle
+        self._auto_searched: bool = False
 
     async def run_experimentation_phase(self) -> ExperimentationResult:
         """Run the EXECUTION phase: agents propose and run computational experiments.
@@ -317,17 +320,28 @@ class ExperimentationHandler:
                     status_str = result.status.value
                     engine._display.experiment_result(exp_name, status_str)
 
-                    # Build metadata entry for the experiment ledger
+                    # Build metadata entry for the execution fact sheet
                     stdout_preview = (result.stdout or "")[:200]
+                    stdout_full = (result.stdout or "")[:2000]
                     has_figures = any(
                         f.filename.endswith((".png", ".pdf")) for f in result.output_files
                     )
+                    failure_reason = ""
+                    if result.status != ExecutionStatus.SUCCESS:
+                        if result.error_message:
+                            failure_reason = result.error_message[:500]
+                        elif result.stderr:
+                            failure_reason = result.stderr[:500]
+                        else:
+                            failure_reason = f"Exited with status: {status_str}"
                     experiment_metadata.append(
                         {
                             "name": exp_name,
                             "status": status_str,
                             "stdout_preview": stdout_preview,
+                            "stdout_full": stdout_full,
                             "has_figures": has_figures,
+                            "failure_reason": failure_reason,
                         }
                     )
 
@@ -483,6 +497,7 @@ class ExperimentationHandler:
         """
         engine = self._engine
         current_code = code
+        self._auto_searched = False  # Reset per experiment
         for attempt in range(_MAX_RETRIES_PER_EXPERIMENT + 1):
             request = ExecutionRequest(
                 code=current_code,
@@ -591,6 +606,24 @@ class ExperimentationHandler:
                 )
 
             error_feedback = "\n\n".join(error_parts)
+
+            # Auto literature search on data-related errors
+            if not self._auto_searched:
+                combined_error = stderr_text + (result.stdout or "") + (result.error_message or "")
+                if any(p in combined_error for p in _DATA_ERROR_PATTERNS):
+                    self._auto_searched = True
+                    try:
+                        search_query = (
+                            f"[SEARCH: {engine._seed_prompt[:80]} methodology data quality]"
+                        )
+                        await engine._literature.process_search_requests(
+                            experimenter.agent_id,
+                            search_query,
+                            ResearchPhase.EXECUTION,
+                        )
+                    except Exception:
+                        pass  # Non-fatal
+
             engine._display.experiment_retry(attempt + 1, _MAX_RETRIES_PER_EXPERIMENT)
 
             net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
@@ -598,6 +631,7 @@ class ExperimentationHandler:
             retry_prompt = template.format(
                 seed_prompt=engine._seed_prompt,
                 checkpoint_context=checkpoint_context,
+                failed_code=current_code,
                 error_feedback=error_feedback,
                 network_caveat=net_caveat,
             )
