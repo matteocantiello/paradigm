@@ -26,6 +26,8 @@ import pandas as pd
 from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
+workspace = Path('/data/workspace')
+workspace.mkdir(parents=True, exist_ok=True)
 """
 
 

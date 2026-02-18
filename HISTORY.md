@@ -2369,3 +2369,91 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `src/paradigm/display/manager.py`
 - `src/paradigm/display/fallback.py`
 - `tests/test_experimentation.py`
+
+### Prompt 191 — Analyze paper-d18c7e87f628 Logs
+
+> Let's analyze the logs of paper-d18c7e87f628 (thread-c9ca4624a973). It would be good to understand if the updates we made have improved the execution, the flow of discussion and the outcome. Do we still have redundant discussions? Are we missing important insights? Are the logs revealing obvious shortcomings of the current approach and/or ways to improve? One thing to note is that last run was done in --testing mode
+
+**Key objective**: Post-mortem analysis of latest run to assess impact of recent pipeline improvements.
+
+### Prompt 192 — Analyze Paper and Reviews for paper-d18c7e87f628
+
+> Read and analyze these two files from a Paradigm research run (paper-d18c7e87f628):
+> 1. The final paper (`paper-d18c7e87f628.md`)
+> 2. The peer reviews (`reviews.md`)
+>
+> Provide a detailed analysis covering: what the paper is about, quality assessment, figure presence, conclusion support, reviewer feedback, acceptance status, weaknesses, and word count.
+
+**Key objective**: Content-level analysis of the paper and its peer review, as opposed to the pipeline log analysis in Prompt 191.
+
+### Prompt 193 — Deep Analysis of SEEDING, IDEATION, and PLANNING Phases from paper-d18c7e87f628
+
+> Read and analyze the SEEDING, IDEATION, and PLANNING phases from the transcript at `/Users/mcantiello/astro/paradigm/data/papers/paper-d18c7e87f628/transcript.md`. These are in the first ~2000-3000 lines.
+>
+> For each phase, analyze:
+> 1. **Redundancy**: Are agents repeating each other's points? How much unique content does each agent contribute?
+> 2. **Quality of discussion**: Are there genuine disagreements or is it all agreement? Is the skeptic adding value?
+> 3. **Convergence**: Does the planning phase produce concrete, actionable experiment plans?
+> 4. **Missing insights**: Are there obvious questions or angles the agents failed to consider?
+> 5. **Phase transitions**: Do phases end at the right time or go on too long?
+>
+> Also note: this run was in --testing mode so models may be smaller/cheaper.
+>
+> This is a RESEARCH task -- do NOT write any code or edit any files.
+
+**Key objective**: Detailed qualitative analysis of agent collaboration quality in the early pipeline phases.
+
+### Prompt 194 — Analyze Literature Search Log for paper-d18c7e87f628
+
+> Read and analyze the literature search log at `/Users/mcantiello/astro/paradigm/data/papers/paper-d18c7e87f628/literature_searches.md`.
+>
+> Analyze:
+> 1. **Search quality**: Are the search queries well-formed? Do they target the right concepts?
+> 2. **Result relevance**: Are the returned papers relevant to the research question?
+> 3. **Coverage**: Does the literature search adequately cover the topic?
+> 4. **Redundancy**: Are there duplicate or near-duplicate searches?
+> 5. **Graph traversal**: Were FOLLOW/CITED_BY actions used effectively?
+> 6. **Phase distribution**: Which phases triggered searches? Is the distribution appropriate?
+> 7. **Total searches**: How many total searches? Is this appropriate?
+>
+> This is a RESEARCH task — do NOT write any code or edit any files.
+
+**Key objective**: Assess the quality, coverage, redundancy, and effectiveness of the literature search pipeline for the red noise paper.
+
+---
+
+### Prompt 55 — Analyze EXECUTION Phase from Red Noise Paper Transcript
+
+> Read and analyze the EXECUTION phase from the transcript at `/Users/mcantiello/astro/paradigm/data/papers/paper-d18c7e87f628/transcript.md`. The execution phase typically starts after PLANNING (search for "Phase: EXECUTION" or similar markers). It may span lines ~3000-9000 approximately — search for the right section.
+>
+> Focus your analysis on:
+> 1. **Experiment success/failure rates**: How many experiments succeeded vs failed? What types of failures?
+> 2. **Cascade failures**: Were there experiments that failed because they depended on prior failed experiments?
+> 3. **Retry effectiveness**: When experiments failed and were retried, did the retries succeed?
+> 4. **Experiment quality**: Were the experiments well-designed? Did they produce meaningful results?
+> 5. **Redundant experiments**: Were any experiments essentially duplicates of each other?
+> 6. **File path issues**: Did experiments try to read files that don't exist?
+> 7. **Figure generation**: Were figures produced? Were they meaningful?
+> 8. **Dependency patterns**: Could experiments have benefited from explicit `# DEPENDS:` declarations? Identify specific cases.
+> 9. **Round structure**: How many rounds? Did the agent effectively iterate?
+>
+> Also note: this was run in --testing mode. Note whether the new dependency graph feature was actually used (look for `# DEPENDS:` in experiment code or "skipped" messages).
+>
+> This is a RESEARCH task — do NOT write any code or edit any files.
+
+**Key objective**: Comprehensive analysis of the execution phase of the red noise paper, focusing on experiment success rates, cascade failures, dependency patterns, and whether the dependency graph feature was utilized.
+
+---
+
+## 2026-02-18
+
+### Prompt 195 — Implement Post-Mortem Fixes from paper-d18c7e87f628 Analysis
+
+> (Continuation session) Implement the prioritized fixes identified from the post-mortem analysis:
+> 1. Add `workspace = Path('/data/workspace')` to auto-import preamble (84% of failures)
+> 2. Synthetic data detection guardrail
+> 3. Writing anti-repetition instruction + figure reference check
+> 4. POST_EXECUTION redundancy reduction
+> 5. Skeptic critique propagation
+
+**Artifacts modified**: `src/paradigm/sandbox/executor.py`, `src/paradigm/orchestrator/constants.py`, `src/paradigm/orchestrator/experimentation.py`

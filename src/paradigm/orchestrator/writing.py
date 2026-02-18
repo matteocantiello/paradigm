@@ -502,6 +502,21 @@ class WritingHandler:
                     + "\n".join(f"- **{c}**" for c in self._engine._execution_caveats)
                 )
 
+            # Inject available figures so section writers can reference them
+            if self._engine._execution_figures:
+                fig_lines = ["\n\n## Available Figures"]
+                fig_lines.append(
+                    "The following figures were produced by experiments. "
+                    "Reference them in your section text where relevant "
+                    "(e.g., 'as shown in Figure 1'):"
+                )
+                for i, (exp_name, fpath) in enumerate(self._engine._execution_figures, 1):
+                    dest_name = self.figure_dest_name(exp_name, fpath)
+                    fig_lines.append(
+                        f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`"
+                    )
+                prompt += "\n".join(fig_lines)
+
             # Inject POST_EXECUTION team assessment — the research team's
             # critical evaluation of what the results actually show
             if self._engine._post_execution_summary:
