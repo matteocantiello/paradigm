@@ -93,6 +93,13 @@ class ContainerManager:
         # Ensure results directory exists
         results_dir.mkdir(parents=True, exist_ok=True)
 
+        # Snapshot workspace files so we can detect new/modified ones after execution
+        _ws_snapshot: dict[str, float] = {}
+        if workspace_dir and workspace_dir.exists():
+            for f in workspace_dir.iterdir():
+                if f.is_file():
+                    _ws_snapshot[f.name] = f.stat().st_mtime
+
         # Write code to a temporary script file in results_dir
         script_path = results_dir / "script.py"
         script_path.write_text(request.code)
@@ -159,7 +166,10 @@ class ContainerManager:
             if len(stderr_str) > max_size:
                 stderr_str = stderr_str[:max_size] + "\n... [truncated]"
 
-            # Collect output files (anything created in results_dir that isn't script.py)
+            # Collect output files from results_dir + new workspace files.
+            # Agents save figures to /data/workspace/ (persistent across
+            # executions), so we diff against the pre-execution snapshot
+            # to find files created/modified by THIS experiment.
             output_files: list[OutputFile] = []
             for f in results_dir.iterdir():
                 if f.name != "script.py" and f.is_file():
@@ -170,6 +180,20 @@ class ContainerManager:
                             size_bytes=f.stat().st_size,
                         )
                     )
+            # Also collect new/modified workspace files
+            if workspace_dir and workspace_dir.exists():
+                for f in workspace_dir.iterdir():
+                    if not f.is_file():
+                        continue
+                    prev = _ws_snapshot.get(f.name)
+                    if prev is None or f.stat().st_mtime > prev:
+                        output_files.append(
+                            OutputFile(
+                                filename=f.name,
+                                path=str(f),
+                                size_bytes=f.stat().st_size,
+                            )
+                        )
 
             status = ExecutionStatus.SUCCESS if exit_code == 0 else ExecutionStatus.FAILURE
             return ExecutionResult(

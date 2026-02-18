@@ -747,6 +747,10 @@ class WritingHandler:
 
         for exp_name, src_path in self._engine._execution_figures:
             if not src_path.exists():
+                self._engine._logger.log_error(
+                    FileNotFoundError(f"Figure from '{exp_name}' not found: {src_path}"),
+                    thread_id=self._engine._thread_id,
+                )
                 continue
             dest_name = self.figure_dest_name(exp_name, src_path)
             dest_path = figures_dir / dest_name

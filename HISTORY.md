@@ -2457,3 +2457,9 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 > 5. Skeptic critique propagation
 
 **Artifacts modified**: `src/paradigm/sandbox/executor.py`, `src/paradigm/orchestrator/constants.py`, `src/paradigm/orchestrator/experimentation.py`
+
+### Prompt 196 — Post-Mortem Analysis of paper-13fd1ece63ac (thread-9795f2b87899)
+
+> Run has finished. Let's look at thread-9795f2b87899 and paper-13fd1ece63ac logs
+
+**Key objective**: Analyze the new run to assess impact of the 4 fixes (workspace preamble, synthetic data guardrail, figure references, POST_EXECUTION anti-redundancy) implemented in Prompt 195.
