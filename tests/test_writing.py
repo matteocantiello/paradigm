@@ -288,6 +288,12 @@ class TestParseReviewFeedback:
         assert "Clear writing" in fb.strengths
         assert len(fb.weaknesses) == 1
         assert len(fb.required_changes) == 2
+        # "Accept with minor revisions" → revise (accept + revisions = revise)
+        assert fb.recommendation == "revise"
+
+    def test_pure_accept_recommendation(self):
+        review = "## Strengths\n- Excellent work\n\n## Recommendation\nAccept"
+        fb = parse_review_feedback(review)
         assert fb.recommendation == "accept"
 
     def test_revise_recommendation(self):

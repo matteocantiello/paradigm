@@ -340,12 +340,16 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
     required_changes = _extract_list(sections.get("required changes", ""))
 
     # Parse recommendation (reject is strongest signal, then accept, then revise)
+    _revise_words = re.compile(r"\brevis(?:e|ion|ions)\b")
     if "recommendation" in sections:
         rec_text = sections["recommendation"].strip().lower()
         if "reject" in rec_text:
             recommendation = "reject"
-        elif "accept" in rec_text:
+        elif "accept" in rec_text and not _revise_words.search(rec_text):
             recommendation = "accept"
+        elif "accept" in rec_text:
+            # "accept with revisions" / "accept pending revision" → revise
+            recommendation = "revise"
         else:
             recommendation = "revise"
     else:

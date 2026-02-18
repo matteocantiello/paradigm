@@ -792,6 +792,18 @@ class OrchestrationEngine:
             recent_messages=recent_messages,
         )
 
+        # For POST_EXECUTION, inject the execution fact sheet so the
+        # synthesizer grounds its summary in actual experiment outputs
+        # rather than confabulating from the discussion alone.
+        if phase == ResearchPhase.POST_EXECUTION:
+            fact_sheet = self._writing._build_execution_fact_sheet()
+            if fact_sheet:
+                prompt += (
+                    "\n\n" + fact_sheet + "\n\n"
+                    "Base your synthesis ONLY on the actual experiment outputs above. "
+                    "Do NOT describe failed experiments as having produced results."
+                )
+
         try:
             response = await synthesizer.generate(prompt)
         except Exception as e:

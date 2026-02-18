@@ -2192,3 +2192,45 @@ Finalizing the finance domain plan and presenting for approval.
 - `src/paradigm/orchestrator/writing.py` — Execution fact sheet, numerical discrepancy detection
 - `src/paradigm/orchestrator/review.py` — Fact sheet injection, mandatory check failure counting, auto-reject
 - `src/paradigm/orchestrator/engine.py` — Empty contribution suppression, synthesis rounds + state + injection
+
+### Prompt 42 — Analyze paper-a39fa8281c11 Transcript for Pipeline Improvement Assessment
+
+> Let's analyze the logs of paper-a39fa8281c11. It would be good to understand if the updates we made have improved the flow of discussion and the outcome. Do we still have redundant discussions? Are we missing important insights? Are the logs revealing obvious shortcomings of the current approach and/or ways to improve?
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 43 — Analyze Literature Searches Log for paper-a39fa8281c11
+
+> Read the literature searches log at /Users/mcantiello/astro/paradigm/data/papers/paper-a39fa8281c11/literature_searches.md (224 lines). Analyze: 1) Search diversity, 2) Phase distribution, 3) Result quality, 4) Agent differentiation, 5) Redundancy.
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 44 — Deep Analysis of paper-a39fa8281c11 SEEDING/IDEATION/PLANNING Phases
+
+> Read the transcript of paper-a39fa8281c11 at /Users/mcantiello/astro/paradigm/data/papers/paper-a39fa8281c11/transcript.md. The file is ~15,700 lines. Read the first ~3000 lines covering SEEDING, IDEATION, and PLANNING phases (including any synthesis rounds). Analyze: 1. Redundancy, 2. Synthesis rounds, 3. Empty contribution suppression, 4. Phase transitions, 5. Literature search quality, 6. Agent differentiation, 7. Convergence.
+
+**Key decisions**: Deep diagnostic analysis of early pipeline phases — no code changes expected.
+
+### Prompt 45 — Deep Analysis of paper-a39fa8281c11 POST_EXECUTION through PEER_REVIEW
+
+> Read the transcript of paper-a39fa8281c11 at /Users/mcantiello/astro/paradigm/data/papers/paper-a39fa8281c11/transcript.md. Read approximately lines 10000-15736 covering POST_EXECUTION, WRITING, INTERNAL_REVIEW, and any PEER_REVIEW phases. Also read reviews.md and the final paper. Analyze: 1. POST_EXECUTION synthesis, 2. Anti-confabulation (Fix 1), 3. Numerical consistency (Fix 3), 4. Writing quality, 5. Review enforcement (Fix 6), 6. Caveat propagation, 7. Review iterations.
+
+**Key decisions**: Deep diagnostic analysis of late pipeline phases — no code changes expected.
+
+### Prompt 46 — Deep Analysis of paper-a39fa8281c11 EXECUTION Phase (lines 3000-10000)
+
+> Read the transcript of paper-a39fa8281c11 at /Users/mcantiello/astro/paradigm/data/papers/paper-a39fa8281c11/transcript.md. Read approximately lines 3000-10000 which should cover the EXECUTION phase (experiments, retries, results). Analyze: 1. Retry behavior (Fix 2), 2. Experiment success rate, 3. Auto literature search (Fix 7), 4. Code quality, 5. Strategy redirects, 6. Experiment metadata, 7. Planning action items.
+
+**Key decisions**: Deep diagnostic analysis of EXECUTION phase — no code changes expected.
+
+### Prompt 47 — Implement P0 fixes from paper-a39fa8281c11 analysis
+
+> (Continued from previous session) Implement the P0 fixes identified from paper-a39fa8281c11 analysis:
+> 1. Internal review "REVISE" doesn't trigger revision loop before submission
+> 2. POST_EXECUTION synthesis confabulates — fact sheet not injected into synthesis prompt
+
+**Key decisions**:
+- Fix A: `parse_review_feedback()` in `paper.py` had priority bug — "accept" checked before "revise" in section-based parsing. Added regex guard for co-occurrence of "accept" + "revise/revision/revisions" → now classified as "revise".
+- Fix B: `_run_synthesis_round()` in `engine.py` now injects execution fact sheet into POST_EXECUTION synthesis prompt so synthesizer is grounded in actual experiment outputs.
+
+**Artifacts modified**: `src/paradigm/journal/paper.py`, `src/paradigm/orchestrator/engine.py`, `tests/test_writing.py`
