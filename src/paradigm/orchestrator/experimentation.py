@@ -21,6 +21,7 @@ from paradigm.orchestrator.constants import (
     _is_vacuous_success,
     _list_shared_files,
     _network_caveat,
+    _normalize_query_keywords,
 )
 from paradigm.orchestrator.phases import ResearchPhase
 from paradigm.sandbox.executor import CodeExecutor
@@ -29,6 +30,75 @@ from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, Execution
 if TYPE_CHECKING:
     from paradigm.agents.base import Agent
     from paradigm.orchestrator.engine import OrchestrationEngine
+
+
+def _build_workspace_manifest(workspace_dir: Path) -> str:
+    """List files in the workspace directory with sizes.
+
+    Provides experimenters with an exact listing of files available
+    from previous experiments, preventing wrong-filename errors.
+
+    Args:
+        workspace_dir: Path to the workspace directory.
+
+    Returns:
+        Formatted manifest block, or empty string if no files exist.
+    """
+    if not workspace_dir.exists():
+        return ""
+
+    files = sorted(f for f in workspace_dir.rglob("*") if f.is_file())
+    if not files:
+        return ""
+
+    lines = ["## Available Workspace Files"]
+    lines.append("Files saved by previous experiments in /data/workspace/:")
+    for f in files[:30]:
+        rel = f.relative_to(workspace_dir)
+        size = f.stat().st_size
+        if size < 1024:
+            size_str = f"{size} B"
+        elif size < 1024 * 1024:
+            size_str = f"{size / 1024:.1f} KB"
+        else:
+            size_str = f"{size / (1024 * 1024):.1f} MB"
+        lines.append(f"- `/data/workspace/{rel}` ({size_str})")
+    if len(files) > 30:
+        lines.append(f"  ... and {len(files) - 30} more files")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _build_auto_search_query(seed_prompt: str, error_text: str) -> str:
+    """Build a focused search query from seed prompt and error context.
+
+    Extracts the top 5 most specific content words from the seed prompt
+    (longest words first, as they tend to be more domain-specific) and
+    appends error-specific context keywords.
+
+    Args:
+        seed_prompt: The research topic / seed prompt.
+        error_text: Combined error text from the failed experiment.
+
+    Returns:
+        Search query string suitable for literature search.
+    """
+    keywords = sorted(_normalize_query_keywords(seed_prompt), key=len, reverse=True)[:5]
+
+    # Append error-specific context
+    error_lower = error_text.lower()
+    if "nan" in error_lower or "overflow" in error_lower or "underflow" in error_lower:
+        keywords.append("numerical stability")
+    elif "no data" in error_lower or "empty dataframe" in error_lower:
+        keywords.append("data availability")
+    elif "singular matrix" in error_lower or "convergence failed" in error_lower:
+        keywords.append("numerical methods")
+    elif "shape mismatch" in error_lower or "missing columns" in error_lower:
+        keywords.append("data format")
+    else:
+        keywords.append("methodology")
+
+    return " ".join(keywords)
 
 
 def _categorize_failure(result: ExecutionResult) -> str:
@@ -180,6 +250,13 @@ class ExperimentationHandler:
                 if engine._data_context:
                     checkpoint_context += engine._data_context + "\n\n"
 
+                # Inject workspace manifest for round 2+ so agents know
+                # which files were saved by prior experiments
+                if round_num > 1:
+                    ws_manifest = _build_workspace_manifest(workspace_dir)
+                    if ws_manifest:
+                        checkpoint_context = ws_manifest + "\n\n" + checkpoint_context
+
                 previous_results = "\n\n".join(all_results) if all_results else ""
 
                 net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
@@ -258,6 +335,7 @@ class ExperimentationHandler:
                         code,
                         checkpoint_context,
                         repo_paths=repo_paths,
+                        workspace_dir=workspace_dir,
                     )
                     formatted = _format_execution_result(exp_name, result)
                     all_results.append(formatted)
@@ -481,6 +559,7 @@ class ExperimentationHandler:
         code: str,
         checkpoint_context: str,
         repo_paths: list[str] | None = None,
+        workspace_dir: Path | None = None,
     ) -> tuple[ExecutionResult, str]:
         """Execute code with retry on failure/rejection.
 
@@ -491,6 +570,7 @@ class ExperimentationHandler:
             code: Python code to execute.
             checkpoint_context: Checkpoint context string.
             repo_paths: Optional list of repo paths for PYTHONPATH.
+            workspace_dir: Optional workspace directory for manifest injection.
 
         Returns:
             Tuple of (final ExecutionResult, final code version).
@@ -613,9 +693,8 @@ class ExperimentationHandler:
                 if any(p in combined_error for p in _DATA_ERROR_PATTERNS):
                     self._auto_searched = True
                     try:
-                        search_query = (
-                            f"[SEARCH: {engine._seed_prompt[:80]} methodology data quality]"
-                        )
+                        query_text = _build_auto_search_query(engine._seed_prompt, combined_error)
+                        search_query = f"[SEARCH: {query_text}]"
                         await engine._literature.process_search_requests(
                             experimenter.agent_id,
                             search_query,
@@ -627,10 +706,17 @@ class ExperimentationHandler:
             engine._display.experiment_retry(attempt + 1, _MAX_RETRIES_PER_EXPERIMENT)
 
             net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
+            # Inject workspace manifest into retry context so agent knows
+            # which files are available from prior experiments
+            retry_checkpoint = checkpoint_context
+            if workspace_dir is not None:
+                ws_manifest = _build_workspace_manifest(workspace_dir)
+                if ws_manifest:
+                    retry_checkpoint = ws_manifest + "\n\n" + retry_checkpoint
             template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
             retry_prompt = template.format(
                 seed_prompt=engine._seed_prompt,
-                checkpoint_context=checkpoint_context,
+                checkpoint_context=retry_checkpoint,
                 failed_code=current_code,
                 error_feedback=error_feedback,
                 network_caveat=net_caveat,

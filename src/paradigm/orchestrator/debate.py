@@ -13,6 +13,7 @@ from paradigm.orchestrator.constants import (
     _DEBATE_PROMPT_DEFENDER,
     _DEBATE_SYNTHESIS_PROMPT,
     _RESOLVED_RE,
+    _normalize_query_keywords,
 )
 from paradigm.orchestrator.phases import ResearchPhase
 
@@ -26,10 +27,46 @@ class DebateHandler:
     def __init__(self, engine: OrchestrationEngine) -> None:
         self._engine = engine
         self.debate_counts: dict[str, int] = {}
+        self.resolved_topics: list[dict[str, str]] = []
 
     def reset_cycle(self) -> None:
         """Reset debate state for a new research cycle."""
         self.debate_counts = {}
+        self.resolved_topics = []
+
+    def _is_duplicate_challenge(
+        self,
+        defender_id: str,
+        reason: str,
+    ) -> bool:
+        """Check if a challenge duplicates an already-resolved debate topic.
+
+        Uses Jaccard similarity on normalized keywords. Only checks debates
+        targeting the same defender (any challenger).
+
+        Args:
+            defender_id: ID of the agent being challenged.
+            reason: Reason / topic for the proposed challenge.
+
+        Returns:
+            True if this challenge is a near-duplicate of a resolved topic.
+        """
+        new_keywords = _normalize_query_keywords(reason)
+        if not new_keywords:
+            return False
+
+        for resolved in self.resolved_topics:
+            if resolved["defender_id"] != defender_id:
+                continue
+            existing_keywords = _normalize_query_keywords(resolved["topic"])
+            if not existing_keywords:
+                continue
+            # Jaccard similarity check (same threshold as search dedup)
+            intersection = len(new_keywords & existing_keywords)
+            union = len(new_keywords | existing_keywords)
+            if union > 0 and intersection / union >= 0.4:
+                return True
+        return False
 
     async def process_challenge_requests(
         self,
@@ -86,6 +123,13 @@ class DebateHandler:
                         target_id, f"'{target_id}' not active in {phase_key}"
                     )
                     continue
+
+            # Duplicate check: skip if this topic was already debated and resolved
+            if self._is_duplicate_challenge(target_id, challenge.reason):
+                self._engine._display.debate_skipped(
+                    target_id, "duplicate of already-resolved debate topic"
+                )
+                continue
 
             # Budget check (re-check inside loop in case of prior skip)
             if self.debate_counts.get(phase_key, 0) >= max_debates:
@@ -278,6 +322,13 @@ class DebateHandler:
         )
 
         self.debate_counts[phase_key] = self.debate_counts.get(phase_key, 0) + 1
+        self.resolved_topics.append(
+            {
+                "challenger_id": challenger_id,
+                "defender_id": defender_id,
+                "topic": debate_topic,
+            }
+        )
         self._engine._display.debate_complete(resolution_type, len(transcript))
 
     async def synthesize_debate(

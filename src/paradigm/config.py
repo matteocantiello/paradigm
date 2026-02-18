@@ -115,7 +115,7 @@ class OrchestratorConfig(BaseModel):
     max_debate_exchanges: int = 3
     max_debates_per_phase: int = 2
     enable_convergence_detection: bool = True
-    convergence_confidence_threshold: float = 0.85
+    convergence_confidence_threshold: float = 0.70
     search_relevance_threshold: float = 0.15
     max_strategy_retries: int = 3
     enable_execution_advisory: bool = True

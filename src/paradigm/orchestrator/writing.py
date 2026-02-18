@@ -171,6 +171,44 @@ class WritingHandler:
             "as the single source of truth:\n" + "\n".join(discrepancies)
         )
 
+    @staticmethod
+    def _extract_reference_values(fact_sheet: str) -> str:
+        """Extract lines with numbers from Actual Output blocks in the fact sheet.
+
+        Provides a compact "cheat sheet" of reference values that section
+        writers can use to ensure numerical consistency across sections.
+
+        Args:
+            fact_sheet: The execution fact sheet string.
+
+        Returns:
+            Formatted reference values block, or empty string if none found.
+        """
+        # Find all "Actual Output" code blocks and extract lines with numbers
+        pattern = re.compile(r"\*\*Actual Output:\*\*\s*\n```\n(.*?)```", re.DOTALL)
+        value_lines: list[str] = []
+        for match in pattern.finditer(fact_sheet):
+            block = match.group(1)
+            for line in block.strip().split("\n"):
+                line = line.strip()
+                # Keep lines that contain numbers (digits with optional decimals)
+                if line and re.search(r"\d+\.?\d*", line):
+                    value_lines.append(f"- {line}")
+                    if len(value_lines) >= 20:
+                        break
+            if len(value_lines) >= 20:
+                break
+
+        if not value_lines:
+            return ""
+
+        return (
+            "\n\n## Reference Values — Use These Exact Numbers\n"
+            "The following values come directly from experiment output. "
+            "Use these exact numbers in your section — do NOT round, "
+            "re-derive, or approximate them:\n" + "\n".join(value_lines)
+        )
+
     def _get_section_assignments(self) -> dict[str, list[str]]:
         """Get role → section name assignments from profile or fallback.
 
@@ -302,6 +340,10 @@ class WritingHandler:
             fact_sheet = self._build_execution_fact_sheet()
             if fact_sheet:
                 prompt += fact_sheet
+                # Also inject compact reference values for numerical consistency
+                ref_values = self._extract_reference_values(fact_sheet)
+                if ref_values:
+                    prompt += ref_values
 
             # Inject execution context for results and methods sections
             results_like = {"results"}

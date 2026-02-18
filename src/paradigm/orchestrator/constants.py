@@ -102,6 +102,9 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "You are developing a concrete research plan.\n"
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
+            "**IMPORTANT:** The Phase Syntheses section above contains the agreed "
+            "hypotheses and scope boundaries from IDEATION. Your plan MUST address "
+            "these specific hypotheses — do NOT propose new research directions.\n\n"
             "Based on the ideation phase, propose specific:\n"
             "- Experiments or analyses to run\n"
             "- Data requirements and sources\n"
@@ -403,11 +406,14 @@ _CONVERGENCE_CHECK_PROMPT = (
     "You are evaluating whether a group of AI research agents have converged "
     "on their core proposals during a collaborative discussion.\n\n"
     "## Phase: {phase}\n\n"
-    "## Agent Messages from Round {round_num}\n{messages}\n\n"
-    "Assess whether the agents have reached substantial agreement (80%+ overlap) "
+    "## Agent Messages from Recent Rounds\n{messages}\n\n"
+    "Assess whether the agents have reached substantial agreement (70%+ overlap) "
     "on their core proposals, hypotheses, or plans. Minor differences in wording "
     "or emphasis do NOT count as divergence — focus on whether the substantive "
     "ideas, conclusions, or recommendations are materially the same.\n\n"
+    "Be decisive: if agents are largely saying the same things with minor "
+    "variations, that IS convergence. Only report non-convergence when agents "
+    "have genuinely different conclusions or recommendations.\n\n"
     "Respond with ONLY a JSON object (no markdown fences, no extra text):\n"
     '{{"converged": true/false, "confidence": 0.0-1.0, "rationale": "one sentence"}}'
 )
@@ -428,7 +434,9 @@ _CHALLENGE_INSTRUCTION = (
     "  [CHALLENGE: agent-id: brief reason for disagreement]\n\n"
     "This triggers a structured debate between you and the challenged agent. "
     "Use this sparingly — only when genuine intellectual disagreement exists "
-    "and a back-and-forth would produce better ideas than the normal round.\n"
+    "and a back-and-forth would produce better ideas than the normal round.\n\n"
+    "**Do NOT re-challenge an agent on a topic that was already debated and "
+    "resolved in an earlier round or phase.**\n"
 )
 
 _DEBATE_PROMPT_DEFENDER = (
@@ -649,10 +657,6 @@ _DATA_ERROR_PATTERNS: list[str] = [
     "NaN",
     "nan",
     "missing columns",
-    "ValueError",
-    "KeyError",
-    "IndexError",
-    "ZeroDivisionError",
     "invalid value encountered",
     "could not convert",
     "empty DataFrame",

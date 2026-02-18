@@ -885,6 +885,33 @@ class OrchestrationEngine:
             if graveyard:
                 checkpoint_context = checkpoint_context + graveyard + "\n\n"
 
+        # Inject structured phase syntheses near the top of the prompt
+        # so agents see them early and don't re-derive settled conclusions
+        if self._phase_synthesis:
+            synthesis_parts: list[str] = []
+            for phase_key, synthesis_text in self._phase_synthesis.items():
+                phase_label = phase_key.upper().replace("RESEARCHPHASE.", "")
+                capped = synthesis_text[:1500]
+                synthesis_parts.append(f"### {phase_label} Synthesis\n{capped}")
+            if synthesis_parts:
+                synthesis_block = (
+                    "## MANDATORY: Phase Syntheses (DO NOT RE-DERIVE)\n"
+                    "The following structured conclusions were produced at the end of "
+                    "prior phases. Build on these — do NOT re-derive them.\n\n"
+                    + "\n\n---\n\n".join(synthesis_parts)
+                    + "\n\n"
+                )
+                checkpoint_context = synthesis_block + checkpoint_context
+
+        # Inject prior phase consensus near the top as well
+        if self._consensus_summary:
+            consensus_block = (
+                "## Prior Phase Consensus\n"
+                "The following conclusions were agreed upon in earlier phases. "
+                "Do NOT re-derive these — build on them.\n\n" + self._consensus_summary + "\n\n"
+            )
+            checkpoint_context = consensus_block + checkpoint_context
+
         # Inject agent episodic memories (cross-cycle learning)
         if (
             "memory" in context_needs
@@ -912,30 +939,6 @@ class OrchestrationEngine:
             checkpoint_context=checkpoint_context,
             recent_messages=recent_messages,
         )
-
-        # Inject structured phase syntheses from previous phases
-        if self._phase_synthesis:
-            synthesis_parts: list[str] = []
-            for phase_key, synthesis_text in self._phase_synthesis.items():
-                phase_label = phase_key.upper().replace("RESEARCHPHASE.", "")
-                # Cap each synthesis at 1500 chars
-                capped = synthesis_text[:1500]
-                synthesis_parts.append(f"### {phase_label} Synthesis\n{capped}")
-            if synthesis_parts:
-                formatted += (
-                    "\n\n## Phase Syntheses\n"
-                    "The following structured conclusions were produced at the end of "
-                    "prior phases. Build on these — do NOT re-derive them.\n\n"
-                    + "\n\n".join(synthesis_parts)
-                )
-
-        # Inject prior phase consensus so agents don't re-derive settled conclusions
-        if self._consensus_summary:
-            formatted += (
-                "\n\n## Prior Phase Consensus\n"
-                "The following conclusions were agreed upon in earlier phases. "
-                "Do NOT re-derive these — build on them.\n\n" + self._consensus_summary
-            )
 
         # Inject role-specific and general reinforcements for later rounds
         if round_num > 1:
@@ -1153,8 +1156,8 @@ class OrchestrationEngine:
     ) -> tuple[bool, str]:
         """Check if agents have converged using a cheap LLM call.
 
-        Grabs the last N messages (one per active agent) from the current round,
-        truncates each to 500 chars, and asks an LLM whether agents have reached
+        Grabs messages from the last two rounds (up to 2 × active_agent_count),
+        truncates each to 800 chars, and asks an LLM whether agents have reached
         substantial agreement.
 
         Args:
@@ -1165,14 +1168,15 @@ class OrchestrationEngine:
         Returns:
             Tuple of (is_converged, rationale).
         """
-        # Grab last N messages (N = active_agent_count)
-        recent = self._messages[-active_agent_count:]
+        # Two-round lookback: grab up to 2 rounds of messages
+        lookback = min(2 * active_agent_count, len(self._messages))
+        recent = self._messages[-lookback:]
         if len(recent) < 2:
             return False, ""
 
-        # Format messages, truncating content to 500 chars
+        # Format messages, truncating content to 800 chars
         formatted_messages = "\n\n".join(
-            f"**{m.get('from', 'unknown')}**: {m.get('content', '')[:500]}" for m in recent
+            f"**{m.get('from', 'unknown')}**: {m.get('content', '')[:800]}" for m in recent
         )
 
         prompt_text = _CONVERGENCE_CHECK_PROMPT.format(
@@ -1211,7 +1215,22 @@ class OrchestrationEngine:
             cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
             cleaned = re.sub(r"\s*```$", "", cleaned)
 
-        result = json.loads(cleaned)
+        try:
+            result = json.loads(cleaned)
+        except json.JSONDecodeError:
+            self._logger.log(
+                EventType.ERROR,
+                content={
+                    "event": "convergence_check_parse_error",
+                    "phase": str(phase),
+                    "round": round_num,
+                    "raw_response": cleaned[:500],
+                },
+                thread_id=self._thread_id,
+                phase=str(phase),
+            )
+            return False, ""
+
         converged = bool(result.get("converged", False))
         confidence = float(result.get("confidence", 0.0))
         rationale = result.get("rationale", "")

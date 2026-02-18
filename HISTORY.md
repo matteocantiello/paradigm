@@ -2234,3 +2234,24 @@ Finalizing the finance domain plan and presenting for approval.
 - Fix B: `_run_synthesis_round()` in `engine.py` now injects execution fact sheet into POST_EXECUTION synthesis prompt so synthesizer is grounded in actual experiment outputs.
 
 **Artifacts modified**: `src/paradigm/journal/paper.py`, `src/paradigm/orchestrator/engine.py`, `tests/test_writing.py`
+
+### Prompt 48 — Analyze paper-8255adb41353 logs for pipeline assessment
+
+> Let's analyze the logs of paper-8255adb41353 (thread-aa4101952c58). It would be good to understand if the updates we made have improved the flow of discussion and the outcome. Do we still have redundant discussions? Are we missing important insights? Are the logs revealing obvious shortcoming of the current approach and/or ways to improve?
+
+**Key decisions**: Analysis task — no code changes expected.
+
+### Prompt 49 — Implement 7 Pipeline Fixes from paper-8255adb41353 Analysis
+
+> Implement the following plan: 7 Pipeline Fixes from paper-8255adb41353 Analysis
+> Fix 1: Convergence detection too conservative (threshold 0.85→0.70, two-round lookback, JSON error handling)
+> Fix 2: Debate deduplication (resolved_topics tracking, _is_duplicate_challenge)
+> Fix 3: Auto-search query construction (replace garbled seed_prompt[:80])
+> Fix 4: Refine _DATA_ERROR_PATTERNS (remove pure coding errors)
+> Fix 5: Number harmonization in section drafting (_extract_reference_values)
+> Fix 6: Synthesis injection location (move from end to checkpoint_context)
+> Fix 7: Workspace manifest for experiments
+
+**Key decisions**: Implementing all 7 fixes in priority order per the plan.
+
+**Artifacts modified**: `src/paradigm/config.py`, `src/paradigm/orchestrator/constants.py`, `src/paradigm/orchestrator/engine.py`, `src/paradigm/orchestrator/debate.py`, `src/paradigm/orchestrator/experimentation.py`, `src/paradigm/orchestrator/writing.py`
