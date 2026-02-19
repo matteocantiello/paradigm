@@ -1451,7 +1451,7 @@ class TestSprintDesignReview:
         engine._data_context = ""
 
         # Should not raise — nonexistent_role is simply skipped
-        feedback = await engine._experimentation._run_sprint_design_review(
+        await engine._experimentation._run_sprint_design_review(
             experimentalist, 1, 3, "", ""
         )
         # Only theorist reviewed (nonexistent_role skipped)
@@ -1702,7 +1702,7 @@ class TestSprintIntegration:
 
             mock_config.orchestrator.max_experiment_rounds = 2
 
-            thread_id = await engine.run_research_cycle(
+            await engine.run_research_cycle(
                 seed_prompt="Test disabled sprints",
                 mode="experimental",
             )
@@ -2248,7 +2248,7 @@ class TestAdvisoryContext:
             "Experiment failed: KeyError 'frequency'",
         ]
 
-        result = await engine._experimentation._request_advisory("experimentalist-0")
+        await engine._experimentation._request_advisory("experimentalist-0")
 
         # Theorist should have been called with a prompt containing the seed
         assert theorist.generate.call_count == 1
