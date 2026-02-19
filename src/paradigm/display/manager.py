@@ -765,6 +765,13 @@ class DisplayManager:
         else:
             self._fallback.sprint_early_stop(sprint_num)
 
+    def sprint_pivot_stop(self, sprint_num: int) -> None:
+        self._state.add_event("sprint", "Team recommends STOP AND PIVOT")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.sprint_pivot_stop(sprint_num)
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------

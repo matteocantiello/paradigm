@@ -303,6 +303,9 @@ class PlainTextFallback:
     def sprint_early_stop(self, sprint_num: int) -> None:
         click.echo("    [sprint] Team declares experiments sufficient")
 
+    def sprint_pivot_stop(self, sprint_num: int) -> None:
+        click.echo("    [sprint] Team recommends STOP AND PIVOT — halting execution")
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------

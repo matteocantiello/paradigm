@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from paradigm.literature.resources import ResourceType
 from paradigm.orchestrator.constants import (
+    _ADVISORY_PROMPT_TEMPLATE,
     _DATA_ERROR_PATTERNS,
     _EXECUTION_STDERR_LIMIT,
     _FILE_NOT_FOUND_PATTERNS,
@@ -32,6 +34,46 @@ from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, Execution
 if TYPE_CHECKING:
     from paradigm.agents.base import Agent
     from paradigm.orchestrator.engine import OrchestrationEngine
+
+
+class SprintStopReason(Enum):
+    """Reason for stopping execution sprints early."""
+
+    SUFFICIENT = "sufficient"
+    PIVOT = "pivot"
+
+
+def _peek_json_schema(filepath: Path, max_keys: int = 8) -> str:
+    """Return compact schema description of a JSON file.
+
+    Args:
+        filepath: Path to a JSON file.
+        max_keys: Maximum number of keys to show.
+
+    Returns:
+        Compact schema string, or empty string on error.
+    """
+    import json
+
+    try:
+        text = filepath.read_text()[:10_000]
+        data = json.loads(text)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return ""
+    if isinstance(data, dict):
+        keys = list(data.keys())[:max_keys]
+        extra = f" ... +{len(data) - max_keys} more" if len(data) > max_keys else ""
+        return f"dict with keys: {keys}{extra}"
+    elif isinstance(data, list):
+        if not data:
+            return "empty list"
+        first = data[0]
+        if isinstance(first, dict):
+            keys = list(first.keys())[:max_keys]
+            extra = f" ... +{len(first) - max_keys} more" if len(first) > max_keys else ""
+            return f"list[dict] len={len(data)}, entry keys: {keys}{extra}"
+        return f"list[{type(first).__name__}] len={len(data)}"
+    return f"type: {type(data).__name__}"
 
 
 def _build_workspace_manifest(workspace_dir: Path) -> str:
@@ -65,6 +107,10 @@ def _build_workspace_manifest(workspace_dir: Path) -> str:
         else:
             size_str = f"{size / (1024 * 1024):.1f} MB"
         lines.append(f"- `/data/workspace/{rel}` ({size_str})")
+        if f.suffix == ".json" and size < 500_000:
+            schema = _peek_json_schema(f)
+            if schema:
+                lines.append(f"  Schema: {schema}")
     if len(files) > 30:
         lines.append(f"  ... and {len(files) - 30} more files")
     lines.append("")
@@ -596,11 +642,14 @@ class ExperimentationHandler:
                 # --- RESULTS CHECKPOINT (sprint mode only, not last sprint) ---
                 if enable_sprints and sprint_num < num_sprints and not _circuit_breaker_fired:
                     sprint_text = "\n\n".join(self._sprint_results)
-                    should_stop = await self._run_sprint_results_checkpoint(
+                    stop_reason = await self._run_sprint_results_checkpoint(
                         sprint_num, num_sprints, checkpoint_context, sprint_text
                     )
-                    if should_stop:
-                        engine._display.sprint_early_stop(sprint_num)
+                    if stop_reason is not None:
+                        if stop_reason == SprintStopReason.PIVOT:
+                            engine._display.sprint_pivot_stop(sprint_num)
+                        else:
+                            engine._display.sprint_early_stop(sprint_num)
                         break
 
                 if _circuit_breaker_fired or _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
@@ -689,13 +738,32 @@ class ExperimentationHandler:
         engine._display.experiment_advisory_requested()
         advisory_parts: list[str] = []
 
+        # Build recent failures summary from sprint results
+        failure_lines: list[str] = []
+        for result_text in reversed(self._sprint_results):
+            lower = result_text.lower()
+            if "failure" in lower or "error" in lower or "failed" in lower:
+                # Extract first meaningful line as summary
+                for line in result_text.split("\n"):
+                    stripped = line.strip()
+                    if stripped and len(stripped) > 10:
+                        failure_lines.append(f"- {stripped[:150]}")
+                        break
+            if len(failure_lines) >= 3:
+                break
+        recent_failures = "\n".join(failure_lines) if failure_lines else "- (no details available)"
+
+        net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
+
         for agent_id, agent in engine._agents.items():
             if agent_id == experimenter_id:
                 continue
-            prompt = (
-                "The experimentalist has encountered multiple consecutive failures. "
-                "Based on your expertise, suggest ONE specific alternative experimental "
-                "approach they could try. Be concrete and brief (1-2 sentences)."
+            prompt = _ADVISORY_PROMPT_TEMPLATE.format(
+                consecutive_failures=self._consecutive_failures,
+                seed_prompt=engine._seed_prompt,
+                recent_failures=recent_failures,
+                network_caveat=net_caveat,
+                reviewer_role=agent.skill_profile,
             )
             try:
                 response = await agent.generate(prompt, max_tokens=256)
@@ -826,6 +894,11 @@ class ExperimentationHandler:
         engine = self._engine
         net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
 
+        # Build workspace manifest for design review context
+        workspace_dir = Path(engine._config.storage.data_dir) / "workspaces" / engine._thread_id
+        ws_manifest = _build_workspace_manifest(workspace_dir)
+        ws_manifest_str = ws_manifest + "\n\n" if ws_manifest else ""
+
         # 1. Experimenter proposes experiment plan (no code)
         template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["sprint_design_proposal"]
         proposal_prompt = template.format(
@@ -833,6 +906,7 @@ class ExperimentationHandler:
             num_sprints=num_sprints,
             seed_prompt=engine._seed_prompt,
             checkpoint_context=checkpoint_context,
+            workspace_manifest=ws_manifest_str,
             previous_results=(
                 f"## Previous Results\n{previous_results}\n\n" if previous_results else ""
             ),
@@ -868,6 +942,7 @@ class ExperimentationHandler:
                 num_sprints=num_sprints,
                 seed_prompt=engine._seed_prompt,
                 checkpoint_context=checkpoint_context,
+                workspace_manifest=ws_manifest_str,
                 previous_results=(
                     f"## Previous Results\n{previous_results}\n\n" if previous_results else ""
                 ),
@@ -900,7 +975,7 @@ class ExperimentationHandler:
         num_sprints: int,
         checkpoint_context: str,
         sprint_results: str,
-    ) -> bool:
+    ) -> SprintStopReason | None:
         """Run results checkpoint: each reviewer assesses sprint outcomes.
 
         Args:
@@ -910,11 +985,14 @@ class ExperimentationHandler:
             sprint_results: Formatted results from this sprint.
 
         Returns:
-            True if majority says "EXPERIMENTS SUFFICIENT", False to continue.
+            SprintStopReason.SUFFICIENT if majority says sufficient,
+            SprintStopReason.PIVOT if majority says stop and pivot,
+            None to continue.
         """
         engine = self._engine
         template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["sprint_results_checkpoint"]
         sufficient_count = 0
+        pivot_count = 0
         total_count = 0
 
         for role in engine._config.orchestrator.sprint_review_roles:
@@ -941,15 +1019,21 @@ class ExperimentationHandler:
                     "sprint_results_checkpoint",
                 )
                 total_count += 1
-                if "EXPERIMENTS SUFFICIENT" in response.content.upper():
+                upper = response.content.upper()
+                if "EXPERIMENTS SUFFICIENT" in upper:
                     sufficient_count += 1
+                elif "STOP AND PIVOT" in upper:
+                    pivot_count += 1
             except Exception:
                 continue  # Non-fatal
 
-        # Majority required
         if total_count == 0:
-            return False
-        return sufficient_count > total_count / 2
+            return None
+        if sufficient_count > total_count / 2:
+            return SprintStopReason.SUFFICIENT
+        if pivot_count > total_count / 2:
+            return SprintStopReason.PIVOT
+        return None
 
     async def _execute_with_retry(
         self,

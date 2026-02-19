@@ -2483,3 +2483,46 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 **Key objective**: Restructure the EXECUTION phase into collaborative sprints with three sub-phases: (1) Design Review — experimentalist proposes plan, team reviews; (2) Code + Execute — existing round loop; (3) Results Checkpoint — all agents assess results, majority "EXPERIMENTS SUFFICIENT" triggers early stop. Feature is off by default (`enable_execution_sprints: false`) for backward compatibility.
 
 **Files modified**: `config.py`, `constants.py`, `fallback.py`, `manager.py`, `experimentation.py`, `default.yaml`, `test_experimentation.py`
+
+### Prompt 200 — Post-Mortem Analysis of paper-dfa2eae4cb3f (with execution sprints, --testing)
+
+> Let's analyze the logs of paper-dfa2eae4cb3f (note I ran with --testing). It would be good to understand if the updates we made have improved the execution and the outcome. Are the logs revealing obvious shortcomings of the current approach and/or ways to improve?
+
+**Key objective**: Analyze first run with execution sprints enabled (using --testing open-weight models). Assess whether sprints improved execution quality, whether design reviews caught issues before code was written, and whether checkpoints added value. Identify remaining shortcomings.
+
+## 2026-02-19
+
+### Prompt 201 — Deep Code Review of paper-dfa2eae4cb3f Experiments
+
+> Read all the experiment scripts in data/papers/paper-dfa2eae4cb3f/experiments/ (there are 10 .py files). Analyze: (1) Code Quality, (2) Dependencies, (3) Scientific Rigor, (4) Failure Points (exp07/exp08 "fix" experiments, exp20 workspace audit), (5) Gaps (missing exp06, exp11-exp19), (6) Figure Generation.
+
+**Key objective**: Comprehensive code review of all 10 experiment scripts to assess quality, dependency chains, scientific merit, failure modes, and figure output.
+
+### Prompt 202 — Deep Transcript Analysis of paper-dfa2eae4cb3f
+
+> Read the transcript at data/papers/paper-dfa2eae4cb3f/transcript.md (~22K lines). Analyze 8 aspects: (1) Sprint Structure, (2) Design Review Quality, (3) Results Checkpoint Value, (4) Experiment Flow, (5) Redundancy, (6) Phase Transitions, (7) Token Usage, (8) Testing Mode quality differences.
+
+**Key objective**: Comprehensive transcript analysis of the full research cycle to evaluate the execution sprint system, agent interactions, experiment success/failure rates, and open-weight vs Anthropic model quality.
+
+### Prompt 203 — Implement All 6 Post-Mortem Fixes (Plan)
+
+> Let's implement the fixes you suggested
+
+**Key objective**: Plan implementation of all 6 improvement suggestions from the paper-dfa2eae4cb3f post-mortem analysis. Entered plan mode, designed detailed implementation plan for all 6 fixes.
+
+### Prompt 204 — Implement All 6 Post-Mortem Fixes (Execute)
+
+> Implement the following plan: 6 Post-Mortem Fixes from paper-dfa2eae4cb3f Analysis
+
+**Key objective**: Execute the detailed plan for all 6 fixes: (1) Schema registry to prevent data schema amnesia, (2) STOP AND PIVOT early stopping, (3) Workspace state in design reviews, (4) Advisory prompt context, (5) Reduce IDEATION/PLANNING redundancy, (6) Writer should not include failed experiments.
+
+**Files modified**: `experimentation.py`, `constants.py`, `engine.py`, `writing.py`, `display/fallback.py`, `display/manager.py`, `tests/test_experimentation.py`, `tests/test_writing.py`
+
+**Artifacts produced**:
+- Fix 1: `_peek_json_schema()` helper + JSON schema in workspace manifest
+- Fix 2: `SprintStopReason` enum, STOP AND PIVOT detection in checkpoints, `sprint_pivot_stop()` display methods
+- Fix 3: `{workspace_manifest}` in design proposal/review templates
+- Fix 4: `_ADVISORY_PROMPT_TEMPLATE` with seed_prompt, recent_failures, network_caveat, reviewer_role
+- Fix 5: Strengthened `_GENERAL_LATER_ROUND_REINFORCEMENT`, `_build_established_points()` in engine.py
+- Fix 6: Partitioned fact sheet (success/failed), `_filter_successful_execution_context()`, filtered context injection
+- Tests: 945 passed (75 experimentation, 67 writing, full suite green)

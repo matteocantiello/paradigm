@@ -273,7 +273,10 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "You are designing experiments for sprint {sprint_num}/{num_sprints}.\n"
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
+            "{workspace_manifest}"
             "{previous_results}"
+            "If workspace files exist above, your experiments MUST use the exact "
+            "filenames and data schemas shown. Do NOT assume different file formats.\n\n"
             "**DO NOT write code yet.** Instead, describe your planned experiments "
             "as a numbered list. For each experiment provide:\n"
             "1. **Name:** A short identifier\n"
@@ -289,6 +292,7 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "for sprint {sprint_num}/{num_sprints}.\n"
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
+            "{workspace_manifest}"
             "{previous_results}"
             "## Proposed Experiment Plan\n{experiment_plan}\n\n"
             "Review this plan from your perspective as a **{reviewer_role}**. "
@@ -296,7 +300,8 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "- Are the objectives well-defined and testable?\n"
             "- Are the methods sound and feasible in a sandboxed environment?\n"
             "- Are there missing controls, flawed assumptions, or better approaches?\n"
-            "- Are the expected outputs realistic?\n\n"
+            "- Are the expected outputs realistic?\n"
+            "- Do data file references match the actual workspace file schemas?\n\n"
             "Do NOT propose entirely new experiments. Focus on improving the "
             "proposed plan.\n\n"
             "{network_caveat}"
@@ -310,11 +315,12 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "as a **{reviewer_role}**:\n"
             "- What worked and what failed?\n"
             "- What should the next sprint prioritize?\n\n"
-            "If you believe the experiments conducted so far are **sufficient** "
-            "to write a meaningful paper (key hypotheses tested, results are clear), "
-            "end your response with: EXPERIMENTS SUFFICIENT\n\n"
-            "Only declare sufficiency if the evidence base is genuinely adequate. "
-            "Do not declare it prematurely."
+            "End your response with EXACTLY ONE of these signals:\n\n"
+            "**EXPERIMENTS SUFFICIENT** — Enough evidence to write a meaningful paper.\n\n"
+            "**STOP AND PIVOT** — The current approach is fundamentally broken "
+            "(repeated data structure failures, invalid methodology, nonsensical results). "
+            "Continuing would waste budget. Write the paper with whatever results exist.\n\n"
+            "**EXPERIMENTS INSUFFICIENT** — More experiments are needed."
         ),
     },
     ResearchPhase.POST_EXECUTION: {
@@ -564,6 +570,10 @@ _GENERAL_LATER_ROUND_REINFORCEMENT = (
     "Instead, either (a) extend it with new specifics, (b) challenge it, "
     "or (c) skip it entirely. Responses that repeat established points "
     "waste the team's time and token budget."
+    "\n\n**DO NOT begin your response by summarizing what others have said.** "
+    "Do NOT recap prior contributions. Jump directly to your NEW points. "
+    "If you have nothing new to add, say 'I concur with the assessment above' "
+    "and stop."
 )
 
 _CHALLENGE_INSTRUCTION = (
@@ -576,6 +586,17 @@ _CHALLENGE_INSTRUCTION = (
     "and a back-and-forth would produce better ideas than the normal round.\n\n"
     "**Do NOT re-challenge an agent on a topic that was already debated and "
     "resolved in an earlier round or phase.**\n"
+)
+
+_ADVISORY_PROMPT_TEMPLATE = (
+    "The experimentalist has encountered {consecutive_failures} consecutive "
+    "failures while researching:\n\n"
+    "**Topic:** {seed_prompt}\n\n"
+    "**Recent Failures:**\n{recent_failures}\n\n"
+    "{network_caveat}\n\n"
+    "Based on your expertise as a **{reviewer_role}**, suggest ONE specific "
+    "alternative experimental approach. Be concrete and brief (1-2 sentences). "
+    "Your suggestion MUST be relevant to the research topic above."
 )
 
 _DEBATE_PROMPT_DEFENDER = (

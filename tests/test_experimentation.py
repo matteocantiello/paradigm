@@ -18,7 +18,11 @@ from paradigm.orchestrator.constants import (
     _topological_sort,
 )
 from paradigm.orchestrator.engine import OrchestrationEngine
-from paradigm.orchestrator.experimentation import _categorize_failure
+from paradigm.orchestrator.experimentation import (
+    SprintStopReason,
+    _categorize_failure,
+    _peek_json_schema,
+)
 from paradigm.sandbox.models import (
     ExecutionRequest,
     ExecutionResult,
@@ -1583,10 +1587,10 @@ class TestSprintResultsCheckpoint:
         engine._code_context = ""
         engine._data_context = ""
 
-        should_stop = await engine._experimentation._run_sprint_results_checkpoint(
+        stop_reason = await engine._experimentation._run_sprint_results_checkpoint(
             sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Some results"
         )
-        assert should_stop is True
+        assert stop_reason == SprintStopReason.SUFFICIENT
 
     @pytest.mark.asyncio
     async def test_checkpoint_continues_when_not_sufficient(
@@ -1659,10 +1663,10 @@ class TestSprintResultsCheckpoint:
         engine._code_context = ""
         engine._data_context = ""
 
-        should_stop = await engine._experimentation._run_sprint_results_checkpoint(
+        stop_reason = await engine._experimentation._run_sprint_results_checkpoint(
             sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Some results"
         )
-        assert should_stop is False
+        assert stop_reason is None
 
 
 class TestSprintIntegration:
@@ -1976,3 +1980,278 @@ class TestSprintIntegration:
             # Sprint 1: 3 experiments × 3 attempts = 9 calls
             total_calls = mock_executor_instance.execute.call_count
             assert total_calls == 9  # Only sprint 1's round ran
+
+
+# --- Unit tests: _peek_json_schema (Fix 1) ---
+
+
+class TestPeekJsonSchema:
+    def test_dict_schema(self, tmp_path):
+        f = tmp_path / "data.json"
+        f.write_text('{"alpha": 1, "beta": [1, 2], "gamma": "x"}')
+        result = _peek_json_schema(f)
+        assert "dict with keys:" in result
+        assert "alpha" in result
+
+    def test_list_of_dicts_schema(self, tmp_path):
+        f = tmp_path / "rows.json"
+        f.write_text('[{"col1": 1, "col2": 2}, {"col1": 3, "col2": 4}]')
+        result = _peek_json_schema(f)
+        assert "list[dict]" in result
+        assert "len=2" in result
+        assert "col1" in result
+
+    def test_list_of_scalars(self, tmp_path):
+        f = tmp_path / "nums.json"
+        f.write_text("[1, 2, 3, 4]")
+        result = _peek_json_schema(f)
+        assert "list[int]" in result
+        assert "len=4" in result
+
+    def test_empty_list(self, tmp_path):
+        f = tmp_path / "empty.json"
+        f.write_text("[]")
+        result = _peek_json_schema(f)
+        assert result == "empty list"
+
+    def test_invalid_json(self, tmp_path):
+        f = tmp_path / "bad.json"
+        f.write_text("not json at all")
+        result = _peek_json_schema(f)
+        assert result == ""
+
+    def test_missing_file(self, tmp_path):
+        f = tmp_path / "nonexistent.json"
+        result = _peek_json_schema(f)
+        assert result == ""
+
+    def test_max_keys_truncation(self, tmp_path):
+        import json
+
+        data = {f"key_{i}": i for i in range(20)}
+        f = tmp_path / "many_keys.json"
+        f.write_text(json.dumps(data))
+        result = _peek_json_schema(f, max_keys=5)
+        assert "+15 more" in result
+
+
+# --- Unit tests: STOP AND PIVOT (Fix 2) ---
+
+
+class TestStopAndPivot:
+    @pytest.mark.asyncio
+    async def test_checkpoint_detects_pivot_majority(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Majority saying STOP AND PIVOT triggers pivot stop."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 6,
+                "enable_execution_sprints": True,
+                "sprint_review_roles": ["theorist", "analyst", "skeptic"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        theorist = make_mock_agent("theorist-0", "theorist")
+        analyst = make_mock_agent("analyst-0", "analyst")
+        skeptic = make_mock_agent("skeptic-0", "skeptic")
+
+        # 2 out of 3 say STOP AND PIVOT
+        theorist.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="Approach is fundamentally broken. STOP AND PIVOT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+        analyst.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="Data structure errors are systemic. STOP AND PIVOT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+        skeptic.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="I think we should continue. EXPERIMENTS INSUFFICIENT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[theorist, analyst, skeptic])
+
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        engine._agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
+        engine._thread_id = "test-thread"
+        tmp_db.create_thread(
+            thread_id="test-thread", title="Test", mode="experimental", participants=[]
+        )
+        engine._seed_prompt = "Test"
+        engine._messages = []
+        engine._checkpoint = None
+        engine._resolved_resources = []
+        engine._code_context = ""
+        engine._data_context = ""
+
+        stop_reason = await engine._experimentation._run_sprint_results_checkpoint(
+            sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Failed results"
+        )
+        assert stop_reason == SprintStopReason.PIVOT
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_no_majority_returns_none(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Mixed signals (no majority) returns None."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 6,
+                "enable_execution_sprints": True,
+                "sprint_review_roles": ["theorist", "analyst", "skeptic"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        theorist = make_mock_agent("theorist-0", "theorist")
+        analyst = make_mock_agent("analyst-0", "analyst")
+        skeptic = make_mock_agent("skeptic-0", "skeptic")
+
+        # 1 sufficient, 1 pivot, 1 insufficient — no majority
+        theorist.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="EXPERIMENTS SUFFICIENT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+        analyst.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="STOP AND PIVOT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+        skeptic.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="EXPERIMENTS INSUFFICIENT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[theorist, analyst, skeptic])
+
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        engine._agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
+        engine._thread_id = "test-thread"
+        tmp_db.create_thread(
+            thread_id="test-thread", title="Test", mode="experimental", participants=[]
+        )
+        engine._seed_prompt = "Test"
+        engine._messages = []
+        engine._checkpoint = None
+        engine._resolved_resources = []
+        engine._code_context = ""
+        engine._data_context = ""
+
+        stop_reason = await engine._experimentation._run_sprint_results_checkpoint(
+            sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Some results"
+        )
+        assert stop_reason is None
+
+
+# --- Unit tests: advisory context (Fix 4) ---
+
+
+class TestAdvisoryContext:
+    @pytest.mark.asyncio
+    async def test_advisory_includes_seed_prompt(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Advisory prompt includes the research topic (seed_prompt)."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 2,
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        experimentalist = make_mock_agent("experimentalist-0", "experimentalist")
+        theorist = make_mock_agent("theorist-0", "theorist")
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[experimentalist, theorist])
+
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
+        engine._thread_id = "test-thread"
+        tmp_db.create_thread(
+            thread_id="test-thread", title="Test", mode="experimental", participants=[]
+        )
+        engine._seed_prompt = "Red noise in massive stars"
+        engine._messages = []
+        engine._checkpoint = None
+        engine._resolved_resources = []
+        engine._code_context = ""
+        engine._data_context = ""
+
+        # Set up experimentation handler state
+        engine._experimentation._consecutive_failures = 3
+        engine._experimentation._sprint_results = [
+            "Experiment failed: TypeError dict vs list",
+            "Experiment failed: KeyError 'frequency'",
+        ]
+
+        result = await engine._experimentation._request_advisory("experimentalist-0")
+
+        # Theorist should have been called with a prompt containing the seed
+        assert theorist.generate.call_count == 1
+        call_args = str(theorist.generate.call_args)
+        assert "Red noise in massive stars" in call_args
+        assert "3 consecutive" in call_args

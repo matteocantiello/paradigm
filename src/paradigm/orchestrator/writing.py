@@ -38,9 +38,10 @@ class WritingHandler:
     def _build_execution_fact_sheet(self) -> str:
         """Build an anti-confabulation execution fact sheet for writing prompts.
 
-        Each experiment gets a structured block showing its actual output
-        (for successes) or failure reason (for failures), with strict rules
-        that prevent writers from fabricating results.
+        Partitions experiments into successful (use these) and failed (do not use)
+        sections. Each successful experiment gets a structured block showing its
+        actual output. Failed experiments are listed with failure reasons and
+        explicit "do not cite" markers.
 
         Returns:
             Formatted fact sheet string, or empty string if no experiments ran.
@@ -49,6 +50,14 @@ class WritingHandler:
         if not metadata:
             return ""
 
+        successful: list[dict] = []
+        failed: list[dict] = []
+        for entry in metadata:
+            if entry.get("status") == "success":
+                successful.append(entry)
+            else:
+                failed.append(entry)
+
         lines = [
             "\n\n## Execution Fact Sheet",
             "### CRITICAL ANTI-CONFABULATION RULE",
@@ -56,25 +65,37 @@ class WritingHandler:
             "If an experiment FAILED, you MUST NOT describe it as producing results.",
             "",
         ]
-        for entry in metadata:
-            name = entry.get("name", "unnamed")
-            status = entry.get("status", "unknown")
-            has_figs = "Yes" if entry.get("has_figures") else "No"
 
-            lines.append(f"#### Experiment: {name}")
-            lines.append(f"**Status:** {status} | **Figures:** {has_figs}")
-
-            if status == "success":
+        # --- Successful experiments ---
+        lines.append("### Successful Results (USE THESE)")
+        if successful:
+            for entry in successful:
+                name = entry.get("name", "unnamed")
+                has_figs = "Yes" if entry.get("has_figures") else "No"
+                lines.append(f"#### Experiment: {name}")
+                lines.append(f"**Status:** success | **Figures:** {has_figs}")
                 stdout_full = str(entry.get("stdout_full", entry.get("stdout_preview", "")))
                 lines.append(f"**Actual Output:**\n```\n{stdout_full}\n```")
                 lines.append("Cite ONLY these numbers. Do NOT invent additional values.")
-            else:
+                lines.append("")
+        else:
+            lines.append("*(No experiments succeeded.)*")
+            lines.append("")
+
+        # --- Failed experiments ---
+        lines.append("### FAILED Experiments (DO NOT USE)")
+        if failed:
+            for entry in failed:
+                name = entry.get("name", "unnamed")
                 failure_reason = entry.get("failure_reason", "Unknown error")
-                lines.append(f"**Failure Reason:** {failure_reason}")
+                lines.append(f"- **{name}**: {failure_reason}")
                 lines.append(
-                    "Do NOT describe this experiment as having produced results. "
-                    "Do NOT fabricate numbers for this experiment."
+                    "  DO NOT describe this experiment as having produced results. "
+                    "DO NOT fabricate numbers for this experiment."
                 )
+            lines.append("")
+        else:
+            lines.append("*(All experiments succeeded.)*")
             lines.append("")
 
         lines.append(
@@ -82,6 +103,45 @@ class WritingHandler:
             "you are confabulating. Cross-check every quantitative claim.**"
         )
         return "\n".join(lines)
+
+    def _filter_successful_execution_context(self) -> str:
+        """Filter execution context to only include blocks from successful experiments.
+
+        Parses the markdown execution context (which has ``### Experiment:`` headers)
+        and returns only the blocks whose experiment name appears in the successful
+        experiment metadata.
+
+        Returns:
+            Filtered execution context string, or original if parsing fails.
+        """
+        ctx = self._engine._execution_context
+        if not ctx:
+            return ""
+
+        metadata = self._engine._experiment_metadata
+        if not metadata:
+            return ctx
+
+        successful_names = {
+            entry.get("name", "").lower() for entry in metadata if entry.get("status") == "success"
+        }
+        if not successful_names:
+            return ""
+
+        # Split on experiment headers and keep only successful blocks
+        blocks = re.split(r"(?=^### Experiment:)", ctx, flags=re.MULTILINE)
+        kept: list[str] = []
+        for block in blocks:
+            header_match = re.match(r"^### Experiment:\s*(.+?)$", block, re.MULTILINE)
+            if header_match:
+                name = header_match.group(1).strip().lower()
+                if name in successful_names:
+                    kept.append(block)
+            elif block.strip():
+                # Preamble text before any experiment header — keep it
+                kept.append(block)
+
+        return "\n".join(kept) if kept else ctx
 
     def _extract_forbidden_claims(self) -> list[str]:
         """Extract FORBIDDEN claims from POST_EXECUTION synthesis and experiment metadata.
@@ -469,11 +529,11 @@ class WritingHandler:
                 prompt += forbidden_block
 
             # Inject execution context for results and methods sections
+            # (filtered to successful experiments only)
             results_like = {"results"}
             methods_like = {"methods"}
-            if self._engine._execution_context and (
-                results_like & set(assigned) or methods_like & set(assigned)
-            ):
+            filtered_exec_ctx = self._filter_successful_execution_context()
+            if filtered_exec_ctx and (results_like & set(assigned) or methods_like & set(assigned)):
                 exec_label = (
                     "computational results"
                     if results_like & set(assigned)
@@ -486,7 +546,7 @@ class WritingHandler:
                     f"in your section. Include specific numbers, statistical "
                     f"measures, and quantitative comparisons. Do NOT merely "
                     f"summarize — analyze and interpret the data:\n\n"
-                    f"{self._engine._execution_context}"
+                    f"{filtered_exec_ctx}"
                 )
 
             # Inject execution caveats for ALL section writers — every part of

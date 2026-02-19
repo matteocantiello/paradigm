@@ -955,6 +955,10 @@ class OrchestrationEngine:
         if round_num > 1:
             # General anti-repetition rule for all agents
             formatted += _GENERAL_LATER_ROUND_REINFORCEMENT
+            # Inject established points to further reduce redundancy
+            established = self._build_established_points(self._messages[-_RECENT_MESSAGES_LIMIT:])
+            if established:
+                formatted += established
             # Role-specific reinforcement (from profile or hardcoded fallback)
             if self._profile is not None:
                 reinforcement = self._profile.role_later_round_reinforcements.get(
@@ -1003,6 +1007,49 @@ class OrchestrationEngine:
             formatted += _CHALLENGE_INSTRUCTION
 
         return formatted
+
+    @staticmethod
+    def _build_established_points(messages: list[dict[str, Any]]) -> str:
+        """Extract key points already made in recent messages to prevent restating.
+
+        Scans recent agent messages for bullet points and numbered items,
+        extracts up to 5 key points, and returns a formatted block instructing
+        agents not to restate them.
+
+        Args:
+            messages: Recent message dicts (with 'content' key).
+
+        Returns:
+            Formatted "Points Already Established" block, or empty string.
+        """
+        points: list[str] = []
+        for msg in messages:
+            content = msg.get("content", "")
+            if not content:
+                continue
+            for line in content.split("\n"):
+                stripped = line.strip()
+                # Match bullet points (-, *, •) or numbered items (1., 2.)
+                if re.match(r"^[-*•]\s+.{15,150}$", stripped) or re.match(
+                    r"^\d+[.)]\s+.{15,150}$", stripped
+                ):
+                    # Clean the prefix
+                    clean = re.sub(r"^[-*•\d.)\s]+", "", stripped).strip()
+                    if 15 <= len(clean) <= 150 and clean not in points:
+                        points.append(clean)
+                if len(points) >= 5:
+                    break
+            if len(points) >= 5:
+                break
+
+        if not points:
+            return ""
+        items = "\n".join(f"- {p}" for p in points)
+        return (
+            "\n\n## Points Already Established (DO NOT RESTATE)\n"
+            f"{items}\n"
+            "Skip these — add NEW insights only."
+        )
 
     @staticmethod
     def _is_substantive_contribution(content: str, min_chars: int = 200) -> bool:

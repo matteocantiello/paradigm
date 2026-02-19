@@ -432,9 +432,11 @@ class TestExperimentLedger:
         assert "gravity_test" in fact_sheet
         assert "failed_test" in fact_sheet
         assert "success" in fact_sheet
-        assert "failure" in fact_sheet
+        assert "FAILED" in fact_sheet
+        assert "Successful Results (USE THESE)" in fact_sheet
+        assert "FAILED Experiments (DO NOT USE)" in fact_sheet
         assert "ANTI-CONFABULATION" in fact_sheet
-        assert "Do NOT describe this experiment as having produced results" in fact_sheet
+        assert "DO NOT describe this experiment as having produced results" in fact_sheet
 
     def test_ledger_has_figures_column(self, tmp_path):
         engine = self._make_engine(tmp_path)
@@ -664,3 +666,171 @@ class TestWritingPhaseEngine:
         thread = tmp_db.get_thread(thread_id)
         paper = tmp_db.get_paper(thread["current_draft_id"])
         assert paper["status"] == "reviewed"
+
+
+# --- Unit tests: partitioned fact sheet (Fix 6) ---
+
+
+class TestPartitionedFactSheet:
+    def _make_engine(self, tmp_path):
+        from paradigm.config import Config
+        from paradigm.storage.database import Database
+
+        config = Config(
+            api_key="fake",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={"max_rounds_per_phase": 1},
+        )
+        patch_config_provider(config)
+        db = Database(tmp_path / "test.db")
+        from paradigm.logging.events import EventLogger
+
+        logger = EventLogger(tmp_path / "events.jsonl")
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[])
+        corpus = MagicMock()
+        engine = OrchestrationEngine(
+            config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
+        )
+        db.close()
+        return engine
+
+    def test_all_successful(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._experiment_metadata = [
+            {
+                "name": "exp_a",
+                "status": "success",
+                "stdout_full": "Result: 42",
+                "has_figures": True,
+                "failure_reason": "",
+            },
+        ]
+        fact_sheet = engine._writing._build_execution_fact_sheet()
+        assert "Successful Results (USE THESE)" in fact_sheet
+        assert "exp_a" in fact_sheet
+        assert "All experiments succeeded" in fact_sheet
+
+    def test_all_failed(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._experiment_metadata = [
+            {
+                "name": "exp_fail",
+                "status": "failure",
+                "stdout_full": "",
+                "has_figures": False,
+                "failure_reason": "TypeError: bad arg",
+            },
+        ]
+        fact_sheet = engine._writing._build_execution_fact_sheet()
+        assert "No experiments succeeded" in fact_sheet
+        assert "FAILED Experiments (DO NOT USE)" in fact_sheet
+        assert "exp_fail" in fact_sheet
+        assert "TypeError" in fact_sheet
+
+
+# --- Unit tests: _filter_successful_execution_context (Fix 6) ---
+
+
+class TestFilterSuccessfulExecutionContext:
+    def _make_engine(self, tmp_path):
+        from paradigm.config import Config
+        from paradigm.storage.database import Database
+
+        config = Config(
+            api_key="fake",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={"max_rounds_per_phase": 1},
+        )
+        patch_config_provider(config)
+        db = Database(tmp_path / "test.db")
+        from paradigm.logging.events import EventLogger
+
+        logger = EventLogger(tmp_path / "events.jsonl")
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[])
+        corpus = MagicMock()
+        engine = OrchestrationEngine(
+            config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
+        )
+        db.close()
+        return engine
+
+    def test_filters_out_failed_experiments(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_context = (
+            "Preamble text\n"
+            "### Experiment: good_exp\nResult: 42\n\n"
+            "### Experiment: bad_exp\nFailed with error\n"
+        )
+        engine._experiment_metadata = [
+            {"name": "good_exp", "status": "success"},
+            {"name": "bad_exp", "status": "failure"},
+        ]
+        result = engine._writing._filter_successful_execution_context()
+        assert "good_exp" in result
+        assert "bad_exp" not in result
+        assert "Preamble" in result
+
+    def test_empty_context_returns_empty(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_context = ""
+        engine._experiment_metadata = []
+        result = engine._writing._filter_successful_execution_context()
+        assert result == ""
+
+    def test_no_successful_returns_empty(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_context = "### Experiment: bad_exp\nFailed\n"
+        engine._experiment_metadata = [
+            {"name": "bad_exp", "status": "failure"},
+        ]
+        result = engine._writing._filter_successful_execution_context()
+        assert result == ""
+
+    def test_all_successful_returns_all(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_context = (
+            "### Experiment: exp_a\nResult A\n\n"
+            "### Experiment: exp_b\nResult B\n"
+        )
+        engine._experiment_metadata = [
+            {"name": "exp_a", "status": "success"},
+            {"name": "exp_b", "status": "success"},
+        ]
+        result = engine._writing._filter_successful_execution_context()
+        assert "exp_a" in result
+        assert "exp_b" in result
+
+
+# --- Unit tests: _build_established_points (Fix 5) ---
+
+
+class TestBuildEstablishedPoints:
+    def test_extracts_bullet_points(self):
+        messages = [
+            {"content": "- The period-luminosity relation is well established\n- Mass loss rates are uncertain"},
+            {"content": "1. We should focus on Cepheid observations\n2. Red noise contamination is a concern"},
+        ]
+        result = OrchestrationEngine._build_established_points(messages)
+        assert "Points Already Established" in result
+        assert "DO NOT RESTATE" in result
+        assert "period-luminosity" in result
+
+    def test_empty_messages(self):
+        result = OrchestrationEngine._build_established_points([])
+        assert result == ""
+
+    def test_no_bullets(self):
+        messages = [
+            {"content": "This is just prose without any bullet points or lists."},
+        ]
+        result = OrchestrationEngine._build_established_points(messages)
+        assert result == ""
+
+    def test_max_five_points(self):
+        lines = "\n".join(f"- Point number {i} is important enough to note" for i in range(10))
+        messages = [{"content": lines}]
+        result = OrchestrationEngine._build_established_points(messages)
+        # Should have at most 5 bullet points in output
+        assert result.count("- ") <= 5
