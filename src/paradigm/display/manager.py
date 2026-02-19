@@ -730,6 +730,41 @@ class DisplayManager:
         else:
             self._fallback.experiment_review_issues(exp_name)
 
+    def sprint_start(self, sprint_num: int, num_sprints: int) -> None:
+        self._state.add_event("sprint", f"Sprint {sprint_num}/{num_sprints}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.sprint_start(sprint_num, num_sprints)
+
+    def sprint_design_proposed(self, sprint_num: int) -> None:
+        self._state.add_event("sprint", f"Sprint {sprint_num}: design proposed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.sprint_design_proposed(sprint_num)
+
+    def sprint_design_review(self, sprint_num: int, reviewer_role: str) -> None:
+        self._state.add_event("sprint", f"Sprint {sprint_num}: {reviewer_role} reviewing")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.sprint_design_review(sprint_num, reviewer_role)
+
+    def sprint_checkpoint(self, sprint_num: int, agent_role: str) -> None:
+        self._state.add_event("sprint", f"Sprint {sprint_num}: {agent_role} checkpoint")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.sprint_checkpoint(sprint_num, agent_role)
+
+    def sprint_early_stop(self, sprint_num: int) -> None:
+        self._state.add_event("sprint", "Team declares experiments sufficient")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.sprint_early_stop(sprint_num)
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------

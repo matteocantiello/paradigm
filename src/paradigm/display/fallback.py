@@ -288,6 +288,21 @@ class PlainTextFallback:
     def experiment_review_issues(self, exp_name: str) -> None:
         click.echo(f"    [review] {exp_name}: issues found, requesting fixes")
 
+    def sprint_start(self, sprint_num: int, num_sprints: int) -> None:
+        click.echo(f"  === Sprint {sprint_num}/{num_sprints} ===")
+
+    def sprint_design_proposed(self, sprint_num: int) -> None:
+        click.echo(f"    [design] Sprint {sprint_num}: experiment plan proposed")
+
+    def sprint_design_review(self, sprint_num: int, reviewer_role: str) -> None:
+        click.echo(f"    [review] Sprint {sprint_num}: {reviewer_role} reviewing design")
+
+    def sprint_checkpoint(self, sprint_num: int, agent_role: str) -> None:
+        click.echo(f"    [checkpoint] Sprint {sprint_num}: {agent_role} assessing results")
+
+    def sprint_early_stop(self, sprint_num: int) -> None:
+        click.echo("    [sprint] Team declares experiments sufficient")
+
     # ------------------------------------------------------------------
     # Writing
     # ------------------------------------------------------------------

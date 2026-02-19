@@ -269,6 +269,53 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Fix the issues listed above. Provide the corrected code in a "
             "```python block with the same `# EXPERIMENT: {experiment_name}` header."
         ),
+        "sprint_design_proposal": (
+            "You are designing experiments for sprint {sprint_num}/{num_sprints}.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "{previous_results}"
+            "**DO NOT write code yet.** Instead, describe your planned experiments "
+            "as a numbered list. For each experiment provide:\n"
+            "1. **Name:** A short identifier\n"
+            "2. **Objective:** What question it answers\n"
+            "3. **Method:** Algorithm, data sources, approach (in words, not code)\n"
+            "4. **Expected output:** What a successful run produces\n"
+            "5. **Dependencies:** Which earlier experiments must succeed first\n\n"
+            "Your teammates will review this plan before you write any code.\n\n"
+            "{network_caveat}"
+        ),
+        "sprint_design_review": (
+            "You are reviewing the experimentalist's proposed experiment plan "
+            "for sprint {sprint_num}/{num_sprints}.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "{previous_results}"
+            "## Proposed Experiment Plan\n{experiment_plan}\n\n"
+            "Review this plan from your perspective as a **{reviewer_role}**. "
+            "Provide 3-5 bullet points covering:\n"
+            "- Are the objectives well-defined and testable?\n"
+            "- Are the methods sound and feasible in a sandboxed environment?\n"
+            "- Are there missing controls, flawed assumptions, or better approaches?\n"
+            "- Are the expected outputs realistic?\n\n"
+            "Do NOT propose entirely new experiments. Focus on improving the "
+            "proposed plan.\n\n"
+            "{network_caveat}"
+        ),
+        "sprint_results_checkpoint": (
+            "Sprint {sprint_num}/{num_sprints} of the EXECUTION phase has completed.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "## Sprint Results\n{sprint_results}\n\n"
+            "Assess the sprint outcomes in 2-3 sentences from your perspective "
+            "as a **{reviewer_role}**:\n"
+            "- What worked and what failed?\n"
+            "- What should the next sprint prioritize?\n\n"
+            "If you believe the experiments conducted so far are **sufficient** "
+            "to write a meaningful paper (key hypotheses tested, results are clear), "
+            "end your response with: EXPERIMENTS SUFFICIENT\n\n"
+            "Only declare sufficiency if the evidence base is genuinely adequate. "
+            "Do not declare it prematurely."
+        ),
     },
     ResearchPhase.POST_EXECUTION: {
         "round_1": (

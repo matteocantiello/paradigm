@@ -165,6 +165,9 @@ class ExperimentationHandler:
         self._auto_searched: bool = False
         # Persistent memory of specific environment facts from prior failures
         self._learned_constraints: list[str] = []
+        # Sprint tracking
+        self._current_sprint: int = 0
+        self._sprint_results: list[str] = []
 
     async def run_experimentation_phase(self) -> ExperimentationResult:
         """Run the EXECUTION phase: agents propose and run computational experiments.
@@ -227,12 +230,22 @@ class ExperimentationHandler:
         _advisory_message = ""
         _skipped_message = ""
 
-        try:
-            for round_num in range(1, max_rounds + 1):
-                engine._display.experiment_round(round_num, max_rounds)
-                engine._literature.search_count_this_round = 0
+        # Sprint configuration
+        enable_sprints = engine._config.orchestrator.enable_execution_sprints
+        num_sprints = engine._config.orchestrator.num_execution_sprints if enable_sprints else 1
+        rounds_per_sprint = max(1, -(-max_rounds // num_sprints))  # ceil division
 
-                # Find experimenter (prefer experimentalist, fallback to analyst)
+        global_round = 0
+
+        try:
+            for sprint_num in range(1, num_sprints + 1):
+                self._current_sprint = sprint_num
+                self._sprint_results = []
+
+                if enable_sprints:
+                    engine._display.sprint_start(sprint_num, num_sprints)
+
+                # Find experimenter early (needed for design review)
                 experimenter = engine._find_agent_by_role("experimentalist")
                 if experimenter is None:
                     experimenter = engine._find_agent_by_role("analyst")
@@ -240,282 +253,357 @@ class ExperimentationHandler:
                     engine._display.experiment_no_agent()
                     break
 
-                # Build prompt
+                # Build checkpoint context (shared across sprint sub-phases)
                 checkpoint_context = ""
                 if engine._checkpoint:
                     checkpoint_context = engine._checkpoint.to_context_string() + "\n\n"
-
-                # Inject actual file listing so agents know what exists
                 file_listing = _list_shared_files(engine._config.storage.data_dir)
                 checkpoint_context = file_listing + "\n\n" + checkpoint_context
-
-                # Inject code/data context from resolved resources
                 if engine._code_context:
                     checkpoint_context += engine._code_context + "\n\n"
                 if engine._data_context:
                     checkpoint_context += engine._data_context + "\n\n"
 
-                # Inject workspace manifest for round 2+ so agents know
-                # which files were saved by prior experiments
-                if round_num > 1:
-                    ws_manifest = _build_workspace_manifest(workspace_dir)
-                    if ws_manifest:
-                        checkpoint_context = ws_manifest + "\n\n" + checkpoint_context
-
                 previous_results = "\n\n".join(all_results) if all_results else ""
 
-                net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
-
-                if round_num == 1:
-                    template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["propose_experiment"]
-                    prompt = template.format(
-                        seed_prompt=engine._seed_prompt,
-                        checkpoint_context=checkpoint_context,
-                        previous_results=previous_results,
-                        network_caveat=net_caveat,
-                    )
-                else:
-                    template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
-                    prompt = template.format(
-                        seed_prompt=engine._seed_prompt,
-                        checkpoint_context=checkpoint_context,
-                        previous_results=previous_results,
-                        network_caveat=net_caveat,
+                # --- DESIGN REVIEW (sprint mode only) ---
+                design_feedback = ""
+                if enable_sprints:
+                    design_feedback = await self._run_sprint_design_review(
+                        experimenter,
+                        sprint_num,
+                        num_sprints,
+                        checkpoint_context,
+                        previous_results,
                     )
 
-                # Inject planning action items (Fix 5)
-                if engine._planning_action_items:
-                    prompt += (
-                        "\n\n## Planned Experiments (from PLANNING phase)\n"
-                        "The team agreed on these experiments during planning. "
-                        "Execute them in order of priority:\n" + engine._planning_action_items
+                # --- EXECUTE (existing round loop for this sprint's allocation) ---
+                sprint_start_round = global_round + 1
+                sprint_end_round = min(global_round + rounds_per_sprint, max_rounds)
+
+                for round_num in range(sprint_start_round, sprint_end_round + 1):
+                    global_round = round_num
+                    engine._display.experiment_round(round_num, max_rounds)
+                    engine._literature.search_count_this_round = 0
+
+                    # Re-find experimenter each round (same pattern as before)
+                    experimenter = engine._find_agent_by_role("experimentalist")
+                    if experimenter is None:
+                        experimenter = engine._find_agent_by_role("analyst")
+                    if experimenter is None:
+                        engine._display.experiment_no_agent()
+                        break
+
+                    # Rebuild checkpoint context per round (workspace manifest updates)
+                    checkpoint_context = ""
+                    if engine._checkpoint:
+                        checkpoint_context = engine._checkpoint.to_context_string() + "\n\n"
+                    file_listing = _list_shared_files(engine._config.storage.data_dir)
+                    checkpoint_context = file_listing + "\n\n" + checkpoint_context
+                    if engine._code_context:
+                        checkpoint_context += engine._code_context + "\n\n"
+                    if engine._data_context:
+                        checkpoint_context += engine._data_context + "\n\n"
+
+                    # Inject workspace manifest for round 2+ so agents know
+                    # which files were saved by prior experiments
+                    if round_num > 1:
+                        ws_manifest = _build_workspace_manifest(workspace_dir)
+                        if ws_manifest:
+                            checkpoint_context = ws_manifest + "\n\n" + checkpoint_context
+
+                    previous_results = "\n\n".join(all_results) if all_results else ""
+
+                    net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
+
+                    if round_num == 1:
+                        template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION][
+                            "propose_experiment"
+                        ]
+                        prompt = template.format(
+                            seed_prompt=engine._seed_prompt,
+                            checkpoint_context=checkpoint_context,
+                            previous_results=previous_results,
+                            network_caveat=net_caveat,
+                        )
+                    else:
+                        template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
+                        prompt = template.format(
+                            seed_prompt=engine._seed_prompt,
+                            checkpoint_context=checkpoint_context,
+                            previous_results=previous_results,
+                            network_caveat=net_caveat,
+                        )
+
+                    # Inject design review feedback into first round of each sprint
+                    if round_num == sprint_start_round and design_feedback:
+                        prompt += design_feedback
+                        design_feedback = ""
+
+                    # Inject planning action items (Fix 5)
+                    if engine._planning_action_items:
+                        prompt += (
+                            "\n\n## Planned Experiments (from PLANNING phase)\n"
+                            "The team agreed on these experiments during planning. "
+                            "Execute them in order of priority:\n" + engine._planning_action_items
+                        )
+
+                    # Inject strategy redirect, advisory, and skipped-experiment messages
+                    if _strategy_redirect_message:
+                        prompt += _strategy_redirect_message
+                        _strategy_redirect_message = ""
+                    if _advisory_message:
+                        prompt += _advisory_message
+                        _advisory_message = ""
+                    if _skipped_message:
+                        prompt += _skipped_message
+                        _skipped_message = ""
+
+                    # Inject learned constraints from prior failures
+                    if self._learned_constraints:
+                        prompt += (
+                            "\n\n## LEARNED CONSTRAINTS (from prior failures — do NOT violate)\n"
+                            + "\n".join(f"- {c}" for c in self._learned_constraints)
+                            + "\n"
+                        )
+
+                    try:
+                        response = await experimenter.generate(
+                            prompt, max_tokens=_WRITING_MAX_TOKENS
+                        )
+                    except Exception as e:
+                        engine._logger.log_error(
+                            e, agent_id=experimenter.agent_id, thread_id=engine._thread_id
+                        )
+                        engine._display.agent_error(experimenter.agent_id, e)
+                        break
+
+                    engine._log_agent_response(
+                        experimenter.agent_id,
+                        response,
+                        ResearchPhase.EXECUTION,
+                        "experiment_proposal",
                     )
 
-                # Inject strategy redirect, advisory, and skipped-experiment messages
-                if _strategy_redirect_message:
-                    prompt += _strategy_redirect_message
-                    _strategy_redirect_message = ""
-                if _advisory_message:
-                    prompt += _advisory_message
-                    _advisory_message = ""
-                if _skipped_message:
-                    prompt += _skipped_message
-                    _skipped_message = ""
-
-                # Inject learned constraints from prior failures
-                if self._learned_constraints:
-                    prompt += (
-                        "\n\n## LEARNED CONSTRAINTS (from prior failures — do NOT violate)\n"
-                        + "\n".join(f"- {c}" for c in self._learned_constraints)
-                        + "\n"
+                    await engine._literature.process_search_requests(
+                        experimenter.agent_id, response.content, ResearchPhase.EXECUTION
+                    )
+                    await engine._literature.process_literature_actions(
+                        experimenter.agent_id, response.content, ResearchPhase.EXECUTION
                     )
 
-                try:
-                    response = await experimenter.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
-                except Exception as e:
-                    engine._logger.log_error(
-                        e, agent_id=experimenter.agent_id, thread_id=engine._thread_id
-                    )
-                    engine._display.agent_error(experimenter.agent_id, e)
-                    break
+                    # Extract code blocks
+                    code_blocks = _extract_code_blocks(response.content)
+                    if not code_blocks and round_num > 1:
+                        engine._display.experiment_declared_sufficient()
+                        break
+                    if not code_blocks:
+                        engine._display.experiment_no_code()
+                        continue
 
-                engine._log_agent_response(
-                    experimenter.agent_id, response, ResearchPhase.EXECUTION, "experiment_proposal"
-                )
+                    # Sort by dependency order and execute
+                    code_blocks = _topological_sort(code_blocks)
+                    round_total = 0
+                    round_failures = 0
+                    failed_in_round: set[str] = set()
+                    skipped_experiments: list[str] = []
 
-                await engine._literature.process_search_requests(
-                    experimenter.agent_id, response.content, ResearchPhase.EXECUTION
-                )
-                await engine._literature.process_literature_actions(
-                    experimenter.agent_id, response.content, ResearchPhase.EXECUTION
-                )
+                    for block in code_blocks:
+                        # Check dependency failures — skip if upstream failed
+                        unmet = [dep for dep in block.depends_on if dep in failed_in_round]
+                        if unmet:
+                            engine._display.experiment_skipped(block.name, unmet)
+                            skipped_experiments.append(block.name)
+                            failed_in_round.add(block.name)  # Transitively propagate
+                            experiment_metadata.append(
+                                {
+                                    "name": block.name,
+                                    "status": "skipped",
+                                    "stdout_preview": "",
+                                    "stdout_full": "",
+                                    "has_figures": False,
+                                    "failure_reason": (
+                                        f"Skipped: upstream dependency failed ({', '.join(unmet)})"
+                                    ),
+                                }
+                            )
+                            skip_result = (
+                                f"## {block.name}\n**Status:** skipped "
+                                f"(upstream dependency failed: {', '.join(unmet)})\n"
+                            )
+                            all_results.append(skip_result)
+                            self._sprint_results.append(skip_result)
+                            continue
 
-                # Extract code blocks
-                code_blocks = _extract_code_blocks(response.content)
-                if not code_blocks and round_num > 1:
-                    engine._display.experiment_declared_sufficient()
-                    break
-                if not code_blocks:
-                    engine._display.experiment_no_code()
-                    continue
+                        # Enforce total experiment cap per phase
+                        if _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
+                            engine._display.experiment_budget_exhausted(_total_experiments)
+                            break
 
-                # Sort by dependency order and execute
-                code_blocks = _topological_sort(code_blocks)
-                round_total = 0
-                round_failures = 0
-                failed_in_round: set[str] = set()
-                skipped_experiments: list[str] = []
+                        current_code = block.code
 
-                for block in code_blocks:
-                    # Check dependency failures — skip if upstream failed
-                    unmet = [dep for dep in block.depends_on if dep in failed_in_round]
-                    if unmet:
-                        engine._display.experiment_skipped(block.name, unmet)
-                        skipped_experiments.append(block.name)
-                        failed_in_round.add(block.name)  # Transitively propagate
+                        # Pre-execution code review (opt-in)
+                        if engine._config.orchestrator.enable_pre_execution_review:
+                            review_feedback = await self._pre_execution_review(
+                                current_code, block.name
+                            )
+                            if review_feedback is not None:
+                                current_code = await self._apply_review_fixes(
+                                    experimenter,
+                                    current_code,
+                                    block.name,
+                                    review_feedback,
+                                    checkpoint_context,
+                                )
+
+                        engine._display.experiment_running(block.name)
+                        result, final_code = await self._execute_with_retry(
+                            executor,
+                            experimenter,
+                            block.name,
+                            current_code,
+                            checkpoint_context,
+                            repo_paths=repo_paths,
+                            workspace_dir=workspace_dir,
+                        )
+                        formatted = _format_execution_result(block.name, result)
+                        all_results.append(formatted)
+                        self._sprint_results.append(formatted)
+
+                        _total_experiments += 1
+                        round_total += 1
+                        if result.status == ExecutionStatus.SUCCESS:
+                            successful_code.append((block.name, final_code))
+                            self._consecutive_failures = 0
+                        else:
+                            round_failures += 1
+                            _total_failures += 1
+                            self._consecutive_failures += 1
+                            failed_in_round.add(block.name)
+
+                            # Categorize failure for strategy redirect
+                            category = _categorize_failure(result)
+                            self._failure_categories[category] = (
+                                self._failure_categories.get(category, 0) + 1
+                            )
+
+                            # Strategy redirect: same-category failures exceed threshold
+                            max_strat = engine._config.orchestrator.max_strategy_retries
+                            if self._failure_categories[category] >= max_strat:
+                                engine._display.experiment_strategy_redirect(
+                                    category, self._failure_categories[category]
+                                )
+                                _strategy_redirect_message = (
+                                    f"\n\n## STRATEGY REDIRECT\n"
+                                    f"You have failed "
+                                    f"{self._failure_categories[category]} times "
+                                    f"with '{category}' errors. Your current approach "
+                                    f"is NOT working. Try a FUNDAMENTALLY different "
+                                    f"approach — different algorithm, different data "
+                                    f"source, or different analysis entirely."
+                                )
+                                self._strategy_redirects += 1
+
+                            # Multi-agent advisory: consecutive failures exceed threshold
+                            advisory_threshold = (
+                                engine._config.orchestrator.execution_advisory_threshold
+                            )
+                            if (
+                                engine._config.orchestrator.enable_execution_advisory
+                                and self._consecutive_failures >= advisory_threshold
+                                and experimenter is not None
+                            ):
+                                _advisory_message = await self._request_advisory(
+                                    experimenter.agent_id
+                                )
+                                self._consecutive_failures = 0  # Reset after advisory
+
+                        # Track caveat triggers
+                        if result.status == ExecutionStatus.TIMEOUT:
+                            _had_timeout = True
+                        stderr_text = result.stderr or ""
+                        if any(p in stderr_text for p in _NETWORK_ERROR_PATTERNS):
+                            _had_network_error = True
+
+                        # Track output figures
+                        for output_file in result.output_files:
+                            if output_file.filename.endswith((".png", ".pdf")):
+                                execution_figures.append((block.name, Path(output_file.path)))
+
+                        status_str = result.status.value
+                        engine._display.experiment_result(block.name, status_str)
+
+                        # Build metadata entry for the execution fact sheet
+                        stdout_preview = (result.stdout or "")[:200]
+                        stdout_full = (result.stdout or "")[:2000]
+                        has_figures = any(
+                            f.filename.endswith((".png", ".pdf")) for f in result.output_files
+                        )
+                        failure_reason = ""
+                        if result.status != ExecutionStatus.SUCCESS:
+                            if result.error_message:
+                                failure_reason = result.error_message[:500]
+                            elif result.stderr:
+                                failure_reason = result.stderr[:500]
+                            else:
+                                failure_reason = f"Exited with status: {status_str}"
                         experiment_metadata.append(
                             {
                                 "name": block.name,
-                                "status": "skipped",
-                                "stdout_preview": "",
-                                "stdout_full": "",
-                                "has_figures": False,
-                                "failure_reason": f"Skipped: upstream dependency failed ({', '.join(unmet)})",
+                                "status": status_str,
+                                "stdout_preview": stdout_preview,
+                                "stdout_full": stdout_full,
+                                "has_figures": has_figures,
+                                "failure_reason": failure_reason,
                             }
                         )
-                        all_results.append(
-                            f"## {block.name}\n**Status:** skipped "
-                            f"(upstream dependency failed: {', '.join(unmet)})\n"
-                        )
-                        continue
 
-                    # Enforce total experiment cap per phase
+                    # Inject skipped-experiment message for next round
+                    if skipped_experiments:
+                        _skipped_message = (
+                            "\n\n## Skipped Experiments\n"
+                            "These experiments were skipped because upstream "
+                            "dependencies failed:\n"
+                            + "\n".join(f"- {name}" for name in skipped_experiments)
+                            + "\nRe-propose these (or alternatives) with fixed "
+                            "dependencies."
+                        )
+
+                    # Total experiment budget exhausted — break outer loop too
                     if _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
-                        engine._display.experiment_budget_exhausted(_total_experiments)
+                        _circuit_breaker_fired = True
                         break
 
-                    current_code = block.code
+                    # Per-round circuit breaker: if >70% of executions failed, stop
+                    if round_total >= 3 and (round_failures / round_total) > 0.7:
+                        engine._display.experiment_high_failure_rate(round_failures, round_total)
+                        _circuit_breaker_fired = True
+                        break
 
-                    # Pre-execution code review (opt-in)
-                    if engine._config.orchestrator.enable_pre_execution_review:
-                        review_feedback = await self._pre_execution_review(current_code, block.name)
-                        if review_feedback is not None:
-                            current_code = await self._apply_review_fixes(
-                                experimenter,
-                                current_code,
-                                block.name,
-                                review_feedback,
-                                checkpoint_context,
-                            )
-
-                    engine._display.experiment_running(block.name)
-                    result, final_code = await self._execute_with_retry(
-                        executor,
-                        experimenter,
-                        block.name,
-                        current_code,
-                        checkpoint_context,
-                        repo_paths=repo_paths,
-                        workspace_dir=workspace_dir,
-                    )
-                    formatted = _format_execution_result(block.name, result)
-                    all_results.append(formatted)
-
-                    _total_experiments += 1
-                    round_total += 1
-                    if result.status == ExecutionStatus.SUCCESS:
-                        successful_code.append((block.name, final_code))
-                        self._consecutive_failures = 0
-                    else:
-                        round_failures += 1
-                        _total_failures += 1
-                        self._consecutive_failures += 1
-                        failed_in_round.add(block.name)
-
-                        # Categorize failure for strategy redirect
-                        category = _categorize_failure(result)
-                        self._failure_categories[category] = (
-                            self._failure_categories.get(category, 0) + 1
+                    # Cross-round circuit breaker: persistent high failure rate
+                    cross_threshold = engine._config.orchestrator.cross_round_failure_threshold
+                    cross_min = engine._config.orchestrator.cross_round_min_experiments
+                    if (
+                        _total_experiments >= cross_min
+                        and (_total_failures / _total_experiments) > cross_threshold
+                    ):
+                        engine._display.experiment_cross_round_breaker(
+                            _total_failures, _total_experiments
                         )
+                        _circuit_breaker_fired = True
+                        break
 
-                        # Strategy redirect: same-category failures exceed threshold
-                        max_strat = engine._config.orchestrator.max_strategy_retries
-                        if self._failure_categories[category] >= max_strat:
-                            engine._display.experiment_strategy_redirect(
-                                category, self._failure_categories[category]
-                            )
-                            _strategy_redirect_message = (
-                                f"\n\n## STRATEGY REDIRECT\n"
-                                f"You have failed {self._failure_categories[category]} times "
-                                f"with '{category}' errors. Your current approach is NOT working. "
-                                f"Try a FUNDAMENTALLY different approach — different algorithm, "
-                                f"different data source, or different analysis entirely."
-                            )
-                            self._strategy_redirects += 1
-
-                        # Multi-agent advisory: consecutive failures exceed threshold
-                        advisory_threshold = (
-                            engine._config.orchestrator.execution_advisory_threshold
-                        )
-                        if (
-                            engine._config.orchestrator.enable_execution_advisory
-                            and self._consecutive_failures >= advisory_threshold
-                            and experimenter is not None
-                        ):
-                            _advisory_message = await self._request_advisory(experimenter.agent_id)
-                            self._consecutive_failures = 0  # Reset after advisory
-
-                    # Track caveat triggers
-                    if result.status == ExecutionStatus.TIMEOUT:
-                        _had_timeout = True
-                    stderr_text = result.stderr or ""
-                    if any(p in stderr_text for p in _NETWORK_ERROR_PATTERNS):
-                        _had_network_error = True
-
-                    # Track output figures
-                    for output_file in result.output_files:
-                        if output_file.filename.endswith((".png", ".pdf")):
-                            execution_figures.append((block.name, Path(output_file.path)))
-
-                    status_str = result.status.value
-                    engine._display.experiment_result(block.name, status_str)
-
-                    # Build metadata entry for the execution fact sheet
-                    stdout_preview = (result.stdout or "")[:200]
-                    stdout_full = (result.stdout or "")[:2000]
-                    has_figures = any(
-                        f.filename.endswith((".png", ".pdf")) for f in result.output_files
+                # --- RESULTS CHECKPOINT (sprint mode only, not last sprint) ---
+                if enable_sprints and sprint_num < num_sprints and not _circuit_breaker_fired:
+                    sprint_text = "\n\n".join(self._sprint_results)
+                    should_stop = await self._run_sprint_results_checkpoint(
+                        sprint_num, num_sprints, checkpoint_context, sprint_text
                     )
-                    failure_reason = ""
-                    if result.status != ExecutionStatus.SUCCESS:
-                        if result.error_message:
-                            failure_reason = result.error_message[:500]
-                        elif result.stderr:
-                            failure_reason = result.stderr[:500]
-                        else:
-                            failure_reason = f"Exited with status: {status_str}"
-                    experiment_metadata.append(
-                        {
-                            "name": block.name,
-                            "status": status_str,
-                            "stdout_preview": stdout_preview,
-                            "stdout_full": stdout_full,
-                            "has_figures": has_figures,
-                            "failure_reason": failure_reason,
-                        }
-                    )
+                    if should_stop:
+                        engine._display.sprint_early_stop(sprint_num)
+                        break
 
-                # Inject skipped-experiment message for next round
-                if skipped_experiments:
-                    _skipped_message = (
-                        "\n\n## Skipped Experiments\n"
-                        "These experiments were skipped because upstream dependencies failed:\n"
-                        + "\n".join(f"- {name}" for name in skipped_experiments)
-                        + "\nRe-propose these (or alternatives) with fixed dependencies."
-                    )
-
-                # Total experiment budget exhausted — break outer loop too
-                if _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
-                    _circuit_breaker_fired = True
-                    break
-
-                # Per-round circuit breaker: if >70% of executions failed, stop
-                if round_total >= 3 and (round_failures / round_total) > 0.7:
-                    engine._display.experiment_high_failure_rate(round_failures, round_total)
-                    _circuit_breaker_fired = True
-                    break
-
-                # Cross-round circuit breaker: persistent high failure rate
-                cross_threshold = engine._config.orchestrator.cross_round_failure_threshold
-                cross_min = engine._config.orchestrator.cross_round_min_experiments
-                if (
-                    _total_experiments >= cross_min
-                    and (_total_failures / _total_experiments) > cross_threshold
-                ):
-                    engine._display.experiment_cross_round_breaker(
-                        _total_failures, _total_experiments
-                    )
-                    _circuit_breaker_fired = True
+                if _circuit_breaker_fired or _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
                     break
 
             # Build execution context for WRITING phase
@@ -714,6 +802,154 @@ class ExperimentationHandler:
         if not blocks:
             return code  # Fallback to original code
         return blocks[0].code
+
+    async def _run_sprint_design_review(
+        self,
+        experimenter: Agent,
+        sprint_num: int,
+        num_sprints: int,
+        checkpoint_context: str,
+        previous_results: str,
+    ) -> str:
+        """Run design review sub-phase: experimenter proposes plan, team reviews.
+
+        Args:
+            experimenter: The experimentalist agent.
+            sprint_num: Current sprint number.
+            num_sprints: Total number of sprints.
+            checkpoint_context: Checkpoint context string.
+            previous_results: Formatted results from prior sprints.
+
+        Returns:
+            Combined design feedback string to inject into the execution prompt.
+        """
+        engine = self._engine
+        net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
+
+        # 1. Experimenter proposes experiment plan (no code)
+        template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["sprint_design_proposal"]
+        proposal_prompt = template.format(
+            sprint_num=sprint_num,
+            num_sprints=num_sprints,
+            seed_prompt=engine._seed_prompt,
+            checkpoint_context=checkpoint_context,
+            previous_results=(
+                f"## Previous Results\n{previous_results}\n\n" if previous_results else ""
+            ),
+            network_caveat=net_caveat,
+        )
+
+        try:
+            proposal_response = await experimenter.generate(proposal_prompt, max_tokens=4096)
+            engine._log_agent_response(
+                experimenter.agent_id,
+                proposal_response,
+                ResearchPhase.EXECUTION,
+                "sprint_design_proposal",
+            )
+            engine._display.sprint_design_proposed(sprint_num)
+        except Exception as e:
+            engine._logger.log_error(e, agent_id=experimenter.agent_id, thread_id=engine._thread_id)
+            return ""
+
+        experiment_plan = proposal_response.content
+
+        # 2. Each review role provides feedback
+        review_template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["sprint_design_review"]
+        feedback_parts: list[str] = []
+
+        for role in engine._config.orchestrator.sprint_review_roles:
+            reviewer = engine._find_agent_by_role(role)
+            if reviewer is None:
+                continue
+
+            review_prompt = review_template.format(
+                sprint_num=sprint_num,
+                num_sprints=num_sprints,
+                seed_prompt=engine._seed_prompt,
+                checkpoint_context=checkpoint_context,
+                previous_results=(
+                    f"## Previous Results\n{previous_results}\n\n" if previous_results else ""
+                ),
+                experiment_plan=experiment_plan,
+                reviewer_role=role,
+                network_caveat=net_caveat,
+            )
+
+            try:
+                engine._display.sprint_design_review(sprint_num, role)
+                review_response = await reviewer.generate(review_prompt, max_tokens=1024)
+                engine._log_agent_response(
+                    reviewer.agent_id,
+                    review_response,
+                    ResearchPhase.EXECUTION,
+                    "sprint_design_review",
+                )
+                if review_response.content.strip():
+                    feedback_parts.append(f"**{role}:** {review_response.content.strip()}")
+            except Exception:
+                continue  # Non-fatal, same pattern as _request_advisory
+
+        if not feedback_parts:
+            return ""
+        return "\n\n## Design Review Feedback\n" + "\n\n".join(feedback_parts)
+
+    async def _run_sprint_results_checkpoint(
+        self,
+        sprint_num: int,
+        num_sprints: int,
+        checkpoint_context: str,
+        sprint_results: str,
+    ) -> bool:
+        """Run results checkpoint: each reviewer assesses sprint outcomes.
+
+        Args:
+            sprint_num: Current sprint number.
+            num_sprints: Total number of sprints.
+            checkpoint_context: Checkpoint context string.
+            sprint_results: Formatted results from this sprint.
+
+        Returns:
+            True if majority says "EXPERIMENTS SUFFICIENT", False to continue.
+        """
+        engine = self._engine
+        template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["sprint_results_checkpoint"]
+        sufficient_count = 0
+        total_count = 0
+
+        for role in engine._config.orchestrator.sprint_review_roles:
+            reviewer = engine._find_agent_by_role(role)
+            if reviewer is None:
+                continue
+
+            checkpoint_prompt = template.format(
+                sprint_num=sprint_num,
+                num_sprints=num_sprints,
+                seed_prompt=engine._seed_prompt,
+                checkpoint_context=checkpoint_context,
+                sprint_results=sprint_results,
+                reviewer_role=role,
+            )
+
+            try:
+                engine._display.sprint_checkpoint(sprint_num, role)
+                response = await reviewer.generate(checkpoint_prompt, max_tokens=512)
+                engine._log_agent_response(
+                    reviewer.agent_id,
+                    response,
+                    ResearchPhase.EXECUTION,
+                    "sprint_results_checkpoint",
+                )
+                total_count += 1
+                if "EXPERIMENTS SUFFICIENT" in response.content.upper():
+                    sufficient_count += 1
+            except Exception:
+                continue  # Non-fatal
+
+        # Majority required
+        if total_count == 0:
+            return False
+        return sufficient_count > total_count / 2
 
     async def _execute_with_retry(
         self,

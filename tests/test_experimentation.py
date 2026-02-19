@@ -1304,3 +1304,675 @@ class TestPlanningActionsInExecution:
             prompt_text = str(exp_agent.generate.call_args_list[0])
             assert "Planned Experiments" in prompt_text
             assert "Monte Carlo" in prompt_text
+
+
+# --- Unit tests: execution sprints ---
+
+
+class TestSprintConfig:
+    """Sprint configuration defaults and overrides."""
+
+    def test_default_disabled(self):
+        from paradigm.config import OrchestratorConfig
+
+        c = OrchestratorConfig()
+        assert c.enable_execution_sprints is False
+        assert c.num_execution_sprints == 3
+        assert c.sprint_review_roles == ["theorist", "analyst", "skeptic"]
+
+    def test_custom_roles(self):
+        from paradigm.config import OrchestratorConfig
+
+        c = OrchestratorConfig(sprint_review_roles=["theorist", "skeptic"])
+        assert c.sprint_review_roles == ["theorist", "skeptic"]
+
+
+class TestSprintDesignReview:
+    """Tests for the _run_sprint_design_review method."""
+
+    @pytest.mark.asyncio
+    async def test_design_review_calls_reviewers(self, tmp_path, tmp_db, tmp_logger, mock_corpus):
+        """Design review calls experimenter + each review role."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 2,
+                "enable_execution_sprints": True,
+                "num_execution_sprints": 1,
+                "sprint_review_roles": ["theorist", "analyst"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        # Create agents
+        experimentalist = make_mock_agent("experimentalist-0", "experimentalist")
+        theorist = make_mock_agent("theorist-0", "theorist")
+        analyst = make_mock_agent("analyst-0", "analyst")
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[experimentalist, theorist, analyst])
+
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        # Set up engine state
+        engine._agents = {a.agent_id: a for a in [experimentalist, theorist, analyst]}
+        engine._thread_id = "test-thread"
+        tmp_db.create_thread(
+            thread_id="test-thread", title="Test", mode="experimental", participants=[]
+        )
+        engine._seed_prompt = "Test sprints"
+        engine._messages = []
+        engine._checkpoint = None
+        engine._resolved_resources = []
+        engine._code_context = ""
+        engine._data_context = ""
+
+        feedback = await engine._experimentation._run_sprint_design_review(
+            experimenter=experimentalist,
+            sprint_num=1,
+            num_sprints=3,
+            checkpoint_context="",
+            previous_results="",
+        )
+
+        # Experimenter was called with design proposal prompt
+        assert experimentalist.generate.call_count >= 1
+        proposal_prompt = str(experimentalist.generate.call_args_list[0])
+        assert "DO NOT write code" in proposal_prompt
+
+        # Both reviewers were called
+        assert theorist.generate.call_count >= 1
+        assert analyst.generate.call_count >= 1
+
+        # Feedback is non-empty
+        assert "Design Review Feedback" in feedback
+
+    @pytest.mark.asyncio
+    async def test_design_review_skips_missing_agents(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Missing reviewer agents are skipped without error."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 2,
+                "enable_execution_sprints": True,
+                "sprint_review_roles": ["theorist", "nonexistent_role"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        experimentalist = make_mock_agent("experimentalist-0", "experimentalist")
+        theorist = make_mock_agent("theorist-0", "theorist")
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[experimentalist, theorist])
+
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
+        engine._thread_id = "test-thread"
+        tmp_db.create_thread(
+            thread_id="test-thread", title="Test", mode="experimental", participants=[]
+        )
+        engine._seed_prompt = "Test"
+        engine._messages = []
+        engine._checkpoint = None
+        engine._resolved_resources = []
+        engine._code_context = ""
+        engine._data_context = ""
+
+        # Should not raise — nonexistent_role is simply skipped
+        feedback = await engine._experimentation._run_sprint_design_review(
+            experimentalist, 1, 3, "", ""
+        )
+        # Only theorist reviewed (nonexistent_role skipped)
+        assert theorist.generate.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_design_review_handles_exceptions(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Reviewer exceptions are non-fatal."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 2,
+                "enable_execution_sprints": True,
+                "sprint_review_roles": ["theorist"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        experimentalist = make_mock_agent("experimentalist-0", "experimentalist")
+        theorist = make_mock_agent("theorist-0", "theorist")
+        theorist.generate = AsyncMock(side_effect=RuntimeError("API error"))
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[experimentalist, theorist])
+
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
+        engine._thread_id = "test-thread"
+        tmp_db.create_thread(
+            thread_id="test-thread", title="Test", mode="experimental", participants=[]
+        )
+        engine._seed_prompt = "Test"
+        engine._messages = []
+        engine._checkpoint = None
+        engine._resolved_resources = []
+        engine._code_context = ""
+        engine._data_context = ""
+
+        # Should not raise
+        feedback = await engine._experimentation._run_sprint_design_review(
+            experimentalist, 1, 3, "", ""
+        )
+        # Empty feedback because the only reviewer errored
+        assert feedback == ""
+
+
+class TestSprintResultsCheckpoint:
+    """Tests for the _run_sprint_results_checkpoint method."""
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_detects_sufficient_majority(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Majority saying EXPERIMENTS SUFFICIENT triggers early stop."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 6,
+                "enable_execution_sprints": True,
+                "sprint_review_roles": ["theorist", "analyst", "skeptic"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        theorist = make_mock_agent("theorist-0", "theorist")
+        analyst = make_mock_agent("analyst-0", "analyst")
+        skeptic = make_mock_agent("skeptic-0", "skeptic")
+
+        # 2 out of 3 say sufficient
+        theorist.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="Results look good. EXPERIMENTS SUFFICIENT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+        analyst.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="Good coverage of hypotheses. EXPERIMENTS SUFFICIENT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+        skeptic.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="Need more data on edge cases. Continue experiments.",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[theorist, analyst, skeptic])
+
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        engine._agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
+        engine._thread_id = "test-thread"
+        tmp_db.create_thread(
+            thread_id="test-thread", title="Test", mode="experimental", participants=[]
+        )
+        engine._seed_prompt = "Test"
+        engine._messages = []
+        engine._checkpoint = None
+        engine._resolved_resources = []
+        engine._code_context = ""
+        engine._data_context = ""
+
+        should_stop = await engine._experimentation._run_sprint_results_checkpoint(
+            sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Some results"
+        )
+        assert should_stop is True
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_continues_when_not_sufficient(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """No majority means continue."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 6,
+                "enable_execution_sprints": True,
+                "sprint_review_roles": ["theorist", "analyst", "skeptic"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        theorist = make_mock_agent("theorist-0", "theorist")
+        analyst = make_mock_agent("analyst-0", "analyst")
+        skeptic = make_mock_agent("skeptic-0", "skeptic")
+
+        # Only 1 out of 3 says sufficient
+        theorist.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="EXPERIMENTS SUFFICIENT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+        analyst.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="Need more experiments on the second hypothesis.",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+        skeptic.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="Insufficient evidence. Continue.",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[theorist, analyst, skeptic])
+
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        engine._agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
+        engine._thread_id = "test-thread"
+        tmp_db.create_thread(
+            thread_id="test-thread", title="Test", mode="experimental", participants=[]
+        )
+        engine._seed_prompt = "Test"
+        engine._messages = []
+        engine._checkpoint = None
+        engine._resolved_resources = []
+        engine._code_context = ""
+        engine._data_context = ""
+
+        should_stop = await engine._experimentation._run_sprint_results_checkpoint(
+            sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Some results"
+        )
+        assert should_stop is False
+
+
+class TestSprintIntegration:
+    """Integration tests for sprint-based execution."""
+
+    @pytest.mark.asyncio
+    async def test_disabled_sprints_unchanged_behavior(
+        self, mock_config, tmp_db, tmp_logger, mock_factory_with_code, mock_corpus
+    ):
+        """When enable_execution_sprints=False, behavior is identical to before."""
+        assert mock_config.orchestrator.enable_execution_sprints is False
+
+        mock_exec_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="Mean: 42.3, Std: 5.1, N=1000 samples, chi2=3.14, p=0.07\n",
+            duration_seconds=0.5,
+        )
+
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=mock_config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=mock_factory_with_code,
+            )
+
+            mock_config.orchestrator.max_experiment_rounds = 2
+
+            thread_id = await engine.run_research_cycle(
+                seed_prompt="Test disabled sprints",
+                mode="experimental",
+            )
+
+            # Executor was called — normal execution happened
+            assert mock_executor_instance.execute.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_enabled_sprints_runs_design_and_checkpoint(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """With sprints enabled, design review and checkpoint are called."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 4,
+                "enable_execution_sprints": True,
+                "num_execution_sprints": 2,
+                "sprint_review_roles": ["theorist"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        experimentalist = _make_experiment_agent("experimentalist-0", "experimentalist")
+        theorist = make_mock_agent("theorist-0", "theorist")
+        # Make theorist NOT say sufficient (so both sprints run)
+        theorist.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="Looks reasonable. Continue experiments.",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(
+            side_effect=lambda roles, skill_mode="default": [
+                experimentalist if r == "experimentalist" else theorist for r in roles
+            ]
+        )
+
+        mock_exec_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="Mean: 42.3, Std: 5.1, N=1000 samples, chi2=3.14, p=0.07\n",
+            duration_seconds=0.5,
+        )
+
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
+            engine._thread_id = "test-thread"
+            tmp_db.create_thread(
+                thread_id="test-thread", title="Test", mode="experimental", participants=[]
+            )
+            engine._seed_prompt = "Test sprints"
+            engine._messages = []
+            engine._checkpoint = None
+            engine._resolved_resources = []
+            engine._code_context = ""
+            engine._data_context = ""
+
+            await engine._experimentation.run_experimentation_phase()
+
+            # Experimentalist should have been called for design proposals
+            # (at least 2 design proposals for 2 sprints, plus execution prompts)
+            exp_calls = experimentalist.generate.call_count
+            assert exp_calls >= 4  # 2 design + 2 execution rounds minimum
+
+            # Theorist should have been called for reviews and checkpoint
+            # 2 design reviews + 1 checkpoint (only after sprint 1, not last)
+            theorist_calls = theorist.generate.call_count
+            assert theorist_calls >= 3
+
+    @pytest.mark.asyncio
+    async def test_sprint_early_stop(self, tmp_path, tmp_db, tmp_logger, mock_corpus):
+        """Early stop when checkpoint returns sufficient."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 6,
+                "enable_execution_sprints": True,
+                "num_execution_sprints": 3,
+                "sprint_review_roles": ["theorist"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        experimentalist = _make_experiment_agent("experimentalist-0", "experimentalist")
+        theorist = make_mock_agent("theorist-0", "theorist")
+        # Theorist declares sufficient immediately
+        theorist.generate = AsyncMock(
+            return_value=AgentResponse(
+                content="Results are conclusive. EXPERIMENTS SUFFICIENT",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                model="test",
+            )
+        )
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(
+            side_effect=lambda roles, skill_mode="default": [
+                experimentalist if r == "experimentalist" else theorist for r in roles
+            ]
+        )
+
+        mock_exec_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.SUCCESS,
+            stdout="Mean: 42.3, Std: 5.1, N=1000 samples, chi2=3.14, p=0.07\n",
+            duration_seconds=0.5,
+        )
+
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(return_value=mock_exec_result)
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
+            engine._thread_id = "test-thread"
+            tmp_db.create_thread(
+                thread_id="test-thread", title="Test", mode="experimental", participants=[]
+            )
+            engine._seed_prompt = "Test early stop"
+            engine._messages = []
+            engine._checkpoint = None
+            engine._resolved_resources = []
+            engine._code_context = ""
+            engine._data_context = ""
+
+            await engine._experimentation.run_experimentation_phase()
+
+            # With 3 sprints and 6 rounds, ceil(6/3)=2 rounds per sprint.
+            # Early stop after sprint 1 means only sprint 1's rounds executed.
+            # Sprint 1: 2 execution rounds = 2 executor calls (no retries on success)
+            # (Early stop prevents sprints 2 and 3)
+            exec_calls = mock_executor_instance.execute.call_count
+            # Only rounds from sprint 1 should have run (2 rounds × 1 experiment)
+            assert exec_calls <= 2
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_propagates_through_sprints(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Circuit breaker fired in sprint 1 stops all subsequent sprints."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "enable_checkpointing": False,
+                "enable_writing": False,
+                "enable_experimentation": True,
+                "max_experiment_rounds": 6,
+                "enable_execution_sprints": True,
+                "num_execution_sprints": 3,
+                "sprint_review_roles": ["theorist"],
+            },
+            sandbox={"enabled": True},
+        )
+        patch_config_provider(config)
+
+        # Agent proposes 3 experiments (enough to trigger per-round circuit breaker)
+        multi_code_agent = MagicMock(spec=Agent)
+        multi_code_agent.agent_id = "experimentalist-0"
+        multi_code_agent.skill_profile = "experimentalist"
+        multi_code_agent.generate = AsyncMock(
+            return_value=AgentResponse(
+                content=(
+                    "Design plan:\n"
+                    "```python\n# EXPERIMENT: exp_a\nprint('a')\n```\n"
+                    "```python\n# EXPERIMENT: exp_b\nprint('b')\n```\n"
+                    "```python\n# EXPERIMENT: exp_c\nprint('c')\n```\n"
+                ),
+                usage=TokenUsage(input_tokens=50, output_tokens=80, total_tokens=130),
+                model="test",
+            )
+        )
+        multi_code_agent.format_message = MagicMock(
+            side_effect=lambda to, thread_id, phase, message_type, content, **kw: MagicMock(
+                model_dump=MagicMock(
+                    return_value={
+                        "from": "experimentalist-0",
+                        "to": to,
+                        "thread_id": thread_id,
+                        "phase": phase,
+                        "type": message_type,
+                        "content": content,
+                        "references": [],
+                        "metadata": {},
+                    }
+                )
+            )
+        )
+
+        theorist = make_mock_agent("theorist-0", "theorist")
+
+        factory = MagicMock()
+        factory.create_team = MagicMock(
+            side_effect=lambda roles, skill_mode="default": [
+                multi_code_agent if r == "experimentalist" else theorist for r in roles
+            ]
+        )
+
+        failure_result = ExecutionResult(
+            request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
+            status=ExecutionStatus.FAILURE,
+            stderr="Error: something broke",
+            error_message="Process exited with code 1",
+        )
+
+        with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_code_executor:
+            mock_executor_instance = AsyncMock()
+            mock_executor_instance.execute = AsyncMock(return_value=failure_result)
+            mock_executor_instance.cleanup = AsyncMock()
+            mock_code_executor.return_value = mock_executor_instance
+
+            engine = OrchestrationEngine(
+                config=config,
+                database=tmp_db,
+                corpus=mock_corpus,
+                logger=tmp_logger,
+                agent_factory=factory,
+            )
+
+            engine._agents = {a.agent_id: a for a in [multi_code_agent, theorist]}
+            engine._thread_id = "test-thread"
+            tmp_db.create_thread(
+                thread_id="test-thread", title="Test", mode="experimental", participants=[]
+            )
+            engine._seed_prompt = "Test circuit breaker in sprints"
+            engine._messages = []
+            engine._checkpoint = None
+            engine._resolved_resources = []
+            engine._code_context = ""
+            engine._data_context = ""
+
+            await engine._experimentation.run_experimentation_phase()
+
+            # Circuit breaker should fire in sprint 1 (3 experiments, all fail)
+            # and prevent sprints 2 and 3 from running.
+            # Sprint 1: 3 experiments × 3 attempts = 9 calls
+            total_calls = mock_executor_instance.execute.call_count
+            assert total_calls == 9  # Only sprint 1's round ran

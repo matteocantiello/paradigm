@@ -126,6 +126,12 @@ orchestrator:
   enable_debates: true
   max_debate_exchanges: 3
   max_debates_per_phase: 2
+  enable_execution_sprints: true
+  num_execution_sprints: 3
+  sprint_review_roles:
+    - theorist
+    - analyst
+    - skeptic
 
 # Scientific skills configuration
 skills:

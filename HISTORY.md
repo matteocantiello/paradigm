@@ -2469,3 +2469,17 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 > Run just ended. Can you look at the logs?
 
 **Key objective**: Analyze the latest run (paper-856ebaabb7dd) — especially whether the figure pipeline fix (workspace scanning) worked, and overall pipeline quality. Only 4 experiment scripts and no figures/ directory present.
+
+### Prompt 198 — Post-Mortem Analysis of paper-3904517dea66
+
+> Let's analyze the logs of paper-3904517dea66. It would be good to understand if the updates we made have improved the execution, the flow of discussion and the outcome. Do we still have redundant discussions? Are we missing important insights? Are the logs revealing obvious shortcomings of the current approach and/or ways to improve?
+
+**Key objective**: Comprehensive post-mortem of the latest run. 22 figures in figures/ dir (rglob fix worked!), 24K line transcript, 20 experiment scripts. Full assessment of all pipeline improvements.
+
+### Prompt 199 — Implement Execution Sprints (Collaborative Experiment Design + Checkpoint)
+
+> Implement the following plan: [Execution Sprints plan — restructure EXECUTION phase into collaborative sprints where the team participates in experiment design and result assessment]
+
+**Key objective**: Restructure the EXECUTION phase into collaborative sprints with three sub-phases: (1) Design Review — experimentalist proposes plan, team reviews; (2) Code + Execute — existing round loop; (3) Results Checkpoint — all agents assess results, majority "EXPERIMENTS SUFFICIENT" triggers early stop. Feature is off by default (`enable_execution_sprints: false`) for backward compatibility.
+
+**Files modified**: `config.py`, `constants.py`, `fallback.py`, `manager.py`, `experimentation.py`, `default.yaml`, `test_experimentation.py`

@@ -124,6 +124,11 @@ class OrchestratorConfig(BaseModel):
     cross_round_min_experiments: int = 5
     enable_pre_execution_review: bool = False  # Opt-in (adds ~1K tokens/experiment)
     pre_execution_review_role: str = "analyst"  # Which role reviews code
+    enable_execution_sprints: bool = False  # Off by default for backward compat
+    num_execution_sprints: int = 3
+    sprint_review_roles: list[str] = Field(
+        default_factory=lambda: ["theorist", "analyst", "skeptic"]
+    )
 
 
 class SkillsConfig(BaseModel):
