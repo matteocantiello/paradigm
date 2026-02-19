@@ -93,12 +93,12 @@ class ContainerManager:
         # Ensure results directory exists
         results_dir.mkdir(parents=True, exist_ok=True)
 
-        # Snapshot workspace files so we can detect new/modified ones after execution
+        # Snapshot workspace files (recursive) so we can detect new/modified ones
         _ws_snapshot: dict[str, float] = {}
         if workspace_dir and workspace_dir.exists():
-            for f in workspace_dir.iterdir():
+            for f in workspace_dir.rglob("*"):
                 if f.is_file():
-                    _ws_snapshot[f.name] = f.stat().st_mtime
+                    _ws_snapshot[str(f)] = f.stat().st_mtime
 
         # Write code to a temporary script file in results_dir
         script_path = results_dir / "script.py"
@@ -180,12 +180,13 @@ class ContainerManager:
                             size_bytes=f.stat().st_size,
                         )
                     )
-            # Also collect new/modified workspace files
+            # Also collect new/modified workspace files (recursive scan
+            # so files in subdirs like workspace/figures/ are found)
             if workspace_dir and workspace_dir.exists():
-                for f in workspace_dir.iterdir():
+                for f in workspace_dir.rglob("*"):
                     if not f.is_file():
                         continue
-                    prev = _ws_snapshot.get(f.name)
+                    prev = _ws_snapshot.get(str(f))
                     if prev is None or f.stat().st_mtime > prev:
                         output_files.append(
                             OutputFile(

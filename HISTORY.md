@@ -2463,3 +2463,9 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 > Run has finished. Let's look at thread-9795f2b87899 and paper-13fd1ece63ac logs
 
 **Key objective**: Analyze the new run to assess impact of the 4 fixes (workspace preamble, synthetic data guardrail, figure references, POST_EXECUTION anti-redundancy) implemented in Prompt 195.
+
+### Prompt 197 — Post-Mortem Analysis of paper-856ebaabb7dd
+
+> Run just ended. Can you look at the logs?
+
+**Key objective**: Analyze the latest run (paper-856ebaabb7dd) — especially whether the figure pipeline fix (workspace scanning) worked, and overall pipeline quality. Only 4 experiment scripts and no figures/ directory present.
