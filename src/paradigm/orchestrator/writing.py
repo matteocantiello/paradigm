@@ -200,6 +200,62 @@ class WritingHandler:
         )
         return "\n".join(lines)
 
+    def _build_data_origin_statement(self) -> str:
+        """Build explicit data origin statement from execution caveats."""
+        caveats = self._engine._execution_caveats
+        if not caveats:
+            return ""
+
+        caveat_text = " ".join(caveats).lower()
+        synthetic_keywords = ["synthetic", "simulated", "generated", "placeholder", "mock"]
+        is_synthetic = any(kw in caveat_text for kw in synthetic_keywords)
+
+        if not is_synthetic:
+            return ""
+
+        return (
+            "\n\n## DATA ORIGIN — CRITICAL CONSTRAINT\n"
+            "**ALL data in this study is SYNTHETIC / SIMULATED.**\n"
+            "You MUST NOT describe the data pipeline as if real observational "
+            "data was used. Do NOT mention retrieving data from archives "
+            "(MAST, Vizier, etc.), cross-matching with surveys (Gaia, GALAH, etc.), "
+            "or analyzing real light curves UNLESS the execution caveats explicitly "
+            "confirm real data was successfully accessed.\n\n"
+            "The Methods section MUST clearly state that synthetic data was generated "
+            "and describe HOW it was generated, not describe a real observational workflow.\n\n"
+            "**Violation of this constraint is grounds for immediate rejection.**"
+        )
+
+    def _check_reference_quality(self, body: str) -> list[str]:
+        """Check reference quality and return warnings."""
+        warnings: list[str] = []
+
+        # Find references section
+        ref_match = re.search(r"^## References\s*\n(.*)", body, re.MULTILINE | re.DOTALL)
+        if not ref_match:
+            return warnings
+
+        ref_text = ref_match.group(1)
+        lines = [line.strip() for line in ref_text.split("\n") if line.strip()]
+
+        # Count bare URLs (lines that are just a URL with no author/title metadata)
+        bare_url_pattern = re.compile(r"^\[?\d*\]?\s*https?://")
+        bare_urls = [line for line in lines if bare_url_pattern.match(line) and len(line) < 200]
+
+        if len(bare_urls) > len(lines) * 0.5 and len(bare_urls) > 5:
+            warnings.append(
+                f"Reference quality: {len(bare_urls)}/{len(lines)} references are bare URLs "
+                "without proper citation metadata (author, title, year)."
+            )
+
+        if len(lines) > 80:
+            warnings.append(
+                f"Reference count ({len(lines)}) is unusually high. "
+                "Many may be irrelevant to the research topic."
+            )
+
+        return warnings
+
     def _check_forbidden_claims_violations(self, paper_text: str) -> list[str]:
         """Check assembled paper for violations of forbidden claims.
 
@@ -422,6 +478,9 @@ class WritingHandler:
 
         # Post-process: ensure figure image tags are embedded inline
         assembled_body = self.embed_figures_inline(assembled_body)
+
+        # Convert Unicode math to LaTeX before internal review sees the paper
+        assembled_body = sanitize_unicode_math(assembled_body)
         draft.assembled_body = assembled_body
 
         # Post-assembly: check for forbidden claims violations
@@ -527,6 +586,11 @@ class WritingHandler:
             forbidden_block = self._build_forbidden_claims_block()
             if forbidden_block:
                 prompt += forbidden_block
+
+            # Inject data origin statement — especially critical for Methods
+            data_origin = self._build_data_origin_statement()
+            if data_origin:
+                prompt += data_origin
 
             # Inject execution context for results and methods sections
             # (filtered to successful experiments only)
@@ -658,6 +722,11 @@ class WritingHandler:
         forbidden_block = self._build_forbidden_claims_block()
         if forbidden_block:
             prompt += forbidden_block
+
+        # Inject data origin statement into assembly
+        data_origin = self._build_data_origin_statement()
+        if data_origin:
+            prompt += data_origin
 
         # Detect and inject numerical discrepancies across section drafts
         claims = self._extract_numerical_claims(section_drafts_text)

@@ -352,6 +352,9 @@ class PlainTextFallback:
     def review_no_editor(self) -> None:
         click.echo("    [!] No editor agent found, skipping review")
 
+    def review_editor_retry(self, attempt: int, error: Exception) -> None:
+        click.echo(f"    [review] Editor API error, retrying ({attempt})...")
+
     def review_editor_error(self, error: str | Exception) -> None:
         click.echo(f"    [!] Editor review failed: {error}")
 

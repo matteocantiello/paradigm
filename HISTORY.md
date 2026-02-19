@@ -2526,3 +2526,50 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - Fix 5: Strengthened `_GENERAL_LATER_ROUND_REINFORCEMENT`, `_build_established_points()` in engine.py
 - Fix 6: Partitioned fact sheet (success/failed), `_filter_successful_execution_context()`, filtered context injection
 - Tests: 945 passed (75 experimentation, 67 writing, full suite green)
+
+### Prompt 205 — Analyze paper-98e5f2add2a9 Logs (Post-Fix Evaluation)
+
+> Let's analyze the logs of paper-98e5f2add2a9.md (note I ran with --testing). It would be good to understand if the updates we made have improved the execution and the outcome. Are the logs revealing obvious shortcoming of the current approach and/or ways to improve?
+
+**Key objective**: Evaluate whether the 6 post-mortem fixes improved execution quality by analyzing the first run after implementation.
+
+**Analysis completed** (4 parallel subagents):
+- Experiment quality: 75% meaningful (up from 36%), zero dict-vs-list errors
+- Fix evaluation: Fix 1 (partial — no JSON files), Fix 2 (worked), Fix 3 (worked), Fix 4 (not triggered), Fix 5 (partial), Fix 6 (worked)
+- Paper desk-rejected: internal inconsistency, unicode formatting, synthetic data framed as real
+- Internal review crashed (API connection error — incomplete chunked read)
+- 26/39 code executions succeeded; ALL 13 failures were trivial Python bugs (NameError, syntax, imports)
+- Token efficiency: ~25-30% duplicated content (code retries, echoed outputs, redundant summaries)
+- New shortcomings identified for next round of fixes (see Prompt 205 analysis below)
+
+### Prompt 206 — Implement 7 Post-Mortem Fixes from paper-98e5f2add2a9
+
+> Implement the following plan: 7 Post-Mortem Fixes from paper-98e5f2add2a9 Analysis
+>
+> After analysis of the second execution-sprints run (paper-98e5f2add2a9, --testing mode), seven new failure modes were identified:
+> 1. Pre-execution AST syntax check (34% code execution failures were trivial Python bugs)
+> 2. Internal review retry with exponential backoff (API connection error crashed review)
+> 3. Apply Unicode→LaTeX before internal review (sanitize_unicode_math only ran on disk save)
+> 4. LaTeX formatting directive in writing templates (agents generate Unicode instead of LaTeX)
+> 5. Data origin statement for writers (synthetic data framed as real observations)
+> 6. Truncate code in retry prompts (25-30% token waste from full code re-sends)
+> 7. Reference quality gate (106 bare-URL references, no validation)
+
+**Key decisions:**
+- All 7 fixes are independent and can be implemented in parallel
+- AST check runs before Docker container startup (Step 0b)
+- Internal review retries 2 times with exponential backoff (1s, 2s)
+- Unicode sanitization applied right after paper assembly, before review
+- Data origin statement injected into both section drafting and assembly prompts
+- Code truncation shows ±10 lines around error, preserves short code (<40 lines)
+- Reference quality check warns on >50% bare URLs and >80 total references
+
+**Artifacts modified:**
+- `src/paradigm/sandbox/executor.py` — AST syntax pre-check before Docker execution
+- `src/paradigm/orchestrator/review.py` — Internal review retry with exponential backoff, reference quality injection
+- `src/paradigm/orchestrator/writing.py` — Unicode sanitization before review, data origin statement, reference quality check
+- `src/paradigm/orchestrator/constants.py` — LaTeX directives in templates, truncated code label, reference formatting directive
+- `src/paradigm/orchestrator/experimentation.py` — `_truncate_code_for_retry()`, error line extraction, truncated code in retry
+- `src/paradigm/display/fallback.py` — `review_editor_retry()` display method
+- `src/paradigm/display/manager.py` — `review_editor_retry()` display method
+- Tests: 945 passed (75 experimentation, 67 writing, full suite green)

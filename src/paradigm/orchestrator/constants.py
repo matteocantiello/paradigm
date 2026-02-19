@@ -236,7 +236,9 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "Your previous experiment failed or was rejected.\n"
             "Topic: {seed_prompt}\n\n"
             "{checkpoint_context}"
-            "## Your Previous Code\n```python\n{failed_code}\n```\n\n"
+            "## Your Previous Code (error region)\n```python\n{failed_code}\n```\n\n"
+            "(Only the error region is shown above. Preserve all working code and "
+            "fix only the broken lines.)\n\n"
             "## Error Feedback\n{error_feedback}\n\n"
             "Fix the code above. Patch the existing code rather than rewriting from scratch — "
             "preserve working parts and only fix the broken lines.\n\n"
@@ -386,6 +388,11 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "State each result ONCE with its evidence, then move on. Readers should "
             "learn something new in every paragraph. If a point was covered in a "
             "previous section, reference it rather than restating it."
+            "\n\n**Mathematical notation:** ALL mathematical symbols, Greek letters, "
+            "subscripts, and superscripts MUST use LaTeX math mode: "
+            "$\\alpha_0$, $\\nu_{{\\text{{char}}}}$, $R^2$, $\\log(L/L_\\odot)$. "
+            "NEVER use Unicode characters (\u03b1, \u03bd, \u2080, \u00b2) outside of math mode. "
+            "Inline math uses single $, display math uses $$."
         ),
         "assembly": (
             "You are assembling a research paper from section drafts.\n"
@@ -407,6 +414,12 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "statements of the same finding. Each result should appear once in the "
             "appropriate section. The abstract summarizes; the body expands — "
             "do not copy-paste between them."
+            "\n\n**Mathematical notation:** Ensure ALL mathematical symbols use "
+            "LaTeX math mode ($...$), not Unicode characters. Fix any Unicode "
+            "math (\u03b1 \u2192 $\\alpha$, \u2080 \u2192 $_0$, \u00b2 \u2192 $^2$) during harmonization."
+            "\n\n**References:** Each reference MUST include author(s), title, journal/venue, "
+            "and year — not just a bare URL. Remove references that are irrelevant to the "
+            "research topic. Aim for 15-40 high-quality, topically relevant references."
         ),
         "refinement": (
             "You are refining a research paper.\n"

@@ -36,6 +36,30 @@ if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
 
 
+def _truncate_code_for_retry(code: str, error_lineno: int | None, context_lines: int = 10) -> str:
+    """Truncate code for retry prompt, showing only the error region.
+
+    If error line is known, show ±context_lines around it.
+    If code is short (< 40 lines), return it unchanged.
+    """
+    lines = code.split("\n")
+    if len(lines) <= 40 or error_lineno is None:
+        return code
+
+    start = max(0, error_lineno - context_lines - 1)
+    end = min(len(lines), error_lineno + context_lines)
+
+    snippet_lines: list[str] = []
+    if start > 0:
+        snippet_lines.append(f"# ... ({start} lines above) ...")
+    for i, line in enumerate(lines[start:end], start + 1):
+        snippet_lines.append(f"{line}  # line {i}")
+    if end < len(lines):
+        snippet_lines.append(f"# ... ({len(lines) - end} lines below) ...")
+
+    return "\n".join(snippet_lines)
+
+
 class SprintStopReason(Enum):
     """Reason for stopping execution sprints early."""
 
@@ -1214,6 +1238,15 @@ class ExperimentationHandler:
 
             engine._display.experiment_retry(attempt + 1, _MAX_RETRIES_PER_EXPERIMENT)
 
+            # Try to extract error line number for targeted code display
+            error_lineno = None
+            if result.stderr:
+                line_match = re.search(r"line (\d+)", result.stderr)
+                if line_match:
+                    error_lineno = int(line_match.group(1))
+
+            truncated_code = _truncate_code_for_retry(current_code, error_lineno)
+
             net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
             # Inject workspace manifest into retry context so agent knows
             # which files are available from prior experiments
@@ -1226,7 +1259,7 @@ class ExperimentationHandler:
             retry_prompt = template.format(
                 seed_prompt=engine._seed_prompt,
                 checkpoint_context=retry_checkpoint,
-                failed_code=current_code,
+                failed_code=truncated_code,
                 error_feedback=error_feedback,
                 network_caveat=net_caveat,
             )

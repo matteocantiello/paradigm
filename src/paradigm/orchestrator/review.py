@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -31,6 +32,9 @@ from paradigm.orchestrator.phases import ResearchPhase
 
 if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
+
+
+_INTERNAL_REVIEW_MAX_RETRIES = 2
 
 
 class ReviewHandler:
@@ -204,6 +208,15 @@ class ReviewHandler:
             if forbidden_block:
                 prompt += forbidden_block
 
+            # Inject reference quality warnings
+            ref_warnings = self._engine._writing._check_reference_quality(current_body)
+            if ref_warnings:
+                prompt += (
+                    "\n\n## Reference Quality Alerts\n"
+                    + "\n".join(f"- {w}" for w in ref_warnings)
+                    + "\nFlag these issues in your review."
+                )
+
             # Inject automated forbidden claims violations if detected
             if self._engine._forbidden_claims_violations:
                 prompt += (
@@ -213,13 +226,26 @@ class ReviewHandler:
                     + "\n".join(f"- {v}" for v in self._engine._forbidden_claims_violations)
                 )
 
-            try:
-                response = await editor.generate(prompt, max_tokens=_REVIEW_MAX_TOKENS)
-            except Exception as e:
-                self._engine._logger.log_error(
-                    e, agent_id=editor.agent_id, thread_id=self._engine._thread_id
-                )
-                self._engine._display.review_editor_error(e)
+            response = None
+            last_error = None
+            for retry in range(_INTERNAL_REVIEW_MAX_RETRIES + 1):
+                try:
+                    response = await editor.generate(prompt, max_tokens=_REVIEW_MAX_TOKENS)
+                    break
+                except Exception as e:
+                    last_error = e
+                    self._engine._logger.log_error(
+                        e, agent_id=editor.agent_id, thread_id=self._engine._thread_id
+                    )
+                    if retry < _INTERNAL_REVIEW_MAX_RETRIES:
+                        self._engine._display.review_editor_retry(retry + 1, e)
+                        await asyncio.sleep(2**retry)  # Exponential backoff: 1s, 2s
+                    else:
+                        self._engine._display.review_editor_error(last_error)
+                        return
+
+            if response is None:
+                self._engine._display.review_editor_error(last_error)
                 return
 
             self._engine._log_agent_response(

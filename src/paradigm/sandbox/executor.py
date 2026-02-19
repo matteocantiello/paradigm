@@ -1,5 +1,6 @@
 """High-level code execution pipeline."""
 
+import ast
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -72,6 +73,24 @@ class CodeExecutor:
                 request=request,
                 status=ExecutionStatus.ERROR,
                 error_message="Sandbox is disabled in configuration.",
+            )
+
+        # Step 0b: Quick syntax check — catches SyntaxError before Docker overhead
+        try:
+            ast.parse(request.code)
+        except SyntaxError as e:
+            self.logger.log_code_execution(
+                agent_id=request.agent_id,
+                thread_id=request.thread_id,
+                code=request.code[:_LOG_OUTPUT_LIMIT],
+                success=False,
+                error=f"Syntax error (pre-flight): {e}",
+            )
+            return ExecutionResult(
+                request=request,
+                status=ExecutionStatus.FAILURE,
+                error_message=f"SyntaxError on line {e.lineno}: {e.msg}",
+                stderr=f'  File "script.py", line {e.lineno}\n    {e.text or ""}\n    SyntaxError: {e.msg}',
             )
 
         # Step 1: Safety scan

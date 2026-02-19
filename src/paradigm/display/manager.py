@@ -872,6 +872,13 @@ class DisplayManager:
         else:
             self._fallback.review_no_editor()
 
+    def review_editor_retry(self, attempt: int, error: Exception) -> None:
+        self._state.add_event("review", f"Editor API error, retry {attempt}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.review_editor_retry(attempt, error)
+
     def review_editor_error(self, error: str | Exception) -> None:
         self._state.add_event("error", "Editor review failed")
         if self._use_rich:
