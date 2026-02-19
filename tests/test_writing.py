@@ -791,8 +791,7 @@ class TestFilterSuccessfulExecutionContext:
     def test_all_successful_returns_all(self, tmp_path):
         engine = self._make_engine(tmp_path)
         engine._execution_context = (
-            "### Experiment: exp_a\nResult A\n\n"
-            "### Experiment: exp_b\nResult B\n"
+            "### Experiment: exp_a\nResult A\n\n### Experiment: exp_b\nResult B\n"
         )
         engine._experiment_metadata = [
             {"name": "exp_a", "status": "success"},
@@ -809,8 +808,12 @@ class TestFilterSuccessfulExecutionContext:
 class TestBuildEstablishedPoints:
     def test_extracts_bullet_points(self):
         messages = [
-            {"content": "- The period-luminosity relation is well established\n- Mass loss rates are uncertain"},
-            {"content": "1. We should focus on Cepheid observations\n2. Red noise contamination is a concern"},
+            {
+                "content": "- The period-luminosity relation is well established\n- Mass loss rates are uncertain"
+            },
+            {
+                "content": "1. We should focus on Cepheid observations\n2. Red noise contamination is a concern"
+            },
         ]
         result = OrchestrationEngine._build_established_points(messages)
         assert "Points Already Established" in result

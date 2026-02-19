@@ -1451,9 +1451,7 @@ class TestSprintDesignReview:
         engine._data_context = ""
 
         # Should not raise — nonexistent_role is simply skipped
-        await engine._experimentation._run_sprint_design_review(
-            experimentalist, 1, 3, "", ""
-        )
+        await engine._experimentation._run_sprint_design_review(experimentalist, 1, 3, "", "")
         # Only theorist reviewed (nonexistent_role skipped)
         assert theorist.generate.call_count >= 1
 
@@ -2197,9 +2195,7 @@ class TestStopAndPivot:
 
 class TestAdvisoryContext:
     @pytest.mark.asyncio
-    async def test_advisory_includes_seed_prompt(
-        self, tmp_path, tmp_db, tmp_logger, mock_corpus
-    ):
+    async def test_advisory_includes_seed_prompt(self, tmp_path, tmp_db, tmp_logger, mock_corpus):
         """Advisory prompt includes the research topic (seed_prompt)."""
         config = Config(
             api_key="fake-api-key",
