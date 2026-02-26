@@ -113,6 +113,7 @@ paradigm run [OPTIONS]
 | `--rounds` | Integer | config value (10) | Rounds per phase. Overrides `orchestrator.max_rounds_per_phase`. |
 | `--interactive` | Flag | off | Pause for confirmation before each major phase transition. |
 | `--network-access` | Flag | off | Allow sandbox containers to access the network (sets `network_mode="bridge"`). See [Network Access Mode](#network-access-mode). |
+| `--fresh-corpus` | Flag | off | Start with an empty internal corpus (avoids cross-domain contamination). |
 | `--verbose` | Flag | off | Enable verbose logging output. |
 
 **Examples:**
@@ -138,6 +139,9 @@ paradigm run --mode directed --prompt "Explain stellar convection" --rounds 1
 
 # Interactive mode with human oversight
 paradigm run --mode directed --prompt "Dark matter distribution in dwarf galaxies" --interactive
+
+# Fresh corpus (ignore previously published Paradigm papers)
+paradigm run --mode directed --prompt "Protein folding mechanisms" --fresh-corpus
 ```
 
 #### Prompt Files
@@ -693,6 +697,12 @@ Paradigm learns from its own failures. When a paper is rejected (either at desk 
 During the **SEEDING** phase, the orchestrator searches the graveyard for past failures related to the current seed prompt. If relevant entries are found, these lessons are injected into the **IDEATION** round 1 prompt as non-citable context, helping agents avoid repeating past mistakes.
 
 **Corpus status filtering:** Only papers with status `published` or `external` appear in corpus search results. Draft, submitted, revised, and rejected papers are automatically filtered out, ensuring agents only cite finalized, peer-reviewed work.
+
+**Fresh corpus mode:** If you want to start a cycle without any previously published Paradigm papers in the corpus (e.g., to avoid cross-domain contamination when switching topics), use the `--fresh-corpus` flag. This creates an isolated temporary vector DB so the internal corpus starts empty. External papers ingested from URLs in the seed prompt are still included.
+
+```bash
+paradigm run --mode directed --prompt "Your new topic" --fresh-corpus
+```
 
 ### Example Multi-Cycle Workflow
 

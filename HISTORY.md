@@ -2746,3 +2746,11 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - Added `provider` parameter to `corpus.search()` and `_search_via_providers()`
 - Updated `LITERATURE_INSTRUCTION` with provider-targeted syntax
 - Added `tests/test_targeted_search.py`
+
+### Prompt — Document --fresh-corpus in Manual
+
+> is this option documented in the manual? ... yes, add it
+
+- Added `--fresh-corpus` to CLI reference table in MANUAL.md
+- Added usage example in examples section
+- Added "Fresh corpus mode" note in Multi-Cycle Research section
