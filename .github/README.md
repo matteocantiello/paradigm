@@ -89,6 +89,9 @@ paradigm run --mode review \
 # Use a detailed prompt from a file
 paradigm run --mode directed --prompt-file prompt.md
 
+# Start fresh (ignore previously published Paradigm papers)
+paradigm run --mode directed --prompt "New topic" --fresh-corpus
+
 # List produced papers
 paradigm papers
 

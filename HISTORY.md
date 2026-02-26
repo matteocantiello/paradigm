@@ -2754,3 +2754,10 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - Added `--fresh-corpus` to CLI reference table in MANUAL.md
 - Added usage example in examples section
 - Added "Fresh corpus mode" note in Multi-Cycle Research section
+
+### Prompt — Document --fresh-corpus in README
+
+> also update the readme
+
+- Added `--fresh-corpus` usage example to Quick Start section in README.md
+- Synced .github/README.md
