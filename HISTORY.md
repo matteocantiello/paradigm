@@ -2690,3 +2690,22 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 > Given the recent upgrade for literature search using mcp engines, can we fix 1?
 
 (Continued from context recovery - implementing recommendation #1 from paper-489a566e6225 analysis: Domain-Aware Source Selection to route queries to appropriate literature providers based on research topic.)
+
+## Prompt 6 — Fresh-Start Internal Corpus Option (2026-02-25)
+
+> Let's also deal with Internal Corpus domain isolation. Let's just add a Fresh-start option: Allow a run to start with empty internal corpus
+
+**Context:** Addressing concerns about domain isolation in the internal corpus. The solution is to add a simple fresh-start option that allows a research run to begin with an empty internal corpus, ensuring domain-specific papers don't pollute unrelated research threads.
+
+**Key decisions:**
+- Add `--fresh-corpus` CLI flag to `paradigm run` command
+- When enabled, initialize a new isolated corpus for the thread
+- Default behavior (no flag) maintains existing corpus behavior
+- Simple and low-risk implementation approach
+
+**Artifacts to create/modify:**
+- Update `src/paradigm/main.py` — Add CLI flag
+- Update `src/paradigm/config.py` — Add config option
+- Update `src/paradigm/storage/corpus.py` — Add fresh-start logic
+- Update tests if needed
+

@@ -1178,6 +1178,17 @@ class DisplayManager:
         else:
             self._fallback.prompt_loaded(path, length)
 
+    def fresh_corpus(self, path: object) -> None:
+        self._state.add_event("info", "Fresh corpus: isolated vector DB")
+        if self._use_rich:
+            from paradigm.display.components import build_status_message
+
+            self._print_rich(
+                build_status_message("Fresh corpus: starting with empty internal corpus", "info")
+            )
+        else:
+            self._fallback.fresh_corpus(path)
+
     def starting_cycle(self, mode: str) -> None:
         self._state.add_event("info", f"Starting {mode} research cycle")
         if self._use_rich:

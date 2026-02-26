@@ -508,6 +508,9 @@ class PlainTextFallback:
     def prompt_loaded(self, path: str, length: int) -> None:
         click.echo(f"Loaded prompt from {path} ({length} chars)")
 
+    def fresh_corpus(self, path: object) -> None:
+        click.echo(f"Fresh corpus: using isolated vector DB at {path}")
+
     def starting_cycle(self, mode: str) -> None:
         click.echo(f"Starting {mode} research cycle...")
 

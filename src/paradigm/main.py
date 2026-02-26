@@ -17,6 +17,7 @@ def _run_research(
     interactive: bool = False,
     testing: bool = False,
     verbose: bool = False,
+    fresh_corpus: bool = False,
 ) -> None:
     """Run a research cycle synchronously (wraps async engine).
 
@@ -28,6 +29,7 @@ def _run_research(
         interactive: Whether to prompt for confirmation before phase transitions.
         testing: Whether to apply testing_overrides (swap to open-weight models).
         verbose: Use plain-text output instead of Rich UI.
+        fresh_corpus: Start with an empty internal corpus (avoids cross-domain contamination).
     """
     from paradigm.display import DisplayManager
 
@@ -59,6 +61,16 @@ def _run_research(
             pass
 
     from paradigm.literature.provider_factory import create_source_providers
+
+    # Fresh corpus: use an isolated temporary vector DB so the internal
+    # corpus starts empty (prevents cross-domain contamination).
+    _fresh_corpus_dir: Path | None = None
+    if fresh_corpus:
+        import tempfile
+
+        _fresh_corpus_dir = Path(tempfile.mkdtemp(prefix="paradigm_corpus_"))
+        config.storage.vector_db_path = _fresh_corpus_dir / "vector_db"
+        display.fresh_corpus(_fresh_corpus_dir)
 
     factory = AgentFactory(
         config,
@@ -132,6 +144,11 @@ def _run_research(
     finally:
         display.stop()
         database.close()
+        # Clean up temporary corpus directory
+        if _fresh_corpus_dir and _fresh_corpus_dir.exists():
+            import shutil
+
+            shutil.rmtree(_fresh_corpus_dir, ignore_errors=True)
 
 
 @click.group()
@@ -207,6 +224,12 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     default=False,
     help="Allow sandbox containers to access the network (less secure)",
 )
+@click.option(
+    "--fresh-corpus",
+    is_flag=True,
+    default=False,
+    help="Start with an empty internal corpus (avoids cross-domain contamination)",
+)
 @click.pass_obj
 def run(
     config: Config,
@@ -219,6 +242,7 @@ def run(
     testing: bool,
     verbose: bool,
     network_access: bool,
+    fresh_corpus: bool,
 ) -> None:
     """Run a research cycle.
 
@@ -270,6 +294,7 @@ def run(
         interactive=interactive,
         testing=testing,
         verbose=verbose,
+        fresh_corpus=fresh_corpus,
     )
 
 
