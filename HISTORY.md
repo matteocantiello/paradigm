@@ -2791,3 +2791,24 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `src/paradigm/display/manager.py`
 - `src/paradigm/display/fallback.py`
 - `tests/test_conceptual_figures.py` (new)
+
+### Prompt 219 — Publish Working Code Alongside Papers for Reproducibility
+
+> Implement the following plan:
+>
+> # Plan: Publish Working Code Alongside Papers for Reproducibility
+>
+> Rename `experiments/` → `code/` in paper output, save conceptual figure scripts
+> alongside experiment code, add display method for code saving feedback.
+
+**Key decisions:**
+- Rename `experiments/` → `code/` directory in paper artifacts
+- Conceptual figure code flows through existing `_successful_code` pipeline
+- Add `code_saved()` display method for UI feedback
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/engine.py`
+- `src/paradigm/orchestrator/writing.py`
+- `src/paradigm/display/manager.py`
+- `src/paradigm/display/fallback.py`
+- `tests/test_conceptual_figures.py`

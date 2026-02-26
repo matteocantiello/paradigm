@@ -1,7 +1,7 @@
 """Tests for conceptual figure generation (writing.py helpers and guards)."""
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -202,3 +202,49 @@ class TestConceptualFigurePrompt:
                 figure_context=f"Figure {n} shows the relationship.",
             )
             assert f"figure_{n}.png" in result
+
+
+# ---------------------------------------------------------------------------
+# generate_conceptual_figures — code persistence
+# ---------------------------------------------------------------------------
+
+
+class TestConceptualFigureCodePersistence:
+    @pytest.mark.asyncio
+    async def test_successful_figure_appends_to_successful_code(self):
+        """When a conceptual figure succeeds, its code is appended to engine._successful_code."""
+        engine = _make_engine_mock()
+        engine._successful_code = []
+
+        handler = WritingHandler(engine)
+        body = "As shown in Figure 1, the taxonomy is clear."
+
+        # Mock the sandbox executor
+        mock_output_file = MagicMock()
+        mock_output_file.filename = "figure_1.png"
+        mock_output_file.path = "/tmp/figure_1.png"
+
+        mock_result = MagicMock()
+        mock_result.output_files = [mock_output_file]
+
+        mock_executor = AsyncMock()
+        mock_executor.execute = AsyncMock(return_value=mock_result)
+        mock_executor.cleanup = AsyncMock()
+
+        # Mock writer agent response with code block
+        mock_response = MagicMock()
+        mock_response.content = (
+            '```python\nimport matplotlib.pyplot as plt\nplt.savefig("figure_1.png")\n```'
+        )
+        engine._find_agent_by_role.return_value.generate = AsyncMock(return_value=mock_response)
+
+        with patch(
+            "paradigm.sandbox.executor.CodeExecutor", return_value=mock_executor
+        ):
+            await handler.generate_conceptual_figures(body)
+
+        # Verify code was appended
+        assert len(engine._successful_code) == 1
+        name, code = engine._successful_code[0]
+        assert name == "conceptual_fig_1"
+        assert "plt.savefig" in code

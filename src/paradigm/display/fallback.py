@@ -363,6 +363,9 @@ class PlainTextFallback:
     def conceptual_figures_complete(self, count: int) -> None:
         click.echo(f"  Conceptual figures complete: {count} generated")
 
+    def code_saved(self, count: int) -> None:
+        click.echo(f"  Saved {count} code file(s) to code/")
+
     def conceptual_figures_none(self) -> None:
         click.echo("  [!] All conceptual figure attempts failed, stripping references")
 

@@ -901,6 +901,13 @@ class DisplayManager:
         else:
             self._fallback.conceptual_figures_complete(count)
 
+    def code_saved(self, count: int) -> None:
+        self._state.add_event("writing", f"Saved {count} code file(s) to code/")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.code_saved(count)
+
     def conceptual_figures_none(self) -> None:
         self._state.add_event("warning", "All conceptual figure attempts failed")
         if self._use_rich:

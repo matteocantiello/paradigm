@@ -1651,7 +1651,7 @@ class OrchestrationEngine:
         path.write_text("\n".join(lines))
 
     def _save_experiment_code(self, paper_id: str) -> None:
-        """Write working experiment code to experiments/ subdirectory.
+        """Write working code (experiments + conceptual figures) to code/ subdirectory.
 
         Args:
             paper_id: Paper identifier.
@@ -1661,12 +1661,13 @@ class OrchestrationEngine:
             return
 
         paper_dir = papers_dir / paper_id
-        exp_dir = paper_dir / "experiments"
-        exp_dir.mkdir(parents=True, exist_ok=True)
+        code_dir = paper_dir / "code"
+        code_dir.mkdir(parents=True, exist_ok=True)
 
-        readme_lines = ["# Experiments\n"]
+        readme_lines = ["# Code\n"]
         readme_lines.append(
-            "Working experiment code that produced successful results during the EXECUTION phase.\n"
+            "Working code that produced successful results during the research cycle.\n"
+            "Includes experiment scripts from EXECUTION and conceptual figure scripts from WRITING.\n"
         )
 
         for exp_name, code in self._successful_code:
@@ -1677,14 +1678,16 @@ class OrchestrationEngine:
             filename = f"{safe_name}.py"
 
             # Write code file
-            filepath = exp_dir / filename
+            filepath = code_dir / filename
             filepath.write_text(code)
 
             readme_lines.append(f"- **{exp_name}** → `{filename}`")
 
         # Write README
-        readme_path = exp_dir / "README.md"
+        readme_path = code_dir / "README.md"
         readme_path.write_text("\n".join(readme_lines) + "\n")
+
+        self._display.code_saved(len(self._successful_code))
 
     def _get_token_summary(self) -> dict[str, int]:
         """Get token usage for the current thread.

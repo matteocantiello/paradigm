@@ -1048,6 +1048,7 @@ class WritingHandler:
 
                 fig_path = Path(png_files[0].path)
                 generated_figures.append((f"conceptual_fig_{fig_num}", fig_path))
+                engine._successful_code.append((f"conceptual_fig_{fig_num}", code))
                 engine._display.conceptual_figure_success(fig_num)
 
             # Post-loop: update engine state and embed figures
