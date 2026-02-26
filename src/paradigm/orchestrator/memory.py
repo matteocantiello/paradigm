@@ -24,7 +24,7 @@ class MemoryHandler:
         """
         events = self._engine._logger.read_events(
             event_type=EventType.AGENT_MESSAGE,
-            thread_id=self._engine._thread_id,
+            thread_id=self._engine.state.thread_id,
         )
         return [e.content for e in events if isinstance(e.content, dict)]
 
@@ -42,14 +42,14 @@ class MemoryHandler:
 
             engine._display.memory_generating()
             all_messages = self._collect_all_messages()
-            thread = engine._db.get_thread(engine._thread_id)
+            thread = engine._db.get_thread(engine.state.thread_id)
             outcome = thread.get("status", "completed") if thread else "completed"
             _reflection_provider = engine._config.get_provider()
             reflections = await generate_reflections(
-                agents=engine._agents,
+                agents=engine.state.agents,
                 messages=all_messages,
-                seed_prompt=engine._seed_prompt,
-                thread_id=engine._thread_id,
+                seed_prompt=engine.state.seed_prompt,
+                thread_id=engine.state.thread_id,
                 outcome_summary=f"Research cycle ended with status: {outcome}",
                 provider=_reflection_provider,
                 model=_reflection_provider.default_model,
@@ -62,11 +62,11 @@ class MemoryHandler:
             engine._logger.log(
                 EventType.MEMORY_GENERATED,
                 content={
-                    "thread_id": engine._thread_id,
+                    "thread_id": engine.state.thread_id,
                     "total_memories": total,
                     "agents": [r.agent_id for r in reflections],
                 },
-                thread_id=engine._thread_id,
+                thread_id=engine.state.thread_id,
             )
         except Exception as e:
             engine._display.memory_error(e)

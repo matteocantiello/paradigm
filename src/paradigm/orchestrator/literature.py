@@ -187,7 +187,7 @@ class LiteratureHandler:
         if not api_key:
             self._engine._logger.log_error(
                 "Seed discovery: PERPLEXITY_API_KEY not set",
-                thread_id=self._engine._thread_id,
+                thread_id=self._engine.state.thread_id,
             )
             return 0
 
@@ -240,7 +240,7 @@ class LiteratureHandler:
                 "urls_found": len(urls),
                 "papers_ingested": len(papers),
             },
-            thread_id=self._engine._thread_id,
+            thread_id=self._engine.state.thread_id,
         )
 
         return len(papers)
@@ -317,7 +317,7 @@ class LiteratureHandler:
                 )
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine._thread_id
+                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
                 )
                 self._engine._display.search_error(query, e)
                 continue
@@ -325,7 +325,7 @@ class LiteratureHandler:
             # Filter irrelevant papers by keyword overlap with query
             relevance_threshold = self._engine._config.orchestrator.search_relevance_threshold
             pre_filter_count = len(papers)
-            topic_kw = _extract_topic_keywords(self._engine._seed_prompt)
+            topic_kw = _extract_topic_keywords(self._engine.state.seed_prompt)
             papers = _filter_relevant_papers(
                 query, papers, threshold=relevance_threshold, topic_keywords=topic_kw
             )
@@ -394,7 +394,7 @@ class LiteratureHandler:
             self._engine._logger.log(
                 EventType.LITERATURE_SEARCH,
                 content=log_content,
-                thread_id=self._engine._thread_id,
+                thread_id=self._engine.state.thread_id,
                 phase=str(phase),
             )
 
@@ -468,7 +468,7 @@ class LiteratureHandler:
                 )
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine._thread_id
+                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
                 )
                 self._engine._display.follow_error(arxiv_id, e)
                 continue
@@ -514,7 +514,7 @@ class LiteratureHandler:
                     "references_found": len(papers),
                     "phase": str(phase),
                 },
-                thread_id=self._engine._thread_id,
+                thread_id=self._engine.state.thread_id,
                 phase=str(phase),
             )
 
@@ -534,7 +534,7 @@ class LiteratureHandler:
                 )
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine._thread_id
+                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
                 )
                 self._engine._display.cited_by_error(arxiv_id, e)
                 continue
@@ -580,7 +580,7 @@ class LiteratureHandler:
                     "citations_found": len(papers),
                     "phase": str(phase),
                 },
-                thread_id=self._engine._thread_id,
+                thread_id=self._engine.state.thread_id,
                 phase=str(phase),
             )
 
@@ -600,7 +600,7 @@ class LiteratureHandler:
                 )
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine._thread_id
+                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
                 )
                 self._engine._display.read_error(arxiv_id, e)
                 continue
@@ -627,7 +627,7 @@ class LiteratureHandler:
                     "chars_extracted": len(extracted_text),
                     "phase": str(phase),
                 },
-                thread_id=self._engine._thread_id,
+                thread_id=self._engine.state.thread_id,
                 phase=str(phase),
             )
 
@@ -673,7 +673,7 @@ class LiteratureHandler:
                 )
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine._thread_id
+                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
                 )
                 continue
 
@@ -695,7 +695,7 @@ class LiteratureHandler:
                     "papers_found": len(papers),
                     "phase": str(phase),
                 },
-                thread_id=self._engine._thread_id,
+                thread_id=self._engine.state.thread_id,
                 phase=str(phase),
             )
 
@@ -762,7 +762,7 @@ class LiteratureHandler:
             # Track
             self.resolved_data_urls.add(url)
             self.data_count_this_round += 1
-            self._engine._resolved_resources.append(resource)
+            self._engine.state.resolved_resources.append(resource)
 
             # Inject confirmation into literature context
             size_str = ""
@@ -790,7 +790,7 @@ class LiteratureHandler:
                     "agent_id": agent_id,
                     "phase": str(phase),
                 },
-                thread_id=self._engine._thread_id,
+                thread_id=self._engine.state.thread_id,
                 phase=str(phase),
             )
 

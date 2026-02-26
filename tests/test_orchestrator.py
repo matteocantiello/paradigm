@@ -77,7 +77,7 @@ class TestOrchestrationEngine:
         # + 2 synthesis rounds (1 synthesizer call each for IDEATION and PLANNING)
         # Writer and editor are excluded from IDEATION and PLANNING phases
         # Active: theorist, analyst, experimentalist, synthesizer, skeptic
-        total_generate_calls = sum(a.generate.call_count for a in engine._agents.values())
+        total_generate_calls = sum(a.generate.call_count for a in engine.state.agents.values())
         assert total_generate_calls == 22  # 5*2*2 + 2 synthesis rounds
 
         # Token usage was recorded
@@ -316,7 +316,7 @@ class TestOrchestrationEngine:
         )
 
         # Graveyard context should have been set on the engine
-        graveyard_ctx = getattr(engine, "_graveyard_context", "")
+        graveyard_ctx = getattr(engine.state, "graveyard_context", "")
         assert "Lessons from Failed Research Attempts" in graveyard_ctx
         assert "Lack of novelty" in graveyard_ctx
         assert "NOT citable" in graveyard_ctx
@@ -535,7 +535,7 @@ class TestOrchestrationEngine:
             logger=tmp_logger,
             agent_factory=MagicMock(),
         )
-        engine._thread_id = "thread-test123"
+        engine.state.thread_id = "thread-test123"
 
         # Manually populate search log
         engine._literature.search_log = [
@@ -590,7 +590,7 @@ class TestOrchestrationEngine:
             logger=tmp_logger,
             agent_factory=MagicMock(),
         )
-        engine._thread_id = "thread-test456"
+        engine.state.thread_id = "thread-test456"
 
         # Manually populate review log
         engine._review.review_log = [
@@ -760,7 +760,7 @@ class TestOrchestrationEngine:
             await engine.run_research_cycle(seed_prompt=prompt, mode="directed")
 
         # IDEATION gets references only (not code/data per _PHASE_CONTEXT_NEEDS)
-        first_agent = list(engine._agents.values())[0]
+        first_agent = list(engine.state.agents.values())[0]
         ideation_prompt = first_agent.generate.call_args_list[0][0][0]
         assert "Web Reference Materials" in ideation_prompt
         assert "Available Code Resources" not in ideation_prompt
@@ -794,7 +794,7 @@ class TestOrchestrationEngine:
         )
 
         # Editor and writer should never have been called (IDEATION + PLANNING only)
-        for agent in engine._agents.values():
+        for agent in engine.state.agents.values():
             if agent.skill_profile in ("editor", "writer"):
                 assert agent.generate.call_count == 0, (
                     f"{agent.skill_profile} should not speak in IDEATION/PLANNING"
@@ -848,7 +848,7 @@ class TestOrchestrationEngine:
 
         # Editor should have been called during INTERNAL_REVIEW
         editor = None
-        for agent in engine._agents.values():
+        for agent in engine.state.agents.values():
             if agent.skill_profile == "editor":
                 editor = agent
                 break
@@ -2075,7 +2075,7 @@ class TestDiscoveredPaperIndex:
 
         # Round 2 prompts for the first agent should contain the paper index
         # The first agent's round 2 call is call index 1 (0=round1)
-        first_agent = list(engine._agents.values())[0]
+        first_agent = list(engine.state.agents.values())[0]
         if first_agent.generate.call_count >= 2:
             round2_prompt = first_agent.generate.call_args_list[1][0][0]
             assert "Discovered Papers" in round2_prompt
@@ -2503,8 +2503,8 @@ class TestProcessDataRequests:
 
         engine = MagicMock()
         engine._config.storage.data_dir = tmp_path / "data"
-        engine._thread_id = "test-thread"
-        engine._resolved_resources = []
+        engine.state.thread_id = "test-thread"
+        engine.state.resolved_resources = []
         engine._display = MagicMock()
         engine._logger = MagicMock()
         return LiteratureHandler(engine)
@@ -2641,11 +2641,11 @@ class TestConsensusBuildSummary:
     def test_consensus_injected_into_prompt(self, tmp_path):
         """When _consensus_summary is set, it appears in agent prompts."""
         engine = self._make_engine(tmp_path)
-        engine._consensus_summary = "### IDEATION Consensus\n**Agreement:** Stars pulsate.\n"
-        engine._seed_prompt = "Test prompt"
-        engine._mode = "directed"
-        engine._messages = []
-        engine._checkpoint = None
+        engine.state.consensus_summary = "### IDEATION Consensus\n**Agreement:** Stars pulsate.\n"
+        engine.state.seed_prompt = "Test prompt"
+        engine.state.mode = "directed"
+        engine.state.messages = []
+        engine.state.checkpoint = None
 
         agent = make_mock_agent("theorist-0", "theorist")
         prompt = engine._build_agent_prompt(agent, ResearchPhase.PLANNING, 1)
@@ -2656,10 +2656,10 @@ class TestConsensusBuildSummary:
     def test_consensus_reset_on_new_cycle(self, tmp_path):
         """_consensus_summary is reset when run_research_cycle starts."""
         engine = self._make_engine(tmp_path)
-        engine._consensus_summary = "old consensus"
+        engine.state.consensus_summary = "old consensus"
         # Simulate partial reset (the way run_research_cycle does it)
-        engine._consensus_summary = ""
-        assert engine._consensus_summary == ""
+        engine.state.consensus_summary = ""
+        assert engine.state.consensus_summary == ""
 
 
 # ---------------------------------------------------------------------------
@@ -2696,7 +2696,7 @@ class TestExtractPlanningActions:
     def test_planning_actions_extracted(self, tmp_path):
         """Messages with experiment keywords produce numbered action items."""
         engine = self._make_engine(tmp_path)
-        engine._messages = [
+        engine.state.messages = [
             {
                 "from": "theorist-0",
                 "content": (
@@ -2714,7 +2714,7 @@ class TestExtractPlanningActions:
     def test_planning_actions_empty_without_keywords(self, tmp_path):
         """Messages without experiment keywords produce empty string."""
         engine = self._make_engine(tmp_path)
-        engine._messages = [
+        engine.state.messages = [
             {
                 "from": "synthesizer-0",
                 "content": "The consensus is that stars are interesting objects.",
@@ -2727,7 +2727,7 @@ class TestExtractPlanningActions:
         """Action items are capped at 10."""
         engine = self._make_engine(tmp_path)
         lines = [f"Run experiment number {i} to test hypothesis" for i in range(20)]
-        engine._messages = [{"from": "agent-0", "content": "\n".join(lines)}]
+        engine.state.messages = [{"from": "agent-0", "content": "\n".join(lines)}]
         result = engine._extract_planning_actions()
         # Count numbered items
         import re

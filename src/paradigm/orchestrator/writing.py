@@ -52,7 +52,7 @@ class WritingHandler:
         Returns:
             Formatted fact sheet string, or empty string if no experiments ran.
         """
-        metadata = self._engine._experiment_metadata
+        metadata = self._engine.state.experiment_metadata
         if not metadata:
             return ""
 
@@ -120,11 +120,11 @@ class WritingHandler:
         Returns:
             Filtered execution context string, or original if parsing fails.
         """
-        ctx = self._engine._execution_context
+        ctx = self._engine.state.execution_context
         if not ctx:
             return ""
 
-        metadata = self._engine._experiment_metadata
+        metadata = self._engine.state.experiment_metadata
         if not metadata:
             return ctx
 
@@ -161,7 +161,7 @@ class WritingHandler:
         forbidden: list[str] = []
 
         # From POST_EXECUTION synthesis
-        synthesis = self._engine._phase_synthesis.get(str(ResearchPhase.POST_EXECUTION), "")
+        synthesis = self._engine.state.phase_synthesis.get(str(ResearchPhase.POST_EXECUTION), "")
         for line in synthesis.split("\n"):
             line = line.strip()
             if line.upper().startswith("- FORBIDDEN:"):
@@ -170,7 +170,7 @@ class WritingHandler:
                     forbidden.append(claim)
 
         # Auto-generate from failed experiments
-        for entry in self._engine._experiment_metadata:
+        for entry in self._engine.state.experiment_metadata:
             if entry.get("status") != "success":
                 name = entry.get("name", "unnamed")
                 reason = str(entry.get("failure_reason", "unknown error"))[:100]
@@ -208,7 +208,7 @@ class WritingHandler:
 
     def _build_data_origin_statement(self) -> str:
         """Build explicit data origin statement from execution caveats."""
-        caveats = self._engine._execution_caveats
+        caveats = self._engine.state.execution_caveats
         if not caveats:
             return ""
 
@@ -274,14 +274,14 @@ class WritingHandler:
         Returns:
             List of warning strings describing potential violations.
         """
-        if not self._engine._experiment_metadata:
+        if not self._engine.state.experiment_metadata:
             return []
 
         violations: list[str] = []
         paper_lower = paper_text.lower()
 
         # Check each failed experiment — is it described as producing results?
-        for entry in self._engine._experiment_metadata:
+        for entry in self._engine.state.experiment_metadata:
             if entry.get("status") == "success":
                 continue
             name = str(entry.get("name", "")).lower()
@@ -451,7 +451,7 @@ class WritingHandler:
         profile = self._engine._profile
         if profile is not None:
             # Check mode-specific template first
-            mode_template = profile.mode_templates.get(self._engine._mode)
+            mode_template = profile.mode_templates.get(self._engine.state.mode)
             if mode_template is not None and mode_template.sections:
                 return section_assignments_from_template(mode_template.sections)
             if profile.document_template.sections:
@@ -468,7 +468,7 @@ class WritingHandler:
         profile = self._engine._profile
         if profile is not None:
             # Check mode-specific template first
-            mode_template = profile.mode_templates.get(self._engine._mode)
+            mode_template = profile.mode_templates.get(self._engine.state.mode)
             if mode_template is not None and mode_template.sections:
                 return [s.name for s in mode_template.sections]
             if profile.document_template.sections:
@@ -505,16 +505,16 @@ class WritingHandler:
         # Post-assembly: check for forbidden claims violations
         violations = self._check_forbidden_claims_violations(assembled_body)
         if violations:
-            self._engine._forbidden_claims_violations = violations
+            self._engine.state.forbidden_claims_violations = violations
         else:
-            self._engine._forbidden_claims_violations = []
+            self._engine.state.forbidden_claims_violations = []
 
         # Citation grounding (non-fatal on failure)
         if self._engine._config.citation.enable_citation_grounding:
             try:
                 draft = await self._engine._citation_handler.run_citation_grounding(draft)
             except Exception as e:
-                self._engine._logger.log_error(e, thread_id=self._engine._thread_id)
+                self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
                 self._engine._display.citation_grounding_error(e)
 
         # Validate paper length — if all agents failed, the draft is empty
@@ -525,9 +525,9 @@ class WritingHandler:
                     f"Writing phase produced insufficient content "
                     f"({len(draft.assembled_body)} chars < {_MIN_PAPER_LENGTH})"
                 ),
-                thread_id=self._engine._thread_id,
+                thread_id=self._engine.state.thread_id,
             )
-            self._engine._db.update_thread(self._engine._thread_id, status="writing_failed")
+            self._engine._db.update_thread(self._engine.state.thread_id, status="writing_failed")
             return None
 
         # Extract title from assembled body
@@ -542,16 +542,16 @@ class WritingHandler:
         if "abstract" in draft.sections:
             abstract = draft.sections["abstract"].content[:1000]
 
-        authors = list(self._engine._agents.keys())
+        authors = list(self._engine.state.agents.keys())
         self._engine._db.create_paper(
             paper_id=paper_id,
-            title=draft.title or self._engine._seed_prompt[:200],
+            title=draft.title or self._engine.state.seed_prompt[:200],
             abstract=abstract,
             authors=authors,
             body=draft.assembled_body,
             status="draft",
         )
-        self._engine._db.update_thread(self._engine._thread_id, current_draft_id=paper_id)
+        self._engine._db.update_thread(self._engine.state.thread_id, current_draft_id=paper_id)
 
         # Write markdown file to papers directory
         self.save_paper_file(paper_id, draft.assembled_body)
@@ -571,11 +571,11 @@ class WritingHandler:
         """
         self._engine._literature.search_count_this_round = 0
         checkpoint_context = ""
-        if self._engine._checkpoint:
-            checkpoint_context = self._engine._checkpoint.to_context_string() + "\n\n"
+        if self._engine.state.checkpoint:
+            checkpoint_context = self._engine.state.checkpoint.to_context_string() + "\n\n"
 
         # Check mode-specific writing overrides first
-        mode_writing = _MODE_WRITING_OVERRIDES.get(self._engine._mode, {})
+        mode_writing = _MODE_WRITING_OVERRIDES.get(self._engine.state.mode, {})
         template = mode_writing.get(
             "section_drafting",
             _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["section_drafting"],
@@ -584,7 +584,7 @@ class WritingHandler:
         # Get section assignments from profile or fallback
         assignments = self._get_section_assignments()
 
-        for agent_id, agent in self._engine._agents.items():
+        for agent_id, agent in self._engine.state.agents.items():
             role = agent.skill_profile
             assigned = assignments.get(role)
             if not assigned:
@@ -592,7 +592,7 @@ class WritingHandler:
 
             section_list = ", ".join(s.replace("_", " ").title() for s in assigned)
             prompt = template.format(
-                seed_prompt=self._engine._seed_prompt,
+                seed_prompt=self._engine.state.seed_prompt,
                 checkpoint_context=checkpoint_context,
                 assigned_sections=section_list,
             )
@@ -639,7 +639,7 @@ class WritingHandler:
 
             # Inject execution caveats for ALL section writers — every part of
             # the paper must be consistent with known limitations
-            if self._engine._execution_caveats:
+            if self._engine.state.execution_caveats:
                 prompt += (
                     "\n\n## MANDATORY Execution Caveats\n"
                     "The following limitations were identified during the EXECUTION phase. "
@@ -647,18 +647,18 @@ class WritingHandler:
                     "contradict or ignore these caveats. If data is synthetic, say so "
                     "explicitly. If models failed, do not present fallback results as "
                     "if they were the intended analysis.\n"
-                    + "\n".join(f"- **{c}**" for c in self._engine._execution_caveats)
+                    + "\n".join(f"- **{c}**" for c in self._engine.state.execution_caveats)
                 )
 
             # Inject available figures so section writers can reference them
-            if self._engine._execution_figures:
+            if self._engine.state.execution_figures:
                 fig_lines = ["\n\n## Available Figures"]
                 fig_lines.append(
                     "The following figures were produced by experiments. "
                     "Reference them in your section text where relevant "
                     "(e.g., 'as shown in Figure 1'):"
                 )
-                for i, (exp_name, fpath) in enumerate(self._engine._execution_figures, 1):
+                for i, (exp_name, fpath) in enumerate(self._engine.state.execution_figures, 1):
                     dest_name = self.figure_dest_name(exp_name, fpath)
                     fig_lines.append(
                         f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`"
@@ -688,14 +688,14 @@ class WritingHandler:
 
             # Inject POST_EXECUTION team assessment — the research team's
             # critical evaluation of what the results actually show
-            if self._engine._post_execution_summary:
-                prompt += "\n\n" + self._engine._post_execution_summary
+            if self._engine.state.post_execution_summary:
+                prompt += "\n\n" + self._engine.state.post_execution_summary
 
             try:
                 response = await agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine._thread_id
+                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
                 )
                 self._engine._display.agent_error(agent_id, e)
                 continue
@@ -749,7 +749,7 @@ class WritingHandler:
 
         # How many actual figure files do we have?
         actual_count = (
-            len(self._engine._execution_figures) if self._engine._execution_figures else 0
+            len(self._engine.state.execution_figures) if self._engine.state.execution_figures else 0
         )
 
         if fig_refs and actual_count == 0:
@@ -787,8 +787,8 @@ class WritingHandler:
             return draft.to_markdown()
 
         checkpoint_context = ""
-        if self._engine._checkpoint:
-            checkpoint_context = self._engine._checkpoint.to_context_string() + "\n\n"
+        if self._engine.state.checkpoint:
+            checkpoint_context = self._engine.state.checkpoint.to_context_string() + "\n\n"
 
         # Build section drafts text
         section_drafts_text = ""
@@ -799,13 +799,13 @@ class WritingHandler:
                 heading = section_name.replace("_", " ").title()
                 section_drafts_text += f"## {heading} (by {sd.author})\n\n{sd.content}\n\n"
 
-        mode_writing = _MODE_WRITING_OVERRIDES.get(self._engine._mode, {})
+        mode_writing = _MODE_WRITING_OVERRIDES.get(self._engine.state.mode, {})
         template = mode_writing.get(
             "assembly",
             _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["assembly"],
         )
         prompt = template.format(
-            seed_prompt=self._engine._seed_prompt,
+            seed_prompt=self._engine.state.seed_prompt,
             checkpoint_context=checkpoint_context,
             section_drafts=section_drafts_text,
         )
@@ -832,19 +832,19 @@ class WritingHandler:
             prompt += discrepancy_report
 
         # Inject caveats into assembly so the assembler doesn't overclaim
-        if self._engine._execution_caveats:
+        if self._engine.state.execution_caveats:
             prompt += (
                 "\n\n## MANDATORY Execution Caveats\n"
                 "When assembling the paper, ensure the title, abstract, and conclusions "
                 "do NOT overclaim. These limitations apply:\n"
-                + "\n".join(f"- **{c}**" for c in self._engine._execution_caveats)
+                + "\n".join(f"- **{c}**" for c in self._engine.state.execution_caveats)
             )
 
         # Add figure references if experiments produced output files
-        if self._engine._execution_figures:
+        if self._engine.state.execution_figures:
             fig_lines = ["\n\n## Figures from Computational Experiments"]
             fig_lines.append("Include these figures in the paper using the markdown syntax shown:")
-            for i, (exp_name, fpath) in enumerate(self._engine._execution_figures, 1):
+            for i, (exp_name, fpath) in enumerate(self._engine.state.execution_figures, 1):
                 dest_name = self.figure_dest_name(exp_name, fpath)
                 fig_lines.append(f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`")
             prompt += "\n".join(fig_lines)
@@ -885,7 +885,7 @@ class WritingHandler:
                 self._engine._logger.log_error(
                     e,
                     agent_id=writer_agent.agent_id,
-                    thread_id=self._engine._thread_id,
+                    thread_id=self._engine.state.thread_id,
                 )
                 if attempt < _assembly_max_retries:
                     self._engine._display.writing_assembly_retry(attempt + 1, e)
@@ -957,7 +957,7 @@ class WritingHandler:
         engine = self._engine
 
         # Guard: already have execution figures
-        if engine._execution_figures:
+        if engine.state.execution_figures:
             return assembled_body
 
         # Guard: sandbox disabled or feature disabled
@@ -985,7 +985,7 @@ class WritingHandler:
         from paradigm.sandbox.executor import CodeExecutor
         from paradigm.sandbox.models import ExecutionRequest
 
-        workspace_dir = engine._config.storage.data_dir / "workspaces" / engine._thread_id
+        workspace_dir = engine._config.storage.data_dir / "workspaces" / engine.state.thread_id
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
         executor = CodeExecutor(
@@ -1028,7 +1028,7 @@ class WritingHandler:
                             ExecutionRequest(
                                 code=code,
                                 agent_id=writer_agent.agent_id,
-                                thread_id=engine._thread_id,
+                                thread_id=engine.state.thread_id,
                             )
                         ),
                         timeout=_CONCEPTUAL_FIGURE_TIMEOUT,
@@ -1048,12 +1048,12 @@ class WritingHandler:
 
                 fig_path = Path(png_files[0].path)
                 generated_figures.append((f"conceptual_fig_{fig_num}", fig_path))
-                engine._successful_code.append((f"conceptual_fig_{fig_num}", code))
+                engine.state.successful_code.append((f"conceptual_fig_{fig_num}", code))
                 engine._display.conceptual_figure_success(fig_num)
 
             # Post-loop: update engine state and embed figures
             if generated_figures:
-                engine._execution_figures = generated_figures
+                engine.state.execution_figures = generated_figures
                 assembled_body = self.embed_figures_inline(assembled_body)
                 engine._display.conceptual_figures_complete(len(generated_figures))
             else:
@@ -1081,12 +1081,12 @@ class WritingHandler:
         Returns:
             Body with ``![Figure N](figures/...)`` tags embedded.
         """
-        if not self._engine._execution_figures:
+        if not self._engine.state.execution_figures:
             return body
 
         # Build ordered mapping: figure number -> destination filename
         fig_map: dict[int, str] = {}
-        for i, (exp_name, fpath) in enumerate(self._engine._execution_figures, 1):
+        for i, (exp_name, fpath) in enumerate(self._engine.state.execution_figures, 1):
             fig_map[i] = self.figure_dest_name(exp_name, fpath)
 
         # Regex to detect existing image tags like ![Figure 1](figures/...)
@@ -1149,7 +1149,7 @@ class WritingHandler:
         # Convert any remaining Unicode math to LaTeX
         body = sanitize_unicode_math(body)
         path.write_text(body)
-        if self._engine._execution_figures:
+        if self._engine.state.execution_figures:
             self.copy_figures_to_paper_dir(paper_id)
 
     def copy_figures_to_paper_dir(self, paper_id: str) -> None:
@@ -1165,11 +1165,11 @@ class WritingHandler:
         figures_dir = papers_dir / paper_id / "figures"
         figures_dir.mkdir(parents=True, exist_ok=True)
 
-        for exp_name, src_path in self._engine._execution_figures:
+        for exp_name, src_path in self._engine.state.execution_figures:
             if not src_path.exists():
                 self._engine._logger.log_error(
                     FileNotFoundError(f"Figure from '{exp_name}' not found: {src_path}"),
-                    thread_id=self._engine._thread_id,
+                    thread_id=self._engine.state.thread_id,
                 )
                 continue
             dest_name = self.figure_dest_name(exp_name, src_path)

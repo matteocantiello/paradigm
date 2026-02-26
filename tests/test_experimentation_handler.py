@@ -74,13 +74,13 @@ class TestExperimentationHandlerReturnsResult:
         engine = OrchestrationEngine(
             config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
         )
-        engine._agents = {"experimentalist-0": exp_agent}
-        engine._thread_id = "test-thread"
-        engine._seed_prompt = "test"
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
-        engine._checkpoint = None
+        engine.state.agents = {"experimentalist-0": exp_agent}
+        engine.state.thread_id = "test-thread"
+        engine.state.seed_prompt = "test"
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
+        engine.state.checkpoint = None
 
         mock_exec_result = ExecutionResult(
             request=ExecutionRequest(code="x", agent_id="experimentalist-0", thread_id="t"),
@@ -130,13 +130,13 @@ class TestExperimentationHandlerNoAgent:
         )
         # Only a writer agent (no experimentalist or analyst)
         writer = make_mock_agent("writer-0", "writer")
-        engine._agents = {"writer-0": writer}
-        engine._thread_id = "test-thread"
-        engine._seed_prompt = "test"
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
-        engine._checkpoint = None
+        engine.state.agents = {"writer-0": writer}
+        engine.state.thread_id = "test-thread"
+        engine.state.seed_prompt = "test"
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
+        engine.state.checkpoint = None
 
         with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_ce:
             mock_instance = AsyncMock()
@@ -182,13 +182,13 @@ class TestExperimentationHandlerCleanup:
         engine = OrchestrationEngine(
             config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
         )
-        engine._agents = {"experimentalist-0": exp_agent}
-        engine._thread_id = "test-thread"
-        engine._seed_prompt = "test"
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
-        engine._checkpoint = None
+        engine.state.agents = {"experimentalist-0": exp_agent}
+        engine.state.thread_id = "test-thread"
+        engine.state.seed_prompt = "test"
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
+        engine.state.checkpoint = None
 
         with patch("paradigm.orchestrator.experimentation.CodeExecutor") as mock_ce:
             mock_instance = AsyncMock()

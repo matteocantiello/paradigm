@@ -86,14 +86,14 @@ class ReviewHandler:
         """
         parts: list[str] = []
 
-        if self._engine._execution_caveats:
+        if self._engine.state.execution_caveats:
             parts.append(
                 "## Execution Caveats (from the experiment pipeline)\n"
-                + "\n".join(f"- {c}" for c in self._engine._execution_caveats)
+                + "\n".join(f"- {c}" for c in self._engine.state.execution_caveats)
             )
 
-        if self._engine._execution_context:
-            context = self._engine._execution_context
+        if self._engine.state.execution_context:
+            context = self._engine.state.execution_context
             if len(context) > _PEER_REVIEW_METADATA_LIMIT:
                 context = (
                     context[:_PEER_REVIEW_METADATA_LIMIT] + "\n... (experiment output truncated)"
@@ -177,12 +177,12 @@ class ReviewHandler:
 
             template = _PHASE_INSTRUCTIONS[ResearchPhase.INTERNAL_REVIEW]["editor_review"]
             prompt = template.format(
-                seed_prompt=self._engine._seed_prompt,
+                seed_prompt=self._engine.state.seed_prompt,
                 current_draft=current_body[:_PAPER_CONTEXT_LIMIT],  # Truncate for context window
             )
 
             # Inject caveats so editor verifies the paper acknowledges them
-            if self._engine._execution_caveats:
+            if self._engine.state.execution_caveats:
                 prompt += (
                     "\n\n## Execution Caveats to Verify\n"
                     "The EXECUTION phase identified these limitations. "
@@ -190,7 +190,7 @@ class ReviewHandler:
                     "If the paper presents synthetic/placeholder data as real "
                     "observational results, this is a CRITICAL issue requiring "
                     "revision. If claims contradict known limitations, flag them.\n"
-                    + "\n".join(f"- {c}" for c in self._engine._execution_caveats)
+                    + "\n".join(f"- {c}" for c in self._engine.state.execution_caveats)
                 )
 
             # Inject execution fact sheet for claim verification
@@ -228,12 +228,12 @@ class ReviewHandler:
                 )
 
             # Inject automated forbidden claims violations if detected
-            if self._engine._forbidden_claims_violations:
+            if self._engine.state.forbidden_claims_violations:
                 prompt += (
                     "\n\n## AUTOMATED VIOLATION ALERTS\n"
                     "The following potential forbidden claim violations were "
                     "detected automatically. Verify each one:\n"
-                    + "\n".join(f"- {v}" for v in self._engine._forbidden_claims_violations)
+                    + "\n".join(f"- {v}" for v in self._engine.state.forbidden_claims_violations)
                 )
 
             response = None
@@ -245,7 +245,7 @@ class ReviewHandler:
                 except Exception as e:
                     last_error = e
                     self._engine._logger.log_error(
-                        e, agent_id=editor.agent_id, thread_id=self._engine._thread_id
+                        e, agent_id=editor.agent_id, thread_id=self._engine.state.thread_id
                     )
                     if retry < _INTERNAL_REVIEW_MAX_RETRIES:
                         self._engine._display.review_editor_retry(retry + 1, e)
@@ -293,17 +293,17 @@ class ReviewHandler:
             if feedback.recommendation == "reject":
                 # Paper fundamentally flawed — stop immediately
                 self._engine._display.review_rejected()
-                thread = self._engine._db.get_thread(self._engine._thread_id)
+                thread = self._engine._db.get_thread(self._engine.state.thread_id)
                 if thread and thread.get("current_draft_id"):
                     self._engine._db.update_paper(
                         thread["current_draft_id"], status="writing_failed"
                     )
-                self._engine._db.update_thread(self._engine._thread_id, status="writing_failed")
+                self._engine._db.update_thread(self._engine.state.thread_id, status="writing_failed")
                 return
 
             if feedback.recommendation == "accept":
                 # Paper accepted — update status
-                thread = self._engine._db.get_thread(self._engine._thread_id)
+                thread = self._engine._db.get_thread(self._engine.state.thread_id)
                 if thread and thread.get("current_draft_id"):
                     self._engine._db.update_paper(thread["current_draft_id"], status="reviewed")
                 return
@@ -315,7 +315,7 @@ class ReviewHandler:
                 draft.assembled_body = current_body
 
                 # Update paper in database and on disk
-                thread = self._engine._db.get_thread(self._engine._thread_id)
+                thread = self._engine._db.get_thread(self._engine.state.thread_id)
                 if thread and thread.get("current_draft_id"):
                     paper_id = thread["current_draft_id"]
                     self._engine._db.update_paper(
@@ -327,10 +327,10 @@ class ReviewHandler:
 
         # Max iterations reached without editor acceptance — writing failed
         self._engine._display.review_max_iterations()
-        thread = self._engine._db.get_thread(self._engine._thread_id)
+        thread = self._engine._db.get_thread(self._engine.state.thread_id)
         if thread and thread.get("current_draft_id"):
             self._engine._db.update_paper(thread["current_draft_id"], status="writing_failed")
-        self._engine._db.update_thread(self._engine._thread_id, status="writing_failed")
+        self._engine._db.update_thread(self._engine.state.thread_id, status="writing_failed")
 
     async def run_revision(self, current_body: str, review_text: str) -> str:
         """Writer revises the paper based on review feedback.
@@ -347,12 +347,12 @@ class ReviewHandler:
             return current_body
 
         checkpoint_context = ""
-        if self._engine._checkpoint:
-            checkpoint_context = self._engine._checkpoint.to_context_string() + "\n\n"
+        if self._engine.state.checkpoint:
+            checkpoint_context = self._engine.state.checkpoint.to_context_string() + "\n\n"
 
         template = _PHASE_INSTRUCTIONS[ResearchPhase.INTERNAL_REVIEW]["revision"]
         prompt = template.format(
-            seed_prompt=self._engine._seed_prompt,
+            seed_prompt=self._engine.state.seed_prompt,
             checkpoint_context=checkpoint_context,
             current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
             review_feedback=review_text[:_PAPER_CONTEXT_LIMIT],
@@ -381,7 +381,7 @@ class ReviewHandler:
             return strip_agent_scaffolding(response.content)
         except Exception as e:
             self._engine._logger.log_error(
-                e, agent_id=writer.agent_id, thread_id=self._engine._thread_id
+                e, agent_id=writer.agent_id, thread_id=self._engine.state.thread_id
             )
             self._engine._display.revision_error(e)
             return current_body
@@ -395,13 +395,13 @@ class ReviewHandler:
         Returns:
             True if paper passes desk review, False if desk-rejected.
         """
-        self._engine._phase_manager.transition_to(ResearchPhase.SUBMITTED)
+        self._engine.state.phase_manager.transition_to(ResearchPhase.SUBMITTED)
         self._engine._log_phase_transition(ResearchPhase.INTERNAL_REVIEW, ResearchPhase.SUBMITTED)
-        self._engine._messages = []
+        self._engine.state.messages = []
         self._engine._display.phase_transition(ResearchPhase.SUBMITTED)
 
         # Update submitted_at in database
-        thread = self._engine._db.get_thread(self._engine._thread_id)
+        thread = self._engine._db.get_thread(self._engine.state.thread_id)
         if thread and thread.get("current_draft_id"):
             self._engine._db.update_paper(
                 thread["current_draft_id"],
@@ -418,7 +418,7 @@ class ReviewHandler:
         current_body = draft.assembled_body or draft.to_markdown()
         template = _PHASE_INSTRUCTIONS[ResearchPhase.SUBMITTED]["desk_review"]
         prompt = template.format(
-            seed_prompt=self._engine._seed_prompt,
+            seed_prompt=self._engine.state.seed_prompt,
             current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
         )
 
@@ -426,7 +426,7 @@ class ReviewHandler:
             response = await editor.generate(prompt)
         except Exception as e:
             self._engine._logger.log_error(
-                e, agent_id=editor.agent_id, thread_id=self._engine._thread_id
+                e, agent_id=editor.agent_id, thread_id=self._engine.state.thread_id
             )
             self._engine._display.desk_review_error(e)
             return True
@@ -464,7 +464,7 @@ class ReviewHandler:
                 weaknesses=["Did not pass desk review"],
                 recommendation="reject",
             )
-            thread = self._engine._db.get_thread(self._engine._thread_id)
+            thread = self._engine._db.get_thread(self._engine.state.thread_id)
             if thread and thread.get("current_draft_id"):
                 reject_paper(
                     thread["current_draft_id"],
@@ -472,7 +472,7 @@ class ReviewHandler:
                     [desk_review],
                     self._engine._logger,
                 )
-            self._engine._phase_manager.transition_to(ResearchPhase.REJECTED)
+            self._engine.state.phase_manager.transition_to(ResearchPhase.REJECTED)
             self._engine._log_phase_transition(ResearchPhase.SUBMITTED, ResearchPhase.REJECTED)
             return False
 
@@ -488,9 +488,9 @@ class ReviewHandler:
         Returns:
             Tuple of (decision string, list of PeerReview objects).
         """
-        self._engine._phase_manager.transition_to(ResearchPhase.PEER_REVIEW)
+        self._engine.state.phase_manager.transition_to(ResearchPhase.PEER_REVIEW)
         self._engine._log_phase_transition(ResearchPhase.SUBMITTED, ResearchPhase.PEER_REVIEW)
-        self._engine._messages = []
+        self._engine.state.messages = []
         num_reviewers = self._engine._config.orchestrator.num_reviewers
         self._engine._display.phase_transition(ResearchPhase.PEER_REVIEW)
         self._engine._display.peer_review_start(num_reviewers)
@@ -524,7 +524,7 @@ class ReviewHandler:
         reviews: list[PeerReview] = []
         for agent in reviewer_agents:
             prompt = template.format(
-                seed_prompt=self._engine._seed_prompt,
+                seed_prompt=self._engine.state.seed_prompt,
                 current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
                 execution_metadata=execution_metadata,
             )
@@ -533,7 +533,7 @@ class ReviewHandler:
                 response = await agent.generate(prompt)
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=agent.agent_id, thread_id=self._engine._thread_id
+                    e, agent_id=agent.agent_id, thread_id=self._engine.state.thread_id
                 )
                 self._engine._display.peer_review_error(agent.agent_id, e)
                 continue
@@ -587,9 +587,9 @@ class ReviewHandler:
         Returns:
             Updated PaperDraft with revised body.
         """
-        self._engine._phase_manager.transition_to(ResearchPhase.REVISION)
+        self._engine.state.phase_manager.transition_to(ResearchPhase.REVISION)
         self._engine._log_phase_transition(ResearchPhase.PEER_REVIEW, ResearchPhase.REVISION)
-        self._engine._messages = []
+        self._engine.state.messages = []
         self._engine._literature.search_count_this_round = 0
         self._engine._display.revision_start()
 
@@ -597,7 +597,7 @@ class ReviewHandler:
         if writer is None:
             self._engine._display.revision_no_writer()
             # Re-submit without changes
-            self._engine._phase_manager.transition_to(ResearchPhase.SUBMITTED)
+            self._engine.state.phase_manager.transition_to(ResearchPhase.SUBMITTED)
             self._engine._log_phase_transition(ResearchPhase.REVISION, ResearchPhase.SUBMITTED)
             return draft
 
@@ -619,13 +619,13 @@ class ReviewHandler:
         review_feedback = "\n\n".join(review_parts)
 
         checkpoint_context = ""
-        if self._engine._checkpoint:
-            checkpoint_context = self._engine._checkpoint.to_context_string() + "\n\n"
+        if self._engine.state.checkpoint:
+            checkpoint_context = self._engine.state.checkpoint.to_context_string() + "\n\n"
 
         current_body = draft.assembled_body or draft.to_markdown()
         template = _PHASE_INSTRUCTIONS[ResearchPhase.REVISION]["revise"]
         prompt = template.format(
-            seed_prompt=self._engine._seed_prompt,
+            seed_prompt=self._engine.state.seed_prompt,
             checkpoint_context=checkpoint_context,
             current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
             review_feedback=review_feedback[:_PAPER_CONTEXT_LIMIT],
@@ -635,11 +635,11 @@ class ReviewHandler:
             response = await writer.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
         except Exception as e:
             self._engine._logger.log_error(
-                e, agent_id=writer.agent_id, thread_id=self._engine._thread_id
+                e, agent_id=writer.agent_id, thread_id=self._engine.state.thread_id
             )
             self._engine._display.revision_phase_error(e)
             # Transition back to SUBMITTED so peer review can re-run
-            self._engine._phase_manager.transition_to(ResearchPhase.SUBMITTED)
+            self._engine.state.phase_manager.transition_to(ResearchPhase.SUBMITTED)
             self._engine._log_phase_transition(ResearchPhase.REVISION, ResearchPhase.SUBMITTED)
             return draft
 
@@ -664,7 +664,7 @@ class ReviewHandler:
         draft.assembled_body = revised_body
 
         # Update paper in database and on disk
-        thread = self._engine._db.get_thread(self._engine._thread_id)
+        thread = self._engine._db.get_thread(self._engine.state.thread_id)
         if thread and thread.get("current_draft_id"):
             paper_id = thread["current_draft_id"]
             self._engine._db.update_paper(paper_id, body=revised_body, status="revised")
@@ -673,7 +673,7 @@ class ReviewHandler:
         self._engine._display.revision_complete()
 
         # Transition back to SUBMITTED for re-review
-        self._engine._phase_manager.transition_to(ResearchPhase.SUBMITTED)
+        self._engine.state.phase_manager.transition_to(ResearchPhase.SUBMITTED)
         self._engine._log_phase_transition(ResearchPhase.REVISION, ResearchPhase.SUBMITTED)
 
         return draft

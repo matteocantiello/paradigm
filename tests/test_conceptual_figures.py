@@ -23,7 +23,7 @@ def _make_engine_mock(
 ) -> MagicMock:
     """Build a minimal mock OrchestrationEngine for WritingHandler tests."""
     engine = MagicMock()
-    engine._execution_figures = execution_figures or []
+    engine.state.execution_figures = execution_figures or []
 
     # Use a fully-mocked config (Pydantic models can't be partially constructed)
     config = MagicMock()
@@ -33,7 +33,7 @@ def _make_engine_mock(
     config.storage.data_dir = Path("/tmp/paradigm-test")
     engine._config = config
 
-    engine._thread_id = "test-thread-001"
+    engine.state.thread_id = "test-thread-001"
 
     # Writer agent
     if writer_agent == "auto":
@@ -212,9 +212,9 @@ class TestConceptualFigurePrompt:
 class TestConceptualFigureCodePersistence:
     @pytest.mark.asyncio
     async def test_successful_figure_appends_to_successful_code(self):
-        """When a conceptual figure succeeds, its code is appended to engine._successful_code."""
+        """When a conceptual figure succeeds, its code is appended to engine.state.successful_code."""
         engine = _make_engine_mock()
-        engine._successful_code = []
+        engine.state.successful_code = []
 
         handler = WritingHandler(engine)
         body = "As shown in Figure 1, the taxonomy is clear."
@@ -242,7 +242,7 @@ class TestConceptualFigureCodePersistence:
             await handler.generate_conceptual_figures(body)
 
         # Verify code was appended
-        assert len(engine._successful_code) == 1
-        name, code = engine._successful_code[0]
+        assert len(engine.state.successful_code) == 1
+        name, code = engine.state.successful_code[0]
         assert name == "conceptual_fig_1"
         assert "plt.savefig" in code

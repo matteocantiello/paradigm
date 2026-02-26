@@ -49,7 +49,7 @@ class CitationHandler:
                     f"Citation grounding enabled but {config.perplexity_api_key_env} "
                     "not set in environment"
                 ),
-                thread_id=self._engine._thread_id,
+                thread_id=self._engine.state.thread_id,
             )
             return draft
 
@@ -158,7 +158,7 @@ class CitationHandler:
                 "num_citations": num_citations,
                 "sections_cited": cited_section_names,
             },
-            thread_id=self._engine._thread_id,
+            thread_id=self._engine.state.thread_id,
         )
         self._engine._display.citation_grounding_complete(num_citations)
 
@@ -186,7 +186,7 @@ class CitationHandler:
                         f"FutureHouse novelty check enabled but "
                         f"{config.futurehouse_api_key_env} not set"
                     ),
-                    thread_id=self._engine._thread_id,
+                    thread_id=self._engine.state.thread_id,
                 )
                 return NoveltyResult(is_novel=True, confidence=0.0, source="futurehouse")
 
@@ -220,7 +220,7 @@ class CitationHandler:
                 "papers_found": result.papers_found,
                 "source": result.source,
             },
-            thread_id=self._engine._thread_id,
+            thread_id=self._engine.state.thread_id,
         )
 
         if result.is_novel:

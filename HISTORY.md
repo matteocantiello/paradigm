@@ -2812,3 +2812,64 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `src/paradigm/display/manager.py`
 - `src/paradigm/display/fallback.py`
 - `tests/test_conceptual_figures.py`
+
+## 2026-02-26
+
+### Prompt — Extract ResearchState from OrchestrationEngine
+
+> Implement the following plan:
+> 
+> # Plan: Extract `ResearchState` from `OrchestrationEngine`
+> 
+> Create a `ResearchState` dataclass holding all per-cycle mutable state. Engine keeps infrastructure and handlers on itself, exposes state via `self.state`. Handlers access `self._engine.state.xxx` instead of `self._engine._xxx`. Pure mechanical refactor — no logic changes.
+> 
+> Total: 1 new file, 17 modified files, ~590 mechanical attribute replacements.
+
+**Artifacts:** `src/paradigm/orchestrator/state.py` (new), modifications to engine.py, 7 handler files, 9 test files
+
+## 2026-02-26
+
+### Prompt: Replace engine._xxx with engine.state.xxx in test_experimentation.py
+
+> In the file tests/test_experimentation.py, replace all occurrences of `engine._xxx` to `engine.state.xxx` for specific state variables only (thread_id, seed_prompt, agents, messages, checkpoint (not _checkpoint_mgr), execution_context, execution_caveats, execution_figures, successful_code, experiment_metadata, planning_action_items, resolved_resources, code_context, data_context). Use sed with word-boundary-aware patterns.
+
+- **Artifacts modified**: `tests/test_experimentation.py`
+
+### Prompt — Replace state variable patterns in test_experimentation_handler.py
+
+> In the file tests/test_experimentation_handler.py, replace all occurrences of these state variable patterns:
+> - engine._thread_id -> engine.state.thread_id
+> - engine._seed_prompt -> engine.state.seed_prompt
+> - engine._agents -> engine.state.agents
+> - engine._resolved_resources -> engine.state.resolved_resources
+> - engine._code_context -> engine.state.code_context
+> - engine._data_context -> engine.state.data_context
+> - engine._checkpoint (NOT engine._checkpoint_mgr) -> engine.state.checkpoint
+>
+> Use sed with word boundary pattern to avoid matching engine._checkpoint_mgr.
+
+
+### Prompt — Replace state variable patterns in test_debate.py
+
+> In the file tests/test_debate.py, replace all occurrences of engine._agents -> engine.state.agents, engine._thread_id -> engine.state.thread_id, engine._seed_prompt -> engine.state.seed_prompt, engine._messages -> engine.state.messages, engine._checkpoint -> engine.state.checkpoint (NOT engine._checkpoint_mgr), engine._graveyard_context -> engine.state.graveyard_context, engine._code_context -> engine.state.code_context, engine._data_context -> engine.state.data_context, engine._reference_context -> engine.state.reference_context, engine._mode -> engine.state.mode. Use sed with word boundary patterns to avoid matching checkpoint_mgr.
+
+**Artifacts modified:**
+- `tests/test_debate.py`
+
+### Prompt 52 — Replace private attributes with state object in 6 test files
+
+> Make these replacements in 6 test files:
+> 1. tests/test_orchestrator.py: engine._agents -> engine.state.agents, engine._thread_id -> engine.state.thread_id, engine._seed_prompt -> engine.state.seed_prompt, engine._messages -> engine.state.messages, engine._checkpoint (NOT _checkpoint_mgr) -> engine.state.checkpoint, engine._consensus_summary -> engine.state.consensus_summary, engine._mode -> engine.state.mode, engine._resolved_resources -> engine.state.resolved_resources
+> 2. tests/test_writing.py: engine._experiment_metadata -> engine.state.experiment_metadata, engine._execution_context -> engine.state.execution_context, engine._execution_figures -> engine.state.execution_figures
+> 3. tests/test_peer_review.py: engine._execution_caveats -> engine.state.execution_caveats, engine._execution_context -> engine.state.execution_context
+> 4. tests/test_conceptual_figures.py: engine._execution_figures -> engine.state.execution_figures, engine._thread_id -> engine.state.thread_id, engine._successful_code -> engine.state.successful_code
+> 5. tests/test_memory_handler.py: engine._thread_id -> engine.state.thread_id, engine._seed_prompt -> engine.state.seed_prompt, engine._agents -> engine.state.agents
+> 6. tests/test_citation_handler.py: engine._thread_id -> engine.state.thread_id
+
+**Artifacts modified:**
+- `tests/test_orchestrator.py`
+- `tests/test_writing.py`
+- `tests/test_peer_review.py`
+- `tests/test_conceptual_figures.py`
+- `tests/test_memory_handler.py`
+- `tests/test_citation_handler.py`

@@ -54,7 +54,7 @@ def _make_mock_engine(enable_grounding=True, api_key="test-perplexity-key"):
     engine._display = MagicMock()
 
     # Thread ID
-    engine._thread_id = "test-thread-001"
+    engine.state.thread_id = "test-thread-001"
 
     # Corpus
     engine._corpus = MagicMock()

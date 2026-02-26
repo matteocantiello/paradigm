@@ -809,11 +809,11 @@ class TestExecutionMetadataInjection:
             logger=tmp_logger,
             agent_factory=factory,
         )
-        engine._execution_caveats = [
+        engine.state.execution_caveats = [
             "All experiments used synthetic/simulated data.",
             "One experiment timed out before completion.",
         ]
-        engine._execution_context = (
+        engine.state.execution_context = (
             "### Experiment: test_correlation\n"
             "**Status:** SUCCESS\n"
             "**Output:**\nCorrelation r=0.85, p=0.002, N=50\n"
@@ -839,8 +839,8 @@ class TestExecutionMetadataInjection:
             logger=tmp_logger,
             agent_factory=factory,
         )
-        engine._execution_caveats = []
-        engine._execution_context = ""
+        engine.state.execution_caveats = []
+        engine.state.execution_context = ""
 
         metadata = engine._review._build_execution_metadata()
         assert metadata == ""
@@ -855,10 +855,10 @@ class TestExecutionMetadataInjection:
             logger=tmp_logger,
             agent_factory=factory,
         )
-        engine._execution_caveats = [
+        engine.state.execution_caveats = [
             "All experiments used synthetic/simulated data.",
         ]
-        engine._execution_context = ""
+        engine.state.execution_context = ""
 
         metadata = engine._review._build_execution_metadata()
         assert "Execution Caveats" in metadata
@@ -879,8 +879,8 @@ class TestExecutionMetadataInjection:
             logger=tmp_logger,
             agent_factory=factory,
         )
-        engine._execution_caveats = []
-        engine._execution_context = "x" * (_PEER_REVIEW_METADATA_LIMIT + 1000)
+        engine.state.execution_caveats = []
+        engine.state.execution_context = "x" * (_PEER_REVIEW_METADATA_LIMIT + 1000)
 
         metadata = engine._review._build_execution_metadata()
         assert "truncated" in metadata

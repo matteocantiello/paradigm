@@ -34,9 +34,9 @@ def _make_engine(tmp_path, memory_store=None):
         memory_store=memory_store,
         display=display,
     )
-    engine._thread_id = "test-thread"
-    engine._seed_prompt = "test topic"
-    engine._agents = {"agent-0": make_mock_agent("agent-0", "theorist")}
+    engine.state.thread_id = "test-thread"
+    engine.state.seed_prompt = "test topic"
+    engine.state.agents = {"agent-0": make_mock_agent("agent-0", "theorist")}
     return engine, db
 
 

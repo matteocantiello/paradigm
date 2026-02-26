@@ -100,19 +100,19 @@ def _build_engine(config, db, logger, corpus, agents: dict[str, Agent]) -> Orche
         agent_factory=factory,
     )
 
-    engine._agents = dict(agents)
-    engine._thread_id = "thread-test123"
-    engine._seed_prompt = "Test topic"
-    engine._messages = []
+    engine.state.agents = dict(agents)
+    engine.state.thread_id = "thread-test123"
+    engine.state.seed_prompt = "Test topic"
+    engine.state.messages = []
     engine._debate.debate_counts = {}
     # Set attributes that _build_agent_prompt expects
     engine._literature.literature_context = ""
-    engine._checkpoint = None
-    engine._graveyard_context = ""
-    engine._code_context = ""
-    engine._data_context = ""
-    engine._reference_context = ""
-    engine._mode = "directed"
+    engine.state.checkpoint = None
+    engine.state.graveyard_context = ""
+    engine.state.code_context = ""
+    engine.state.data_context = ""
+    engine.state.reference_context = ""
+    engine.state.mode = "directed"
     engine._memory_store = None
     return engine
 
@@ -169,7 +169,7 @@ class TestProcessChallengeRequests:
         # Debate should have triggered — defender (theorist) should have been called
         assert theorist.generate.call_count >= 1
         # Synthesis message should be in messages
-        assert any(m.get("type") == "debate_synthesis" for m in engine._messages)
+        assert any(m.get("type") == "debate_synthesis" for m in engine.state.messages)
         # Debate count should be incremented
         assert engine._debate.debate_counts.get("ideation", 0) == 1
 
@@ -347,9 +347,9 @@ class TestRunDebate:
         assert theorist.generate.call_count == 1
         assert skeptic.generate.call_count == 0
         # Synthesis was generated
-        assert any(m.get("type") == "debate_synthesis" for m in engine._messages)
+        assert any(m.get("type") == "debate_synthesis" for m in engine.state.messages)
         # Check resolution type in the synthesis message metadata
-        synth_msg = next(m for m in engine._messages if m.get("type") == "debate_synthesis")
+        synth_msg = next(m for m in engine.state.messages if m.get("type") == "debate_synthesis")
         assert synth_msg["metadata"]["resolution_type"] == "resolved"
 
     @pytest.mark.asyncio
@@ -380,7 +380,7 @@ class TestRunDebate:
             round_num=1,
         )
 
-        synth_msg = next(m for m in engine._messages if m.get("type") == "debate_synthesis")
+        synth_msg = next(m for m in engine.state.messages if m.get("type") == "debate_synthesis")
         assert synth_msg["metadata"]["resolution_type"] == "concede_defender"
 
     @pytest.mark.asyncio
@@ -415,7 +415,7 @@ class TestRunDebate:
         assert theorist.generate.call_count == 3  # defender
         assert skeptic.generate.call_count == 2  # challenger (not on final)
 
-        synth_msg = next(m for m in engine._messages if m.get("type") == "debate_synthesis")
+        synth_msg = next(m for m in engine.state.messages if m.get("type") == "debate_synthesis")
         assert synth_msg["metadata"]["resolution_type"] == "max_turns"
 
     @pytest.mark.asyncio
@@ -450,7 +450,7 @@ class TestRunDebate:
         assert theorist.generate.call_count == 1
         assert skeptic.generate.call_count == 1
 
-        synth_msg = next(m for m in engine._messages if m.get("type") == "debate_synthesis")
+        synth_msg = next(m for m in engine.state.messages if m.get("type") == "debate_synthesis")
         assert synth_msg["metadata"]["resolution_type"] == "concede_challenger"
 
     @pytest.mark.asyncio
@@ -479,8 +479,8 @@ class TestRunDebate:
         )
 
         # Should still produce a synthesis (mechanical fallback)
-        assert any(m.get("type") == "debate_synthesis" for m in engine._messages)
-        synth_msg = next(m for m in engine._messages if m.get("type") == "debate_synthesis")
+        assert any(m.get("type") == "debate_synthesis" for m in engine.state.messages)
+        synth_msg = next(m for m in engine.state.messages if m.get("type") == "debate_synthesis")
         assert synth_msg["metadata"]["resolution_type"] == "error"
 
 

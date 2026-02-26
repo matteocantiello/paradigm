@@ -404,13 +404,13 @@ class TestExperimentLedger:
 
     def test_ledger_empty_when_no_experiments(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._experiment_metadata = []
+        engine.state.experiment_metadata = []
         fact_sheet = engine._writing._build_execution_fact_sheet()
         assert fact_sheet == ""
 
     def test_ledger_contains_experiment_info(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._experiment_metadata = [
+        engine.state.experiment_metadata = [
             {
                 "name": "gravity_test",
                 "status": "success",
@@ -441,7 +441,7 @@ class TestExperimentLedger:
 
     def test_ledger_has_figures_column(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._experiment_metadata = [
+        engine.state.experiment_metadata = [
             {
                 "name": "fig_test",
                 "status": "success",
@@ -698,7 +698,7 @@ class TestPartitionedFactSheet:
 
     def test_all_successful(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._experiment_metadata = [
+        engine.state.experiment_metadata = [
             {
                 "name": "exp_a",
                 "status": "success",
@@ -714,7 +714,7 @@ class TestPartitionedFactSheet:
 
     def test_all_failed(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._experiment_metadata = [
+        engine.state.experiment_metadata = [
             {
                 "name": "exp_fail",
                 "status": "failure",
@@ -759,12 +759,12 @@ class TestFilterSuccessfulExecutionContext:
 
     def test_filters_out_failed_experiments(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_context = (
+        engine.state.execution_context = (
             "Preamble text\n"
             "### Experiment: good_exp\nResult: 42\n\n"
             "### Experiment: bad_exp\nFailed with error\n"
         )
-        engine._experiment_metadata = [
+        engine.state.experiment_metadata = [
             {"name": "good_exp", "status": "success"},
             {"name": "bad_exp", "status": "failure"},
         ]
@@ -775,15 +775,15 @@ class TestFilterSuccessfulExecutionContext:
 
     def test_empty_context_returns_empty(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_context = ""
-        engine._experiment_metadata = []
+        engine.state.execution_context = ""
+        engine.state.experiment_metadata = []
         result = engine._writing._filter_successful_execution_context()
         assert result == ""
 
     def test_no_successful_returns_empty(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_context = "### Experiment: bad_exp\nFailed\n"
-        engine._experiment_metadata = [
+        engine.state.execution_context = "### Experiment: bad_exp\nFailed\n"
+        engine.state.experiment_metadata = [
             {"name": "bad_exp", "status": "failure"},
         ]
         result = engine._writing._filter_successful_execution_context()
@@ -791,10 +791,10 @@ class TestFilterSuccessfulExecutionContext:
 
     def test_all_successful_returns_all(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_context = (
+        engine.state.execution_context = (
             "### Experiment: exp_a\nResult A\n\n### Experiment: exp_b\nResult B\n"
         )
-        engine._experiment_metadata = [
+        engine.state.experiment_metadata = [
             {"name": "exp_a", "status": "success"},
             {"name": "exp_b", "status": "success"},
         ]
@@ -868,13 +868,13 @@ class TestValidateFigureReferences:
 
     def test_no_figures_no_refs(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = []
+        engine.state.execution_figures = []
         warnings = engine._writing._validate_figure_references("No figures here.")
         assert warnings == []
 
     def test_refs_but_no_figures(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = []
+        engine.state.execution_figures = []
         body = "As shown in Figure 1 and Figure 2, the results are clear."
         warnings = engine._writing._validate_figure_references(body)
         assert len(warnings) == 1
@@ -883,7 +883,7 @@ class TestValidateFigureReferences:
 
     def test_refs_within_figure_count(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = [
+        engine.state.execution_figures = [
             ("exp_a", Path("/tmp/fig1.png")),
             ("exp_b", Path("/tmp/fig2.png")),
         ]
@@ -893,7 +893,7 @@ class TestValidateFigureReferences:
 
     def test_refs_exceed_figure_count(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = [("exp_a", Path("/tmp/fig1.png"))]
+        engine.state.execution_figures = [("exp_a", Path("/tmp/fig1.png"))]
         body = "Figure 1 is good, but Figure 3 is missing."
         warnings = engine._writing._validate_figure_references(body)
         assert len(warnings) == 1
@@ -901,7 +901,7 @@ class TestValidateFigureReferences:
 
     def test_fig_abbreviation(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = []
+        engine.state.execution_figures = []
         body = "See Fig. 1 for details and Fig 2 for more."
         warnings = engine._writing._validate_figure_references(body)
         assert len(warnings) == 1

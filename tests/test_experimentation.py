@@ -738,8 +738,8 @@ class TestExecutionPhaseIntegration:
             )
 
         # After execution + writing, the engine should have set _execution_context
-        assert engine._execution_context != ""
-        assert "Result: 42" in engine._execution_context
+        assert engine.state.execution_context != ""
+        assert "Result: 42" in engine.state.execution_context
 
     @pytest.mark.asyncio
     async def test_figures_copied(
@@ -799,8 +799,8 @@ class TestExecutionPhaseIntegration:
             )
 
         # Check that figures were tracked
-        assert len(engine._execution_figures) == 1
-        exp_name, fig_path = engine._execution_figures[0]
+        assert len(engine.state.execution_figures) == 1
+        exp_name, fig_path = engine.state.execution_figures[0]
         assert fig_path.name == "plot.png"
 
         # If writing happened, check figure was copied
@@ -842,13 +842,13 @@ class TestEmbedFiguresInline:
 
     def test_no_figures_returns_unchanged(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = []
+        engine.state.execution_figures = []
         body = "# Paper\n\n## Abstract\n\nContent."
         assert engine._writing.embed_figures_inline(body) == body
 
     def test_inserts_missing_figure_tag(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = [("test_exp", Path("/tmp/plot.png"))]
+        engine.state.execution_figures = [("test_exp", Path("/tmp/plot.png"))]
 
         body = "# Paper\n\n## Results\n\nAs shown in Figure 1, the data is clear.\n\n## Conclusion\n\nDone."
         result = engine._writing.embed_figures_inline(body)
@@ -856,7 +856,7 @@ class TestEmbedFiguresInline:
 
     def test_skips_already_embedded(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = [("test_exp", Path("/tmp/plot.png"))]
+        engine.state.execution_figures = [("test_exp", Path("/tmp/plot.png"))]
 
         body = "# Paper\n\n![Figure 1](figures/test_exp_plot.png)\n\nSee Figure 1 above."
         result = engine._writing.embed_figures_inline(body)
@@ -865,7 +865,7 @@ class TestEmbedFiguresInline:
 
     def test_appends_if_no_text_reference(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = [("test_exp", Path("/tmp/plot.png"))]
+        engine.state.execution_figures = [("test_exp", Path("/tmp/plot.png"))]
 
         body = "# Paper\n\n## Abstract\n\nNo figure mention here."
         result = engine._writing.embed_figures_inline(body)
@@ -875,7 +875,7 @@ class TestEmbedFiguresInline:
 
     def test_multiple_figures(self, tmp_path):
         engine = self._make_engine(tmp_path)
-        engine._execution_figures = [
+        engine.state.execution_figures = [
             ("exp_a", Path("/tmp/fig_a.png")),
             ("exp_b", Path("/tmp/fig_b.png")),
         ]
@@ -1130,8 +1130,8 @@ class TestExperimentMetadata:
                 mode="experimental",
             )
 
-            assert len(engine._experiment_metadata) >= 1
-            entry = engine._experiment_metadata[0]
+            assert len(engine.state.experiment_metadata) >= 1
+            entry = engine.state.experiment_metadata[0]
             assert "name" in entry
             assert entry["status"] == "success"
             assert entry["has_figures"] is True
@@ -1282,24 +1282,24 @@ class TestPlanningActionsInExecution:
             agents = mock_factory_with_code.create_team(
                 ["experimentalist", "theorist", "analyst"], skill_mode="default"
             )
-            engine._agents = {a.agent_id: a for a in agents}
+            engine.state.agents = {a.agent_id: a for a in agents}
 
             # Manually set planning action items as if PLANNING extracted them
-            engine._planning_action_items = (
+            engine.state.planning_action_items = (
                 "1. Run a Monte Carlo simulation\n2. Calculate the period-luminosity relation"
             )
 
             # Set engine state as if earlier phases ran
-            engine._thread_id = "test-thread"
+            engine.state.thread_id = "test-thread"
             tmp_db.create_thread(
                 thread_id="test-thread", title="Test", mode="experimental", participants=[]
             )
-            engine._seed_prompt = "Test planning actions"
-            engine._messages = []
-            engine._checkpoint = None
-            engine._resolved_resources = []
-            engine._code_context = ""
-            engine._data_context = ""
+            engine.state.seed_prompt = "Test planning actions"
+            engine.state.messages = []
+            engine.state.checkpoint = None
+            engine.state.resolved_resources = []
+            engine.state.code_context = ""
+            engine.state.data_context = ""
 
             await engine._experimentation.run_experimentation_phase()
 
@@ -1372,17 +1372,17 @@ class TestSprintDesignReview:
         )
 
         # Set up engine state
-        engine._agents = {a.agent_id: a for a in [experimentalist, theorist, analyst]}
-        engine._thread_id = "test-thread"
+        engine.state.agents = {a.agent_id: a for a in [experimentalist, theorist, analyst]}
+        engine.state.thread_id = "test-thread"
         tmp_db.create_thread(
             thread_id="test-thread", title="Test", mode="experimental", participants=[]
         )
-        engine._seed_prompt = "Test sprints"
-        engine._messages = []
-        engine._checkpoint = None
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
+        engine.state.seed_prompt = "Test sprints"
+        engine.state.messages = []
+        engine.state.checkpoint = None
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
 
         feedback = await engine._experimentation._run_sprint_design_review(
             experimenter=experimentalist,
@@ -1439,17 +1439,17 @@ class TestSprintDesignReview:
             agent_factory=factory,
         )
 
-        engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
-        engine._thread_id = "test-thread"
+        engine.state.agents = {a.agent_id: a for a in [experimentalist, theorist]}
+        engine.state.thread_id = "test-thread"
         tmp_db.create_thread(
             thread_id="test-thread", title="Test", mode="experimental", participants=[]
         )
-        engine._seed_prompt = "Test"
-        engine._messages = []
-        engine._checkpoint = None
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
+        engine.state.seed_prompt = "Test"
+        engine.state.messages = []
+        engine.state.checkpoint = None
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
 
         # Should not raise — nonexistent_role is simply skipped
         await engine._experimentation._run_sprint_design_review(experimentalist, 1, 3, "", "")
@@ -1492,17 +1492,17 @@ class TestSprintDesignReview:
             agent_factory=factory,
         )
 
-        engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
-        engine._thread_id = "test-thread"
+        engine.state.agents = {a.agent_id: a for a in [experimentalist, theorist]}
+        engine.state.thread_id = "test-thread"
         tmp_db.create_thread(
             thread_id="test-thread", title="Test", mode="experimental", participants=[]
         )
-        engine._seed_prompt = "Test"
-        engine._messages = []
-        engine._checkpoint = None
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
+        engine.state.seed_prompt = "Test"
+        engine.state.messages = []
+        engine.state.checkpoint = None
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
 
         # Should not raise
         feedback = await engine._experimentation._run_sprint_design_review(
@@ -1574,17 +1574,17 @@ class TestSprintResultsCheckpoint:
             agent_factory=factory,
         )
 
-        engine._agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
-        engine._thread_id = "test-thread"
+        engine.state.agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
+        engine.state.thread_id = "test-thread"
         tmp_db.create_thread(
             thread_id="test-thread", title="Test", mode="experimental", participants=[]
         )
-        engine._seed_prompt = "Test"
-        engine._messages = []
-        engine._checkpoint = None
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
+        engine.state.seed_prompt = "Test"
+        engine.state.messages = []
+        engine.state.checkpoint = None
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
 
         stop_reason = await engine._experimentation._run_sprint_results_checkpoint(
             sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Some results"
@@ -1650,17 +1650,17 @@ class TestSprintResultsCheckpoint:
             agent_factory=factory,
         )
 
-        engine._agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
-        engine._thread_id = "test-thread"
+        engine.state.agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
+        engine.state.thread_id = "test-thread"
         tmp_db.create_thread(
             thread_id="test-thread", title="Test", mode="experimental", participants=[]
         )
-        engine._seed_prompt = "Test"
-        engine._messages = []
-        engine._checkpoint = None
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
+        engine.state.seed_prompt = "Test"
+        engine.state.messages = []
+        engine.state.checkpoint = None
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
 
         stop_reason = await engine._experimentation._run_sprint_results_checkpoint(
             sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Some results"
@@ -1770,17 +1770,17 @@ class TestSprintIntegration:
                 agent_factory=factory,
             )
 
-            engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
-            engine._thread_id = "test-thread"
+            engine.state.agents = {a.agent_id: a for a in [experimentalist, theorist]}
+            engine.state.thread_id = "test-thread"
             tmp_db.create_thread(
                 thread_id="test-thread", title="Test", mode="experimental", participants=[]
             )
-            engine._seed_prompt = "Test sprints"
-            engine._messages = []
-            engine._checkpoint = None
-            engine._resolved_resources = []
-            engine._code_context = ""
-            engine._data_context = ""
+            engine.state.seed_prompt = "Test sprints"
+            engine.state.messages = []
+            engine.state.checkpoint = None
+            engine.state.resolved_resources = []
+            engine.state.code_context = ""
+            engine.state.data_context = ""
 
             await engine._experimentation.run_experimentation_phase()
 
@@ -1853,17 +1853,17 @@ class TestSprintIntegration:
                 agent_factory=factory,
             )
 
-            engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
-            engine._thread_id = "test-thread"
+            engine.state.agents = {a.agent_id: a for a in [experimentalist, theorist]}
+            engine.state.thread_id = "test-thread"
             tmp_db.create_thread(
                 thread_id="test-thread", title="Test", mode="experimental", participants=[]
             )
-            engine._seed_prompt = "Test early stop"
-            engine._messages = []
-            engine._checkpoint = None
-            engine._resolved_resources = []
-            engine._code_context = ""
-            engine._data_context = ""
+            engine.state.seed_prompt = "Test early stop"
+            engine.state.messages = []
+            engine.state.checkpoint = None
+            engine.state.resolved_resources = []
+            engine.state.code_context = ""
+            engine.state.data_context = ""
 
             await engine._experimentation.run_experimentation_phase()
 
@@ -1960,17 +1960,17 @@ class TestSprintIntegration:
                 agent_factory=factory,
             )
 
-            engine._agents = {a.agent_id: a for a in [multi_code_agent, theorist]}
-            engine._thread_id = "test-thread"
+            engine.state.agents = {a.agent_id: a for a in [multi_code_agent, theorist]}
+            engine.state.thread_id = "test-thread"
             tmp_db.create_thread(
                 thread_id="test-thread", title="Test", mode="experimental", participants=[]
             )
-            engine._seed_prompt = "Test circuit breaker in sprints"
-            engine._messages = []
-            engine._checkpoint = None
-            engine._resolved_resources = []
-            engine._code_context = ""
-            engine._data_context = ""
+            engine.state.seed_prompt = "Test circuit breaker in sprints"
+            engine.state.messages = []
+            engine.state.checkpoint = None
+            engine.state.resolved_resources = []
+            engine.state.code_context = ""
+            engine.state.data_context = ""
 
             await engine._experimentation.run_experimentation_phase()
 
@@ -2097,17 +2097,17 @@ class TestStopAndPivot:
             agent_factory=factory,
         )
 
-        engine._agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
-        engine._thread_id = "test-thread"
+        engine.state.agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
+        engine.state.thread_id = "test-thread"
         tmp_db.create_thread(
             thread_id="test-thread", title="Test", mode="experimental", participants=[]
         )
-        engine._seed_prompt = "Test"
-        engine._messages = []
-        engine._checkpoint = None
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
+        engine.state.seed_prompt = "Test"
+        engine.state.messages = []
+        engine.state.checkpoint = None
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
 
         stop_reason = await engine._experimentation._run_sprint_results_checkpoint(
             sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Failed results"
@@ -2173,17 +2173,17 @@ class TestStopAndPivot:
             agent_factory=factory,
         )
 
-        engine._agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
-        engine._thread_id = "test-thread"
+        engine.state.agents = {a.agent_id: a for a in [theorist, analyst, skeptic]}
+        engine.state.thread_id = "test-thread"
         tmp_db.create_thread(
             thread_id="test-thread", title="Test", mode="experimental", participants=[]
         )
-        engine._seed_prompt = "Test"
-        engine._messages = []
-        engine._checkpoint = None
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
+        engine.state.seed_prompt = "Test"
+        engine.state.messages = []
+        engine.state.checkpoint = None
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
 
         stop_reason = await engine._experimentation._run_sprint_results_checkpoint(
             sprint_num=1, num_sprints=3, checkpoint_context="", sprint_results="Some results"
@@ -2226,17 +2226,17 @@ class TestAdvisoryContext:
             agent_factory=factory,
         )
 
-        engine._agents = {a.agent_id: a for a in [experimentalist, theorist]}
-        engine._thread_id = "test-thread"
+        engine.state.agents = {a.agent_id: a for a in [experimentalist, theorist]}
+        engine.state.thread_id = "test-thread"
         tmp_db.create_thread(
             thread_id="test-thread", title="Test", mode="experimental", participants=[]
         )
-        engine._seed_prompt = "Red noise in massive stars"
-        engine._messages = []
-        engine._checkpoint = None
-        engine._resolved_resources = []
-        engine._code_context = ""
-        engine._data_context = ""
+        engine.state.seed_prompt = "Red noise in massive stars"
+        engine.state.messages = []
+        engine.state.checkpoint = None
+        engine.state.resolved_resources = []
+        engine.state.code_context = ""
+        engine.state.data_context = ""
 
         # Set up experimentation handler state
         engine._experimentation._consecutive_failures = 3

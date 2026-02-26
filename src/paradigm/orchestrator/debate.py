@@ -111,13 +111,13 @@ class DebateHandler:
                 continue
 
             # Target must exist
-            if target_id not in self._engine._agents:
+            if target_id not in self._engine.state.agents:
                 self._engine._display.debate_skipped(target_id, f"target '{target_id}' not found")
                 continue
 
             # Target must be active in this phase
             if active_roles is not None:
-                target_role = self._engine._agents[target_id].skill_profile
+                target_role = self._engine.state.agents[target_id].skill_profile
                 if target_role not in active_roles:
                     self._engine._display.debate_skipped(
                         target_id, f"'{target_id}' not active in {phase_key}"
@@ -183,13 +183,13 @@ class DebateHandler:
                 "topic": debate_topic,
                 "status": "started",
             },
-            thread_id=self._engine._thread_id,
+            thread_id=self._engine.state.thread_id,
             phase=phase_key,
         )
 
         transcript: list[dict[str, str]] = []
-        challenger_agent = self._engine._agents[challenger_id]
-        defender_agent = self._engine._agents[defender_id]
+        challenger_agent = self._engine.state.agents[challenger_id]
+        defender_agent = self._engine.state.agents[defender_id]
 
         # The challenger's original response is the opening argument
         last_challenger_arg = challenger_position
@@ -210,7 +210,7 @@ class DebateHandler:
                 defender_response = await defender_agent.generate(defender_prompt)
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=defender_id, thread_id=self._engine._thread_id
+                    e, agent_id=defender_id, thread_id=self._engine.state.thread_id
                 )
                 self._engine._display.debate_error(defender_id, e)
                 resolution_type = "error"
@@ -251,7 +251,7 @@ class DebateHandler:
                 challenger_response = await challenger_agent.generate(challenger_prompt)
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=challenger_id, thread_id=self._engine._thread_id
+                    e, agent_id=challenger_id, thread_id=self._engine.state.thread_id
                 )
                 self._engine._display.debate_error(challenger_id, e)
                 resolution_type = "error"
@@ -293,7 +293,7 @@ class DebateHandler:
         synthesis_msg: dict[str, Any] = {
             "from": "orchestrator",
             "to": "team",
-            "thread_id": self._engine._thread_id,
+            "thread_id": self._engine.state.thread_id,
             "phase": phase_key,
             "type": "debate_synthesis",
             "content": synthesis,
@@ -305,7 +305,7 @@ class DebateHandler:
                 "num_exchanges": len(transcript),
             },
         }
-        self._engine._messages.append(synthesis_msg)
+        self._engine.state.messages.append(synthesis_msg)
 
         self._engine._logger.log(
             EventType.DEBATE_TRIGGERED,
@@ -317,7 +317,7 @@ class DebateHandler:
                 "resolution_type": resolution_type,
                 "num_exchanges": len(transcript),
             },
-            thread_id=self._engine._thread_id,
+            thread_id=self._engine.state.thread_id,
             phase=phase_key,
         )
 
@@ -365,13 +365,13 @@ class DebateHandler:
 
         # Try synthesizer agent first
         synthesizer_id = None
-        for aid, agent in self._engine._agents.items():
+        for aid, agent in self._engine.state.agents.items():
             if agent.skill_profile == "synthesizer":
                 synthesizer_id = aid
                 break
 
         if synthesizer_id is not None:
-            synth_agent = self._engine._agents[synthesizer_id]
+            synth_agent = self._engine.state.agents[synthesizer_id]
             prompt = _DEBATE_SYNTHESIS_PROMPT.format(
                 challenger_id=challenger_id,
                 defender_id=defender_id,
@@ -388,7 +388,7 @@ class DebateHandler:
                 return response.content
             except Exception as e:
                 self._engine._logger.log_error(
-                    e, agent_id=synthesizer_id, thread_id=self._engine._thread_id
+                    e, agent_id=synthesizer_id, thread_id=self._engine.state.thread_id
                 )
                 self._engine._display.synthesis_error(e)
 

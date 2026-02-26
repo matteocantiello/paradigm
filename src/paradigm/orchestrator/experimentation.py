@@ -286,20 +286,20 @@ class ExperimentationHandler:
         # Collect sandbox paths for cloned repos (PYTHONPATH injection)
         repo_paths = [
             r.sandbox_path
-            for r in engine._resolved_resources
+            for r in engine.state.resolved_resources
             if r.resource_type == ResourceType.CODE_REPO and r.sandbox_path and r.error is None
         ]
         # Also add parent directories of CODE_FILE resources so they are importable
         code_file_dirs = {
             str(Path(r.sandbox_path).parent)
-            for r in engine._resolved_resources
+            for r in engine.state.resolved_resources
             if r.resource_type == ResourceType.CODE_FILE and r.sandbox_path and r.error is None
         }
         repo_paths.extend(sorted(code_file_dirs))
 
         # Per-thread workspace persists across executions so experiments
         # can read files (CSVs, data) produced by earlier experiments.
-        workspace_dir = engine._config.storage.data_dir / "workspaces" / engine._thread_id
+        workspace_dir = engine._config.storage.data_dir / "workspaces" / engine.state.thread_id
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
         executor = CodeExecutor(
@@ -355,14 +355,14 @@ class ExperimentationHandler:
 
                 # Build checkpoint context (shared across sprint sub-phases)
                 checkpoint_context = ""
-                if engine._checkpoint:
-                    checkpoint_context = engine._checkpoint.to_context_string() + "\n\n"
+                if engine.state.checkpoint:
+                    checkpoint_context = engine.state.checkpoint.to_context_string() + "\n\n"
                 file_listing = _list_shared_files(engine._config.storage.data_dir)
                 checkpoint_context = file_listing + "\n\n" + checkpoint_context
-                if engine._code_context:
-                    checkpoint_context += engine._code_context + "\n\n"
-                if engine._data_context:
-                    checkpoint_context += engine._data_context + "\n\n"
+                if engine.state.code_context:
+                    checkpoint_context += engine.state.code_context + "\n\n"
+                if engine.state.data_context:
+                    checkpoint_context += engine.state.data_context + "\n\n"
 
                 previous_results = "\n\n".join(all_results) if all_results else ""
 
@@ -396,14 +396,14 @@ class ExperimentationHandler:
 
                     # Rebuild checkpoint context per round (workspace manifest updates)
                     checkpoint_context = ""
-                    if engine._checkpoint:
-                        checkpoint_context = engine._checkpoint.to_context_string() + "\n\n"
+                    if engine.state.checkpoint:
+                        checkpoint_context = engine.state.checkpoint.to_context_string() + "\n\n"
                     file_listing = _list_shared_files(engine._config.storage.data_dir)
                     checkpoint_context = file_listing + "\n\n" + checkpoint_context
-                    if engine._code_context:
-                        checkpoint_context += engine._code_context + "\n\n"
-                    if engine._data_context:
-                        checkpoint_context += engine._data_context + "\n\n"
+                    if engine.state.code_context:
+                        checkpoint_context += engine.state.code_context + "\n\n"
+                    if engine.state.data_context:
+                        checkpoint_context += engine.state.data_context + "\n\n"
 
                     # Inject workspace manifest for round 2+ so agents know
                     # which files were saved by prior experiments
@@ -421,7 +421,7 @@ class ExperimentationHandler:
                             "propose_experiment"
                         ]
                         prompt = template.format(
-                            seed_prompt=engine._seed_prompt,
+                            seed_prompt=engine.state.seed_prompt,
                             checkpoint_context=checkpoint_context,
                             previous_results=previous_results,
                             network_caveat=net_caveat,
@@ -429,7 +429,7 @@ class ExperimentationHandler:
                     else:
                         template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
                         prompt = template.format(
-                            seed_prompt=engine._seed_prompt,
+                            seed_prompt=engine.state.seed_prompt,
                             checkpoint_context=checkpoint_context,
                             previous_results=previous_results,
                             network_caveat=net_caveat,
@@ -441,11 +441,11 @@ class ExperimentationHandler:
                         design_feedback = ""
 
                     # Inject planning action items (Fix 5)
-                    if engine._planning_action_items:
+                    if engine.state.planning_action_items:
                         prompt += (
                             "\n\n## Planned Experiments (from PLANNING phase)\n"
                             "The team agreed on these experiments during planning. "
-                            "Execute them in order of priority:\n" + engine._planning_action_items
+                            "Execute them in order of priority:\n" + engine.state.planning_action_items
                         )
 
                     # Inject strategy redirect, advisory, and skipped-experiment messages
@@ -473,7 +473,7 @@ class ExperimentationHandler:
                         )
                     except Exception as e:
                         engine._logger.log_error(
-                            e, agent_id=experimenter.agent_id, thread_id=engine._thread_id
+                            e, agent_id=experimenter.agent_id, thread_id=engine.state.thread_id
                         )
                         engine._display.agent_error(experimenter.agent_id, e)
                         break
@@ -715,16 +715,16 @@ class ExperimentationHandler:
             # Checkpoint at end of execution
             if engine._config.orchestrator.enable_checkpointing:
                 try:
-                    engine._checkpoint = await engine._checkpoint_mgr.create_checkpoint(
-                        thread_id=engine._thread_id,
+                    engine.state.checkpoint = await engine._checkpoint_mgr.create_checkpoint(
+                        thread_id=engine.state.thread_id,
                         phase=str(ResearchPhase.EXECUTION),
                         round_number=max_rounds,
-                        messages=engine._messages,
-                        previous_checkpoint=engine._checkpoint,
+                        messages=engine.state.messages,
+                        previous_checkpoint=engine.state.checkpoint,
                     )
                     engine._display.checkpoint_saved("end of execution")
                 except Exception as e:
-                    engine._logger.log_error(e, thread_id=engine._thread_id)
+                    engine._logger.log_error(e, thread_id=engine.state.thread_id)
                     engine._display.checkpoint_error(e)
 
         finally:
@@ -809,12 +809,12 @@ class ExperimentationHandler:
 
         net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
 
-        for agent_id, agent in engine._agents.items():
+        for agent_id, agent in engine.state.agents.items():
             if agent_id == experimenter_id:
                 continue
             prompt = _ADVISORY_PROMPT_TEMPLATE.format(
                 consecutive_failures=self._consecutive_failures,
-                seed_prompt=engine._seed_prompt,
+                seed_prompt=engine.state.seed_prompt,
                 recent_failures=recent_failures,
                 network_caveat=net_caveat,
                 reviewer_role=agent.skill_profile,
@@ -904,7 +904,7 @@ class ExperimentationHandler:
         engine = self._engine
         template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["fix_after_review"]
         prompt = template.format(
-            seed_prompt=engine._seed_prompt,
+            seed_prompt=engine.state.seed_prompt,
             checkpoint_context=checkpoint_context,
             code=code,
             review_feedback=review_feedback,
@@ -949,7 +949,7 @@ class ExperimentationHandler:
         net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
 
         # Build workspace manifest for design review context
-        workspace_dir = Path(engine._config.storage.data_dir) / "workspaces" / engine._thread_id
+        workspace_dir = Path(engine._config.storage.data_dir) / "workspaces" / engine.state.thread_id
         ws_manifest = _build_workspace_manifest(workspace_dir)
         ws_manifest_str = ws_manifest + "\n\n" if ws_manifest else ""
 
@@ -958,7 +958,7 @@ class ExperimentationHandler:
         proposal_prompt = template.format(
             sprint_num=sprint_num,
             num_sprints=num_sprints,
-            seed_prompt=engine._seed_prompt,
+            seed_prompt=engine.state.seed_prompt,
             checkpoint_context=checkpoint_context,
             workspace_manifest=ws_manifest_str,
             previous_results=(
@@ -977,7 +977,7 @@ class ExperimentationHandler:
             )
             engine._display.sprint_design_proposed(sprint_num)
         except Exception as e:
-            engine._logger.log_error(e, agent_id=experimenter.agent_id, thread_id=engine._thread_id)
+            engine._logger.log_error(e, agent_id=experimenter.agent_id, thread_id=engine.state.thread_id)
             return ""
 
         experiment_plan = proposal_response.content
@@ -994,7 +994,7 @@ class ExperimentationHandler:
             review_prompt = review_template.format(
                 sprint_num=sprint_num,
                 num_sprints=num_sprints,
-                seed_prompt=engine._seed_prompt,
+                seed_prompt=engine.state.seed_prompt,
                 checkpoint_context=checkpoint_context,
                 workspace_manifest=ws_manifest_str,
                 previous_results=(
@@ -1057,7 +1057,7 @@ class ExperimentationHandler:
             checkpoint_prompt = template.format(
                 sprint_num=sprint_num,
                 num_sprints=num_sprints,
-                seed_prompt=engine._seed_prompt,
+                seed_prompt=engine.state.seed_prompt,
                 checkpoint_context=checkpoint_context,
                 sprint_results=sprint_results,
                 reviewer_role=role,
@@ -1120,7 +1120,7 @@ class ExperimentationHandler:
             request = ExecutionRequest(
                 code=current_code,
                 agent_id=experimenter.agent_id,
-                thread_id=engine._thread_id,
+                thread_id=engine.state.thread_id,
             )
             result = await executor.execute(request, repo_paths=repo_paths)
 
@@ -1256,7 +1256,7 @@ class ExperimentationHandler:
                 if any(p in combined_error for p in _DATA_ERROR_PATTERNS):
                     self._auto_searched = True
                     try:
-                        query_text = _build_auto_search_query(engine._seed_prompt, combined_error)
+                        query_text = _build_auto_search_query(engine.state.seed_prompt, combined_error)
                         search_query = f"[SEARCH: {query_text}]"
                         await engine._literature.process_search_requests(
                             experimenter.agent_id,
@@ -1287,7 +1287,7 @@ class ExperimentationHandler:
                     retry_checkpoint = ws_manifest + "\n\n" + retry_checkpoint
             template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
             retry_prompt = template.format(
-                seed_prompt=engine._seed_prompt,
+                seed_prompt=engine.state.seed_prompt,
                 checkpoint_context=retry_checkpoint,
                 failed_code=truncated_code,
                 error_feedback=error_feedback,
@@ -1306,7 +1306,7 @@ class ExperimentationHandler:
                 response = await experimenter.generate(retry_prompt, max_tokens=_WRITING_MAX_TOKENS)
             except Exception as e:
                 engine._logger.log_error(
-                    e, agent_id=experimenter.agent_id, thread_id=engine._thread_id
+                    e, agent_id=experimenter.agent_id, thread_id=engine.state.thread_id
                 )
                 return result, current_code  # Return last failed result
 

@@ -49,8 +49,9 @@ from paradigm.orchestrator.memory import MemoryHandler
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
 from paradigm.orchestrator.review import ReviewHandler
 from paradigm.orchestrator.scheduler import Scheduler
+from paradigm.orchestrator.state import ResearchState
 from paradigm.orchestrator.writing import WritingHandler
-from paradigm.storage.checkpoints import Checkpoint, CheckpointManager
+from paradigm.storage.checkpoints import CheckpointManager
 from paradigm.storage.database import Database
 
 if TYPE_CHECKING:
@@ -108,29 +109,8 @@ class OrchestrationEngine:
             event_logger=logger,
         )
 
-        # State set during run
-        self._thread_id: str = ""
-        self._seed_prompt: str = ""
-        self._mode: str = "directed"
-        self._agents: dict[str, Agent] = {}
-        self._messages: list[dict[str, Any]] = []
-        self._phase_manager: PhaseManager | None = None
-        self._checkpoint: Checkpoint | None = None
-        self._execution_context: str = ""
-        self._execution_caveats: list[str] = []
-        self._execution_figures: list[tuple[str, Path]] = []  # (experiment_name, file_path)
-        self._successful_code: list[tuple[str, str]] = []  # (experiment_name, code)
-        self._post_execution_summary: str = ""  # Team consensus from POST_EXECUTION
-        self._consensus_summary: str = ""  # Accumulated consensus from phase boundaries
-        self._phase_synthesis: dict[str, str] = {}  # Structured synthesis per phase
-        self._planning_action_items: str = ""  # Extracted action items from PLANNING
-        self._experiment_metadata: list[dict[str, str | bool]] = []
-        self._forbidden_claims_violations: list[str] = []
-        self._code_context: str = ""
-        self._data_context: str = ""
-        self._reference_context: str = ""
-        self._resolved_resources: list[ResolvedResource] = []
-        self._start_time: float = time.monotonic()
+        # Per-cycle mutable state (reset at start of each research cycle)
+        self.state = ResearchState()
 
         # Handler delegates
         self._literature = LiteratureHandler(self)
@@ -177,7 +157,7 @@ class OrchestrationEngine:
         Returns:
             Thread ID of the completed cycle.
         """
-        self._mode = mode
+        self.state = ResearchState(seed_prompt=seed_prompt, mode=mode)
         if team_roles is None:
             if self._profile is not None and self._profile.default_roles:
                 # Use domain profile for team composition
@@ -192,23 +172,6 @@ class OrchestrationEngine:
 
                 team_roles = list(MODE_TEAM_ROLES.get(mode, DEFAULT_TEAM_ROLES))
 
-        self._seed_prompt = seed_prompt
-        self._messages = []
-        self._execution_context = ""
-        self._execution_caveats = []
-        self._execution_figures = []
-        self._successful_code = []
-        self._post_execution_summary = ""
-        self._consensus_summary = ""
-        self._phase_synthesis = {}
-        self._planning_action_items = ""
-        self._experiment_metadata = []
-        self._code_context = ""
-        self._data_context = ""
-        self._reference_context = ""
-        self._resolved_resources = []
-        self._start_time = time.monotonic()
-
         # Reset handler state for new cycle
         self._literature.reset_cycle()
         self._debate.reset_cycle()
@@ -216,14 +179,14 @@ class OrchestrationEngine:
 
         # Create agent team
         agents = self._factory.create_team(team_roles, skill_mode="default")
-        self._agents = {a.agent_id: a for a in agents}
+        self.state.agents = {a.agent_id: a for a in agents}
 
         # Phase 1: SEEDING
         self._display.phase_transition(ResearchPhase.SEEDING)
-        self._thread_id = await self._run_seeding_phase(seed_prompt, mode)
+        self.state.thread_id = await self._run_seeding_phase(seed_prompt, mode)
 
         # Initialize phase manager (starts at SEEDING, transition to IDEATION)
-        self._phase_manager = PhaseManager(ResearchPhase.SEEDING)
+        self.state.phase_manager = PhaseManager(ResearchPhase.SEEDING)
 
         # Seed discovery via Perplexity (optional, pre-populates literature context)
         if self._config.citation.enable_seed_discovery:
@@ -232,19 +195,19 @@ class OrchestrationEngine:
                 if n > 0:
                     self._display.seed_discovery_complete(n)
             except Exception as e:
-                self._logger.log_error(e, thread_id=self._thread_id)
+                self._logger.log_error(e, thread_id=self.state.thread_id)
                 self._display.seed_discovery_error(e)
 
         # Phase 2: IDEATION
         max_rounds = self._config.orchestrator.max_rounds_per_phase
         checkpoint_interval = self._config.orchestrator.checkpoint_interval
-        agent_count = len(self._agents)
+        agent_count = len(self.state.agents)
 
-        self._phase_manager.transition_to(ResearchPhase.IDEATION)
+        self.state.phase_manager.transition_to(ResearchPhase.IDEATION)
         self._log_phase_transition(ResearchPhase.SEEDING, ResearchPhase.IDEATION)
         active_ideation = self._get_phase_active_roles(ResearchPhase.IDEATION)
         active_ideation_count = (
-            sum(1 for a in self._agents.values() if a.skill_profile in active_ideation)
+            sum(1 for a in self.state.agents.values() if a.skill_profile in active_ideation)
             if active_ideation
             else agent_count
         )
@@ -274,25 +237,25 @@ class OrchestrationEngine:
                         f"{novelty.papers_found} related papers found)"
                     )
             except Exception as e:
-                self._logger.log_error(e, thread_id=self._thread_id)
+                self._logger.log_error(e, thread_id=self.state.thread_id)
 
         # Phase 3: PLANNING (intervention check)
         intervention = self._check_intervention("ideation", "planning")
         if intervention == "abort":
-            self._db.update_thread(self._thread_id, status="aborted")
+            self._db.update_thread(self.state.thread_id, status="aborted")
             self._display.phase_aborted()
-            return self._thread_id
+            return self.state.thread_id
         if intervention == "pause":
-            self._db.update_thread(self._thread_id, status="paused")
+            self._db.update_thread(self.state.thread_id, status="paused")
             self._display.phase_paused()
-            return self._thread_id
+            return self.state.thread_id
 
-        self._phase_manager.transition_to(ResearchPhase.PLANNING)
+        self.state.phase_manager.transition_to(ResearchPhase.PLANNING)
         self._log_phase_transition(ResearchPhase.IDEATION, ResearchPhase.PLANNING)
-        self._messages = []  # Reset messages for new phase
+        self.state.messages = []  # Reset messages for new phase
         active_planning = self._get_phase_active_roles(ResearchPhase.PLANNING)
         active_planning_count = (
-            sum(1 for a in self._agents.values() if a.skill_profile in active_planning)
+            sum(1 for a in self.state.agents.values() if a.skill_profile in active_planning)
             if active_planning
             else agent_count
         )
@@ -310,7 +273,7 @@ class OrchestrationEngine:
         await self._run_synthesis_round(ResearchPhase.PLANNING)
 
         # Extract action items from PLANNING for EXECUTION (Fix 5)
-        self._planning_action_items = self._extract_planning_actions()
+        self.state.planning_action_items = self._extract_planning_actions()
 
         # Phase 3.5: EXECUTION (optional — only when experimentalist present + sandbox enabled)
         should_experiment = (
@@ -321,40 +284,40 @@ class OrchestrationEngine:
         if should_experiment:
             intervention = self._check_intervention("planning", "execution")
             if intervention == "abort":
-                self._db.update_thread(self._thread_id, status="aborted")
+                self._db.update_thread(self.state.thread_id, status="aborted")
                 self._display.phase_aborted()
-                return self._thread_id
+                return self.state.thread_id
             if intervention == "pause":
-                self._db.update_thread(self._thread_id, status="paused")
+                self._db.update_thread(self.state.thread_id, status="paused")
                 self._display.phase_paused()
-                return self._thread_id
+                return self.state.thread_id
 
-            self._phase_manager.transition_to(ResearchPhase.EXECUTION)
+            self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
             self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
-            self._messages = []
+            self.state.messages = []
             self._display.phase_transition("EXECUTION")
             exp_result = await self._experimentation.run_experimentation_phase()
-            self._execution_context = exp_result.execution_context
-            self._execution_caveats = exp_result.caveats
-            self._execution_figures = exp_result.execution_figures
-            self._successful_code = exp_result.successful_code
-            self._experiment_metadata = exp_result.experiment_metadata
+            self.state.execution_context = exp_result.execution_context
+            self.state.execution_caveats = exp_result.caveats
+            self.state.execution_figures = exp_result.execution_figures
+            self.state.successful_code = exp_result.successful_code
+            self.state.experiment_metadata = exp_result.experiment_metadata
 
         # Phase 3.75: POST_EXECUTION discussion (optional — after experimentation)
         ran_post_execution = False
         if (
             should_experiment
-            and self._execution_context
+            and self.state.execution_context
             and self._config.orchestrator.enable_post_execution_discussion
         ):
-            self._phase_manager.transition_to(ResearchPhase.POST_EXECUTION)
+            self.state.phase_manager.transition_to(ResearchPhase.POST_EXECUTION)
             self._log_phase_transition(ResearchPhase.EXECUTION, ResearchPhase.POST_EXECUTION)
-            self._messages = []
+            self.state.messages = []
             # Shorter discussion: cap at 2 rounds
             post_exec_rounds = min(2, max_rounds)
             active_post_exec = self._get_phase_active_roles(ResearchPhase.POST_EXECUTION)
             active_post_exec_count = (
-                sum(1 for a in self._agents.values() if a.skill_profile in active_post_exec)
+                sum(1 for a in self.state.agents.values() if a.skill_profile in active_post_exec)
                 if active_post_exec
                 else agent_count
             )
@@ -372,7 +335,7 @@ class OrchestrationEngine:
             await self._run_synthesis_round(ResearchPhase.POST_EXECUTION)
             ran_post_execution = True
             # Capture POST_EXECUTION discussion summary for WRITING
-            self._post_execution_summary = self._build_post_execution_summary()
+            self.state.post_execution_summary = self._build_post_execution_summary()
 
         # Phase 4: WRITING (optional, controlled by config)
         if self._config.orchestrator.enable_writing:
@@ -389,17 +352,17 @@ class OrchestrationEngine:
             # Intervention check before WRITING
             intervention = self._check_intervention(from_label, "writing")
             if intervention == "abort":
-                self._db.update_thread(self._thread_id, status="aborted")
+                self._db.update_thread(self.state.thread_id, status="aborted")
                 self._display.phase_aborted()
-                return self._thread_id
+                return self.state.thread_id
             if intervention == "pause":
-                self._db.update_thread(self._thread_id, status="paused")
+                self._db.update_thread(self.state.thread_id, status="paused")
                 self._display.phase_paused()
-                return self._thread_id
+                return self.state.thread_id
 
-            self._phase_manager.transition_to(ResearchPhase.WRITING)
+            self.state.phase_manager.transition_to(ResearchPhase.WRITING)
             self._log_phase_transition(from_phase, ResearchPhase.WRITING)
-            self._messages = []
+            self.state.messages = []
             self._display.phase_transition("WRITING")
             paper_draft = await self._writing.run_writing_phase()
 
@@ -407,42 +370,42 @@ class OrchestrationEngine:
             if paper_draft is None:
                 self._display.writing_failed_skip_review()
                 # Save auxiliary files even on failure (search log is still useful)
-                thread = self._db.get_thread(self._thread_id)
+                thread = self._db.get_thread(self.state.thread_id)
                 paper_id = thread.get("current_draft_id") if thread else None
                 if paper_id:
                     self._save_auxiliary_files(paper_id)
                 self._print_token_summary()
-                return self._thread_id
+                return self.state.thread_id
 
             # Phase 5: INTERNAL REVIEW
-            self._phase_manager.transition_to(ResearchPhase.INTERNAL_REVIEW)
+            self.state.phase_manager.transition_to(ResearchPhase.INTERNAL_REVIEW)
             self._log_phase_transition(ResearchPhase.WRITING, ResearchPhase.INTERNAL_REVIEW)
-            self._messages = []
+            self.state.messages = []
             self._display.phase_transition("INTERNAL_REVIEW")
             await self._review.run_review_phase(paper_draft)
 
             # Check if internal review exhausted iterations without acceptance
-            thread = self._db.get_thread(self._thread_id)
+            thread = self._db.get_thread(self.state.thread_id)
             if thread and thread.get("status") == "writing_failed":
                 self._display.writing_failed_review_exhausted()
                 paper_id = thread.get("current_draft_id") if thread else None
                 if paper_id:
                     self._save_auxiliary_files(paper_id)
                 self._print_token_summary()
-                return self._thread_id
+                return self.state.thread_id
 
             # Phase 6: PEER REVIEW PIPELINE (optional)
             if self._config.orchestrator.enable_peer_review:
                 # Intervention check before SUBMITTED
                 intervention = self._check_intervention("internal", "submitted")
                 if intervention == "abort":
-                    self._db.update_thread(self._thread_id, status="aborted")
+                    self._db.update_thread(self.state.thread_id, status="aborted")
                     self._display.phase_aborted()
-                    return self._thread_id
+                    return self.state.thread_id
                 if intervention == "pause":
-                    self._db.update_thread(self._thread_id, status="paused")
+                    self._db.update_thread(self.state.thread_id, status="paused")
                     self._display.phase_paused()
-                    return self._thread_id
+                    return self.state.thread_id
 
                 accepted = await self._review.run_submission_phase(paper_draft)
                 if accepted:
@@ -457,28 +420,28 @@ class OrchestrationEngine:
                         decision, reviews = await self._review.run_peer_review_phase(paper_draft)
                         revision_count += 1
 
-                    thread = self._db.get_thread(self._thread_id)
+                    thread = self._db.get_thread(self.state.thread_id)
                     paper_id = thread["current_draft_id"] if thread else None
                     if paper_id and decision in ("accept", "minor_revision"):
                         await publish_paper(paper_id, self._db, self._corpus, self._logger, reviews)
-                        self._db.update_thread(self._thread_id, status="published")
+                        self._db.update_thread(self.state.thread_id, status="published")
                         self._display.paper_published()
                     elif paper_id:
                         from paradigm.journal.publication import reject_paper
 
                         reject_paper(paper_id, self._db, reviews, self._logger)
-                        self._db.update_thread(self._thread_id, status="rejected")
+                        self._db.update_thread(self.state.thread_id, status="rejected")
                         self._display.paper_rejected()
                 else:
                     # Desk rejected
-                    self._db.update_thread(self._thread_id, status="rejected")
+                    self._db.update_thread(self.state.thread_id, status="rejected")
             else:
-                self._db.update_thread(self._thread_id, status="reviewed")
+                self._db.update_thread(self.state.thread_id, status="reviewed")
         else:
-            self._db.update_thread(self._thread_id, status="planning_complete")
+            self._db.update_thread(self.state.thread_id, status="planning_complete")
 
         # Save auxiliary files (search log, review report)
-        thread = self._db.get_thread(self._thread_id)
+        thread = self._db.get_thread(self.state.thread_id)
         paper_id = thread.get("current_draft_id") if thread else None
         if paper_id:
             self._save_auxiliary_files(paper_id)
@@ -489,7 +452,7 @@ class OrchestrationEngine:
         # Generate agent episodic memories via reflection
         await self._memory.run_memory_generation()
 
-        return self._thread_id
+        return self.state.thread_id
 
     async def _run_seeding_phase(self, seed_prompt: str, mode: str) -> str:
         """Initialize the research thread. No agent calls.
@@ -502,7 +465,7 @@ class OrchestrationEngine:
             Thread ID.
         """
         thread_id = f"thread-{uuid.uuid4().hex[:12]}"
-        participants = list(self._agents.keys())
+        participants = list(self.state.agents.keys())
 
         self._db.create_thread(
             thread_id=thread_id,
@@ -552,10 +515,10 @@ class OrchestrationEngine:
                     self._display.resource_resolved(resource.name, rtype.value)
                 resolved.append(resource)
 
-        self._resolved_resources = resolved
-        self._code_context = build_code_context(resolved)
-        self._data_context = build_data_context(resolved)
-        self._reference_context = build_reference_context(resolved)
+        self.state.resolved_resources = resolved
+        self.state.code_context = build_code_context(resolved)
+        self.state.data_context = build_data_context(resolved)
+        self.state.reference_context = build_reference_context(resolved)
 
         # Literature context starts empty — agents populate it via [SEARCH:] requests
         self._literature.literature_context = ""
@@ -578,13 +541,13 @@ class OrchestrationEngine:
                     if entry.get("lessons_learned"):
                         lines.append(f"**Lessons learned:** {entry['lessons_learned']}")
                     lines.append("")
-                self._graveyard_context = "\n".join(lines)
+                self.state.graveyard_context = "\n".join(lines)
             else:
-                self._graveyard_context = ""
+                self.state.graveyard_context = ""
         except Exception as e:
             self._logger.log_error(e, thread_id=thread_id)
             self._display.graveyard_error(e)
-            self._graveyard_context = ""
+            self.state.graveyard_context = ""
 
         return thread_id
 
@@ -601,14 +564,14 @@ class OrchestrationEngine:
             max_rounds: Maximum number of rounds.
             checkpoint_interval: How often to checkpoint.
         """
-        scheduler = Scheduler(list(self._agents.values()), mode="phase_appropriate")
+        scheduler = Scheduler(list(self.state.agents.values()), mode="phase_appropriate")
 
         # Compute active agent count for convergence detection
         active_roles = self._get_phase_active_roles(phase)
         if active_roles is not None:
-            active_count = sum(1 for a in self._agents.values() if a.skill_profile in active_roles)
+            active_count = sum(1 for a in self.state.agents.values() if a.skill_profile in active_roles)
         else:
-            active_count = len(self._agents)
+            active_count = len(self.state.agents)
 
         for round_num in range(1, max_rounds + 1):
             self._display.round_start(round_num, max_rounds)
@@ -628,10 +591,10 @@ class OrchestrationEngine:
                     if converged:
                         self._display.convergence_detected(str(phase), round_num, max_rounds)
                         consensus = self._build_consensus_summary(
-                            phase, rationale, self._messages[-active_count:]
+                            phase, rationale, self.state.messages[-active_count:]
                         )
                         if consensus:
-                            self._consensus_summary += consensus + "\n\n"
+                            self.state.consensus_summary += consensus + "\n\n"
                         break
                 except Exception:
                     pass  # Non-fatal — continue with remaining rounds
@@ -643,31 +606,31 @@ class OrchestrationEngine:
             )
             if should_checkpoint:
                 try:
-                    self._checkpoint = await self._checkpoint_mgr.create_checkpoint(
-                        thread_id=self._thread_id,
+                    self.state.checkpoint = await self._checkpoint_mgr.create_checkpoint(
+                        thread_id=self.state.thread_id,
                         phase=str(phase),
                         round_number=round_num,
-                        messages=self._messages,
-                        previous_checkpoint=self._checkpoint,
+                        messages=self.state.messages,
+                        previous_checkpoint=self.state.checkpoint,
                     )
                     self._display.checkpoint_saved(f"round {round_num}")
                 except Exception as e:
-                    self._logger.log_error(e, thread_id=self._thread_id)
+                    self._logger.log_error(e, thread_id=self.state.thread_id)
                     self._display.checkpoint_error(e)
 
         # Final checkpoint at end of phase
-        if self._messages and self._config.orchestrator.enable_checkpointing:
+        if self.state.messages and self._config.orchestrator.enable_checkpointing:
             try:
-                self._checkpoint = await self._checkpoint_mgr.create_checkpoint(
-                    thread_id=self._thread_id,
+                self.state.checkpoint = await self._checkpoint_mgr.create_checkpoint(
+                    thread_id=self.state.thread_id,
                     phase=str(phase),
                     round_number=max_rounds,
-                    messages=self._messages,
-                    previous_checkpoint=self._checkpoint,
+                    messages=self.state.messages,
+                    previous_checkpoint=self.state.checkpoint,
                 )
                 self._display.checkpoint_saved("end of phase")
             except Exception as e:
-                self._logger.log_error(e, thread_id=self._thread_id)
+                self._logger.log_error(e, thread_id=self.state.thread_id)
                 self._display.checkpoint_error(e)
 
     async def _run_round(
@@ -690,24 +653,24 @@ class OrchestrationEngine:
         active_roles = self._get_phase_active_roles(phase)
         if active_roles is not None:
             speaker_order = [
-                aid for aid in speaker_order if self._agents[aid].skill_profile in active_roles
+                aid for aid in speaker_order if self.state.agents[aid].skill_profile in active_roles
             ]
 
         for agent_id in speaker_order:
-            agent = self._agents[agent_id]
+            agent = self.state.agents[agent_id]
             prompt = self._build_agent_prompt(agent, phase, round_num)
 
             try:
                 response = await agent.generate(prompt)
             except Exception as e:
-                self._logger.log_error(e, agent_id=agent_id, thread_id=self._thread_id)
+                self._logger.log_error(e, agent_id=agent_id, thread_id=self.state.thread_id)
                 self._display.agent_error(agent_id, e)
                 continue  # Skip this agent for this round
 
             # Create structured message
             msg = agent.format_message(
                 to="team",
-                thread_id=self._thread_id,
+                thread_id=self.state.thread_id,
                 phase=str(phase),
                 message_type="proposal" if round_num == 1 else "discussion",
                 content=response.content,
@@ -719,7 +682,7 @@ class OrchestrationEngine:
             if round_num == 1 and not self._is_substantive_contribution(response.content):
                 pass  # Search requests still processed below; skip context storage
             else:
-                self._messages.append(msg_dict)
+                self.state.messages.append(msg_dict)
 
             total_tokens = response.usage.input_tokens + response.usage.output_tokens
             self._display.agent_response(
@@ -733,7 +696,7 @@ class OrchestrationEngine:
             # Log message and token usage
             self._logger.log_agent_message(
                 agent_id=agent_id,
-                thread_id=self._thread_id,
+                thread_id=self.state.thread_id,
                 phase=str(phase),
                 message=msg_dict,
             )
@@ -742,14 +705,14 @@ class OrchestrationEngine:
                 model=response.model,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
-                thread_id=self._thread_id,
+                thread_id=self.state.thread_id,
             )
             self._db.record_token_usage(
                 model=response.model,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 agent_id=agent_id,
-                thread_id=self._thread_id,
+                thread_id=self.state.thread_id,
             )
 
             # Process any [SEARCH: ...] requests in the agent's response
@@ -777,7 +740,7 @@ class OrchestrationEngine:
             phase: The phase being concluded.
         """
         # Check mode-specific synthesis overrides first
-        template = _MODE_SYNTHESIS_OVERRIDES.get(self._mode, {}).get(phase)
+        template = _MODE_SYNTHESIS_OVERRIDES.get(self.state.mode, {}).get(phase)
         if template is None:
             template = _SYNTHESIS_CLOSING_TEMPLATES.get(phase)
         if template is None:
@@ -788,13 +751,13 @@ class OrchestrationEngine:
             return
 
         # Build recent messages for the template
-        recent = self._messages[-_RECENT_MESSAGES_LIMIT:]
+        recent = self.state.messages[-_RECENT_MESSAGES_LIMIT:]
         recent_messages = "\n\n".join(
             f"**{m.get('from', 'unknown')}**: {m.get('content', '')[:500]}" for m in recent
         )
 
         prompt = template.format(
-            seed_prompt=self._seed_prompt,
+            seed_prompt=self.state.seed_prompt,
             recent_messages=recent_messages,
         )
 
@@ -813,14 +776,14 @@ class OrchestrationEngine:
         try:
             response = await synthesizer.generate(prompt)
         except Exception as e:
-            self._logger.log_error(e, agent_id=synthesizer.agent_id, thread_id=self._thread_id)
+            self._logger.log_error(e, agent_id=synthesizer.agent_id, thread_id=self.state.thread_id)
             return
 
         self._log_agent_response(synthesizer.agent_id, response, phase, "synthesis")
 
         # Store synthesis, capped at 1500 chars
         synthesis_text = response.content[:1500]
-        self._phase_synthesis[str(phase)] = synthesis_text
+        self.state.phase_synthesis[str(phase)] = synthesis_text
 
     def _build_agent_prompt(
         self,
@@ -844,7 +807,7 @@ class OrchestrationEngine:
 
         # Apply mode-specific overrides if available
         # Check phase-specific key first (e.g., "planning_round_1"), then generic
-        mode_overrides = _MODE_PROMPT_OVERRIDES.get(self._mode, {})
+        mode_overrides = _MODE_PROMPT_OVERRIDES.get(self.state.mode, {})
         phase_key = f"{phase.value}_{template_key}"  # e.g., "planning_round_1"
         if phase_key in mode_overrides:
             template = mode_overrides[phase_key]
@@ -853,11 +816,11 @@ class OrchestrationEngine:
 
         # Build checkpoint context
         checkpoint_context = ""
-        if self._checkpoint:
-            checkpoint_context = self._checkpoint.to_context_string() + "\n\n"
+        if self.state.checkpoint:
+            checkpoint_context = self.state.checkpoint.to_context_string() + "\n\n"
 
         # Build recent messages string
-        recent = self._messages[-_RECENT_MESSAGES_LIMIT:]
+        recent = self.state.messages[-_RECENT_MESSAGES_LIMIT:]
         recent_messages = "\n\n".join(
             f"**{m.get('from', 'unknown')}** ({m.get('type', 'message')}): "
             f"{m.get('content', '')[:500]}"
@@ -882,34 +845,34 @@ class OrchestrationEngine:
             if lit:
                 checkpoint_context = "## Literature Context\n" + lit + "\n\n" + checkpoint_context
 
-        if "references" in context_needs and self._reference_context:
-            checkpoint_context = self._reference_context + "\n\n" + checkpoint_context
+        if "references" in context_needs and self.state.reference_context:
+            checkpoint_context = self.state.reference_context + "\n\n" + checkpoint_context
 
-        if "execution" in context_needs and self._execution_context:
-            exec_block = "## Experiment Results\n" + self._execution_context
-            if self._execution_caveats:
+        if "execution" in context_needs and self.state.execution_context:
+            exec_block = "## Experiment Results\n" + self.state.execution_context
+            if self.state.execution_caveats:
                 exec_block += "\n\n## Execution Caveats\n" + "\n".join(
-                    f"- {c}" for c in self._execution_caveats
+                    f"- {c}" for c in self.state.execution_caveats
                 )
             checkpoint_context = exec_block + "\n\n" + checkpoint_context
 
         if "code_data" in context_needs:
-            if self._data_context:
-                checkpoint_context = self._data_context + "\n\n" + checkpoint_context
-            if self._code_context:
-                checkpoint_context = self._code_context + "\n\n" + checkpoint_context
+            if self.state.data_context:
+                checkpoint_context = self.state.data_context + "\n\n" + checkpoint_context
+            if self.state.code_context:
+                checkpoint_context = self.state.code_context + "\n\n" + checkpoint_context
 
         # Graveyard context stays IDEATION round 1 only
         if phase == ResearchPhase.IDEATION and round_num == 1:
-            graveyard = getattr(self, "_graveyard_context", "")
+            graveyard = self.state.graveyard_context
             if graveyard:
                 checkpoint_context = checkpoint_context + graveyard + "\n\n"
 
         # Inject structured phase syntheses near the top of the prompt
         # so agents see them early and don't re-derive settled conclusions
-        if self._phase_synthesis:
+        if self.state.phase_synthesis:
             synthesis_parts: list[str] = []
-            for phase_key, synthesis_text in self._phase_synthesis.items():
+            for phase_key, synthesis_text in self.state.phase_synthesis.items():
                 phase_label = phase_key.upper().replace("RESEARCHPHASE.", "")
                 capped = synthesis_text[:1500]
                 synthesis_parts.append(f"### {phase_label} Synthesis\n{capped}")
@@ -924,11 +887,11 @@ class OrchestrationEngine:
                 checkpoint_context = synthesis_block + checkpoint_context
 
         # Inject prior phase consensus near the top as well
-        if self._consensus_summary:
+        if self.state.consensus_summary:
             consensus_block = (
                 "## Prior Phase Consensus\n"
                 "The following conclusions were agreed upon in earlier phases. "
-                "Do NOT re-derive these — build on them.\n\n" + self._consensus_summary + "\n\n"
+                "Do NOT re-derive these — build on them.\n\n" + self.state.consensus_summary + "\n\n"
             )
             checkpoint_context = consensus_block + checkpoint_context
 
@@ -941,7 +904,7 @@ class OrchestrationEngine:
             from paradigm.agents.memory import format_memory_context, rank_memories_with_recency
 
             raw_memories = self._memory_store.search(
-                query=self._seed_prompt,
+                query=self.state.seed_prompt,
                 agent_id=agent.agent_id,
                 n_results=self._config.memory.max_memories_per_prompt * 4,
             )
@@ -955,7 +918,7 @@ class OrchestrationEngine:
                 checkpoint_context = mem_ctx + "\n\n" + checkpoint_context
 
         formatted = template.format(
-            seed_prompt=self._seed_prompt,
+            seed_prompt=self.state.seed_prompt,
             checkpoint_context=checkpoint_context,
             recent_messages=recent_messages,
         )
@@ -965,13 +928,13 @@ class OrchestrationEngine:
             # General anti-repetition rule for all agents
             formatted += _GENERAL_LATER_ROUND_REINFORCEMENT
             # Inject established points to further reduce redundancy
-            established = self._build_established_points(self._messages[-_RECENT_MESSAGES_LIMIT:])
+            established = self._build_established_points(self.state.messages[-_RECENT_MESSAGES_LIMIT:])
             if established:
                 formatted += established
             # Role-specific reinforcement (mode override > profile default > hardcoded)
             reinforcement = ""
             if self._profile is not None:
-                mode_reinforcements = self._profile.mode_role_reinforcements.get(self._mode, {})
+                mode_reinforcements = self._profile.mode_role_reinforcements.get(self.state.mode, {})
                 reinforcement = mode_reinforcements.get(
                     agent.skill_profile,
                     self._profile.role_later_round_reinforcements.get(agent.skill_profile, ""),
@@ -1005,7 +968,7 @@ class OrchestrationEngine:
             # Role-specific search strategy (mode override > profile default > hardcoded)
             role_strategy = ""
             if self._profile is not None:
-                mode_strategies = self._profile.mode_role_search_strategies.get(self._mode, {})
+                mode_strategies = self._profile.mode_role_search_strategies.get(self.state.mode, {})
                 role_strategy = mode_strategies.get(
                     agent.skill_profile,
                     self._profile.role_search_strategies.get(agent.skill_profile, ""),
@@ -1103,7 +1066,7 @@ class OrchestrationEngine:
         """
         if self._intervention_hook is None:
             return "continue"
-        result = self._intervention_hook(self._thread_id, from_phase, to_phase)
+        result = self._intervention_hook(self.state.thread_id, from_phase, to_phase)
         if result not in ("continue", "pause", "abort"):
             return "continue"
         return result
@@ -1118,11 +1081,11 @@ class OrchestrationEngine:
         Returns:
             Formatted summary string, or empty string if no messages.
         """
-        if not self._messages:
+        if not self.state.messages:
             return ""
 
         parts: list[str] = []
-        for msg in self._messages:
+        for msg in self.state.messages:
             agent_id = msg.get("from", "unknown")
             content = msg.get("content", "")
             # Truncate to 800 chars per agent to keep summary manageable
@@ -1200,7 +1163,7 @@ class OrchestrationEngine:
         }
 
         actions: list[str] = []
-        for msg in self._messages:
+        for msg in self.state.messages:
             content = msg.get("content", "")
             if not content:
                 continue
@@ -1244,8 +1207,8 @@ class OrchestrationEngine:
             Tuple of (is_converged, rationale).
         """
         # Two-round lookback: grab up to 2 rounds of messages
-        lookback = min(2 * active_agent_count, len(self._messages))
-        recent = self._messages[-lookback:]
+        lookback = min(2 * active_agent_count, len(self.state.messages))
+        recent = self.state.messages[-lookback:]
         if len(recent) < 2:
             return False, ""
 
@@ -1275,14 +1238,14 @@ class OrchestrationEngine:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             agent_id="convergence_checker",
-            thread_id=self._thread_id,
+            thread_id=self.state.thread_id,
         )
         self._logger.log_api_call(
             agent_id="convergence_checker",
             model=provider.default_model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            thread_id=self._thread_id,
+            thread_id=self.state.thread_id,
         )
 
         # Parse JSON response (strip markdown fences if present)
@@ -1302,7 +1265,7 @@ class OrchestrationEngine:
                     "round": round_num,
                     "raw_response": cleaned[:500],
                 },
-                thread_id=self._thread_id,
+                thread_id=self.state.thread_id,
                 phase=str(phase),
             )
             return False, ""
@@ -1333,7 +1296,7 @@ class OrchestrationEngine:
                     f"{'Skipping remaining rounds.' if is_converged else 'Continuing.'}"
                 ),
             },
-            thread_id=self._thread_id,
+            thread_id=self.state.thread_id,
             phase=str(phase),
         )
 
@@ -1344,10 +1307,10 @@ class OrchestrationEngine:
         self._logger.log(
             EventType.PHASE_TRANSITION,
             content={"from": str(from_phase), "to": str(to_phase)},
-            thread_id=self._thread_id,
+            thread_id=self.state.thread_id,
             phase=str(to_phase),
         )
-        self._db.update_thread(self._thread_id, current_phase=str(to_phase))
+        self._db.update_thread(self.state.thread_id, current_phase=str(to_phase))
 
     def _find_agent_by_role(self, role: str) -> Agent | None:
         """Find an agent by its skill profile / role.
@@ -1358,7 +1321,7 @@ class OrchestrationEngine:
         Returns:
             Agent if found, None otherwise.
         """
-        for agent in self._agents.values():
+        for agent in self.state.agents.values():
             if agent.skill_profile == role:
                 return agent
         return None
@@ -1379,7 +1342,7 @@ class OrchestrationEngine:
             message_type: Type of message.
         """
         total_tokens = response.usage.input_tokens + response.usage.output_tokens
-        agent = self._agents.get(agent_id)
+        agent = self.state.agents.get(agent_id)
         self._display.agent_response(
             agent_id,
             total_tokens,
@@ -1390,7 +1353,7 @@ class OrchestrationEngine:
 
         self._logger.log_agent_message(
             agent_id=agent_id,
-            thread_id=self._thread_id,
+            thread_id=self.state.thread_id,
             phase=str(phase),
             message={
                 "from": agent_id,
@@ -1403,14 +1366,14 @@ class OrchestrationEngine:
             model=response.model,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
-            thread_id=self._thread_id,
+            thread_id=self.state.thread_id,
         )
         self._db.record_token_usage(
             model=response.model,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
             agent_id=agent_id,
-            thread_id=self._thread_id,
+            thread_id=self.state.thread_id,
         )
 
     async def _save_pdf_for_sandbox(self, url: str) -> None:
@@ -1456,7 +1419,7 @@ class OrchestrationEngine:
             return
 
         lines = ["# Literature Searches\n"]
-        lines.append(f"Thread: {self._thread_id}")
+        lines.append(f"Thread: {self.state.thread_id}")
         lines.append(f"Total searches: {len(self._literature.search_log)}\n")
         lines.append("---\n")
 
@@ -1498,7 +1461,7 @@ class OrchestrationEngine:
             return
 
         lines = ["# Review Report\n"]
-        lines.append(f"Thread: {self._thread_id}")
+        lines.append(f"Thread: {self.state.thread_id}")
         lines.append(f"Paper: {paper_id}\n")
         lines.append("---\n")
 
@@ -1546,7 +1509,7 @@ class OrchestrationEngine:
 
         # Append token usage and timing summary
         usage = self._get_token_summary()
-        elapsed = time.monotonic() - self._start_time
+        elapsed = time.monotonic() - self.state.start_time
         minutes, seconds = divmod(int(elapsed), 60)
         hours, minutes = divmod(minutes, 60)
         if hours:
@@ -1577,14 +1540,14 @@ class OrchestrationEngine:
         if papers_dir is None:
             return
 
-        events = self._logger.read_events(thread_id=self._thread_id)
+        events = self._logger.read_events(thread_id=self.state.thread_id)
         if not events:
             return
 
         lines = ["# Research Transcript\n"]
-        lines.append(f"Thread: {self._thread_id}")
+        lines.append(f"Thread: {self.state.thread_id}")
         lines.append(f"Paper: {paper_id}")
-        lines.append(f"Seed prompt: {self._seed_prompt[:200]}\n")
+        lines.append(f"Seed prompt: {self.state.seed_prompt[:200]}\n")
         lines.append("---\n")
 
         current_phase = ""
@@ -1670,7 +1633,7 @@ class OrchestrationEngine:
             "Includes experiment scripts from EXECUTION and conceptual figure scripts from WRITING.\n"
         )
 
-        for exp_name, code in self._successful_code:
+        for exp_name, code in self.state.successful_code:
             # Sanitize experiment name for filename
             safe_name = re.sub(r"[^\w\-]", "_", exp_name).strip("_").lower()
             if not safe_name:
@@ -1687,7 +1650,7 @@ class OrchestrationEngine:
         readme_path = code_dir / "README.md"
         readme_path.write_text("\n".join(readme_lines) + "\n")
 
-        self._display.code_saved(len(self._successful_code))
+        self._display.code_saved(len(self.state.successful_code))
 
     def _get_token_summary(self) -> dict[str, int]:
         """Get token usage for the current thread.
@@ -1695,7 +1658,7 @@ class OrchestrationEngine:
         Returns:
             Dict with input_tokens, output_tokens, total_tokens.
         """
-        return self._db.get_token_usage(thread_id=self._thread_id)
+        return self._db.get_token_usage(thread_id=self.state.thread_id)
 
     def _print_token_summary(self) -> None:
         """Display token usage and elapsed time at end of research cycle."""
@@ -1704,7 +1667,7 @@ class OrchestrationEngine:
         output_k = usage["output_tokens"] / 1000
         total_k = usage["total_tokens"] / 1000
 
-        elapsed = time.monotonic() - self._start_time
+        elapsed = time.monotonic() - self.state.start_time
         minutes, seconds = divmod(int(elapsed), 60)
         hours, minutes = divmod(minutes, 60)
         if hours:
@@ -1725,7 +1688,7 @@ class OrchestrationEngine:
                 "input_tokens": usage["input_tokens"],
                 "output_tokens": usage["output_tokens"],
             },
-            thread_id=self._thread_id,
+            thread_id=self.state.thread_id,
         )
 
     def _save_auxiliary_files(self, paper_id: str) -> None:
@@ -1739,5 +1702,5 @@ class OrchestrationEngine:
         # Always save review log (includes token summary even without reviews)
         self._save_review_log(paper_id)
         self._save_transcript(paper_id)
-        if self._successful_code:
+        if self.state.successful_code:
             self._save_experiment_code(paper_id)
