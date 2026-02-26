@@ -42,6 +42,7 @@ class Corpus:
         embedding_store: EmbeddingStore | None = None,
         semantic_scholar_client: SemanticScholarClient | None = None,
         source_providers: dict[str, SourceProvider] | None = None,
+        topic: str = "",
     ) -> None:
         """Initialize corpus.
 
@@ -57,11 +58,13 @@ class Corpus:
                 When supplied, search/references/citations delegate to these
                 providers and return SourceResult. Legacy clients are still
                 created for ingestion and PDF fetch.
+            topic: Research topic / seed prompt for domain-aware provider routing.
         """
         self._db = database
         self._config = literature_config
         self._logger = logger
         self._providers = source_providers
+        self._topic = topic
 
         self._arxiv = arxiv_client or ArxivClient(
             rate_limit=literature_config.arxiv_rate_limit,
@@ -140,11 +143,34 @@ class Corpus:
         include_local: bool,
         include_arxiv: bool,
     ) -> list[SourceResult]:
-        """Provider-based search: delegate to SourceProvider instances."""
+        """Provider-based search with domain-aware routing.
+
+        Uses DomainRouter to prioritize providers based on the research
+        topic, allocating more result slots to relevant providers and
+        skipping irrelevant ones entirely.
+        """
+        from paradigm.literature.domain_router import (
+            compute_result_allocation,
+            rank_providers,
+        )
+
         all_results: list[SourceResult] = []
         seen_ids: set[str] = set()
 
-        # Local corpus provider first (results appear before external)
+        # Determine which external providers to query
+        external_providers = [
+            name
+            for name in self._providers
+            if name != "internal_corpus" and (name != "arxiv" or include_arxiv)
+        ]
+
+        # Compute domain-aware result allocation
+        allocation = compute_result_allocation(
+            self._topic or query, external_providers, max_results
+        )
+        ranked = rank_providers(self._topic or query, external_providers)
+
+        # Local corpus provider first (always gets full allocation)
         if include_local and "internal_corpus" in self._providers:
             local_results = await self._providers["internal_corpus"].search(
                 query, max_results=max_results
@@ -154,24 +180,24 @@ class Corpus:
                     all_results.append(r)
                     seen_ids.add(r.id)
 
-        # arXiv provider
-        if include_arxiv and "arxiv" in self._providers:
-            arxiv_results = await self._providers["arxiv"].search(query, max_results=max_results)
-            for r in arxiv_results:
-                if r.id not in seen_ids:
-                    all_results.append(r)
-                    seen_ids.add(r.id)
-
-        # Any other providers (e.g. semantic_scholar for keyword search)
-        for name, provider in self._providers.items():
-            if name in ("internal_corpus", "arxiv"):
+        # External providers in relevance order
+        providers_queried: list[str] = []
+        providers_skipped: list[str] = []
+        for name, _score in ranked:
+            provider = self._providers.get(name)
+            if provider is None:
+                continue
+            provider_max = allocation.get(name, 0)
+            if provider_max <= 0:
+                providers_skipped.append(name)
                 continue
             try:
-                extra_results = await provider.search(query, max_results=max_results)
-                for r in extra_results:
+                results = await provider.search(query, max_results=provider_max)
+                for r in results:
                     if r.id not in seen_ids:
                         all_results.append(r)
                         seen_ids.add(r.id)
+                providers_queried.append(name)
             except Exception:
                 pass  # Non-critical providers can fail silently
 
@@ -183,7 +209,9 @@ class Corpus:
                 content={
                     "query": query,
                     "total_results": len(results),
-                    "providers": list(self._providers.keys()),
+                    "providers_queried": providers_queried,
+                    "providers_skipped": providers_skipped,
+                    "allocation": allocation,
                     "sources": {
                         "local": include_local,
                         "arxiv": include_arxiv,

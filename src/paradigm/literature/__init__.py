@@ -6,6 +6,11 @@ from paradigm.literature.biorxiv import BiorxivClient, BiorxivPaper
 from paradigm.literature.citation_chains import follow_citation_chain
 from paradigm.literature.citations import CitationTracker
 from paradigm.literature.corpus import Corpus
+from paradigm.literature.domain_router import (
+    classify_topic,
+    compute_result_allocation,
+    rank_providers,
+)
 from paradigm.literature.embeddings import EmbeddingStore
 from paradigm.literature.nasa_ads import ADSClient, ADSPaper
 from paradigm.literature.novelty import (
@@ -66,7 +71,10 @@ __all__ = [
     "check_novelty_futurehouse",
     "check_novelty_semantic_scholar",
     "classify_resource",
+    "classify_topic",
+    "compute_result_allocation",
     "create_source_providers",
     "follow_citation_chain",
+    "rank_providers",
     "resolve_resource",
 ]

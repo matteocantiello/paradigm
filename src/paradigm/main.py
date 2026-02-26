@@ -78,6 +78,7 @@ def _run_research(
         storage_config=config.storage,
         logger=logger,
         source_providers=source_providers or None,
+        topic=seed_prompt,
     )
     # Override rounds per phase if specified
     if rounds is not None:

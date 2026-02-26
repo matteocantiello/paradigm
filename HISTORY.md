@@ -2684,3 +2684,9 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 
 **Key decisions**: Native Python wrappers (no MCP), follow existing SourceProvider pattern
 **Artifacts**: 5 new files created, 7 files modified, 5 test files created
+
+## Prompt 5 — Domain-Aware Source Selection Fix (2026-02-25)
+
+> Given the recent upgrade for literature search using mcp engines, can we fix 1?
+
+(Continued from context recovery - implementing recommendation #1 from paper-489a566e6225 analysis: Domain-Aware Source Selection to route queries to appropriate literature providers based on research topic.)
