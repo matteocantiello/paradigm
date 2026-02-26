@@ -2720,3 +2720,10 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - Review-specific prompts, team composition, document template
 - No engine flow changes needed (execution already skips without experimentalist)
 - 9 files modified, 1 new test file
+
+### Prompt — Update Manual and Description for Review Mode
+
+> Can we update the manual and overall description of paradigm given the latest changes?
+
+- Update README.md, docs/MANUAL.md, SPEC.md, docs/DOMAINS.md with review mode
+- Ensure pyproject.toml description reflects latest capabilities

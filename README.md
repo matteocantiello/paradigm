@@ -13,7 +13,7 @@
 
 ---
 
-Give Paradigm a research question and it assembles a team of AI agents --- theorist, analyst, experimentalist, skeptic, synthesizer, writer --- that debate hypotheses, search the literature, run computational experiments in a sandboxed environment, draft a paper, and submit it to AI peer review. Published papers enter an internal corpus that future research cycles can cite and build upon.
+Give Paradigm a research question and it assembles a team of AI agents --- theorist, analyst, experimentalist, skeptic, synthesizer, writer --- that debate hypotheses, search the literature, run computational experiments in a sandboxed environment, draft a paper, and submit it to AI peer review. It can also produce comprehensive literature reviews that survey and synthesize existing work without running experiments. Published papers enter an internal corpus that future research cycles can cite and build upon.
 
 Named after Thomas Kuhn --- paradigm shifts emerge from communities of researchers, not individuals.
 
@@ -99,6 +99,7 @@ For detailed setup (Docker sandbox, multi-provider config, etc.), see [`INSTALL.
 | `hypothesis` | Focused team tests a specific hypothesis | "Convective overshooting extends MS lifetime by >20%" |
 | `experimental` | Includes experimentalist + Docker sandbox | Computationally-driven research |
 | `replication` | Attempts to reproduce a known result | Verification and extension |
+| `review` | Comprehensive literature review and field synthesis | "Survey recent advances in asteroseismology" |
 
 ## Agent Team
 
@@ -217,7 +218,7 @@ src/paradigm/
   storage/             SQLite database, checkpoints, graveyard
   logging/             Structured JSON event logging
 configs/               YAML configuration files
-tests/                 775 tests (pytest + pytest-asyncio)
+tests/                 pytest + pytest-asyncio
 ```
 
 ## Documentation

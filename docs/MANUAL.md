@@ -106,8 +106,8 @@ paradigm run [OPTIONS]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--mode` | Choice | `directed` | Operating mode: `directed`, `explore`, `hypothesis`, `experimental`, `replication` |
-| `--prompt` | Text | --- | Research prompt or question. **Required** for `directed` mode (unless `--prompt-file` is used). |
+| `--mode` | Choice | `directed` | Operating mode: `directed`, `explore`, `hypothesis`, `experimental`, `replication`, `review` |
+| `--prompt` | Text | --- | Research prompt or question. **Required** for `directed` and `review` modes (unless `--prompt-file` is used). |
 | `--prompt-file` | Path | --- | Read research prompt from a file (e.g., `prompt.md`). Mutually exclusive with `--prompt`. |
 | `--topic` | Text | --- | Research topic. **Required** for `explore` mode. |
 | `--rounds` | Integer | config value (10) | Rounds per phase. Overrides `orchestrator.max_rounds_per_phase`. |
@@ -367,6 +367,20 @@ paradigm run --mode experimental --prompt "Simulate p-mode oscillations in a 1.5
 paradigm run --mode replication --prompt "Replicate the period-luminosity relation from Leavitt 1912"
 ```
 
+### `review`
+
+**Purpose:** Produce a comprehensive literature review and field synthesis.
+
+**Team:** theorist, synthesizer, skeptic, writer, editor
+
+**When to use:** You want to survey and synthesize existing work on a topic without running computational experiments. The output is a literature review paper with sections for landscape overview, thematic analysis, critical assessment, and future directions.
+
+**Special behavior:** The team has no experimentalist or analyst — the EXECUTION phase is skipped entirely. Prompts are tailored for systematic literature gathering, thematic organization, and critical synthesis. The document template uses literature-review-specific sections instead of methods/results.
+
+```bash
+paradigm run --mode review --prompt "Survey recent advances in asteroseismology of red giants"
+```
+
 ---
 
 ## 6. The Research Cycle
@@ -382,7 +396,7 @@ IDEATION  (N rounds of structured agent discussion)
    |
 PLANNING  (N rounds of research plan development)
    |
-   +--[experimentalist on team + sandbox enabled]--+
+   +--[experimentalist on team + sandbox enabled]--+   (skipped in review mode)
    |                                               |
    |                                         EXECUTION
    |                                         (propose code, run in Docker,
@@ -1453,7 +1467,20 @@ sqlite3 data/paradigm.db "SELECT failure_reason, lessons_learned FROM graveyard 
 
 These lessons are automatically surfaced during the SEEDING phase of future research cycles. If the new seed prompt is related to a past failure, agents will see the lessons in their first IDEATION round.
 
-### Recipe 8: Computational Experiments with Prompt File
+### Recipe 8: Literature Review
+
+Produce a comprehensive survey of a research field:
+
+```bash
+paradigm run \
+  --mode review \
+  --prompt "Survey the current state of knowledge on internal gravity waves in massive stars" \
+  --rounds 3
+```
+
+The review mode assembles a team without experimentalist or analyst, skips the EXECUTION phase, and produces a literature review paper with sections for literature landscape, thematic analysis, critical assessment, and future directions. Prompts are tuned for systematic searching and synthesis rather than hypothesis testing.
+
+### Recipe 9: Computational Experiments with Prompt File
 
 Run an experimental cycle with a detailed prompt from a file:
 

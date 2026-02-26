@@ -53,6 +53,7 @@ The name references Thomas Kuhn — paradigm shifts emerge from communities of r
 | **Hypothesis Generator** | Produce testable hypotheses for real scientists to vet | `"Generate hypotheses about stellar variability"` |
 | **Experimental Design** | Propose real-world experiments (to be vetted by humans) | `"Design experiments to test X"` |
 | **Replication** | Attempt to re-derive or replicate existing results | `"Re-derive the period-luminosity relation"` |
+| **Review** | Comprehensive literature review and field synthesis (no experiments) | `"Survey recent advances in asteroseismology"` |
 
 ## 4. Agent Architecture
 

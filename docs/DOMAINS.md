@@ -49,7 +49,7 @@ Domains are registered at import time via `register_domain()` in `src/paradigm/d
 | `writer` | Scientific writing, narrative coherence | Abstract, Introduction, Conclusion |
 | `editor` | Peer review, structured feedback | --- |
 
-### Research Modes (5)
+### Research Modes (6)
 
 | Mode | Team | Description |
 |------|------|-------------|
@@ -58,11 +58,20 @@ Domains are registered at import time via `register_domain()` in `src/paradigm/d
 | `hypothesis` | theorist, skeptic, experimentalist, analyst, writer, editor | Formulate and test precise hypotheses |
 | `experimental` | experimentalist, analyst, theorist, writer, editor | Design and execute computational experiments |
 | `replication` | analyst, experimentalist, skeptic, writer, editor | Reproduce and verify existing results |
+| `review` | theorist, synthesizer, skeptic, writer, editor | Comprehensive literature review and field synthesis (no experiments) |
 
-### Document Template: `academic_paper`
+### Document Templates
+
+#### `academic_paper` (default)
 
 **Sections:** abstract, introduction, methods, results, discussion, conclusion
 **Citation style:** `arxiv`
+**Postprocessors:** `latex_math`
+
+#### `literature_review` (review mode)
+
+**Sections:** abstract, introduction, literature_landscape, thematic_analysis, critical_assessment, future_directions, conclusion
+**Citation style:** `numbered`
 **Postprocessors:** `latex_math`
 
 ### Review Criteria (4)
