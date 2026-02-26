@@ -73,13 +73,21 @@ git clone https://github.com/matteocantiello/paradigm.git
 cd paradigm
 pip install -e ".[dev]"
 
-# Set your API key
+# Set your API keys
 export ANTHROPIC_API_KEY="sk-ant-..."
+export GEMINI_API_KEY="..."
 
 # Run a research cycle
 paradigm run --mode directed \
   --prompt "Explain the period-luminosity relation for Cepheids" \
   --rounds 2
+
+# Run a literature review
+paradigm run --mode review \
+  --prompt "Survey recent advances in asteroseismology of red giants"
+
+# Use a detailed prompt from a file
+paradigm run --mode directed --prompt-file prompt.md
 
 # List produced papers
 paradigm papers
@@ -151,13 +159,19 @@ pip install -e ".[openai]"
 
 ## Key Features
 
-**Literature Integration** --- Agents search arXiv in real-time, fetch and parse PDFs, and build citation context via semantic search (ChromaDB). Published internal papers are citable by future cycles. Agents can stage external datasets with `[DATA: url]` tags during planning.
+**Domain Profiles** --- Pluggable domain system adapts agent roles, document templates, literature sources, and review criteria to different fields. Built-in domains: science (arXiv, Semantic Scholar) and finance (SSRN, SEC EDGAR, FRED).
+
+**Multi-Source Literature** --- Agents drive their own literature searches via `[SEARCH: query]`, `[FOLLOW: arxiv_id]`, `[CITED_BY: arxiv_id]`, and `[READ: arxiv_id]` tags. Sources include arXiv, Semantic Scholar, PubMed, bioRxiv, NASA ADS, and Google Scholar, with budget-constrained deduplication and stall detection that nudges agents from keyword search toward citation graph traversal.
 
 **Computational Sandbox** --- Experimentalist agents write Python code that runs in isolated Docker containers (`--network=none` by default). Results, figures, and stdout feed back into the paper. Use `--network-access` to allow containers to reach the internet when experiments need external data or APIs.
+
+**Literature Review Mode** --- The `review` mode produces comprehensive field surveys without running experiments. A dedicated document template (literature landscape, thematic analysis, critical assessment, future directions) and review-specific prompts guide systematic synthesis.
 
 **Structured Peer Review** --- Independent reviewer agents score papers on novelty, rigor, clarity, and significance (1--10). Papers can be accepted, revised, or rejected. Rejected papers go to the "graveyard" where future cycles learn from past failures.
 
 **Agent Memory** --- Agents build episodic memory across research cycles. Lessons, discoveries, and methodological insights persist and are retrieved via semantic search with recency decay.
+
+**Citation Grounding** --- Optional Perplexity-based pipeline inserts real arXiv references into paper drafts and appends a bibliography. A separate seed discovery step pre-populates the corpus with foundational papers before agents begin.
 
 **Focused Debates** --- When agents disagree, structured debates resolve conflicts through back-and-forth exchanges with synthesis, rather than averaging over disagreement.
 
@@ -172,12 +186,15 @@ Human Operator
       |
       |-- Research Agents (LLM API x N)
       |       |-- Claude (Anthropic)
-      |       |-- DeepSeek, Llama, etc. (OpenAI-compatible)
+      |       |-- Gemini (Google)
+      |       |-- DeepSeek, Llama, Qwen, etc. (OpenAI-compatible)
       |       |
       |       +-- Sandbox (Docker containers, --network=none)
       |
       |-- Literature Service
-      |       |-- arXiv API (search + PDF fetch)
+      |       |-- arXiv, PubMed, bioRxiv, NASA ADS, Google Scholar
+      |       |-- Semantic Scholar (citation graph traversal)
+      |       |-- Perplexity (citation grounding + seed discovery)
       |       +-- ChromaDB (semantic search + internal corpus)
       |
       +-- Journal Pipeline
@@ -192,7 +209,7 @@ No frameworks (no LangChain, no CrewAI). The orchestrator is plain Python with e
 
 | Command | Description |
 |---------|-------------|
-| `paradigm run` | Run a research cycle (`--mode`, `--prompt`, `--rounds`, `--interactive`, `--network-access`) |
+| `paradigm run` | Run a research cycle (`--mode`, `--prompt`, `--prompt-file`, `--rounds`, `--interactive`, `--network-access`, `--fresh-corpus`) |
 | `paradigm status` | System statistics and token usage |
 | `paradigm papers` | List papers (filter by `--status`) |
 | `paradigm paper ID` | View or export a paper (`--export path.md`) |
@@ -210,8 +227,10 @@ src/paradigm/
   orchestrator/        Phase state machine + engine
   agents/              Base agent, factory, prompts, skills, memory
     providers.py       Multi-backend LLM abstraction
-    prompts/           8 role-specific YAML prompt templates
-  literature/          arXiv API, embeddings, corpus, citations
+  domains/             Pluggable domain profiles (science, finance)
+    science/           Science domain: roles, modes, templates, prompts
+    finance/           Finance domain: roles, modes, templates, prompts
+  literature/          Multi-source search, embeddings, corpus, citations
   display/             Rich terminal UI (live layout, components, theme)
   sandbox/             Docker-based code execution
   journal/             Peer review + publication pipeline
@@ -234,7 +253,7 @@ tests/                 pytest + pytest-asyncio
 
 **Alpha** --- The full research loop works end-to-end: seed question to published, peer-reviewed paper.
 
-All major subsystems are implemented: multi-agent orchestration, literature search, computational sandbox, paper writing, peer review with revision loops, agent episodic memory, focused debates, multi-provider LLM support, and intervention hooks.
+All major subsystems are implemented: multi-agent orchestration, multi-source literature search (arXiv, Semantic Scholar, PubMed, bioRxiv, NASA ADS), computational sandbox, paper writing, literature review mode, peer review with revision loops, citation grounding, agent episodic memory, focused debates, multi-provider LLM support, domain profiles, and intervention hooks.
 
 ## License
 
