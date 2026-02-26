@@ -1658,7 +1658,7 @@ class TestLiteratureGraphTraversal:
         now = datetime.now(UTC)
         call_counter = [0]
 
-        async def _unique_search(query, max_results=10):
+        async def _unique_search(query, max_results=10, **kwargs):
             call_counter[0] += 1
             return [
                 SourceResult(

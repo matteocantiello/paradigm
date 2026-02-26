@@ -2727,3 +2727,22 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 
 - Update README.md, docs/MANUAL.md, SPEC.md, docs/DOMAINS.md with review mode
 - Ensure pyproject.toml description reflects latest capabilities
+
+### Prompt — Provider-Targeted Search (`[SEARCH:provider: query]`)
+
+> Implement the following plan:
+>
+> # Plan: Provider-Targeted Search (`[SEARCH:provider: query]`)
+>
+> Add an optional provider hint to agent search markers: `[SEARCH:pubmed: query]`.
+> When specified, only that provider is queried. When omitted, existing domain-aware
+> routing applies unchanged.
+>
+> Changes: prompt_utils.py (regex + return type), orchestrator/literature.py (unpack
+> provider), corpus.py (provider param), constants.py (instruction update), tests.
+
+- Updated regex to capture optional provider prefix
+- Changed `parse_search_requests()` return type to `list[tuple[str, str | None]]`
+- Added `provider` parameter to `corpus.search()` and `_search_via_providers()`
+- Updated `LITERATURE_INSTRUCTION` with provider-targeted syntax
+- Added `tests/test_targeted_search.py`

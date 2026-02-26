@@ -28,8 +28,22 @@ _SENTENCE_END = re.compile(r"[.!?]\s")
 # Maximum query length for arXiv API
 _MAX_QUERY_LENGTH = 300
 
-# Match [SEARCH: query] markers in agent text
-_SEARCH_REQUEST_RE = re.compile(r"\[SEARCH:\s*([^\]]+?)\]", re.IGNORECASE)
+# Match [SEARCH: query] or [SEARCH:provider: query] markers in agent text
+_SEARCH_REQUEST_RE = re.compile(
+    r"\[SEARCH:(?:([a-z_]+):\s*)?([^\]]+?)\]",
+    re.IGNORECASE,
+)
+
+KNOWN_SEARCH_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "arxiv",
+        "pubmed",
+        "biorxiv",
+        "nasa_ads",
+        "semantic_scholar",
+        "google_scholar",
+    }
+)
 
 # Match [FOLLOW: arxiv_id] markers in agent text (reference chasing)
 _FOLLOW_REQUEST_RE = re.compile(r"\[FOLLOW:\s*([^\]]+?)\]", re.IGNORECASE)
@@ -129,29 +143,47 @@ def extract_search_query(text: str) -> str | None:
     return truncated.strip()
 
 
-def parse_search_requests(text: str) -> list[str]:
-    """Extract [SEARCH: query] markers from agent text.
+def parse_search_requests(text: str) -> list[tuple[str, str | None]]:
+    """Extract [SEARCH: query] or [SEARCH:provider: query] markers from agent text.
 
     Deduplicates queries case-insensitively, strips whitespace,
     and ignores empty queries.
+
+    When a provider prefix is present and recognized (in
+    ``KNOWN_SEARCH_PROVIDERS``), it is returned as the second
+    element of the tuple.  Unknown provider names are folded back
+    into the query string (graceful degradation).
 
     Args:
         text: Agent response text.
 
     Returns:
-        List of unique search query strings.
+        List of (query, provider_or_None) tuples.
     """
     matches = _SEARCH_REQUEST_RE.findall(text)
     seen: set[str] = set()
-    queries: list[str] = []
-    for match in matches:
-        query = match.strip()
+    queries: list[tuple[str, str | None]] = []
+    for provider_match, query_match in matches:
+        provider_raw = provider_match.strip() if provider_match else ""
+        query = query_match.strip()
+
+        if provider_raw:
+            provider_lower = provider_raw.lower()
+            if provider_lower in KNOWN_SEARCH_PROVIDERS:
+                provider: str | None = provider_lower
+            else:
+                # Unknown provider — treat as part of the query
+                query = f"{provider_raw}: {query}"
+                provider = None
+        else:
+            provider = None
+
         if not query:
             continue
         key = query.lower()
         if key not in seen:
             seen.add(key)
-            queries.append(query)
+            queries.append((query, provider))
     return queries
 
 

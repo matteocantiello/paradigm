@@ -204,7 +204,7 @@ class TestParseSearchRequests:
     def test_single_marker(self):
         text = "I suggest we search for [SEARCH: Cepheid period-luminosity relation]."
         result = parse_search_requests(text)
-        assert result == ["Cepheid period-luminosity relation"]
+        assert result == [("Cepheid period-luminosity relation", None)]
 
     def test_multiple_markers(self):
         text = (
@@ -213,8 +213,9 @@ class TestParseSearchRequests:
         )
         result = parse_search_requests(text)
         assert len(result) == 2
-        assert "convective overshooting" in result
-        assert "asteroseismology mixed modes" in result
+        queries = [q for q, _p in result]
+        assert "convective overshooting" in queries
+        assert "asteroseismology mixed modes" in queries
 
     def test_case_insensitive_prefix(self):
         text = "[search: lower case] and [Search: Mixed Case] and [SEARCH: UPPER CASE]"
@@ -225,12 +226,12 @@ class TestParseSearchRequests:
         text = "[SEARCH: Cepheids] and later [SEARCH: cepheids] again"
         result = parse_search_requests(text)
         assert len(result) == 1
-        assert result[0] == "Cepheids"  # Preserves first occurrence's case
+        assert result[0][0] == "Cepheids"  # Preserves first occurrence's case
 
     def test_whitespace_stripped(self):
         text = "[SEARCH:   lots of space   ]"
         result = parse_search_requests(text)
-        assert result == ["lots of space"]
+        assert result == [("lots of space", None)]
 
     def test_empty_query_ignored(self):
         text = "[SEARCH: ] and [SEARCH:   ]"

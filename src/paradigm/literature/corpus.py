@@ -107,6 +107,7 @@ class Corpus:
         include_local: bool = True,
         include_arxiv: bool = True,
         categories: list[str] | None = None,
+        provider: str | None = None,
     ) -> list[SourceResult]:
         """Search both local corpus and arXiv, deduplicate, and return.
 
@@ -120,6 +121,8 @@ class Corpus:
             include_local: Whether to search local embeddings.
             include_arxiv: Whether to search arXiv API.
             categories: Optional arXiv category filters.
+            provider: Optional provider name. When set, only this provider is
+                queried (skipping domain-aware routing).
 
         Returns:
             Deduplicated list of SourceResult objects.
@@ -129,7 +132,7 @@ class Corpus:
 
         if self._providers:
             return await self._search_via_providers(
-                query, max_results, include_local, include_arxiv
+                query, max_results, include_local, include_arxiv, provider=provider
             )
 
         return await self._search_legacy(
@@ -142,20 +145,63 @@ class Corpus:
         max_results: int,
         include_local: bool,
         include_arxiv: bool,
+        provider: str | None = None,
     ) -> list[SourceResult]:
         """Provider-based search with domain-aware routing.
 
         Uses DomainRouter to prioritize providers based on the research
         topic, allocating more result slots to relevant providers and
         skipping irrelevant ones entirely.
+
+        When *provider* is set, domain routing is skipped and only the
+        named provider is queried (with the full ``max_results`` budget).
         """
+        all_results: list[SourceResult] = []
+        seen_ids: set[str] = set()
+
+        # --- Targeted provider path ---
+        if provider and provider in self._providers:
+            # Local corpus still included when requested
+            if include_local and "internal_corpus" in self._providers:
+                local_results = await self._providers["internal_corpus"].search(
+                    query, max_results=max_results
+                )
+                for r in local_results:
+                    if r.id not in seen_ids:
+                        all_results.append(r)
+                        seen_ids.add(r.id)
+
+            try:
+                results = await self._providers[provider].search(query, max_results=max_results)
+                for r in results:
+                    if r.id not in seen_ids:
+                        all_results.append(r)
+                        seen_ids.add(r.id)
+            except Exception:
+                pass  # Provider can fail silently
+
+            results = all_results[:max_results]
+
+            if self._logger:
+                self._logger.log(
+                    EventType.LITERATURE_SEARCH,
+                    content={
+                        "query": query,
+                        "total_results": len(results),
+                        "targeted_provider": provider,
+                        "sources": {
+                            "local": include_local,
+                        },
+                    },
+                )
+
+            return results
+
+        # --- Domain-aware routing path (default) ---
         from paradigm.literature.domain_router import (
             compute_result_allocation,
             rank_providers,
         )
-
-        all_results: list[SourceResult] = []
-        seen_ids: set[str] = set()
 
         # Determine which external providers to query
         external_providers = [
@@ -184,15 +230,15 @@ class Corpus:
         providers_queried: list[str] = []
         providers_skipped: list[str] = []
         for name, _score in ranked:
-            provider = self._providers.get(name)
-            if provider is None:
+            prov = self._providers.get(name)
+            if prov is None:
                 continue
             provider_max = allocation.get(name, 0)
             if provider_max <= 0:
                 providers_skipped.append(name)
                 continue
             try:
-                results = await provider.search(query, max_results=provider_max)
+                results = await prov.search(query, max_results=provider_max)
                 for r in results:
                     if r.id not in seen_ids:
                         all_results.append(r)

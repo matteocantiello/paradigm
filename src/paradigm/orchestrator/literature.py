@@ -280,13 +280,13 @@ class LiteratureHandler:
             // _PER_AGENT_CAP_DENOMINATOR,
         )
 
-        queries = parse_search_requests(response_text)
-        if not queries:
+        search_requests = parse_search_requests(response_text)
+        if not search_requests:
             return
 
         consecutive_stale = 0  # Track consecutive 0-new results within this agent's batch
 
-        for query in queries:
+        for query, provider in search_requests:
             # Global exact dedup: skip queries already executed in this cycle
             query_key = query.lower().strip()
             if query_key in self.searched_queries:
@@ -311,7 +311,9 @@ class LiteratureHandler:
 
             try:
                 papers = await self._engine._corpus.search(
-                    query, max_results=self._engine._config.literature.max_results_per_search
+                    query,
+                    max_results=self._engine._config.literature.max_results_per_search,
+                    provider=provider,
                 )
             except Exception as e:
                 self._engine._logger.log_error(
@@ -375,17 +377,23 @@ class LiteratureHandler:
             self.search_count_this_round += 1
             self.agent_search_count[agent_id] = self.agent_search_count.get(agent_id, 0) + 1
 
-            self._engine._display.search_result(agent_id, query, len(papers), len(new_papers))
+            display_query = f"[{provider}] {query}" if provider else query
+            self._engine._display.search_result(
+                agent_id, display_query, len(papers), len(new_papers)
+            )
 
+            log_content: dict[str, Any] = {
+                "query": query,
+                "agent_id": agent_id,
+                "results": len(papers),
+                "phase": str(phase),
+                "search_num": self.search_count_this_round,
+            }
+            if provider:
+                log_content["provider"] = provider
             self._engine._logger.log(
                 EventType.LITERATURE_SEARCH,
-                content={
-                    "query": query,
-                    "agent_id": agent_id,
-                    "results": len(papers),
-                    "phase": str(phase),
-                    "search_num": self.search_count_this_round,
-                },
+                content=log_content,
                 thread_id=self._engine._thread_id,
                 phase=str(phase),
             )
