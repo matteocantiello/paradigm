@@ -217,6 +217,16 @@ class ReviewHandler:
                     + "\nFlag these issues in your review."
                 )
 
+            # Inject figure existence warnings
+            fig_warnings = self._engine._writing._validate_figure_references(current_body)
+            if fig_warnings:
+                prompt += (
+                    "\n\n## Figure Existence Alerts\n"
+                    + "\n".join(f"- {w}" for w in fig_warnings)
+                    + "\n**Required:** Remove references to non-existent figures, "
+                    "or replace with descriptive text (e.g., 'a visualization would show...')."
+                )
+
             # Inject automated forbidden claims violations if detected
             if self._engine._forbidden_claims_violations:
                 prompt += (

@@ -2573,3 +2573,100 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `src/paradigm/display/fallback.py` — `review_editor_retry()` display method
 - `src/paradigm/display/manager.py` — `review_editor_retry()` display method
 - Tests: 945 passed (75 experimentation, 67 writing, full suite green)
+
+### Prompt 207 — Analyze paper-c26c233833a8 Logs (Post-Fix Evaluation #2)
+
+> Let's analyze the logs of paper-c26c233833a8.md (note I ran with --testing). It would be good to understand if the updates we made have improved the execution and the outcome. Are the logs revealing obvious shortcoming of the current approach and/or ways to improve?
+
+**Key objective**: Evaluate whether the 7 post-mortem fixes (Prompt 206) improved execution quality by analyzing the first run after implementation.
+
+### Prompt 208 — Deep Analysis of paper-c26c233833a8
+
+> Read and analyze the paper at /Users/mcantiello/astro/paradigm/data/papers/paper-c26c233833a8/paper-c26c233833a8.md
+>
+> Evaluate:
+> 1. Overall quality: Is this a coherent, well-structured research paper? Rate 1-10.
+> 2. Unicode vs LaTeX: Does the paper use proper LaTeX math mode ($...$) or are there still Unicode math symbols?
+> 3. Data origin honesty: Does the paper clearly state data is synthetic/simulated?
+> 4. Section redundancy: Are the same numbers/findings repeated verbatim across sections?
+> 5. Reference quality: How many references? Are they bare URLs or proper citations?
+> 6. Figure references: Does the paper reference figures that exist?
+> 7. Internal consistency: Do numbers in the abstract match numbers in the body?
+> 8. Paper outcome: Was the paper accepted, rejected, or desk-rejected?
+>
+> Read the reviews.md file as well.
+
+**Key objective**: Detailed quality audit of the paper produced after post-mortem fixes.
+
+---
+
+## 2026-02-19
+
+### Prompt — Literature Search Log Analysis (paper-c26c233833a8)
+
+> Read and analyze the literature search log at /Users/mcantiello/astro/paradigm/data/papers/paper-c26c233833a8/literature_searches.md
+>
+> Evaluate:
+> 1. Total searches: How many literature searches were performed?
+> 2. Unique vs duplicate: How many were unique? Were there duplicate or near-duplicate queries?
+> 3. Phase distribution: Which phases had the most searches?
+> 4. Search quality: Were the search queries specific and relevant, or vague/generic?
+> 5. Results yield: How many total papers were found? How many were "new" vs already in corpus?
+> 6. Agent distribution: Which agents performed the most searches?
+> 7. Wasted searches: Were there searches that returned 0 results or clearly irrelevant results?
+
+**Key objective**: Evaluate efficiency and quality of the literature search pipeline for this paper run.
+
+### Prompt 210 — Post-Fix Effectiveness Analysis (paper-c26c233833a8)
+
+> Analyze the JSONL events log at data/events.jsonl to evaluate the effectiveness of 7 recent fixes in the Paradigm research system. The paper being analyzed is paper-c26c233833a8 (thread-282863bad52c). Look for evidence of: Fix 1 (AST syntax pre-check), Fix 2 (internal review retry), Fix 3 (unicode sanitization), Fix 5 (data origin), Fix 6 (code truncation), Fix 7 (reference quality). Also provide total token usage, phase-by-phase breakdown, API calls, and error events.
+
+**Key objective**: Determine whether the 7 post-mortem fixes from Prompt 206 are demonstrably effective in this first post-fix run.
+
+### Prompt 211 — Analyze paper-bfc2caed84a9 Logs (Post-Fix Evaluation #3)
+
+> Let's analyze the logs of paper-bfc2caed84a9.md (note I ran with --testing). It would be good to understand if the updates we made have improved the execution and the outcome. Are the logs revealing obvious shortcoming of the current approach and/or ways to improve?
+
+**Key objective**: Third post-fix evaluation to assess consistency of improvements and identify remaining failure patterns.
+
+### Prompt 212 — Deep Transcript Analysis of paper-bfc2caed84a9 Execution Phase
+
+> Analyze the transcript of a Paradigm research cycle run at /Users/mcantiello/astro/paradigm/data/papers/paper-bfc2caed84a9/transcript.md. This is a large file (~1.3MB). Focus specifically on the EXECUTION phase experiments. Evaluate: success/failure rate, failure categories, AST pre-check (Fix 1), retry effectiveness, code truncation (Fix 6), sprint design review, internal review (Fix 2), cascading dependency failures, token waste, timeout issues. Also check the experiments directory and count figures produced.
+
+**Key objective**: Deep dive into transcript to evaluate post-fix effectiveness with specific evidence from the execution phase.
+
+### Prompt 213 — Detailed Paper Quality Evaluation (paper-bfc2caed84a9)
+
+> Read and analyze the paper at data/papers/paper-bfc2caed84a9/paper-bfc2caed84a9.md. Also read the reviews at data/papers/paper-bfc2caed84a9/reviews.md. Also list the figures directory. Evaluate: (1) overall quality, (2) Unicode vs LaTeX, (3) data origin honesty, (4) section redundancy, (5) reference quality, (6) figure references, (7) internal consistency, (8) paper outcome, (9) revision artifacts, (10) results in methods.
+
+**Key objective**: Comprehensive 10-point quality audit of the final paper output to assess scientific writing quality, formatting compliance, and content integrity.
+
+### Prompt 214 — JSONL Events Log Analysis for paper-bfc2caed84a9
+
+> Analyze the JSONL events log at /Users/mcantiello/astro/paradigm/data/events.jsonl to evaluate the latest Paradigm run that produced paper-bfc2caed84a9. Find the thread ID, filter to that thread, and provide: (1) Thread ID, (2) Total token usage, (3) Total elapsed time, (4) Number of API calls, (5) Number of code executions and success/failure breakdown, (6) Phase durations, (7) Error events, (8) Fix effectiveness evidence for AST pre-check, review retry, synthetic data awareness, reference quality, (9) Anomalies.
+
+**Key objective**: Quantitative post-mortem analysis of the events log to evaluate run efficiency, error patterns, and fix effectiveness with specific numbers.
+
+### Prompt 215 — Literature Search Log Analysis for paper-bfc2caed84a9
+
+> Read and analyze the literature search log at /Users/mcantiello/astro/paradigm/data/papers/paper-bfc2caed84a9/literature_searches.md. Evaluate: (1) Total searches, (2) Unique vs duplicate queries, (3) Phase distribution, (4) Search quality, (5) Results yield and new vs already-in-corpus, (6) Agent distribution, (7) Wasted searches, (8) Off-topic contamination.
+
+**Key objective**: Quantitative evaluation of literature search efficiency, redundancy, and quality.
+
+### Prompt 216 — Post-Mortem Analysis of paper-cdddc9232c19
+
+> Let's analyze the logs of paper-cdddc9232c19.md. It would be good to understand if the updates we made have improved the execution and the outcome. Are the logs revealing obvious shortcoming of the current approach and/or ways to improve?
+
+**Key objective**: Comprehensive post-mortem of the fourth run after implementing 7 fixes. Evaluate fix effectiveness, paper quality, experiment success rate, and identify remaining failure modes.
+
+### Prompt 218 — Implement 7 Post-Mortem Fixes from paper-cdddc9232c19
+
+> Implement the following plan:
+> 
+> # Plan: 7 Post-Mortem Fixes from paper-cdddc9232c19 Analysis
+> 
+> Post-mortem analysis of paper-cdddc9232c19 ("Entropy, Prediction, and the Physics of Musical Experience") — the fourth run after implementing 13 prior fixes. Key fixes: 1) Schema contract for experiments (CSV peeking), 2) Writing assembly timeout handling, 3) Figure existence validation, 4) Search topic-relevance boosting, 5) Citation grounding fallback, 6) Thread ID on all API events, 7) Convergence log clarification.
+
+**Key decisions**: Implementing 7 targeted fixes to address schema mismatches, writing timeouts, phantom figures, astrophysics search bias, silent citation failures, missing thread_id on events, and confusing convergence logs.
+
+**Artifacts modified**: experimentation.py, constants.py, writing.py, review.py, literature.py, bibliography.py, events.py, engine.py, fallback.py, manager.py, test_experimentation.py, test_writing.py

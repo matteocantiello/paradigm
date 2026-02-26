@@ -804,6 +804,13 @@ class DisplayManager:
         else:
             self._fallback.writing_no_writer()
 
+    def writing_assembly_retry(self, attempt: int, error: Exception) -> None:
+        self._state.add_event("writing", f"Assembly API error, retry {attempt}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.writing_assembly_retry(attempt, error)
+
     def writing_assembly_error(self, error: str | Exception) -> None:
         self._state.add_event("error", "Assembly failed")
         if self._use_rich:

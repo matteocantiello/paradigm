@@ -278,7 +278,8 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "{workspace_manifest}"
             "{previous_results}"
             "If workspace files exist above, your experiments MUST use the exact "
-            "filenames and data schemas shown. Do NOT assume different file formats.\n\n"
+            "filenames, column names, and dictionary keys shown in the Schema lines. "
+            "Do NOT assume different file formats, column names, or key names.\n\n"
             "**DO NOT write code yet.** Instead, describe your planned experiments "
             "as a numbered list. For each experiment provide:\n"
             "1. **Name:** A short identifier\n"
@@ -1148,10 +1149,16 @@ def _is_duplicate_query(
     return False
 
 
+def _extract_topic_keywords(seed_prompt: str) -> frozenset[str]:
+    """Extract core topic keywords from the seed prompt for relevance boosting."""
+    return _normalize_query_keywords(seed_prompt)
+
+
 def _filter_relevant_papers(
     query: str,
     papers: list,
     threshold: float = 0.15,
+    topic_keywords: frozenset[str] | None = None,
 ) -> list:
     """Filter search results by keyword relevance to the query.
 
@@ -1159,10 +1166,16 @@ def _filter_relevant_papers(
     title/summary). This avoids the Jaccard penalty where papers with
     long abstracts dilute the score despite being relevant.
 
+    When *topic_keywords* is provided (from the seed prompt), papers
+    that have zero overlap with the topic AND low query coverage (< 0.3)
+    are filtered out. This catches papers matching generic keywords like
+    "entropy" but not domain terms like "music" or "cognition".
+
     Args:
         query: The search query string.
         papers: List of paper objects (must have .title and optionally .summary).
         threshold: Minimum query coverage to keep a paper.
+        topic_keywords: Optional topic keywords from the seed prompt.
 
     Returns:
         Filtered list of papers above the threshold.
@@ -1184,8 +1197,18 @@ def _filter_relevant_papers(
         if not paper_kw:
             continue
         coverage = len(query_kw & paper_kw) / len(query_kw)
-        if coverage >= threshold:
-            filtered.append(paper)
+        if coverage < threshold:
+            continue
+
+        # Topic-relevance check: papers with low query coverage AND zero
+        # topic overlap are likely off-topic (e.g. astrophysics papers
+        # matching generic terms like "entropy" in a music cognition study)
+        if topic_keywords and coverage < 0.3:
+            topic_overlap = len(topic_keywords & paper_kw)
+            if topic_overlap == 0:
+                continue
+
+        filtered.append(paper)
     return filtered
 
 

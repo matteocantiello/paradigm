@@ -741,6 +741,7 @@ class OrchestrationEngine:
                 model=response.model,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
+                thread_id=self._thread_id,
             )
             self._db.record_token_usage(
                 model=response.model,
@@ -1265,6 +1266,7 @@ class OrchestrationEngine:
             model=provider.default_model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            thread_id=self._thread_id,
         )
 
         # Parse JSON response (strip markdown fences if present)
@@ -1308,6 +1310,12 @@ class OrchestrationEngine:
                 "threshold": threshold,
                 "rationale": rationale,
                 "skipping": is_converged,
+                "interpretation": (
+                    f"LLM judged {'converged' if converged else 'not converged'} "
+                    f"with {confidence:.0%} certainty "
+                    f"(threshold: {threshold:.0%}). "
+                    f"{'Skipping remaining rounds.' if is_converged else 'Continuing.'}"
+                ),
             },
             thread_id=self._thread_id,
             phase=str(phase),
@@ -1379,6 +1387,7 @@ class OrchestrationEngine:
             model=response.model,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
+            thread_id=self._thread_id,
         )
         self._db.record_token_usage(
             model=response.model,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import shutil
 import uuid
@@ -640,6 +641,14 @@ class WritingHandler:
                         f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`"
                     )
                 prompt += "\n".join(fig_lines)
+            else:
+                prompt += (
+                    "\n\n## NO FIGURES AVAILABLE\n"
+                    "No figure files were produced by the experiments. "
+                    "Do NOT reference any Figure numbers in your text. "
+                    "Describe results in text only. You may mention that "
+                    "visualization would be informative for future work."
+                )
 
             # Inject POST_EXECUTION team assessment — the research team's
             # critical evaluation of what the results actually show
@@ -676,6 +685,54 @@ class WritingHandler:
             await self._engine._literature.process_literature_actions(
                 agent_id, response.content, ResearchPhase.WRITING
             )
+
+    def _fallback_assembly(self, draft: PaperDraft) -> str:
+        """Emergency fallback: concatenate section drafts when assembly API fails.
+
+        Args:
+            draft: PaperDraft with section drafts.
+
+        Returns:
+            Concatenated section content.
+        """
+        parts = []
+        for section_name in draft.section_order:
+            if section_name in draft.sections:
+                parts.append(draft.sections[section_name].content)
+        return "\n\n".join(parts)
+
+    def _validate_figure_references(self, body: str) -> list[str]:
+        """Check that figures referenced in text have corresponding files.
+
+        Returns list of warning strings.
+        """
+        warnings: list[str] = []
+
+        # Find all Figure N references in text
+        fig_refs = set(int(m.group(1)) for m in re.finditer(r"\b(?:Figure|Fig\.?)\s+(\d+)\b", body))
+
+        # How many actual figure files do we have?
+        actual_count = (
+            len(self._engine._execution_figures) if self._engine._execution_figures else 0
+        )
+
+        if fig_refs and actual_count == 0:
+            warnings.append(
+                f"Paper references {len(fig_refs)} figures "
+                f"(Figure {', '.join(str(n) for n in sorted(fig_refs))}) "
+                f"but NO figure files were produced by experiments. "
+                f"Remove figure references or describe them as planned/conceptual."
+            )
+        elif fig_refs:
+            missing = {n for n in fig_refs if n > actual_count}
+            if missing:
+                warnings.append(
+                    f"Paper references Figure(s) "
+                    f"{', '.join(str(n) for n in sorted(missing))} "
+                    f"but only {actual_count} figure file(s) exist."
+                )
+
+        return warnings
 
     async def run_assembly(self, draft: PaperDraft) -> str:
         """Round 2 of writing: writer assembles all sections into a coherent paper.
@@ -762,18 +819,30 @@ class WritingHandler:
                 "the visualization was not generated."
             )
 
-        try:
-            response = await writer_agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
-            self._engine._log_agent_response(
-                writer_agent.agent_id, response, ResearchPhase.WRITING, "assembly"
-            )
-            return strip_agent_scaffolding(response.content)
-        except Exception as e:
-            self._engine._logger.log_error(
-                e, agent_id=writer_agent.agent_id, thread_id=self._engine._thread_id
-            )
-            self._engine._display.writing_assembly_error(e)
-            return draft.to_markdown()
+        _assembly_max_retries = 1
+        assembled_text = None
+        for attempt in range(_assembly_max_retries + 1):
+            try:
+                response = await writer_agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
+                self._engine._log_agent_response(
+                    writer_agent.agent_id, response, ResearchPhase.WRITING, "assembly"
+                )
+                assembled_text = strip_agent_scaffolding(response.content)
+                break
+            except Exception as e:
+                self._engine._logger.log_error(
+                    e,
+                    agent_id=writer_agent.agent_id,
+                    thread_id=self._engine._thread_id,
+                )
+                if attempt < _assembly_max_retries:
+                    self._engine._display.writing_assembly_retry(attempt + 1, e)
+                    await asyncio.sleep(5)
+                else:
+                    self._engine._display.writing_assembly_error(e)
+                    assembled_text = self._fallback_assembly(draft)
+
+        return assembled_text or draft.to_markdown()
 
     def embed_figures_inline(self, body: str) -> str:
         """Post-process paper markdown to embed figure image tags inline.

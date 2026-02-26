@@ -322,6 +322,9 @@ class PlainTextFallback:
     def writing_no_writer(self) -> None:
         click.echo("    [!] No writer agent found, assembling from sections")
 
+    def writing_assembly_retry(self, attempt: int, error: Exception) -> None:
+        click.echo(f"    [assembly] API error, retrying ({attempt})...")
+
     def writing_assembly_error(self, error: str | Exception) -> None:
         click.echo(f"    [!] Writer assembly failed: {error}")
 

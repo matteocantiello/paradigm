@@ -21,6 +21,7 @@ from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.orchestrator.experimentation import (
     SprintStopReason,
     _categorize_failure,
+    _peek_csv_schema,
     _peek_json_schema,
 )
 from paradigm.sandbox.models import (
@@ -2251,3 +2252,49 @@ class TestAdvisoryContext:
         call_args = str(theorist.generate.call_args)
         assert "Red noise in massive stars" in call_args
         assert "3 consecutive" in call_args
+
+
+# --- Unit tests: CSV schema peeking (Fix 1 from paper-cdddc9232c19) ---
+
+
+class TestPeekCsvSchema:
+    def test_basic_csv(self, tmp_path):
+        csv_file = tmp_path / "data.csv"
+        csv_file.write_text("name,age,score\nAlice,30,95\nBob,25,88\n")
+        result = _peek_csv_schema(csv_file)
+        assert "CSV columns" in result
+        assert "2 rows" in result
+        assert "name" in result
+        assert "age" in result
+        assert "score" in result
+
+    def test_empty_csv(self, tmp_path):
+        csv_file = tmp_path / "empty.csv"
+        csv_file.write_text("")
+        result = _peek_csv_schema(csv_file)
+        assert result == ""
+
+    def test_header_only_csv(self, tmp_path):
+        csv_file = tmp_path / "header.csv"
+        csv_file.write_text("col_a,col_b\n")
+        result = _peek_csv_schema(csv_file)
+        assert "0 rows" in result
+        assert "col_a" in result
+
+    def test_many_columns_truncated(self, tmp_path):
+        csv_file = tmp_path / "wide.csv"
+        cols = [f"col_{i}" for i in range(20)]
+        csv_file.write_text(",".join(cols) + "\n" + ",".join(["1"] * 20) + "\n")
+        result = _peek_csv_schema(csv_file, max_cols=5)
+        assert "+15 more" in result
+
+    def test_nonexistent_file(self, tmp_path):
+        result = _peek_csv_schema(tmp_path / "no_such.csv")
+        assert result == ""
+
+    def test_binary_file(self, tmp_path):
+        binary_file = tmp_path / "data.csv"
+        binary_file.write_bytes(b"\x00\x01\x02\xff" * 100)
+        result = _peek_csv_schema(binary_file)
+        # Should not crash — returns empty or a parsed line
+        assert isinstance(result, str)

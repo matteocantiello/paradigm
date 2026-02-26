@@ -34,6 +34,7 @@ from paradigm.orchestrator.constants import (
     _STALE_SEARCH_THRESHOLD,
     _TITLE_TRUNCATION_INDEX,
     _TITLE_TRUNCATION_SHORT,
+    _extract_topic_keywords,
     _filter_relevant_papers,
     _is_duplicate_query,
     _normalize_query_keywords,
@@ -319,7 +320,10 @@ class LiteratureHandler:
             # Filter irrelevant papers by keyword overlap with query
             relevance_threshold = self._engine._config.orchestrator.search_relevance_threshold
             pre_filter_count = len(papers)
-            papers = _filter_relevant_papers(query, papers, threshold=relevance_threshold)
+            topic_kw = _extract_topic_keywords(self._engine._seed_prompt)
+            papers = _filter_relevant_papers(
+                query, papers, threshold=relevance_threshold, topic_keywords=topic_kw
+            )
             filtered_count = pre_filter_count - len(papers)
             if filtered_count > 0:
                 _logger.info(

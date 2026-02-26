@@ -1,6 +1,7 @@
 """Tests for paper models, writing phase, and review pipeline."""
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -837,3 +838,122 @@ class TestBuildEstablishedPoints:
         result = OrchestrationEngine._build_established_points(messages)
         # Should have at most 5 bullet points in output
         assert result.count("- ") <= 5
+
+
+# --- Unit tests: _validate_figure_references (Fix 3 from paper-cdddc9232c19) ---
+
+
+class TestValidateFigureReferences:
+    def _make_engine(self, tmp_path):
+        from paradigm.config import Config
+        from paradigm.logging.events import EventLogger
+        from paradigm.storage.database import Database
+
+        config = Config(
+            api_key="fake",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={"max_rounds_per_phase": 1},
+        )
+        patch_config_provider(config)
+        db = Database(tmp_path / "test.db")
+        logger = EventLogger(tmp_path / "events.jsonl")
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[])
+        corpus = MagicMock()
+        engine = OrchestrationEngine(
+            config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
+        )
+        db.close()
+        return engine
+
+    def test_no_figures_no_refs(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = []
+        warnings = engine._writing._validate_figure_references("No figures here.")
+        assert warnings == []
+
+    def test_refs_but_no_figures(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = []
+        body = "As shown in Figure 1 and Figure 2, the results are clear."
+        warnings = engine._writing._validate_figure_references(body)
+        assert len(warnings) == 1
+        assert "NO figure files" in warnings[0]
+        assert "Figure 1, 2" in warnings[0]
+
+    def test_refs_within_figure_count(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = [
+            ("exp_a", Path("/tmp/fig1.png")),
+            ("exp_b", Path("/tmp/fig2.png")),
+        ]
+        body = "Figure 1 and Figure 2 show the data."
+        warnings = engine._writing._validate_figure_references(body)
+        assert warnings == []
+
+    def test_refs_exceed_figure_count(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = [("exp_a", Path("/tmp/fig1.png"))]
+        body = "Figure 1 is good, but Figure 3 is missing."
+        warnings = engine._writing._validate_figure_references(body)
+        assert len(warnings) == 1
+        assert "Figure(s) 3" in warnings[0]
+
+    def test_fig_abbreviation(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        engine._execution_figures = []
+        body = "See Fig. 1 for details and Fig 2 for more."
+        warnings = engine._writing._validate_figure_references(body)
+        assert len(warnings) == 1
+        assert "NO figure files" in warnings[0]
+
+
+# --- Unit tests: _fallback_assembly (Fix 2 from paper-cdddc9232c19) ---
+
+
+class TestFallbackAssembly:
+    def _make_engine(self, tmp_path):
+        from paradigm.config import Config
+        from paradigm.logging.events import EventLogger
+        from paradigm.storage.database import Database
+
+        config = Config(
+            api_key="fake",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={"max_rounds_per_phase": 1},
+        )
+        patch_config_provider(config)
+        db = Database(tmp_path / "test.db")
+        logger = EventLogger(tmp_path / "events.jsonl")
+        factory = MagicMock()
+        factory.create_team = MagicMock(return_value=[])
+        corpus = MagicMock()
+        engine = OrchestrationEngine(
+            config=config, database=db, corpus=corpus, logger=logger, agent_factory=factory
+        )
+        db.close()
+        return engine
+
+    def test_concatenates_sections_in_order(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        draft = PaperDraft(section_order=["abstract", "introduction", "conclusion"])
+        draft.add_section(
+            SectionDraft(section="abstract", content="This is the abstract.", author="w")
+        )
+        draft.add_section(
+            SectionDraft(section="conclusion", content="This is the conclusion.", author="w")
+        )
+        draft.add_section(
+            SectionDraft(section="introduction", content="This is the introduction.", author="w")
+        )
+
+        result = engine._writing._fallback_assembly(draft)
+        # Sections should be in section_order order, not insertion order
+        assert result.index("abstract") < result.index("introduction")
+        assert result.index("introduction") < result.index("conclusion")
+
+    def test_empty_draft(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        draft = PaperDraft(section_order=["abstract", "introduction"])
+        result = engine._writing._fallback_assembly(draft)
+        assert result == ""

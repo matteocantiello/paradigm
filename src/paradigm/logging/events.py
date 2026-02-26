@@ -123,6 +123,7 @@ class EventLogger:
         model: str,
         input_tokens: int,
         output_tokens: int,
+        thread_id: str | None = None,
         **metadata: Any,
     ) -> None:
         """Log a Claude API call.
@@ -132,6 +133,7 @@ class EventLogger:
             model: Model used
             input_tokens: Input token count
             output_tokens: Output token count
+            thread_id: ID of the research thread (if applicable)
             **metadata: Additional metadata
         """
         self.log(
@@ -142,6 +144,7 @@ class EventLogger:
                 "output_tokens": output_tokens,
             },
             agent_id=agent_id,
+            thread_id=thread_id,
             **metadata,
         )
 

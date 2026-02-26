@@ -67,6 +67,32 @@ class SprintStopReason(Enum):
     PIVOT = "pivot"
 
 
+def _peek_csv_schema(filepath: Path, max_cols: int = 12) -> str:
+    """Return column names from a CSV file header row.
+
+    Args:
+        filepath: Path to a CSV file.
+        max_cols: Maximum number of columns to show.
+
+    Returns:
+        Compact schema string, or empty string on error.
+    """
+    import csv
+
+    try:
+        with open(filepath, newline="") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+        if not header:
+            return ""
+        row_count = sum(1 for _ in open(filepath)) - 1  # exclude header
+        cols = header[:max_cols]
+        extra = f" ... +{len(header) - max_cols} more" if len(header) > max_cols else ""
+        return f"CSV columns ({row_count} rows): {cols}{extra}"
+    except (OSError, UnicodeDecodeError, StopIteration):
+        return ""
+
+
 def _peek_json_schema(filepath: Path, max_keys: int = 8) -> str:
     """Return compact schema description of a JSON file.
 
@@ -133,6 +159,10 @@ def _build_workspace_manifest(workspace_dir: Path) -> str:
         lines.append(f"- `/data/workspace/{rel}` ({size_str})")
         if f.suffix == ".json" and size < 500_000:
             schema = _peek_json_schema(f)
+            if schema:
+                lines.append(f"  Schema: {schema}")
+        elif f.suffix == ".csv" and size < 500_000:
+            schema = _peek_csv_schema(f)
             if schema:
                 lines.append(f"  Schema: {schema}")
     if len(files) > 30:

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from paradigm.literature.arxiv import ArxivClient
 from paradigm.literature.semantic_scholar import SemanticScholarClient
-from paradigm.logging.events import EventLogger
+from paradigm.logging.events import EventLogger, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,19 @@ class BibliographyBuilder:
 
             references.append(ref)
 
+        # Count and report unverified references
+        url_only = [r for r in references if not r.title]
+        if url_only and self._event_logger:
+            self._event_logger.log(
+                EventType.ERROR,
+                content={
+                    "event": "citation_grounding_incomplete",
+                    "total_refs": len(references),
+                    "unverified": len(url_only),
+                    "unverified_ids": [r.arxiv_id for r in url_only[:10]],
+                },
+            )
+
         return references
 
     async def _fetch_metadata(self, ref: Reference, arxiv_id: str) -> None:
@@ -136,6 +149,16 @@ class BibliographyBuilder:
                     return
             except Exception as e:
                 logger.debug("arXiv metadata fetch failed for %s: %s", arxiv_id, e)
+
+        # Both lookups failed — reference will be URL-only
+        if self._event_logger:
+            self._event_logger.log(
+                EventType.ERROR,
+                content=(
+                    f"Citation metadata lookup failed for arXiv:{arxiv_id} "
+                    f"(both Semantic Scholar and arXiv API returned no results)"
+                ),
+            )
 
     @staticmethod
     def format_bibliography_markdown(references: list[Reference]) -> str:
