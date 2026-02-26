@@ -130,10 +130,13 @@ class DomainProfile(BaseModel):
     document_template: DocumentTemplate = Field(
         default_factory=lambda: DocumentTemplate(name="default")
     )
+    mode_templates: dict[str, DocumentTemplate] = Field(default_factory=dict)
     prompts_dir: Path = Field(default_factory=lambda: Path("."))
     default_roles: dict[str, list[str]] = Field(default_factory=dict)
     role_search_strategies: dict[str, str] = Field(default_factory=dict)
     role_later_round_reinforcements: dict[str, str] = Field(default_factory=dict)
+    mode_role_reinforcements: dict[str, dict[str, str]] = Field(default_factory=dict)
+    mode_role_search_strategies: dict[str, dict[str, str]] = Field(default_factory=dict)
     literature_instruction: str = ""
     phase_active_roles: dict[str, list[str]] | None = None
 

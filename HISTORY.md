@@ -2709,3 +2709,14 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - Update `src/paradigm/storage/corpus.py` — Add fresh-start logic
 - Update tests if needed
 
+
+## 2026-02-25
+
+### Prompt — Implement Literature Review Mode (`--mode review`)
+
+> Implement the following plan: [Full plan for Literature Review Mode]
+
+- Adds `--mode review` for pure literature survey work
+- Review-specific prompts, team composition, document template
+- No engine flow changes needed (execution already skips without experimentalist)
+- 9 files modified, 1 new test file

@@ -175,7 +175,9 @@ def cli(ctx: click.Context, config: Path | None) -> None:
 @cli.command()
 @click.option(
     "--mode",
-    type=click.Choice(["directed", "explore", "hypothesis", "experimental", "replication"]),
+    type=click.Choice(
+        ["directed", "explore", "hypothesis", "experimental", "replication", "review"]
+    ),
     default="directed",
     help="Research operating mode",
 )
@@ -266,8 +268,8 @@ def run(
             sys.exit(1)
         display.prompt_loaded(str(prompt_file), len(prompt))
 
-    if mode == "directed" and not prompt:
-        click.echo("Error: --prompt or --prompt-file required for directed mode", err=True)
+    if mode in ("directed", "review") and not prompt:
+        click.echo(f"Error: --prompt or --prompt-file required for {mode} mode", err=True)
         sys.exit(1)
 
     if mode == "explore" and not topic:

@@ -33,6 +33,7 @@ from paradigm.orchestrator.constants import (
     _DEBATE_ENABLED_PHASES,
     _GENERAL_LATER_ROUND_REINFORCEMENT,
     _MODE_PROMPT_OVERRIDES,
+    _MODE_SYNTHESIS_OVERRIDES,
     _PHASE_ACTIVE_ROLES,
     _PHASE_CONTEXT_NEEDS,
     _PHASE_INSTRUCTIONS,
@@ -775,7 +776,10 @@ class OrchestrationEngine:
         Args:
             phase: The phase being concluded.
         """
-        template = _SYNTHESIS_CLOSING_TEMPLATES.get(phase)
+        # Check mode-specific synthesis overrides first
+        template = _MODE_SYNTHESIS_OVERRIDES.get(self._mode, {}).get(phase)
+        if template is None:
+            template = _SYNTHESIS_CLOSING_TEMPLATES.get(phase)
         if template is None:
             return
 
@@ -839,8 +843,12 @@ class OrchestrationEngine:
         template = templates.get(template_key, "Contribute to the research discussion.")
 
         # Apply mode-specific overrides if available
+        # Check phase-specific key first (e.g., "planning_round_1"), then generic
         mode_overrides = _MODE_PROMPT_OVERRIDES.get(self._mode, {})
-        if template_key in mode_overrides:
+        phase_key = f"{phase.value}_{template_key}"  # e.g., "planning_round_1"
+        if phase_key in mode_overrides:
+            template = mode_overrides[phase_key]
+        elif template_key in mode_overrides:
             template = mode_overrides[template_key]
 
         # Build checkpoint context
@@ -960,10 +968,13 @@ class OrchestrationEngine:
             established = self._build_established_points(self._messages[-_RECENT_MESSAGES_LIMIT:])
             if established:
                 formatted += established
-            # Role-specific reinforcement (from profile or hardcoded fallback)
+            # Role-specific reinforcement (mode override > profile default > hardcoded)
+            reinforcement = ""
             if self._profile is not None:
-                reinforcement = self._profile.role_later_round_reinforcements.get(
-                    agent.skill_profile, ""
+                mode_reinforcements = self._profile.mode_role_reinforcements.get(self._mode, {})
+                reinforcement = mode_reinforcements.get(
+                    agent.skill_profile,
+                    self._profile.role_later_round_reinforcements.get(agent.skill_profile, ""),
                 )
             else:
                 from paradigm.domains.science.constants import (
@@ -991,9 +1002,14 @@ class OrchestrationEngine:
                 )
 
                 formatted += _LITERATURE_INSTRUCTION
-            # Role-specific search strategy to differentiate agent searches
+            # Role-specific search strategy (mode override > profile default > hardcoded)
+            role_strategy = ""
             if self._profile is not None:
-                role_strategy = self._profile.role_search_strategies.get(agent.skill_profile, "")
+                mode_strategies = self._profile.mode_role_search_strategies.get(self._mode, {})
+                role_strategy = mode_strategies.get(
+                    agent.skill_profile,
+                    self._profile.role_search_strategies.get(agent.skill_profile, ""),
+                )
             else:
                 from paradigm.domains.science.constants import (
                     ROLE_SEARCH_STRATEGIES as _ROLE_SEARCH_STRATEGIES,

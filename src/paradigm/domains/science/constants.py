@@ -32,6 +32,7 @@ MODE_TEAM_ROLES: dict[str, list[str]] = {
     "hypothesis": ["theorist", "skeptic", "experimentalist", "analyst", "writer", "editor"],
     "experimental": ["experimentalist", "analyst", "theorist", "writer", "editor"],
     "replication": ["analyst", "experimentalist", "skeptic", "writer", "editor"],
+    "review": ["theorist", "synthesizer", "skeptic", "writer", "editor"],
 }
 
 # ---------------------------------------------------------------------------
@@ -151,5 +152,67 @@ ROLE_SEARCH_STRATEGIES: dict[str, str] = {
         "papers that bridge subfields. Use [CITED_BY:] on foundational papers "
         "to find the frontier — recent work that extends or recontextualizes "
         "established results."
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# Review-mode role reinforcements (override ROLE_LATER_ROUND_REINFORCEMENTS)
+# ---------------------------------------------------------------------------
+
+REVIEW_ROLE_LATER_ROUND_REINFORCEMENTS: dict[str, str] = {
+    "theorist": (
+        "\n\n## Your Role: Theorist (Literature Review)\n"
+        "Focus on identifying the theoretical frameworks used across the "
+        "literature. Map how different authors approach the same problem, "
+        "trace the intellectual lineage of competing models, and highlight "
+        "where theoretical predictions diverge from observations."
+    ),
+    "synthesizer": (
+        "\n\n## Your Role: Synthesizer (Literature Review)\n"
+        "Group papers by theme and identify recurring patterns, consensus "
+        "findings, and unresolved debates. Your goal is a coherent narrative "
+        "that organizes the literature into a thematic taxonomy rather than "
+        "a chronological list."
+    ),
+    "skeptic": (
+        "\n\n## Your Role: Skeptic (Literature Review)\n"
+        "Scrutinize the literature for publication bias, methodological gaps, "
+        "conflicting evidence, and unstated assumptions. Identify where the "
+        "field has reached premature consensus or where negative results are "
+        "underrepresented. Flag studies with weak methodology or small samples."
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# Review-mode search strategies (override ROLE_SEARCH_STRATEGIES)
+# ---------------------------------------------------------------------------
+
+REVIEW_ROLE_SEARCH_STRATEGIES: dict[str, str] = {
+    "theorist": (
+        "\n\n## Your Search Strategy (Theorist — Literature Review)\n"
+        "Search broadly for foundational and seminal papers. Use [FOLLOW:] "
+        "extensively to trace intellectual lineage. Prioritize review articles "
+        "and theoretical framework papers. Search for competing models and "
+        "alternative theoretical approaches."
+    ),
+    "skeptic": (
+        "\n\n## Your Search Strategy (Skeptic — Literature Review)\n"
+        "Search for contradicting evidence, null results, and replication "
+        "failures. Use [CITED_BY:] on key papers to find later work that "
+        "challenges original conclusions. Search for methodological critiques "
+        "and meta-analyses that assess publication bias."
+    ),
+    "synthesizer": (
+        "\n\n## Your Search Strategy (Synthesizer — Literature Review)\n"
+        "Search for review papers, meta-analyses, and cross-disciplinary "
+        "connections. Use both [FOLLOW:] and [CITED_BY:] to build a complete "
+        "citation network. Focus on coverage: ensure all major research groups "
+        "and sub-topics are represented. Aim for systematic, exhaustive coverage."
+    ),
+    "writer": (
+        "\n\n## Your Search Strategy (Writer — Literature Review)\n"
+        "Search for well-cited review papers in the field to understand standard "
+        "organization and framing. Identify papers that are commonly cited "
+        "together to ensure the review captures the canonical references."
     ),
 }

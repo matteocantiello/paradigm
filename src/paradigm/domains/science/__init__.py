@@ -7,10 +7,12 @@ from paradigm.domains.registry import register_domain
 from paradigm.domains.science.constants import (
     LITERATURE_INSTRUCTION,
     MODE_TEAM_ROLES,
+    REVIEW_ROLE_LATER_ROUND_REINFORCEMENTS,
+    REVIEW_ROLE_SEARCH_STRATEGIES,
     ROLE_LATER_ROUND_REINFORCEMENTS,
     ROLE_SEARCH_STRATEGIES,
 )
-from paradigm.domains.science.template import SCIENCE_TEMPLATE
+from paradigm.domains.science.template import REVIEW_TEMPLATE, SCIENCE_TEMPLATE
 
 _SCIENCE_PROFILE = DomainProfile(
     name="science",
@@ -25,10 +27,13 @@ _SCIENCE_PROFILE = DomainProfile(
         SourceProviderConfig(name="google_scholar"),
     ],
     document_template=SCIENCE_TEMPLATE,
+    mode_templates={"review": REVIEW_TEMPLATE},
     prompts_dir=Path(__file__).parent / "prompts",
     default_roles=MODE_TEAM_ROLES,
     role_search_strategies=ROLE_SEARCH_STRATEGIES,
     role_later_round_reinforcements=ROLE_LATER_ROUND_REINFORCEMENTS,
+    mode_role_reinforcements={"review": REVIEW_ROLE_LATER_ROUND_REINFORCEMENTS},
+    mode_role_search_strategies={"review": REVIEW_ROLE_SEARCH_STRATEGIES},
     literature_instruction=LITERATURE_INSTRUCTION,
 )
 

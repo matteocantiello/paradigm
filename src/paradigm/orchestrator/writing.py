@@ -21,6 +21,7 @@ from paradigm.journal.paper import (
 )
 from paradigm.orchestrator.constants import (
     _MIN_PAPER_LENGTH,
+    _MODE_WRITING_OVERRIDES,
     _PHASE_INSTRUCTIONS,
     _WRITING_MAX_TOKENS,
 )
@@ -444,8 +445,13 @@ class WritingHandler:
             Dict mapping role name to list of section name strings.
         """
         profile = self._engine._profile
-        if profile is not None and profile.document_template.sections:
-            return section_assignments_from_template(profile.document_template.sections)
+        if profile is not None:
+            # Check mode-specific template first
+            mode_template = profile.mode_templates.get(self._engine._mode)
+            if mode_template is not None and mode_template.sections:
+                return section_assignments_from_template(mode_template.sections)
+            if profile.document_template.sections:
+                return section_assignments_from_template(profile.document_template.sections)
         # Fallback to hardcoded science assignments
         return {role: [s.value for s in secs] for role, secs in SECTION_ASSIGNMENTS.items()}
 
@@ -456,8 +462,13 @@ class WritingHandler:
             List of section name strings in document order.
         """
         profile = self._engine._profile
-        if profile is not None and profile.document_template.sections:
-            return [s.name for s in profile.document_template.sections]
+        if profile is not None:
+            # Check mode-specific template first
+            mode_template = profile.mode_templates.get(self._engine._mode)
+            if mode_template is not None and mode_template.sections:
+                return [s.name for s in mode_template.sections]
+            if profile.document_template.sections:
+                return [s.name for s in profile.document_template.sections]
         return [s.value for s in PaperSection]
 
     async def run_writing_phase(self) -> PaperDraft | None:
@@ -556,7 +567,12 @@ class WritingHandler:
         if self._engine._checkpoint:
             checkpoint_context = self._engine._checkpoint.to_context_string() + "\n\n"
 
-        template = _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["section_drafting"]
+        # Check mode-specific writing overrides first
+        mode_writing = _MODE_WRITING_OVERRIDES.get(self._engine._mode, {})
+        template = mode_writing.get(
+            "section_drafting",
+            _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["section_drafting"],
+        )
 
         # Get section assignments from profile or fallback
         assignments = self._get_section_assignments()
@@ -763,7 +779,11 @@ class WritingHandler:
                 heading = section_name.replace("_", " ").title()
                 section_drafts_text += f"## {heading} (by {sd.author})\n\n{sd.content}\n\n"
 
-        template = _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["assembly"]
+        mode_writing = _MODE_WRITING_OVERRIDES.get(self._engine._mode, {})
+        template = mode_writing.get(
+            "assembly",
+            _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["assembly"],
+        )
         prompt = template.format(
             seed_prompt=self._engine._seed_prompt,
             checkpoint_context=checkpoint_context,

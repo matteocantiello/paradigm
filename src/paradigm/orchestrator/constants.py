@@ -44,6 +44,64 @@ _MODE_PROMPT_OVERRIDES: dict[str, dict[str, str]] = {
             "Rigor over creativity — every hypothesis must be testable."
         ),
     },
+    "review": {
+        "round_1": (
+            "You are participating in a literature review scoping session.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "{recent_messages}"
+            "This is a LITERATURE REVIEW — we are surveying and synthesizing "
+            "existing work, NOT proposing new experiments.\n\n"
+            "Define the review scope:\n"
+            "1. Break the topic into 3-5 specific sub-questions\n"
+            "2. Propose a thematic taxonomy for organizing the literature\n"
+            "3. Suggest 5-10 targeted search queries\n"
+            "4. Define inclusion/exclusion criteria\n\n"
+            "Focus on breadth and systematic coverage."
+        ),
+        "later_rounds": (
+            "You are participating in a literature review scoping session.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "## Recent Discussion\n{recent_messages}\n\n"
+            "This is a LITERATURE REVIEW — no experiments, only synthesis.\n\n"
+            "Refine the review scope based on the discussion:\n"
+            "- Are the sub-questions well-defined and non-overlapping?\n"
+            "- Is the thematic taxonomy comprehensive?\n"
+            "- Are the search queries targeted enough?\n"
+            "- What gaps in coverage remain?\n\n"
+            "Do NOT repeat points already made. Add NEW insights only."
+        ),
+        "planning_round_1": (
+            "You are developing a literature gathering plan.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "{recent_messages}"
+            "This is a LITERATURE REVIEW — the planning phase focuses on "
+            "systematic literature gathering, NOT experiment design.\n\n"
+            "Based on the scoping phase, develop a gathering plan:\n"
+            "1. For each sub-question, list specific search queries\n"
+            "2. Identify key papers to use as citation network seeds\n"
+            "3. Define quality criteria for including/excluding papers\n"
+            "4. Propose a strategy for ensuring comprehensive coverage\n"
+            "5. Identify potential sources of bias in the literature\n\n"
+            "Use [SEARCH:], [FOLLOW:], and [CITED_BY:] extensively."
+        ),
+        "planning_later_rounds": (
+            "You are refining the literature gathering plan.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "## Recent Discussion\n{recent_messages}\n\n"
+            "This is a LITERATURE REVIEW — focus on literature gathering.\n\n"
+            "Continue gathering and analyzing the literature:\n"
+            "- Use [FOLLOW:] and [CITED_BY:] to expand the citation network\n"
+            "- Identify emerging themes and patterns across papers\n"
+            "- Note conflicting findings and methodological differences\n"
+            "- Flag gaps where important work may be missing\n\n"
+            "Do NOT repeat findings already reported. Focus on NEW papers "
+            "and NEW insights."
+        ),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -702,6 +760,93 @@ _SYNTHESIS_CLOSING_TEMPLATES: dict[ResearchPhase, str] = {
         "preventing the paper from describing that experiment as successful.\n\n"
         "Be concise — this synthesis will guide the WRITING phase."
     ),
+}
+
+# ---------------------------------------------------------------------------
+# Mode-specific synthesis overrides
+# ---------------------------------------------------------------------------
+
+_MODE_SYNTHESIS_OVERRIDES: dict[str, dict[ResearchPhase, str]] = {
+    "review": {
+        ResearchPhase.IDEATION: (
+            "You are the synthesizer closing the SCOPING phase of a literature review.\n"
+            "Topic: {seed_prompt}\n\n"
+            "## Recent Discussion\n{recent_messages}\n\n"
+            "Write a structured synthesis with EXACTLY these sections:\n\n"
+            "### Agreed Sub-Questions\n"
+            "List each sub-question the team agreed to address in the review.\n\n"
+            "### Thematic Taxonomy\n"
+            "The organizational framework for the review (themes, categories).\n\n"
+            "### Search Strategy\n"
+            "Agreed search queries and citation network seeds.\n\n"
+            "### Scope Boundaries\n"
+            "What is explicitly IN scope and OUT of scope for this review.\n\n"
+            "Be concise — this synthesis will guide the literature gathering phase."
+        ),
+        ResearchPhase.PLANNING: (
+            "You are the synthesizer closing the LITERATURE GATHERING phase.\n"
+            "Topic: {seed_prompt}\n\n"
+            "## Recent Discussion\n{recent_messages}\n\n"
+            "Write a structured synthesis with EXACTLY these sections:\n\n"
+            "### Literature Landscape\n"
+            "Summary of the field: key papers found, major research groups, "
+            "and the current state of knowledge.\n\n"
+            "### Thematic Findings\n"
+            "Key themes identified across the literature, organized by the "
+            "taxonomy from the scoping phase.\n\n"
+            "### Gaps and Conflicts\n"
+            "Areas where the literature is sparse, contradictory, or "
+            "methodologically inconsistent.\n\n"
+            "Be concise — this synthesis will guide the WRITING phase."
+        ),
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Mode-specific writing prompt overrides
+# ---------------------------------------------------------------------------
+
+_MODE_WRITING_OVERRIDES: dict[str, dict[str, str]] = {
+    "review": {
+        "section_drafting": (
+            "You are writing sections of a literature review paper.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "Draft the following sections in markdown, using ## headers for each:\n"
+            "{assigned_sections}\n\n"
+            "This is a REVIEW paper — synthesize findings from the literature. "
+            "Every claim should be traceable to specific papers found during "
+            "the literature gathering phase. Use proper citations.\n\n"
+            "Organize by themes, not chronologically. Identify patterns, "
+            "agreements, and tensions across the literature.\n\n"
+            "**Length guidance:** Each section should be substantive — 200-500 words "
+            "per section. A one-paragraph section is not acceptable.\n\n"
+            "**Anti-repetition:** Do NOT repeat the same finding in multiple paragraphs. "
+            "State each result ONCE with its evidence, then move on."
+            "\n\n**Mathematical notation:** ALL mathematical symbols, Greek letters, "
+            "subscripts, and superscripts MUST use LaTeX math mode: "
+            "$\\alpha_0$, $\\nu_{{\\text{{char}}}}$, $R^2$, $\\log(L/L_\\odot)$. "
+            "NEVER use Unicode characters outside of math mode. "
+            "Inline math uses single $, display math uses $$."
+        ),
+        "assembly": (
+            "You are assembling a literature review paper from section drafts.\n"
+            "Topic: {seed_prompt}\n\n"
+            "{checkpoint_context}"
+            "## Section Drafts\n{section_drafts}\n\n"
+            "Combine all section drafts into a single coherent literature review. "
+            "Harmonize writing style, ensure smooth transitions between sections, "
+            "add a title, and make sure the review tells a complete story.\n\n"
+            "This is a REVIEW paper — there are no experimental results to report. "
+            "Focus on synthesis, analysis, and critical assessment of the literature.\n\n"
+            "**Eliminate redundancy:** When harmonizing sections, remove duplicate "
+            "statements. Each finding should appear once in the appropriate section.\n\n"
+            "**References:** Each reference MUST include author(s), title, journal/venue, "
+            "and year. Aim for 15-40 high-quality, topically relevant references."
+            "\n\n**Mathematical notation:** Ensure ALL mathematical symbols use "
+            "LaTeX math mode ($...$), not Unicode characters."
+        ),
+    },
 }
 
 # ---------------------------------------------------------------------------
