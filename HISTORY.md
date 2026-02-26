@@ -2761,3 +2761,33 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 
 - Added `--fresh-corpus` usage example to Quick Start section in README.md
 - Synced .github/README.md
+
+---
+
+## 2026-02-26
+
+### Prompt — Implement Conceptual Figure Generation for Non-Experimental Papers
+
+> Implement the following plan:
+>
+> # Plan: Conceptual Figure Generation for Non-Experimental Papers
+>
+> When Paradigm runs in `--mode review` (or any mode where EXECUTION is skipped), no figures are generated. The writer agent is told "NO FIGURES AVAILABLE" but sometimes still references figures — and for review/synthesis papers, conceptual diagrams would genuinely improve the paper. The editor refuses papers with broken figure references, creating a deadlock.
+>
+> Solution: After paper assembly, generate matplotlib-based conceptual figures for any `Figure N` references in the text using the existing sandbox infrastructure.
+>
+> Changes: config.py (new fields), constants.py (prompt template + mode overrides), writing.py (core methods + wiring), display manager/fallback (progress methods), tests.
+
+**Key decisions:**
+- Post-assembly step within WRITING phase, not a new phase
+- Uses writer agent for code generation
+- One LLM call per figure, strip orphan refs on total failure
+- Default on, configurable off
+
+**Artifacts produced or modified:**
+- `src/paradigm/config.py`
+- `src/paradigm/orchestrator/constants.py`
+- `src/paradigm/orchestrator/writing.py`
+- `src/paradigm/display/manager.py`
+- `src/paradigm/display/fallback.py`
+- `tests/test_conceptual_figures.py` (new)

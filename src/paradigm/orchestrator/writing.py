@@ -20,6 +20,10 @@ from paradigm.journal.paper import (
     strip_agent_scaffolding,
 )
 from paradigm.orchestrator.constants import (
+    _CODE_BLOCK_RE,
+    _CONCEPTUAL_FIGURE_MAX_TOKENS,
+    _CONCEPTUAL_FIGURE_PROMPT,
+    _CONCEPTUAL_FIGURE_TIMEOUT,
     _MIN_PAPER_LENGTH,
     _MODE_WRITING_OVERRIDES,
     _PHASE_INSTRUCTIONS,
@@ -491,6 +495,9 @@ class WritingHandler:
         # Post-process: ensure figure image tags are embedded inline
         assembled_body = self.embed_figures_inline(assembled_body)
 
+        # Generate conceptual figures if EXECUTION was skipped
+        assembled_body = await self.generate_conceptual_figures(assembled_body)
+
         # Convert Unicode math to LaTeX before internal review sees the paper
         assembled_body = sanitize_unicode_math(assembled_body)
         draft.assembled_body = assembled_body
@@ -657,6 +664,19 @@ class WritingHandler:
                         f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`"
                     )
                 prompt += "\n".join(fig_lines)
+            elif (
+                self._engine._config.orchestrator.enable_conceptual_figures
+                and self._engine._config.sandbox.enabled
+            ):
+                prompt += (
+                    "\n\n## Conceptual Figures\n"
+                    "No experiments were run, but you MAY reference up to "
+                    f"{self._engine._config.orchestrator.max_conceptual_figures} "
+                    "conceptual figures (e.g., 'as shown in Figure 1') for "
+                    "diagrams that would help readers — flow charts, taxonomies, "
+                    "annotated curves, concept maps, etc. These will be "
+                    "auto-generated as matplotlib schematics after assembly."
+                )
             else:
                 prompt += (
                     "\n\n## NO FIGURES AVAILABLE\n"
@@ -828,6 +848,18 @@ class WritingHandler:
                 dest_name = self.figure_dest_name(exp_name, fpath)
                 fig_lines.append(f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`")
             prompt += "\n".join(fig_lines)
+        elif (
+            self._engine._config.orchestrator.enable_conceptual_figures
+            and self._engine._config.sandbox.enabled
+        ):
+            prompt += (
+                "\n\n## Conceptual Figures\n"
+                "Preserve any 'Figure N' references from the section drafts. "
+                "These conceptual diagrams (flow charts, taxonomies, annotated "
+                "curves) will be auto-generated after assembly. Do NOT remove "
+                "figure references or add `![Figure N](...)` image tags — the "
+                "system will handle figure generation and embedding."
+            )
         else:
             # No figures were produced — warn the writer
             prompt += (
@@ -863,6 +895,175 @@ class WritingHandler:
                     assembled_text = self._fallback_assembly(draft)
 
         return assembled_text or draft.to_markdown()
+
+    @staticmethod
+    def _extract_figure_references(body: str) -> list[tuple[int, str]]:
+        """Extract Figure N references from paper text with surrounding context.
+
+        Args:
+            body: Paper markdown body.
+
+        Returns:
+            Sorted, deduplicated list of (figure_number, context_snippet) tuples.
+        """
+        seen: dict[int, str] = {}
+        for m in re.finditer(r"\b(?:Figure|Fig\.?)\s+(\d+)\b", body):
+            fig_num = int(m.group(1))
+            if fig_num in seen:
+                continue
+            # Extract surrounding paragraph as context (capped at 500 chars)
+            start = max(0, m.start() - 200)
+            end = min(len(body), m.end() + 300)
+            context = body[start:end].strip()
+            seen[fig_num] = context
+        return sorted(seen.items())
+
+    @staticmethod
+    def _strip_orphan_figure_references(body: str) -> str:
+        """Remove orphan figure image tags that have no corresponding files.
+
+        Removes ``![Figure N](figures/...)`` markdown image tags. Preserves
+        textual "Figure N" mentions in prose.
+
+        Args:
+            body: Paper markdown body.
+
+        Returns:
+            Body with orphan image tags removed and empty lines cleaned up.
+        """
+        # Remove ![Figure N](figures/...) image tags
+        body = re.sub(
+            r"!\[(?:Figure|Fig\.?)\s*\d+[^\]]*\]\(figures/[^)]+\)\s*\n?",
+            "",
+            body,
+        )
+        # Clean up resulting double+ blank lines
+        body = re.sub(r"\n{3,}", "\n\n", body)
+        return body
+
+    async def generate_conceptual_figures(self, assembled_body: str) -> str:
+        """Generate matplotlib-based conceptual figures for Figure N references.
+
+        Called after paper assembly when EXECUTION was skipped. Uses the writer
+        agent to produce matplotlib code, executes it in the sandbox, and
+        collects the output PNGs.
+
+        Args:
+            assembled_body: The assembled paper markdown body.
+
+        Returns:
+            Updated body with figures embedded (or orphan refs stripped on failure).
+        """
+        engine = self._engine
+
+        # Guard: already have execution figures
+        if engine._execution_figures:
+            return assembled_body
+
+        # Guard: sandbox disabled or feature disabled
+        if not engine._config.sandbox.enabled:
+            return assembled_body
+        if not engine._config.orchestrator.enable_conceptual_figures:
+            return assembled_body
+
+        # Guard: no writer agent
+        writer_agent = engine._find_agent_by_role("writer")
+        if writer_agent is None:
+            return assembled_body
+
+        # Guard: no figure references in paper
+        figure_refs = self._extract_figure_references(assembled_body)
+        if not figure_refs:
+            return assembled_body
+
+        max_figs = engine._config.orchestrator.max_conceptual_figures
+        figure_refs = figure_refs[:max_figs]
+
+        engine._display.conceptual_figures_start(len(figure_refs))
+
+        # Set up workspace and executor (same pattern as ExperimentationHandler)
+        from paradigm.sandbox.executor import CodeExecutor
+        from paradigm.sandbox.models import ExecutionRequest
+
+        workspace_dir = engine._config.storage.data_dir / "workspaces" / engine._thread_id
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+
+        executor = CodeExecutor(
+            config=engine._config.sandbox,
+            logger=engine._logger,
+            data_dir=engine._config.storage.data_dir,
+            workspace_dir=workspace_dir,
+        )
+
+        generated_figures: list[tuple[str, Path]] = []
+        try:
+            for fig_num, context in figure_refs:
+                engine._display.conceptual_figure_generating(fig_num)
+
+                # Ask writer agent to generate matplotlib code
+                prompt = _CONCEPTUAL_FIGURE_PROMPT.format(
+                    figure_num=fig_num,
+                    figure_context=context,
+                )
+                try:
+                    response = await writer_agent.generate(
+                        prompt, max_tokens=_CONCEPTUAL_FIGURE_MAX_TOKENS
+                    )
+                except Exception as e:
+                    engine._display.conceptual_figure_error(fig_num, e)
+                    continue
+
+                # Extract python code block from response
+                code_match = _CODE_BLOCK_RE.search(response.content)
+                if code_match is None:
+                    engine._display.conceptual_figure_no_code(fig_num)
+                    continue
+
+                code = code_match.group(1).strip()
+
+                # Execute in sandbox
+                try:
+                    result = await asyncio.wait_for(
+                        executor.execute(
+                            ExecutionRequest(
+                                code=code,
+                                agent_id=writer_agent.agent_id,
+                                thread_id=engine._thread_id,
+                            )
+                        ),
+                        timeout=_CONCEPTUAL_FIGURE_TIMEOUT,
+                    )
+                except TimeoutError:
+                    engine._display.conceptual_figure_failed(fig_num, "timeout")
+                    continue
+                except Exception as e:
+                    engine._display.conceptual_figure_error(fig_num, e)
+                    continue
+
+                # Collect output PNG
+                png_files = [f for f in (result.output_files or []) if f.filename.endswith(".png")]
+                if not png_files:
+                    engine._display.conceptual_figure_no_output(fig_num)
+                    continue
+
+                fig_path = Path(png_files[0].path)
+                generated_figures.append((f"conceptual_fig_{fig_num}", fig_path))
+                engine._display.conceptual_figure_success(fig_num)
+
+            # Post-loop: update engine state and embed figures
+            if generated_figures:
+                engine._execution_figures = generated_figures
+                assembled_body = self.embed_figures_inline(assembled_body)
+                engine._display.conceptual_figures_complete(len(generated_figures))
+            else:
+                # All attempts failed — strip orphan image refs to prevent editor deadlock
+                assembled_body = self._strip_orphan_figure_references(assembled_body)
+                engine._display.conceptual_figures_none()
+
+        finally:
+            await executor.cleanup()
+
+        return assembled_body
 
     def embed_figures_inline(self, body: str) -> str:
         """Post-process paper markdown to embed figure image tags inline.

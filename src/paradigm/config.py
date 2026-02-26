@@ -127,6 +127,10 @@ class OrchestratorConfig(BaseModel):
     cross_round_min_experiments: int = 5
     enable_pre_execution_review: bool = False  # Opt-in (adds ~1K tokens/experiment)
     pre_execution_review_role: str = "analyst"  # Which role reviews code
+    enable_conceptual_figures: bool = (
+        True  # Generate matplotlib schematics when EXECUTION was skipped
+    )
+    max_conceptual_figures: int = 3  # Cap on figures per paper
     enable_execution_sprints: bool = False  # Off by default for backward compat
     num_execution_sprints: int = 3
     sprint_review_roles: list[str] = Field(

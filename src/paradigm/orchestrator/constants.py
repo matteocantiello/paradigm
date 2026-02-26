@@ -828,6 +828,11 @@ _MODE_WRITING_OVERRIDES: dict[str, dict[str, str]] = {
             "$\\alpha_0$, $\\nu_{{\\text{{char}}}}$, $R^2$, $\\log(L/L_\\odot)$. "
             "NEVER use Unicode characters outside of math mode. "
             "Inline math uses single $, display math uses $$."
+            "\n\n**Conceptual figures:** You MAY reference up to 3 conceptual "
+            "figures (e.g., 'as shown in Figure 1') for diagrams that would "
+            "help readers — flow charts, taxonomies, annotated curves, concept "
+            "maps, etc. Use 'Figure N' references naturally in the text. "
+            "These will be auto-generated as matplotlib schematics after assembly."
         ),
         "assembly": (
             "You are assembling a literature review paper from section drafts.\n"
@@ -845,9 +850,39 @@ _MODE_WRITING_OVERRIDES: dict[str, dict[str, str]] = {
             "and year. Aim for 15-40 high-quality, topically relevant references."
             "\n\n**Mathematical notation:** Ensure ALL mathematical symbols use "
             "LaTeX math mode ($...$), not Unicode characters."
+            "\n\n**Conceptual figures:** Preserve any 'Figure N' references from "
+            "the section drafts. These conceptual diagrams (flow charts, "
+            "taxonomies, annotated curves) will be auto-generated after assembly. "
+            "Do NOT remove figure references or add `![Figure N](...)` image tags — "
+            "the system will handle figure generation and embedding."
         ),
     },
 }
+
+# ---------------------------------------------------------------------------
+# Conceptual figure generation (post-assembly, when EXECUTION was skipped)
+# ---------------------------------------------------------------------------
+
+_CONCEPTUAL_FIGURE_PROMPT = (
+    "You are generating a conceptual/schematic figure using matplotlib.\n\n"
+    "## Context\n"
+    "The following excerpt from a research paper references Figure {figure_num}:\n\n"
+    "{figure_context}\n\n"
+    "## Task\n"
+    "Write a self-contained Python script that generates a clear, informative "
+    "conceptual diagram for Figure {figure_num}.\n\n"
+    "## Requirements\n"
+    "- Use matplotlib (numpy/scipy for math if needed — all pre-imported)\n"
+    "- Conceptual diagram: flow chart, annotated curve, taxonomy, concept map, etc.\n"
+    "- Save with: plt.savefig('figure_{figure_num}.png', dpi=150, bbox_inches='tight')\n"
+    "- Clean styling: no default grids, clear labels and annotations\n"
+    "- Use raw strings for LaTeX: r'$\\alpha$'\n"
+    "- Must complete in under 30 seconds, no external data/network\n\n"
+    "Output ONLY a single ```python code block, nothing else."
+)
+
+_CONCEPTUAL_FIGURE_TIMEOUT = 60
+_CONCEPTUAL_FIGURE_MAX_TOKENS = 4096
 
 # ---------------------------------------------------------------------------
 # Resolution detection regexes

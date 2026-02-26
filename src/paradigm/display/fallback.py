@@ -339,6 +339,33 @@ class PlainTextFallback:
     def figure_copied(self, filename: str) -> None:
         click.echo(f"  Figure copied: {filename}")
 
+    def conceptual_figures_start(self, count: int) -> None:
+        click.echo(f"  Generating {count} conceptual figure(s)...")
+
+    def conceptual_figure_generating(self, fig_num: int) -> None:
+        click.echo(f"    Generating Figure {fig_num}...")
+
+    def conceptual_figure_success(self, fig_num: int) -> None:
+        click.echo(f"    Figure {fig_num} generated")
+
+    def conceptual_figure_error(self, fig_num: int, error: str | Exception) -> None:
+        click.echo(f"    [!] Figure {fig_num} error: {error}")
+
+    def conceptual_figure_failed(self, fig_num: int, reason: str) -> None:
+        click.echo(f"    [!] Figure {fig_num} failed: {reason}")
+
+    def conceptual_figure_no_code(self, fig_num: int) -> None:
+        click.echo(f"    [!] Figure {fig_num}: no code block in response")
+
+    def conceptual_figure_no_output(self, fig_num: int) -> None:
+        click.echo(f"    [!] Figure {fig_num}: code ran but no PNG produced")
+
+    def conceptual_figures_complete(self, count: int) -> None:
+        click.echo(f"  Conceptual figures complete: {count} generated")
+
+    def conceptual_figures_none(self) -> None:
+        click.echo("  [!] All conceptual figure attempts failed, stripping references")
+
     def writing_failed_skip_review(self) -> None:
         click.echo("  Skipping review/submission \u2014 writing phase failed.")
 

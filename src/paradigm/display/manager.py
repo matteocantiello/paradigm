@@ -845,6 +845,69 @@ class DisplayManager:
         else:
             self._fallback.figure_copied(filename)
 
+    def conceptual_figures_start(self, count: int) -> None:
+        self._state.add_event("writing", f"Generating {count} conceptual figure(s)")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.conceptual_figures_start(count)
+
+    def conceptual_figure_generating(self, fig_num: int) -> None:
+        self._state.add_event("writing", f"Generating Figure {fig_num}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.conceptual_figure_generating(fig_num)
+
+    def conceptual_figure_success(self, fig_num: int) -> None:
+        self._state.add_event("writing", f"Figure {fig_num} generated")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.conceptual_figure_success(fig_num)
+
+    def conceptual_figure_error(self, fig_num: int, error: str | Exception) -> None:
+        self._state.add_event("error", f"Figure {fig_num} error: {error}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.conceptual_figure_error(fig_num, error)
+
+    def conceptual_figure_failed(self, fig_num: int, reason: str) -> None:
+        self._state.add_event("error", f"Figure {fig_num} failed: {reason}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.conceptual_figure_failed(fig_num, reason)
+
+    def conceptual_figure_no_code(self, fig_num: int) -> None:
+        self._state.add_event("warning", f"Figure {fig_num}: no code block")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.conceptual_figure_no_code(fig_num)
+
+    def conceptual_figure_no_output(self, fig_num: int) -> None:
+        self._state.add_event("warning", f"Figure {fig_num}: no PNG output")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.conceptual_figure_no_output(fig_num)
+
+    def conceptual_figures_complete(self, count: int) -> None:
+        self._state.add_event("writing", f"Conceptual figures: {count} generated")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.conceptual_figures_complete(count)
+
+    def conceptual_figures_none(self) -> None:
+        self._state.add_event("warning", "All conceptual figure attempts failed")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.conceptual_figures_none()
+
     def writing_failed_skip_review(self) -> None:
         self._state.outcome = "writing_failed"
         self._state.add_event("error", "Writing failed, skipping review")
