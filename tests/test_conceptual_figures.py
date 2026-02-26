@@ -238,9 +238,7 @@ class TestConceptualFigureCodePersistence:
         )
         engine._find_agent_by_role.return_value.generate = AsyncMock(return_value=mock_response)
 
-        with patch(
-            "paradigm.sandbox.executor.CodeExecutor", return_value=mock_executor
-        ):
+        with patch("paradigm.sandbox.executor.CodeExecutor", return_value=mock_executor):
             await handler.generate_conceptual_figures(body)
 
         # Verify code was appended
