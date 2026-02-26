@@ -62,6 +62,9 @@ class LiteratureConfig(BaseModel):
     max_read_chars: int = 8000
     max_citation_results: int = 10
     max_reference_results: int = 20
+    pubmed_rate_limit: float = 0.34  # ~3 req/sec (NCBI default without API key)
+    biorxiv_rate_limit: float = 1.0  # 1 req/sec
+    ads_rate_limit: float = 1.0  # 1 req/sec (~5000 req/day)
 
 
 class StorageConfig(BaseModel):

@@ -8,15 +8,22 @@ import os
 from paradigm.config import LiteratureConfig, StorageConfig
 from paradigm.domains.base import SourceProvider, SourceProviderConfig
 from paradigm.literature.arxiv import ArxivClient
+from paradigm.literature.biorxiv import BiorxivClient
 from paradigm.literature.embeddings import EmbeddingStore
+from paradigm.literature.nasa_ads import ADSClient
 from paradigm.literature.providers import (
     ArxivSourceProvider,
+    BiorxivSourceProvider,
     FREDSourceProvider,
+    GoogleScholarSourceProvider,
     InternalCorpusProvider,
+    NASAADSSourceProvider,
+    PubMedSourceProvider,
     SECEdgarSourceProvider,
     SemanticScholarSourceProvider,
     SSRNSourceProvider,
 )
+from paradigm.literature.pubmed import PubMedClient
 from paradigm.literature.semantic_scholar import SemanticScholarClient
 from paradigm.logging.events import EventLogger
 from paradigm.storage.database import Database
@@ -83,6 +90,34 @@ def create_source_providers(
         elif name == "fred":
             providers[name] = FREDSourceProvider(
                 api_key=os.getenv("FRED_API_KEY"),
+            )
+
+        elif name == "pubmed":
+            client = PubMedClient(
+                api_key=os.getenv("NCBI_API_KEY"),
+                rate_limit=literature_config.pubmed_rate_limit,
+                logger=logger,
+            )
+            providers[name] = PubMedSourceProvider(client)
+
+        elif name == "biorxiv":
+            client = BiorxivClient(
+                rate_limit=literature_config.biorxiv_rate_limit,
+                logger=logger,
+            )
+            providers[name] = BiorxivSourceProvider(client)
+
+        elif name == "nasa_ads":
+            client = ADSClient(
+                api_key=os.getenv("NASA_ADS_API_KEY"),
+                rate_limit=literature_config.ads_rate_limit,
+                logger=logger,
+            )
+            providers[name] = NASAADSSourceProvider(client)
+
+        elif name == "google_scholar":
+            providers[name] = GoogleScholarSourceProvider(
+                api_key=os.getenv("SERPAPI_KEY"),
             )
 
         else:

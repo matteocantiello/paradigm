@@ -149,6 +149,120 @@ class SemanticScholarClient:
 
         return papers[:limit]
 
+    async def search_by_author(self, author_name: str, limit: int = 20) -> list[SemanticPaper]:
+        """Search for papers by a specific author.
+
+        Two-step: search for author by name, then get their papers.
+
+        Args:
+            author_name: Author name to search for.
+            limit: Maximum number of papers to return.
+
+        Returns:
+            List of SemanticPaper objects by the author.
+        """
+        # Step 1: Search for author
+        url = f"{self.BASE_URL}/author/search"
+        params: dict[str, Any] = {"query": author_name, "limit": 1}
+
+        data = await self._get_json(url, params)
+        if data is None:
+            return []
+
+        authors_data = data.get("data", [])
+        if not authors_data:
+            return []
+
+        author_id = authors_data[0].get("authorId")
+        if not author_id:
+            return []
+
+        # Step 2: Get author's papers
+        papers_url = f"{self.BASE_URL}/author/{author_id}/papers"
+        papers_params: dict[str, Any] = {"fields": self.FIELDS, "limit": limit}
+
+        papers_data = await self._get_json(papers_url, papers_params)
+        if papers_data is None:
+            return []
+
+        papers = []
+        for entry in papers_data.get("data", []):
+            paper = _parse_paper(entry)
+            if paper is not None:
+                papers.append(paper)
+
+        return papers[:limit]
+
+    async def get_paper_details(self, paper_id: str) -> SemanticPaper | None:
+        """Get detailed metadata for a single paper by S2 paper ID or arXiv ID.
+
+        Args:
+            paper_id: Semantic Scholar paper ID, or arXiv ID (prefixed with ArXiv:).
+
+        Returns:
+            SemanticPaper, or None if not found.
+        """
+        url = f"{self.BASE_URL}/paper/{paper_id}"
+        params: dict[str, Any] = {"fields": self.FIELDS}
+
+        data = await self._get_json(url, params)
+        if data is None:
+            return None
+
+        return _parse_paper(data)
+
+    async def get_papers_batch(self, paper_ids: list[str]) -> list[SemanticPaper]:
+        """Batch fetch metadata for multiple papers.
+
+        Args:
+            paper_ids: List of paper IDs (S2 IDs, arXiv IDs with ArXiv: prefix, etc.).
+
+        Returns:
+            List of SemanticPaper objects for successfully fetched papers.
+        """
+        if not paper_ids:
+            return []
+
+        url = f"{self.BASE_URL}/paper/batch"
+        params: dict[str, Any] = {"fields": self.FIELDS}
+
+        async with self._lock:
+            elapsed = time.monotonic() - self._last_request_time
+            if elapsed < self._rate_limit:
+                await asyncio.sleep(self._rate_limit - elapsed)
+
+            try:
+                response = await self._client.post(
+                    url,
+                    params=params,
+                    json={"ids": paper_ids},
+                )
+                self._last_request_time = time.monotonic()
+            except Exception as e:
+                if self._logger:
+                    self._logger.log_error(e, metadata_key="semantic_scholar", url=url)
+                return []
+
+        if response.status_code != 200:
+            if self._logger:
+                self._logger.log_error(
+                    Exception(f"Semantic Scholar API returned {response.status_code}"),
+                    metadata_key="semantic_scholar",
+                    url=url,
+                    status_code=response.status_code,
+                )
+            return []
+
+        data = response.json()
+        papers = []
+        for entry in data if isinstance(data, list) else []:
+            if entry is not None:
+                paper = _parse_paper(entry)
+                if paper is not None:
+                    papers.append(paper)
+
+        return papers
+
     async def _get_json(
         self, url: str, params: dict[str, Any], max_retries: int = 2
     ) -> dict[str, Any] | None:

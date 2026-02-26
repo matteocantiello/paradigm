@@ -8,12 +8,15 @@ from typing import TYPE_CHECKING, Any
 
 from paradigm.domains.base import arxiv_paper_to_source_result
 from paradigm.literature.bibliography import extract_arxiv_id_from_url
+from paradigm.literature.citation_chains import follow_citation_chain
 from paradigm.literature.perplexity import PerplexityClient
 from paradigm.literature.prompt_utils import (
+    format_chain_results,
     format_cited_by_results,
     format_follow_results,
     format_read_result,
     format_search_results,
+    parse_chain_requests,
     parse_cited_by_requests,
     parse_data_requests,
     parse_follow_requests,
@@ -614,6 +617,74 @@ class LiteratureHandler:
                     "agent_id": agent_id,
                     "title": title,
                     "chars_extracted": len(extracted_text),
+                    "phase": str(phase),
+                },
+                thread_id=self._engine._thread_id,
+                phase=str(phase),
+            )
+
+    # ------------------------------------------------------------------
+    # Citation chain traversal ([CHAIN: ...])
+    # ------------------------------------------------------------------
+
+    async def process_chain_requests(
+        self, agent_id: str, response_text: str, phase: ResearchPhase
+    ) -> None:
+        """Parse [CHAIN: paper_id depth=N direction=refs|cites|both] and execute.
+
+        Results are appended to self.literature_context for all subsequent agents.
+
+        Args:
+            agent_id: ID of the agent whose response contains chain requests.
+            response_text: The agent's response text.
+            phase: Current research phase.
+        """
+        if phase not in _SEARCH_ENABLED_PHASES:
+            return
+
+        chain_reqs = parse_chain_requests(response_text)
+        if not chain_reqs:
+            return
+
+        # Use source_providers from the engine's corpus if available
+        providers = {}
+        if hasattr(self._engine, "_corpus") and hasattr(self._engine._corpus, "_source_providers"):
+            providers = self._engine._corpus._source_providers or {}
+
+        if not providers:
+            return
+
+        for req in chain_reqs:
+            try:
+                papers = await follow_citation_chain(
+                    providers=providers,
+                    seed_id=req.paper_id,
+                    direction=req.direction,
+                    max_depth=req.depth,
+                    max_papers_per_level=10,
+                )
+            except Exception as e:
+                self._engine._logger.log_error(
+                    e, agent_id=agent_id, thread_id=self._engine._thread_id
+                )
+                continue
+
+            # Track discovered papers
+            for p in papers:
+                if p.id:
+                    self.seen_paper_ids.add(p.id)
+                    first_author = p.authors[0] if p.authors else "Unknown"
+                    self._track_paper(p.id, p.title, first_author)
+
+            formatted = format_chain_results(req.paper_id, papers, req.direction, req.depth)
+            self._append_to_context(formatted)
+
+            self._engine._logger.log(
+                EventType.LITERATURE_SEARCH,
+                content={
+                    "query": f"[CHAIN: {req.paper_id} depth={req.depth} direction={req.direction}]",
+                    "agent_id": agent_id,
+                    "papers_found": len(papers),
                     "phase": str(phase),
                 },
                 thread_id=self._engine._thread_id,

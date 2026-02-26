@@ -43,6 +43,15 @@ _READ_REQUEST_RE = re.compile(r"\[READ:\s*([^\]]+?)\]", re.IGNORECASE)
 # Match [DATA: url] markers in agent text (data staging)
 _DATA_REQUEST_RE = re.compile(r"\[DATA:\s*([^\]]+?)\]", re.IGNORECASE)
 
+# Match [CHAIN: paper_id depth=N direction=refs|cites|both] markers
+_CHAIN_REQUEST_RE = re.compile(
+    r"\[CHAIN:\s*([^\]\s]+)"  # paper_id (required)
+    r"(?:\s+depth=(\d+))?"  # depth=N (optional)
+    r"(?:\s+direction=(refs|cites|both))?"  # direction=... (optional)
+    r"\s*\]",
+    re.IGNORECASE,
+)
+
 # Match [CHALLENGE: agent-id: reason] markers in agent text
 _CHALLENGE_REQUEST_RE = re.compile(
     r"\[CHALLENGE:\s*([a-z]+-\d+)\s*:\s*([^\]]+?)\]",
@@ -342,6 +351,82 @@ def parse_data_requests(text: str) -> list[str]:
             seen.add(key)
             urls.append(url)
     return urls
+
+
+@dataclass
+class ChainRequest:
+    """Parsed [CHAIN: ...] bracket command."""
+
+    paper_id: str
+    depth: int = 2
+    direction: str = "both"  # "refs", "cites", or "both"
+
+
+def parse_chain_requests(text: str) -> list[ChainRequest]:
+    """Extract [CHAIN: paper_id depth=N direction=refs|cites|both] markers.
+
+    Args:
+        text: Agent response text.
+
+    Returns:
+        List of parsed ChainRequest objects.
+    """
+    matches = _CHAIN_REQUEST_RE.findall(text)
+    seen: set[str] = set()
+    requests: list[ChainRequest] = []
+    for match in matches:
+        paper_id = match[0].strip()
+        if not paper_id or paper_id in seen:
+            continue
+        seen.add(paper_id)
+
+        depth = int(match[1]) if match[1] else 2
+        depth = min(depth, 3)  # Cap at 3 to prevent excessive traversal
+
+        direction = match[2].lower() if match[2] else "both"
+        # Normalize direction aliases
+        direction_map = {"refs": "references", "cites": "citations", "both": "both"}
+        direction = direction_map.get(direction, "both")
+
+        requests.append(ChainRequest(paper_id=paper_id, depth=depth, direction=direction))
+    return requests
+
+
+def format_chain_results(
+    paper_id: str, papers: list[SourceResult], direction: str, depth: int
+) -> str:
+    """Format citation chain results as markdown for agent context.
+
+    Args:
+        paper_id: The seed paper ID.
+        papers: List of SourceResult objects discovered by chain traversal.
+        direction: Traversal direction used.
+        depth: Maximum depth used.
+
+    Returns:
+        Markdown-formatted chain results.
+    """
+    if not papers:
+        return f"### Citation Chain from {paper_id} (direction={direction}, depth={depth})\nNo papers discovered.\n"
+
+    lines = [
+        f"### Citation Chain from {paper_id} (direction={direction}, depth={depth}, found={len(papers)})"
+    ]
+    for i, paper in enumerate(papers, 1):
+        authors_str = ", ".join(paper.authors[:3])
+        if len(paper.authors) > 3:
+            authors_str += " et al."
+        year = paper.date.strftime("%Y") if paper.date else "?"
+        chain_depth = paper.metadata.get("chain_depth", "?")
+        abstract_trunc = paper.summary[:150].strip()
+        if len(paper.summary) > 150:
+            abstract_trunc += "..."
+        lines.append(
+            f"{i}. **{paper.title}** — {authors_str} ({year}) [{paper.id}] "
+            f"(depth={chain_depth})\n   {abstract_trunc}"
+        )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def format_follow_results(arxiv_id: str, papers: list[SourceResult], max_papers: int = 15) -> str:

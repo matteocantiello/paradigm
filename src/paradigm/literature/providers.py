@@ -16,11 +16,17 @@ from paradigm.domains.base import (
     SourceDocument,
     SourceProvider,
     SourceResult,
+    ads_paper_to_source_result,
     arxiv_paper_to_source_result,
+    biorxiv_paper_to_source_result,
+    pubmed_paper_to_source_result,
     semantic_paper_to_source_result,
 )
 from paradigm.literature.arxiv import ArxivClient, extract_key_sections
+from paradigm.literature.biorxiv import BiorxivClient
 from paradigm.literature.embeddings import EmbeddingStore
+from paradigm.literature.nasa_ads import ADSClient
+from paradigm.literature.pubmed import PubMedClient
 from paradigm.literature.semantic_scholar import SemanticScholarClient
 from paradigm.storage.database import Database
 
@@ -209,6 +215,209 @@ def _parse_json_field(value: Any, default: Any) -> Any:
         except (json.JSONDecodeError, ValueError):
             return default
     return value
+
+
+# ---------------------------------------------------------------------------
+# Academic source providers (PubMed, bioRxiv, NASA ADS, Google Scholar)
+# ---------------------------------------------------------------------------
+
+
+class PubMedSourceProvider(SourceProvider):
+    """SourceProvider wrapping the PubMedClient.
+
+    Searches PubMed via NCBI E-utilities and converts results to SourceResult.
+    """
+
+    name = "pubmed"
+
+    def __init__(self, client: PubMedClient) -> None:
+        self._client = client
+
+    async def search(self, query: str, max_results: int = 10) -> list[SourceResult]:
+        """Search PubMed and convert results to SourceResult."""
+        papers = await self._client.search(query, max_results=max_results)
+        return [pubmed_paper_to_source_result(p) for p in papers]
+
+    async def fetch(self, source_id: str) -> SourceDocument | None:
+        """Fetch a paper by PMID."""
+        paper = await self._client.get_paper(source_id)
+        if paper is None:
+            return None
+
+        return SourceDocument(
+            id=paper.pmid,
+            source_type="pubmed",
+            title=paper.title,
+            authors=paper.authors,
+            full_text=paper.abstract,
+            url=paper.url,
+            metadata={
+                "journal": paper.journal,
+                "doi": paper.doi,
+                "year": paper.year,
+            },
+        )
+
+
+class BiorxivSourceProvider(SourceProvider):
+    """SourceProvider wrapping the BiorxivClient.
+
+    Searches bioRxiv/medRxiv preprints and converts results to SourceResult.
+    """
+
+    name = "biorxiv"
+
+    def __init__(self, client: BiorxivClient) -> None:
+        self._client = client
+
+    async def search(self, query: str, max_results: int = 10) -> list[SourceResult]:
+        """Search bioRxiv and convert results to SourceResult."""
+        papers = await self._client.search(query, max_results=max_results)
+        return [biorxiv_paper_to_source_result(p) for p in papers]
+
+    async def fetch(self, source_id: str) -> SourceDocument | None:
+        """Fetch a paper by DOI."""
+        paper = await self._client.get_paper(source_id)
+        if paper is None:
+            return None
+
+        return SourceDocument(
+            id=paper.doi,
+            source_type=paper.server,
+            title=paper.title,
+            authors=paper.authors,
+            full_text=paper.abstract,
+            url=paper.url,
+            metadata={
+                "server": paper.server,
+                "category": paper.category,
+            },
+        )
+
+
+class NASAADSSourceProvider(SourceProvider):
+    """SourceProvider wrapping the ADSClient.
+
+    Searches NASA ADS and provides citation graph traversal.
+    """
+
+    name = "nasa_ads"
+
+    def __init__(self, client: ADSClient) -> None:
+        self._client = client
+
+    async def search(self, query: str, max_results: int = 10) -> list[SourceResult]:
+        """Search NASA ADS and convert results to SourceResult."""
+        papers = await self._client.search(query, max_results=max_results)
+        return [ads_paper_to_source_result(p) for p in papers]
+
+    async def fetch(self, source_id: str) -> SourceDocument | None:
+        """Fetch a paper by bibcode."""
+        paper = await self._client.get_paper(source_id)
+        if paper is None:
+            return None
+
+        return SourceDocument(
+            id=paper.arxiv_id or paper.bibcode,
+            source_type="nasa_ads",
+            title=paper.title,
+            authors=paper.authors,
+            full_text=paper.abstract,
+            url=paper.url,
+            metadata={
+                "bibcode": paper.bibcode,
+                "doi": paper.doi,
+                "arxiv_id": paper.arxiv_id,
+                "year": paper.year,
+                "citation_count": paper.citation_count,
+            },
+        )
+
+    async def get_references(self, source_id: str) -> list[SourceResult]:
+        """Get papers referenced by this paper."""
+        papers = await self._client.get_references(source_id)
+        return [ads_paper_to_source_result(p) for p in papers]
+
+    async def get_citing(self, source_id: str) -> list[SourceResult]:
+        """Get papers that cite this paper."""
+        papers = await self._client.get_citations(source_id)
+        return [ads_paper_to_source_result(p) for p in papers]
+
+
+class GoogleScholarSourceProvider(SourceProvider):
+    """SourceProvider stub for Google Scholar.
+
+    Google Scholar has no official API. If SERPAPI_KEY is set, uses SerpAPI
+    to search Google Scholar. Otherwise returns empty results.
+    """
+
+    name = "google_scholar"
+
+    def __init__(self, api_key: str | None = None) -> None:
+        self._api_key = api_key
+        if api_key:
+            self._client = httpx.AsyncClient(
+                timeout=30.0,
+                headers={"User-Agent": "Paradigm Research Platform (academic use)"},
+            )
+        else:
+            self._client = None
+
+    async def search(self, query: str, max_results: int = 10) -> list[SourceResult]:
+        """Search Google Scholar via SerpAPI (if configured)."""
+        if not self._api_key or self._client is None:
+            return []
+
+        try:
+            params = {
+                "engine": "google_scholar",
+                "q": query,
+                "api_key": self._api_key,
+                "num": max_results,
+            }
+            response = await self._client.get("https://serpapi.com/search", params=params)
+            response.raise_for_status()
+            data = response.json()
+            return self._parse_results(data, max_results)
+        except (httpx.HTTPError, Exception) as e:
+            _logger.warning("Google Scholar search failed: %s", e)
+            return []
+
+    async def fetch(self, source_id: str) -> SourceDocument | None:
+        """Google Scholar doesn't provide full text."""
+        return None
+
+    @staticmethod
+    def _parse_results(data: dict, max_results: int) -> list[SourceResult]:
+        """Parse SerpAPI Google Scholar response."""
+        results: list[SourceResult] = []
+        for entry in data.get("organic_results", [])[:max_results]:
+            result_id = entry.get("result_id", "")
+            title = entry.get("title", "")
+            if not title:
+                continue
+
+            # Parse authors from publication info
+            pub_info = entry.get("publication_info", {})
+            authors_str = pub_info.get("summary", "")
+            authors = [a.strip() for a in authors_str.split(",")[:5]] if authors_str else []
+
+            results.append(
+                SourceResult(
+                    id=result_id,
+                    source_type="google_scholar",
+                    title=title,
+                    authors=authors,
+                    summary=entry.get("snippet", ""),
+                    url=entry.get("link", ""),
+                    metadata={
+                        "cited_by_count": entry.get("inline_links", {})
+                        .get("cited_by", {})
+                        .get("total"),
+                    },
+                )
+            )
+        return results
 
 
 # ---------------------------------------------------------------------------

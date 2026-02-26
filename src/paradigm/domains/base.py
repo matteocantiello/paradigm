@@ -207,6 +207,106 @@ def semantic_paper_to_source_result(paper: object) -> SourceResult:
     )
 
 
+def pubmed_paper_to_source_result(paper: object) -> SourceResult:
+    """Convert a PubMedPaper to a SourceResult.
+
+    Uses deferred import to avoid circular dependency.
+
+    Args:
+        paper: A PubMedPaper instance.
+
+    Returns:
+        Equivalent SourceResult.
+    """
+    from paradigm.literature.pubmed import PubMedPaper
+
+    assert isinstance(paper, PubMedPaper)
+    date = datetime(paper.year, 1, 1) if paper.year else None
+    return SourceResult(
+        id=paper.pmid,
+        source_type="pubmed",
+        title=paper.title,
+        authors=paper.authors,
+        summary=paper.abstract,
+        url=paper.url,
+        date=date,
+        metadata={
+            "journal": paper.journal,
+            "doi": paper.doi,
+            "year": paper.year,
+        },
+    )
+
+
+def biorxiv_paper_to_source_result(paper: object) -> SourceResult:
+    """Convert a BiorxivPaper to a SourceResult.
+
+    Uses deferred import to avoid circular dependency.
+
+    Args:
+        paper: A BiorxivPaper instance.
+
+    Returns:
+        Equivalent SourceResult.
+    """
+    from paradigm.literature.biorxiv import BiorxivPaper
+
+    assert isinstance(paper, BiorxivPaper)
+    date = None
+    if paper.date:
+        try:
+            date = datetime.strptime(paper.date, "%Y-%m-%d")
+        except ValueError:
+            pass
+    return SourceResult(
+        id=paper.doi,
+        source_type=paper.server,
+        title=paper.title,
+        authors=paper.authors,
+        summary=paper.abstract,
+        url=paper.url,
+        date=date,
+        metadata={
+            "server": paper.server,
+            "category": paper.category,
+            "doi": paper.doi,
+        },
+    )
+
+
+def ads_paper_to_source_result(paper: object) -> SourceResult:
+    """Convert an ADSPaper to a SourceResult.
+
+    Uses deferred import to avoid circular dependency.
+
+    Args:
+        paper: An ADSPaper instance.
+
+    Returns:
+        Equivalent SourceResult.
+    """
+    from paradigm.literature.nasa_ads import ADSPaper
+
+    assert isinstance(paper, ADSPaper)
+    date = datetime(paper.year, 1, 1) if paper.year else None
+    return SourceResult(
+        id=paper.arxiv_id or paper.bibcode,
+        source_type="nasa_ads",
+        title=paper.title,
+        authors=paper.authors,
+        summary=paper.abstract,
+        url=paper.url,
+        date=date,
+        metadata={
+            "bibcode": paper.bibcode,
+            "arxiv_id": paper.arxiv_id,
+            "doi": paper.doi,
+            "year": paper.year,
+            "citation_count": paper.citation_count,
+        },
+    )
+
+
 def source_result_to_arxiv_paper(result: SourceResult) -> object:
     """Convert a SourceResult back to an ArxivPaper for ingestion paths.
 

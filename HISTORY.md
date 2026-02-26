@@ -2670,3 +2670,17 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 **Key decisions**: Implementing 7 targeted fixes to address schema mismatches, writing timeouts, phantom figures, astrophysics search bias, silent citation failures, missing thread_id on events, and confusing convergence logs.
 
 **Artifacts modified**: experimentation.py, constants.py, writing.py, review.py, literature.py, bibliography.py, events.py, engine.py, fallback.py, manager.py, test_experimentation.py, test_writing.py
+
+## 2026-02-25
+
+### Prompt: Multi-Source Academic Literature Search Integration
+
+> Implement the following plan: Multi-Source Academic Literature Search Integration
+> 
+> Add PubMed, bioRxiv/medRxiv, NASA ADS, and Google Scholar as additional literature sources,
+> plus enhanced citation chain traversal. Implement as native Python wrappers fitting the existing
+> SourceProvider architecture. Also enhance SemanticScholarClient with new methods, create a
+> unified LiteratureSearchService, and add citation chain BFS traversal.
+
+**Key decisions**: Native Python wrappers (no MCP), follow existing SourceProvider pattern
+**Artifacts**: 5 new files created, 7 files modified, 5 test files created
