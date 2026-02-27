@@ -171,6 +171,28 @@ pip install --user -e ".[dev]"
 
 Or use a virtual environment (recommended).
 
+## Web API (Optional)
+
+To run the web API backend:
+
+```bash
+# Install API dependencies
+pip install -e ".[api]"
+
+# Start the development server
+uvicorn backend.api.main:app --reload --port 8000
+```
+
+Visit http://localhost:8000/docs for interactive API documentation.
+
+For authentication, set an API key:
+
+```bash
+export PARADIGM_API_KEY="your-secret-key"
+```
+
+See [`docs/API.md`](docs/API.md) for full API reference and [`backend/README.md`](backend/README.md) for backend architecture details.
+
 ## Development Setup
 
 For development work:

@@ -2873,3 +2873,59 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `tests/test_conceptual_figures.py`
 - `tests/test_memory_handler.py`
 - `tests/test_citation_handler.py`
+
+---
+
+## 2026-02-26
+
+### Prompt 53 — Implement Web Frontend Backend (FastAPI) + Frontend Architecture Plan
+
+> Implement the following plan:
+>
+> # Paradigm Web Frontend — Implementation Plan
+>
+> Build a FastAPI backend with REST endpoints, WebSocket support, Pydantic v2 models,
+> SessionManager service, WebSocketDisplayAdapter (bridging DisplayManager interface to WS),
+> and all route handlers. Also write frontend-plan.md for the React/Vite frontend architecture.
+>
+> Key deliverables:
+> 1. Working FastAPI application (backend/api/) with all REST + WS endpoints
+> 2. frontend-plan.md — comprehensive frontend architecture document
+> 3. Auto-exported OpenAPI spec
+> 4. Updated pyproject.toml with [api] extra
+> 5. backend/README.md with setup instructions
+
+**Key decisions:**
+- Backend lives in `backend/api/` directory, cleanly separated from core
+- FastAPI wraps existing Paradigm internals via bridge adapters
+- WebSocket protocol uses discriminated unions for type safety
+- SessionManager manages async research cycle tasks
+- WebSocketDisplayAdapter implements DisplayManager interface for WS broadcasting
+- Config shared via FastAPI dependency injection
+
+**Artifacts produced:**
+- `backend/api/` — Full API package
+- `backend/README.md` — Setup documentation
+- `frontend-plan.md` — Frontend architecture plan
+- `pyproject.toml` — Updated with [api] extra
+
+---
+
+### Prompt 54 — Update Documentation for Web API
+
+> let's update the manual and readme, and any documentation that is touched by these changes. Maybe add an API document? After that let's commit and push
+
+**Key decisions:**
+- Add Web API section to README.md
+- Add section 21 (Web API) to MANUAL.md
+- Create `docs/API.md` as a dedicated API reference document
+- Update INSTALL.md with API dependencies
+- Update ROADMAP.md to reflect Web API milestone
+- Update project structure and documentation table in README.md
+
+**Artifacts produced/modified:**
+- `README.md` — Added Web API section, updated project structure and docs table
+- `docs/MANUAL.md` — Added section 21 for Web API
+- `docs/API.md` — New comprehensive API reference document
+- `INSTALL.md` — Added API dependencies section
+- `ROADMAP.md` — Added Web API to Phase 6 tasks

@@ -26,6 +26,7 @@ A comprehensive guide for scientist-operators running Paradigm, the agentic scie
 18. [Citation Grounding & Seed Discovery](#18-citation-grounding--seed-discovery)
 19. [Novelty Checking](#19-novelty-checking)
 20. [Agent Memory & Reflection](#20-agent-memory--reflection)
+21. [Web API](#21-web-api)
 
 ---
 
@@ -1742,3 +1743,77 @@ paradigm memory clear --older-than 90d
 - **Recency decay** --- Older memories fade: a 30-day-old memory has half the weight of a fresh one.
 - **Bounded** --- Max 5 memories and 2000 characters per agent per prompt, preventing memory from dominating the context.
 - **Non-fatal** --- Reflection failures (API errors, parsing issues) are logged but do not block the research cycle.
+
+---
+
+## 21. Web API
+
+Paradigm includes an optional FastAPI backend that exposes REST endpoints and a WebSocket interface for building web-based frontends. This allows programmatic access to all Paradigm functionality and real-time monitoring of running research cycles.
+
+### Setup
+
+```bash
+# Install API dependencies
+pip install -e ".[api]"
+
+# Start the development server
+uvicorn backend.api.main:app --reload --port 8000
+```
+
+Visit http://localhost:8000/docs for interactive Swagger UI documentation.
+
+### Key Capabilities
+
+- **Create and manage research cycles** via REST endpoints
+- **Start sessions** that run research cycles as background tasks
+- **Monitor live progress** via WebSocket (agent outputs, phase transitions, round updates)
+- **Intervene in real time** --- send messages to agents, redirect research, approve phase transitions
+- **Browse results** --- list papers, view outputs, inspect session history
+- **Checkpoint and fork** --- save session state and branch from checkpoints
+
+### Core Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| POST | `/api/v1/research` | Create research cycle |
+| GET | `/api/v1/research` | List cycles (paginated) |
+| POST | `/api/v1/research/{id}/sessions` | Start a session |
+| GET | `/api/v1/sessions/{id}` | Session state snapshot |
+| WS | `/api/v1/sessions/{id}/ws` | Real-time WebSocket |
+| GET | `/api/v1/papers` | List papers |
+| GET | `/api/v1/agents` | List agent types |
+
+### WebSocket Protocol
+
+Connect to `ws://localhost:8000/api/v1/sessions/{session_id}/ws` to receive real-time updates:
+
+**Server -> Client:**
+- `session_state` --- Full state sync (sent on connect)
+- `agent_output_stream` --- Streamed agent response chunks
+- `agent_step_complete` --- Agent finished a step
+- `phase_transition` --- Phase changed (e.g., ideation -> planning)
+- `round_update` --- Round progress within a phase
+- `approval_request` --- System needs user input (interactive mode)
+- `notification` --- Informational events (literature search results, etc.)
+- `error` --- Errors and warnings
+
+**Client -> Server:**
+- `approval_response` --- Respond to approval requests (continue/pause/abort)
+- `session_control` --- Pause, resume, or checkpoint a session
+- `user_intervention` --- Redirect, constrain, or inform an agent
+- `user_message` --- Send a message to an agent or the orchestrator
+
+### Authentication
+
+By default, authentication is disabled for development. Set the `PARADIGM_API_KEY` environment variable to enable API key authentication via the `X-API-Key` header.
+
+### Architecture
+
+The API wraps existing Paradigm internals without modifying them:
+
+- **SessionManager** manages running sessions as `asyncio.Task` background tasks
+- **WebSocketDisplayAdapter** implements the same interface as the terminal `DisplayManager`, bridging all 100+ display methods to WebSocket broadcasts
+- **InterventionHook bridge** converts the synchronous intervention callable to an async pattern backed by `asyncio.Event`, enabling frontend approval workflows
+
+For full API reference with request/response examples, see [`docs/API.md`](API.md).

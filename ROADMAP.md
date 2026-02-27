@@ -228,6 +228,7 @@
 - [x] All CLI commands implemented (run, status, inspect, papers, paper)
 - [ ] Tune agent prompts based on output quality
 - [x] Documentation: README, operations manual (`docs/MANUAL.md`), configuration reference
+- [x] Web API: FastAPI backend with REST endpoints, WebSocket protocol, SessionManager, WebSocketDisplayAdapter
 - [x] Live multi-cycle test: cycle 1 → publish → cycle 2 discovers cycle 1 paper
 - [x] Rich terminal UI (DisplayManager with 3-column live layout, plain-text fallback)
 - [x] Citation grounding pipeline (Perplexity sonar-reasoning-pro, arXiv reference insertion)
@@ -250,7 +251,7 @@
 
 These are tracked but not scheduled:
 
-- **Web dashboard**: Real-time monitoring, citation graph visualization
+- **Web dashboard**: React/Vite frontend (backend API complete, see `frontend-plan.md`)
 - **Conference mode**: Synchronous multi-agent discussion events
 - **Grant mechanism**: Scarce compute resources agents compete for
 - **Retraction system**: Detect and retract flawed papers

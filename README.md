@@ -180,11 +180,16 @@ pip install -e ".[openai]"
 
 **Intervention Hooks** --- Run in `--interactive` mode to approve or pause at each phase transition. Or provide a custom hook function for programmatic control.
 
+**Web API** --- Optional FastAPI backend with REST endpoints and WebSocket support for building web-based frontends. Start research cycles, monitor live progress, and intervene with agents in real time. See [`docs/API.md`](docs/API.md).
+
 ## Architecture
 
 ```
-Human Operator
-      |
+Human Operator ──── Web UI (React/Vite, optional)
+      |                    |
+      |              FastAPI Backend
+      |              (REST + WebSocket)
+      |                    |
   Orchestrator (deterministic Python state machine)
       |
       |-- Research Agents (LLM API x N)
@@ -239,6 +244,12 @@ src/paradigm/
   journal/             Peer review + publication pipeline
   storage/             SQLite database, checkpoints, graveyard
   logging/             Structured JSON event logging
+backend/
+  api/                 FastAPI web API (REST + WebSocket)
+    routes/            Endpoint handlers
+    models/            Pydantic request/response schemas
+    services/          SessionManager, WebSocket display bridge
+    middleware/        Authentication
 configs/               YAML configuration files
 tests/                 pytest + pytest-asyncio
 ```
@@ -249,6 +260,9 @@ tests/                 pytest + pytest-asyncio
 |----------|-------------|
 | [`INSTALL.md`](INSTALL.md) | Installation guide (Python, Docker, API keys) |
 | [`docs/MANUAL.md`](docs/MANUAL.md) | Operations manual (comprehensive usage guide) |
+| [`docs/API.md`](docs/API.md) | Web API reference (REST endpoints, WebSocket protocol) |
+| [`backend/README.md`](backend/README.md) | Backend setup and architecture |
+| [`frontend-plan.md`](frontend-plan.md) | Frontend architecture plan (React/Vite) |
 | [`ROADMAP.md`](ROADMAP.md) | Implementation roadmap and phase status |
 | [`HISTORY.md`](HISTORY.md) | Complete development history |
 
@@ -256,7 +270,7 @@ tests/                 pytest + pytest-asyncio
 
 **Alpha** --- The full research loop works end-to-end: seed question to published, peer-reviewed paper.
 
-All major subsystems are implemented: multi-agent orchestration, multi-source literature search (arXiv, Semantic Scholar, PubMed, bioRxiv, NASA ADS), computational sandbox, paper writing, literature review mode, peer review with revision loops, citation grounding, agent episodic memory, focused debates, multi-provider LLM support, domain profiles, and intervention hooks.
+All major subsystems are implemented: multi-agent orchestration, multi-source literature search (arXiv, Semantic Scholar, PubMed, bioRxiv, NASA ADS), computational sandbox, paper writing, literature review mode, peer review with revision loops, citation grounding, agent episodic memory, focused debates, multi-provider LLM support, domain profiles, intervention hooks, and a FastAPI web API for programmatic and web-based access.
 
 ## License
 
