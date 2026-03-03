@@ -213,7 +213,7 @@
 
 ---
 
-## Phase 6: Multi-Cycle + Polish (Week 7-8) — IN PROGRESS
+## Phase 6: Multi-Cycle + Polish (Week 7-8) ✓ COMPLETE
 
 **Goal**: Run multiple research cycles. Papers cite each other. System produces useful output.
 
@@ -228,8 +228,6 @@
 - [x] All CLI commands implemented (run, status, inspect, papers, paper)
 - [ ] Tune agent prompts based on output quality
 - [x] Documentation: README, operations manual (`docs/MANUAL.md`), configuration reference
-- [x] Web API: FastAPI backend with REST endpoints, WebSocket protocol, SessionManager, WebSocketDisplayAdapter
-- [x] Live multi-cycle test: cycle 1 → publish → cycle 2 discovers cycle 1 paper
 - [x] Rich terminal UI (DisplayManager with 3-column live layout, plain-text fallback)
 - [x] Citation grounding pipeline (Perplexity sonar-reasoning-pro, arXiv reference insertion)
 - [x] Seed discovery (Perplexity pre-seeds literature before IDEATION)
@@ -247,16 +245,193 @@
 
 ---
 
+## Phase 7: Knowledge Architecture ✓ COMPLETE
+
+**Goal**: Structured knowledge representation, hypothesis competition, and evidence tracking.
+
+### Tasks
+
+- [x] World model (`knowledge/world_model.py`) — in-memory structured knowledge store:
+  - CRUD for entities, relationships, hypotheses, evidence, open questions, research goals
+  - JSON snapshot persistence, markdown summary generation for prompt injection
+- [x] Hypothesis tournament (`knowledge/hypothesis_tournament.py`) — Elo-based ranking:
+  - Round-robin matchup generation, K-factor configurable
+  - Debate judge scoring, consensus selection by rating
+  - Orchestrated by tournament handler during IDEATION phase
+- [x] Evidence graph (`knowledge/evidence_graph.py`) — conflict detection + resolution:
+  - Conflict types: direct contradiction, methodological, scope mismatch, quantitative disagreement
+  - Assumption tracking (active / invalidated / superseded)
+  - Provenance chains linking evidence to conclusions
+- [x] Conflict detection (`knowledge/conflict_detection.py`) — deterministic (no LLM needed):
+  - Flags new evidence contradicting supported hypotheses
+  - Maintains evidence-hypothesis linkage graph
+- [x] Pydantic models (`knowledge/models.py`) — entity types, relationships, evidence sources, hypothesis status, confidence levels
+- [x] Structured debate mechanism in IDEATION:
+  - `[CHALLENGE: agent-id: reason]` syntax, defender/challenger prompts
+  - Resolution markers (`[RESOLVED]`, `[CONCEDE]`), debate judge scoring
+- [x] Tests: world model, evidence graph, hypothesis tournament
+
+### Exit Criteria
+
+- Agents build a queryable world model during research
+- Competing hypotheses are ranked by Elo tournament
+- Conflicting evidence is detected and tracked
+- Knowledge state is serializable and resumable
+
+---
+
+## Phase 8: Multi-Provider Literature ✓ COMPLETE
+
+**Goal**: Search across multiple academic and domain-specific sources with intelligent routing.
+
+### Tasks
+
+- [x] Literature providers beyond arXiv:
+  - PubMed, bioRxiv (biomedical)
+  - NASA ADS (astronomy/astrophysics)
+  - Google Scholar (general academic)
+  - Semantic Scholar (citation graphs + full-text)
+  - SSRN (finance/economics)
+  - SEC EDGAR (financial filings)
+  - FRED (Federal Reserve economic data)
+- [x] Domain-aware provider routing (`literature/domain_router.py`):
+  - Classify research topics into academic domains
+  - Route queries to domain-relevant providers
+  - Keyword taxonomy for astrophysics, biology, chemistry, physics, economics, finance, medicine
+- [x] Citation chain handling (`literature/citation_chains.py`)
+- [x] Unified search service (`literature/search_service.py`) with keyword + provider-targeted syntax
+
+### Exit Criteria
+
+- Literature search draws from 10+ sources
+- Domain routing prevents off-topic results
+- Citation chains can be traversed across providers
+
+---
+
+## Phase 9: Domain System + Finance ✓ COMPLETE
+
+**Goal**: Plugin-based domain architecture with finance as the second domain.
+
+### Tasks
+
+- [x] Domain registry (`domains/registry.py`) — lazy-loading plugin system:
+  - Get/list/register domains
+  - Each domain defines: name, source providers, document template, role prompts, default roles per mode, search strategies, literature instructions
+- [x] Science domain (`domains/science/`) — refactored existing roles into domain plugin
+- [x] Finance domain (`domains/finance/`) — fully implemented:
+  - Roles: economist, quant, strategist, risk_analyst, experimentalist, writer, editor, reviewer
+  - Mode-specific teams: directed, explore, empirical, strategy, policy
+  - Data sources: SSRN, SEC EDGAR, FRED, Semantic Scholar
+  - Role-targeted search strategies and later-round reinforcements
+
+### Exit Criteria
+
+- Paradigm can run research cycles in both science and finance domains
+- Adding a new domain requires only a new directory with config + prompts
+- Domain-specific agent behavior is driven by config, not hardcoded logic
+
+---
+
+## Phase 10: Web Frontend ✓ COMPLETE
+
+**Goal**: Production-grade React UI for monitoring and controlling research sessions.
+
+### Tasks
+
+- [x] React 19 + TypeScript + Vite + Tailwind app scaffolding
+- [x] State management: Zustand stores + TanStack React Query
+- [x] Pages: Dashboard, ResearchPage, PapersPage, SessionPage, AgentsPage
+- [x] Session monitoring components:
+  - PhaseTracker, AgentPanel, MessagesPanel (streaming markdown + LaTeX)
+  - InteractionBar (pause/resume/abort), ApprovalDialog, EventLog
+  - ConnectionIndicator, StatsBar
+- [x] KnowledgePanel — real-time world model visualization:
+  - Entities, hypotheses, evidence, tournament rankings, conflicts
+  - WebSocket `KnowledgeUpdateMsg` sync
+- [x] WebSocket client with exponential backoff reconnection
+- [x] REST client with API key auth via localStorage
+- [x] Demo runner (`backend/api/services/demo_runner.py`) — simulated full research cycle for UI testing
+
+### Exit Criteria
+
+- Researcher can start, monitor, and control research cycles from a browser
+- Real-time streaming of agent output with markdown + math rendering
+- Knowledge state visible and updated live
+
+---
+
+## Phase 11: Web API + Security ✓ COMPLETE
+
+**Goal**: FastAPI backend with REST + WebSocket, hardened for production deployment.
+
+### Tasks
+
+- [x] FastAPI backend (`backend/api/`) with REST endpoints + WebSocket protocol
+- [x] SessionManager — async session orchestration bridging engine to WebSocket
+- [x] WebSocketDisplayAdapter — implements DisplayManager interface over WebSocket
+- [x] Conceptual figure generation — auto-matplotlib diagrams for non-experimental papers
+- [x] Paper reproducibility — save working code alongside published papers
+
+#### Security hardening (Prompt 54)
+
+- [x] CORS lockdown: configurable via `PARADIGM_CORS_ORIGINS` env var (was wildcard `*`)
+- [x] WebSocket authentication: API key required via query param or header (was unauthenticated)
+- [x] Timing-safe API key comparison: `secrets.compare_digest()` (was `==`)
+- [x] SQL field-name validation: regex whitelist in `database.py` (was dynamic f-string)
+- [x] Sandbox safety: block `os.system()`, `os.popen()`, `os.exec*()` (were unblocked)
+- [x] Agent prompt: removed `os.system()` instruction, packages listed as pre-installed
+- [x] Error message sanitization: generic messages to clients, details in server logs
+- [x] Session/cycle ID entropy: `secrets.token_hex(16)` = 128-bit (was 48-bit)
+- [x] Frontend: auto-detect `wss://` vs `ws://`, pass API key on WebSocket connect
+
+### Exit Criteria
+
+- No API keys exposed in source code or client responses
+- WebSocket connections are authenticated
+- CORS restricted to configured origins
+- Sandbox blocks all shell execution primitives
+- Session IDs are cryptographically strong
+
+---
+
+## Phase 12: Production Hardening — PLANNED
+
+**Goal**: Multi-user support, rate limiting, and observability for real deployment.
+
+### Tasks
+
+- [ ] **Authentication upgrade**: JWT or OAuth2 replacing single shared API key
+- [ ] **Multi-user isolation**: user context on all requests, per-resource ownership validation
+- [ ] **Rate limiting**: `slowapi` or similar middleware on all endpoints
+- [ ] **Session timeouts**: auto-cleanup of idle sessions
+- [ ] **Audit logging**: structured, queryable trail of who accessed/modified what
+- [ ] **API key rotation**: per-user tokens with expiration and revocation
+- [ ] **Frontend auth**: move API key from localStorage to httpOnly cookie
+- [ ] **Input validation**: content filtering and length limits on all user-facing fields
+- [ ] **Request size limits**: prevent memory exhaustion via oversized payloads
+- [ ] **CSP headers**: Content-Security-Policy on frontend responses
+- [ ] **HTTPS enforcement**: TLS termination, HSTS headers
+- [ ] **Monitoring**: health metrics, error rates, latency tracking (Prometheus/Grafana or similar)
+
+### Exit Criteria
+
+- Multiple users can run concurrent sessions without data leakage
+- Abuse is mitigated by rate limiting and input validation
+- Operators have visibility into system health and usage
+
+---
+
 ## Future Phases (Post-MVP)
 
 These are tracked but not scheduled:
 
-- **Web dashboard**: React/Vite frontend (backend API complete, see `frontend-plan.md`)
 - **Conference mode**: Synchronous multi-agent discussion events
 - **Grant mechanism**: Scarce compute resources agents compete for
 - **Retraction system**: Detect and retract flawed papers
 - **Scaling**: Move from SQLite → Postgres, single-node → distributed
 - **Pre-registration**: Agents register hypotheses before testing
-- **Domain plugins**: Domain-specific tools (MESA for stellar physics, etc.)
+- **Domain plugins**: More domains — MESA for stellar physics, bioinformatics, climate science
 - **Human-in-the-loop mode**: Real scientists collaborate with agent teams
 - **Replication challenge**: Limit literature to pre-2020, see if agents re-derive recent results
+- **Continuous prompt tuning**: Systematic evaluation and improvement of agent prompts
