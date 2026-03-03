@@ -3035,3 +3035,26 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 **Root cause**: Pre-existing bugs, not caused by knowledge UI changes. (1) Stats never broadcast after update — `agent_response()`, `search_result()`, etc. call `update_session_state()` but never `_broadcast_state()`. (2) Phase names sent UPPERCASE from engine but frontend expects lowercase. (3) `from_phase` never included in `PhaseTransitionMsg`, so `completedPhases` never populated.
 
 **Artifacts**: backend/api/services/ws_display.py
+
+### Prompt 57 — Implement Testing/Production Mode Toggle in Frontend
+
+> Implement the following plan:
+>
+> # Testing/Production Mode Toggle in Frontend
+>
+> Add a toggle in the web UI to switch between production (frontier Claude/Gemini models) and testing (together.ai open models) at runtime. Backend: add mode tracking to Config class, new GET/PUT /api/v1/config/mode endpoints. Frontend: REST client functions, TanStack Query hooks, header toggle switch.
+>
+> Implementation order: config.py → backend route → main.py registration → client.ts → hook → Header.tsx
+
+**Key decisions:**
+- Store production overrides backup in Config class-level dict (not Pydantic field)
+- Toggle invalidates both config-mode and agents query caches
+- Toggle only shown when testing_available is true
+
+**Artifacts modified:**
+- `src/paradigm/config.py` — mode tracking + restore method
+- `backend/api/routes/config.py` — NEW: GET/PUT mode endpoints
+- `backend/api/main.py` — register config router
+- `frontend/src/api/client.ts` — config mode API functions
+- `frontend/src/hooks/useConfigMode.ts` — NEW: query + mutation hooks
+- `frontend/src/components/layout/Header.tsx` — toggle switch

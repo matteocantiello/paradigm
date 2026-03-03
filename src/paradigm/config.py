@@ -213,6 +213,10 @@ class Config(BaseModel):
     testing_overrides: dict[str, AgentOverrideConfig] = Field(default_factory=dict)
     api_key: str | None = Field(default=None, validate_default=True)
 
+    # Runtime state (not serialised by Pydantic)
+    _testing_mode: bool = False
+    _production_overrides: dict[str, AgentOverrideConfig] | None = None
+
     @field_validator("api_key", mode="before")
     @classmethod
     def get_api_key(cls, v: str | None) -> str:
@@ -258,10 +262,35 @@ class Config(BaseModel):
 
         return self
 
+    @property
+    def is_testing_mode(self) -> bool:
+        """Whether the config is currently using testing overrides."""
+        return self._testing_mode
+
     def apply_testing_overrides(self) -> None:
         """Merge testing_overrides into agent.overrides for testing mode."""
+        if self._testing_mode:
+            return  # Already in testing mode
+        # Backup current production overrides before replacing
+        self._production_overrides = {
+            role: override.model_copy() for role, override in self.agent.overrides.items()
+        }
         for role, override in self.testing_overrides.items():
             self.agent.overrides[role] = override
+        self._testing_mode = True
+
+    def restore_production_overrides(self) -> None:
+        """Restore original agent overrides, exiting testing mode."""
+        if not self._testing_mode:
+            return  # Already in production mode
+        if self._production_overrides is not None:
+            self.agent.overrides = self._production_overrides
+            self._production_overrides = None
+        else:
+            # No backup — clear testing overrides by removing their keys
+            for role in self.testing_overrides:
+                self.agent.overrides.pop(role, None)
+        self._testing_mode = False
 
     def get_domain_profile(self) -> Any:
         """Load and return the domain profile for this config's ``domain`` key.

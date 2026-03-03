@@ -212,3 +212,20 @@ export function updateAgentConfig(agentType: string, body: AgentConfigUpdate) {
     body: JSON.stringify(body),
   });
 }
+
+// --- Config Mode ---
+export interface ConfigModeResponse {
+  mode: string;
+  testing_available: boolean;
+}
+
+export function getConfigMode() {
+  return request<ConfigModeResponse>("/api/v1/config/mode");
+}
+
+export function setConfigMode(mode: string) {
+  return request<ConfigModeResponse>("/api/v1/config/mode", {
+    method: "PUT",
+    body: JSON.stringify({ mode }),
+  });
+}
