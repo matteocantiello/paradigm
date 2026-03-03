@@ -70,7 +70,10 @@ def _build_engine(config, db, logger, corpus) -> OrchestrationEngine:
     factory = MagicMock()
     factory.create_team = MagicMock(return_value=[])
     engine = OrchestrationEngine(
-        config=config, database=db, corpus=corpus, logger=logger,
+        config=config,
+        database=db,
+        corpus=corpus,
+        logger=logger,
         agent_factory=factory,
     )
     engine.state.thread_id = "thread-test-tournament"
@@ -232,13 +235,18 @@ class TestTournamentHandler:
 
         # Mock the provider to return structured JSON
         mock_provider = MagicMock()
-        mock_provider.complete = MagicMock(return_value=(
-            json.dumps([
-                {"statement": "Dark matter is axions", "rationale": "Light particles"},
-                {"statement": "Dark matter is WIMPs", "rationale": "Heavy particles"},
-            ]),
-            100, 50,
-        ))
+        mock_provider.complete = MagicMock(
+            return_value=(
+                json.dumps(
+                    [
+                        {"statement": "Dark matter is axions", "rationale": "Light particles"},
+                        {"statement": "Dark matter is WIMPs", "rationale": "Heavy particles"},
+                    ]
+                ),
+                100,
+                50,
+            )
+        )
         object.__setattr__(
             engine._config,
             "get_provider_and_model_for_role",
@@ -259,10 +267,13 @@ class TestTournamentHandler:
         h_b = Hypothesis(id="hb", statement="Hypothesis B", rationale="Also good")
 
         mock_provider = MagicMock()
-        mock_provider.complete = MagicMock(return_value=(
-            json.dumps({"winner": "A", "reasoning": "A is better", "margin": 0.8}),
-            50, 30,
-        ))
+        mock_provider.complete = MagicMock(
+            return_value=(
+                json.dumps({"winner": "A", "reasoning": "A is better", "margin": 0.8}),
+                50,
+                30,
+            )
+        )
         object.__setattr__(
             engine._config,
             "get_provider_and_model_for_role",
@@ -292,18 +303,22 @@ class TestTournamentHandler:
             if call_count[0] == 1:
                 # Extraction call
                 return (
-                    json.dumps([
-                        {"statement": "H1", "rationale": "R1"},
-                        {"statement": "H2", "rationale": "R2"},
-                        {"statement": "H3", "rationale": "R3"},
-                    ]),
-                    100, 50,
+                    json.dumps(
+                        [
+                            {"statement": "H1", "rationale": "R1"},
+                            {"statement": "H2", "rationale": "R2"},
+                            {"statement": "H3", "rationale": "R3"},
+                        ]
+                    ),
+                    100,
+                    50,
                 )
             else:
                 # Judge calls — always pick A
                 return (
                     json.dumps({"winner": "A", "reasoning": "A wins", "margin": 0.6}),
-                    50, 30,
+                    50,
+                    30,
                 )
 
         mock_provider = MagicMock()
@@ -333,10 +348,13 @@ class TestTournamentHandler:
         ]
 
         mock_provider = MagicMock()
-        mock_provider.complete = MagicMock(return_value=(
-            json.dumps([{"statement": "Single H", "rationale": "Only one"}]),
-            100, 50,
-        ))
+        mock_provider.complete = MagicMock(
+            return_value=(
+                json.dumps([{"statement": "Single H", "rationale": "Only one"}]),
+                100,
+                50,
+            )
+        )
         object.__setattr__(
             engine._config,
             "get_provider_and_model_for_role",
@@ -348,9 +366,7 @@ class TestTournamentHandler:
         assert winners[0].statement == "Single H"
 
     @pytest.mark.asyncio
-    async def test_fallback_on_extraction_error(
-        self, mock_config, tmp_db, tmp_logger, mock_corpus
-    ):
+    async def test_fallback_on_extraction_error(self, mock_config, tmp_db, tmp_logger, mock_corpus):
         """Extraction failure should fall back to world model hypotheses."""
         engine = _build_engine(mock_config, tmp_db, tmp_logger, mock_corpus)
         handler = TournamentHandler(engine)
@@ -369,7 +385,8 @@ class TestTournamentHandler:
                 raise ValueError("LLM error")
             return (
                 json.dumps({"winner": "A", "reasoning": "ok", "margin": 0.5}),
-                50, 30,
+                50,
+                30,
             )
 
         mock_provider = MagicMock()
@@ -384,9 +401,7 @@ class TestTournamentHandler:
         assert len(winners) == 2  # Fell back to world model hypotheses
 
     @pytest.mark.asyncio
-    async def test_no_messages_returns_empty(
-        self, mock_config, tmp_db, tmp_logger, mock_corpus
-    ):
+    async def test_no_messages_returns_empty(self, mock_config, tmp_db, tmp_logger, mock_corpus):
         """Empty messages should return empty list."""
         engine = _build_engine(mock_config, tmp_db, tmp_logger, mock_corpus)
         handler = TournamentHandler(engine)

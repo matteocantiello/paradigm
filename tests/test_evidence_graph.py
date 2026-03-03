@@ -76,7 +76,10 @@ def _build_engine(config, db, logger, corpus) -> OrchestrationEngine:
     factory = MagicMock()
     factory.create_team = MagicMock(return_value=[])
     engine = OrchestrationEngine(
-        config=config, database=db, corpus=corpus, logger=logger,
+        config=config,
+        database=db,
+        corpus=corpus,
+        logger=logger,
         agent_factory=factory,
     )
     engine.state.thread_id = "thread-test-eg"
@@ -96,14 +99,16 @@ def _build_engine(config, db, logger, corpus) -> OrchestrationEngine:
 class TestConflictEdge:
     def test_creation(self):
         c = ConflictEdge(
-            evidence_a_id="e1", evidence_b_id="e2",
+            evidence_a_id="e1",
+            evidence_b_id="e2",
             conflict_type=ConflictType.DIRECT_CONTRADICTION,
         )
         assert c.resolution_status == ConflictResolution.UNRESOLVED
 
     def test_resolution_status(self):
         c = ConflictEdge(
-            evidence_a_id="e1", evidence_b_id="e2",
+            evidence_a_id="e1",
+            evidence_b_id="e2",
             conflict_type=ConflictType.METHODOLOGICAL,
             resolution_status=ConflictResolution.RESOLVED_SYNTHESIS,
         )
@@ -137,7 +142,8 @@ class TestEvidenceGraph:
     def test_add_and_get_conflict(self):
         eg = self._make_graph()
         c = ConflictEdge(
-            evidence_a_id="e1", evidence_b_id="e2",
+            evidence_a_id="e1",
+            evidence_b_id="e2",
             conflict_type=ConflictType.DIRECT_CONTRADICTION,
         )
         cid = eg.add_conflict(c)
@@ -146,11 +152,13 @@ class TestEvidenceGraph:
     def test_unresolved_conflicts(self):
         eg = self._make_graph()
         c1 = ConflictEdge(
-            evidence_a_id="e1", evidence_b_id="e2",
+            evidence_a_id="e1",
+            evidence_b_id="e2",
             conflict_type=ConflictType.DIRECT_CONTRADICTION,
         )
         c2 = ConflictEdge(
-            evidence_a_id="e3", evidence_b_id="e4",
+            evidence_a_id="e3",
+            evidence_b_id="e4",
             conflict_type=ConflictType.METHODOLOGICAL,
             resolution_status=ConflictResolution.RESOLVED_A,
         )
@@ -163,7 +171,8 @@ class TestEvidenceGraph:
     def test_resolve_conflict(self):
         eg = self._make_graph()
         c = ConflictEdge(
-            evidence_a_id="e1", evidence_b_id="e2",
+            evidence_a_id="e1",
+            evidence_b_id="e2",
             conflict_type=ConflictType.DIRECT_CONTRADICTION,
         )
         cid = eg.add_conflict(c)
@@ -258,14 +267,19 @@ class TestEvidenceGraph:
         hid = wm.add_hypothesis(h)
 
         eg = EvidenceGraph(wm)
-        eg.add_conflict(ConflictEdge(
-            evidence_a_id="e1", evidence_b_id="e2",
-            conflict_type=ConflictType.DIRECT_CONTRADICTION,
-        ))
-        eg.add_assumption(Assumption(
-            statement="Linear regime",
-            dependent_hypothesis_ids=[hid],
-        ))
+        eg.add_conflict(
+            ConflictEdge(
+                evidence_a_id="e1",
+                evidence_b_id="e2",
+                conflict_type=ConflictType.DIRECT_CONTRADICTION,
+            )
+        )
+        eg.add_assumption(
+            Assumption(
+                statement="Linear regime",
+                dependent_hypothesis_ids=[hid],
+            )
+        )
 
         summary = eg.summarize_evidence_landscape()
         assert "Unresolved Conflicts" in summary
@@ -276,10 +290,13 @@ class TestEvidenceGraph:
         wm = WorldModel()
         wm.add_hypothesis(Hypothesis(statement="Test"))
         eg = EvidenceGraph(wm)
-        eg.add_conflict(ConflictEdge(
-            evidence_a_id="e1", evidence_b_id="e2",
-            conflict_type=ConflictType.DIRECT_CONTRADICTION,
-        ))
+        eg.add_conflict(
+            ConflictEdge(
+                evidence_a_id="e1",
+                evidence_b_id="e2",
+                conflict_type=ConflictType.DIRECT_CONTRADICTION,
+            )
+        )
         eg.add_assumption(Assumption(statement="Linear"))
 
         snap = eg.to_snapshot()
@@ -434,10 +451,12 @@ class TestHandlerIntegration:
 
         h = Hypothesis(statement="Test")
         wm.add_hypothesis(h)
-        eg.add_assumption(Assumption(
-            statement="Linear approx",
-            dependent_hypothesis_ids=[h.id],
-        ))
+        eg.add_assumption(
+            Assumption(
+                statement="Linear approx",
+                dependent_hypothesis_ids=[h.id],
+            )
+        )
 
         ctx = handler.build_evidence_landscape_context()
         assert "## Evidence Landscape" in ctx
@@ -449,6 +468,9 @@ class TestHandlerIntegration:
         engine.state.evidence_graph = None
 
         assert handler.build_evidence_landscape_context() == ""
-        assert handler.detect_and_register_conflicts(
-            Evidence(content="test", source=EvidenceSource.EXPERIMENT)
-        ) == []
+        assert (
+            handler.detect_and_register_conflicts(
+                Evidence(content="test", source=EvidenceSource.EXPERIMENT)
+            )
+            == []
+        )

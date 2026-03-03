@@ -445,7 +445,8 @@ class ExperimentationHandler:
                         prompt += (
                             "\n\n## Planned Experiments (from PLANNING phase)\n"
                             "The team agreed on these experiments during planning. "
-                            "Execute them in order of priority:\n" + engine.state.planning_action_items
+                            "Execute them in order of priority:\n"
+                            + engine.state.planning_action_items
                         )
 
                     # Inject strategy redirect, advisory, and skipped-experiment messages
@@ -949,7 +950,9 @@ class ExperimentationHandler:
         net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
 
         # Build workspace manifest for design review context
-        workspace_dir = Path(engine._config.storage.data_dir) / "workspaces" / engine.state.thread_id
+        workspace_dir = (
+            Path(engine._config.storage.data_dir) / "workspaces" / engine.state.thread_id
+        )
         ws_manifest = _build_workspace_manifest(workspace_dir)
         ws_manifest_str = ws_manifest + "\n\n" if ws_manifest else ""
 
@@ -977,7 +980,9 @@ class ExperimentationHandler:
             )
             engine._display.sprint_design_proposed(sprint_num)
         except Exception as e:
-            engine._logger.log_error(e, agent_id=experimenter.agent_id, thread_id=engine.state.thread_id)
+            engine._logger.log_error(
+                e, agent_id=experimenter.agent_id, thread_id=engine.state.thread_id
+            )
             return ""
 
         experiment_plan = proposal_response.content
@@ -1256,7 +1261,9 @@ class ExperimentationHandler:
                 if any(p in combined_error for p in _DATA_ERROR_PATTERNS):
                     self._auto_searched = True
                     try:
-                        query_text = _build_auto_search_query(engine.state.seed_prompt, combined_error)
+                        query_text = _build_auto_search_query(
+                            engine.state.seed_prompt, combined_error
+                        )
                         search_query = f"[SEARCH: {query_text}]"
                         await engine._literature.process_search_requests(
                             experimenter.agent_id,

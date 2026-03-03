@@ -194,7 +194,8 @@ class TestWorldModelCRUD:
     def test_add_and_get_relationship(self):
         wm = WorldModel()
         r = Relationship(
-            source_id="a", target_id="b",
+            source_id="a",
+            target_id="b",
             relationship_type=RelationshipType.CORRELATES_WITH,
         )
         rid = wm.add_relationship(r)
@@ -281,11 +282,13 @@ class TestSummarize:
     def test_summary_truncation(self):
         wm = WorldModel()
         for i in range(100):
-            wm.add_entity(Entity(
-                name=f"entity_{i}",
-                entity_type=EntityType.CONCEPT,
-                description="A " * 100,
-            ))
+            wm.add_entity(
+                Entity(
+                    name=f"entity_{i}",
+                    entity_type=EntityType.CONCEPT,
+                    description="A " * 100,
+                )
+            )
         summary = wm.summarize_state(max_chars=200)
         assert len(summary) <= 220  # 200 + truncation message
         assert "truncated" in summary
@@ -327,10 +330,13 @@ class TestSnapshot:
         wm.add_evidence(Evidence(content="Light detected", source=EvidenceSource.EXPERIMENT))
         wm.add_research_goal(ResearchGoal(description="Study stars"))
         wm.add_open_question(OpenQuestion(question="Why?"))
-        wm.add_relationship(Relationship(
-            source_id="a", target_id="b",
-            relationship_type=RelationshipType.CAUSES,
-        ))
+        wm.add_relationship(
+            Relationship(
+                source_id="a",
+                target_id="b",
+                relationship_type=RelationshipType.CAUSES,
+            )
+        )
 
         snap = wm.to_snapshot()
         wm2 = WorldModel.from_snapshot(snap)

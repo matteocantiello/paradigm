@@ -298,7 +298,9 @@ class ReviewHandler:
                     self._engine._db.update_paper(
                         thread["current_draft_id"], status="writing_failed"
                     )
-                self._engine._db.update_thread(self._engine.state.thread_id, status="writing_failed")
+                self._engine._db.update_thread(
+                    self._engine.state.thread_id, status="writing_failed"
+                )
                 return
 
             if feedback.recommendation == "accept":

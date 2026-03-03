@@ -220,11 +220,10 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "**IMPORTANT:** Use `import pypdf` (NOT `import PyPDF2`). "
             "Use `from pdfminer.high_level import extract_text` for PDF text extraction. "
             "Do NOT try to pip install packages — it is blocked.\n"
-            "**Installing extra packages:** If you need a package not already installed, run "
-            "`import os; os.system('pip install --user --no-index --find-links /data/packages/ "
-            "<package_name>')` at the top of your script. Packages available in the offline "
-            "cache include: photutils, specutils, dust_extinction, galpy, healpy, "
-            "plotly, bokeh, tables, netCDF4, pyarrow, and more.\n"
+            "**Extra packages:** The following additional packages are pre-installed: "
+            "photutils, specutils, dust_extinction, galpy, healpy, "
+            "plotly, bokeh, tables, netCDF4, pyarrow, and more. "
+            "Simply `import` them — do NOT use pip install or os.system().\n"
             "**Environment:** Code runs inside a Docker container. "
             "You can use os, pathlib, open(), io, glob, shutil, etc. for file operations. "
             "Do NOT use subprocess, ctypes, multiprocessing, exec(), or eval().\n"
@@ -910,10 +909,18 @@ _PHASE_ACTIVE_ROLES: dict[ResearchPhase, set[str]] = {
 _PHASE_CONTEXT_NEEDS: dict[ResearchPhase, set[str]] = {
     ResearchPhase.IDEATION: {"literature", "references", "memory", "world_model"},
     ResearchPhase.PLANNING: {
-        "literature", "code_data", "memory", "world_model", "evidence_landscape",
+        "literature",
+        "code_data",
+        "memory",
+        "world_model",
+        "evidence_landscape",
     },
     ResearchPhase.POST_EXECUTION: {
-        "literature", "execution", "memory", "world_model", "evidence_landscape",
+        "literature",
+        "execution",
+        "memory",
+        "world_model",
+        "evidence_landscape",
     },
 }
 
