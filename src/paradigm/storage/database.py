@@ -1,10 +1,21 @@
 """SQLite database management for Paradigm."""
 
 import json
+import re
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+# Valid SQL identifier pattern — prevents SQL injection via column names.
+_SAFE_FIELD_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+def _validate_field_names(fields: dict[str, Any]) -> None:
+    """Raise ValueError if any field name is not a safe SQL identifier."""
+    for name in fields:
+        if not _SAFE_FIELD_RE.match(name):
+            raise ValueError(f"Invalid field name: {name!r}")
 
 
 class Database:
@@ -221,6 +232,7 @@ class Database:
             paper_id: Paper ID
             **fields: Fields to update
         """
+        _validate_field_names(fields)
         # Handle JSON fields
         json_fields = ["authors", "keywords", "citations", "review_scores"]
         for field in json_fields:
@@ -332,6 +344,7 @@ class Database:
             agent_id: Agent ID
             **fields: Fields to update
         """
+        _validate_field_names(fields)
         json_fields = ["personality", "reputation", "active_threads", "memory_checkpoints"]
         for field in json_fields:
             if field in fields and fields[field] is not None:
@@ -413,6 +426,7 @@ class Database:
             thread_id: Thread ID
             **fields: Fields to update
         """
+        _validate_field_names(fields)
         json_fields = [
             "participants",
             "key_findings",

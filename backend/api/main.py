@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -96,13 +97,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS — permissive for dev, lock down in production
+    # CORS — configurable via PARADIGM_CORS_ORIGINS env var.
+    # Defaults to localhost dev origins. Set to comma-separated list for production.
+    cors_origins_str = os.getenv(
+        "PARADIGM_CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
+    )
+    cors_origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type", "X-API-Key"],
     )
 
     # Health check

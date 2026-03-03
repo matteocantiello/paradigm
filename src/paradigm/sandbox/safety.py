@@ -196,6 +196,20 @@ class SafetyScanner:
             if not any("__import__" in v for v in violations):
                 violations.append("Denied pattern: '__import__()' call detected")
 
+        # Block os.system() — equivalent to subprocess.call(shell=True)
+        if re.search(r"os\.system\s*\(", code):
+            violations.append(
+                "os.system() is not allowed. Use the pre-installed packages directly."
+            )
+
+        # Catch os.popen() — shell command execution
+        if re.search(r"os\.popen\s*\(", code):
+            violations.append("os.popen() is not allowed. Use the pre-installed packages directly.")
+
+        # Catch os.exec* family — process replacement
+        if re.search(r"os\.exec[lv]p?e?\s*\(", code):
+            violations.append("os.exec*() is not allowed.")
+
         # Catch os.system-style calls via string manipulation
         if re.search(r'getattr\s*\(.+["\']system["\']\s*\)', code):
             violations.append("Denied pattern: getattr-based system call detected")

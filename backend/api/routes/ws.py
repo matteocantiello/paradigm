@@ -7,6 +7,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from backend.api.middleware.auth import verify_api_key_sync
 from backend.api.models.messages import (
     ApprovalResponseMsg,
     ErrorMsg,
@@ -27,6 +28,15 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
     On connect, sends a session_state message with current state.
     Then listens for client messages and routes them appropriately.
     """
+    # Authenticate: check API key from query param or first header
+    api_key = websocket.query_params.get("api_key")
+    if api_key is None:
+        # Fall back to header (some WS clients support custom headers)
+        api_key = websocket.headers.get("x-api-key")
+    if not verify_api_key_sync(api_key):
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
     manager = websocket.app.state.session_manager
 
     # Verify session exists

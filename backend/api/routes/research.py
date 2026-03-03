@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import uuid
+import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -32,7 +32,7 @@ async def create_research_cycle(
     request: Request,
 ) -> ResearchCycleResponse:
     """Create a new research cycle."""
-    cycle_id = f"cycle-{uuid.uuid4().hex[:12]}"
+    cycle_id = f"cycle-{secrets.token_hex(16)}"
     now = datetime.now(timezone.utc)
 
     cycle = ResearchCycleResponse(

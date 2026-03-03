@@ -53,6 +53,7 @@ Once the server is running:
 | `ANTHROPIC_API_KEY` | Anthropic API key for Claude agents | Yes (for running cycles) |
 | `PARADIGM_CONFIG` | Path to config YAML | No (default: `configs/default.yaml`) |
 | `PARADIGM_API_KEY` | API key for request authentication | No (auth disabled if unset) |
+| `PARADIGM_CORS_ORIGINS` | Comma-separated allowed CORS origins | No (default: `http://localhost:3000,http://localhost:5173`) |
 
 ---
 
@@ -358,8 +359,10 @@ The WebSocket endpoint provides real-time bidirectional communication for monito
 ### Connection
 
 ```
-WS /api/v1/sessions/{session_id}/ws
+WS /api/v1/sessions/{session_id}/ws?api_key=YOUR_KEY
 ```
+
+When `PARADIGM_API_KEY` is set, WebSocket connections must include the API key as a query parameter (`api_key`) or via the `X-API-Key` header. Connections without a valid key are rejected with code `4001`.
 
 On connect, the server immediately sends a `session_state` message with the current state snapshot.
 
@@ -623,15 +626,16 @@ The `WebSocketDisplayAdapter` implements the same interface as the terminal `Dis
 
 ### CORS
 
-The API allows all origins by default for development. In production, configure allowed origins:
+CORS origins are configured via the `PARADIGM_CORS_ORIGINS` environment variable. It defaults to localhost development origins. For production, set it to your frontend domain:
 
-```python
-# In backend/api/main.py
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://your-frontend.com"],
-    ...
-)
+```bash
+export PARADIGM_CORS_ORIGINS="https://your-frontend.com"
+```
+
+Multiple origins can be comma-separated:
+
+```bash
+export PARADIGM_CORS_ORIGINS="https://app.example.com,https://staging.example.com"
 ```
 
 ### Export OpenAPI Spec
