@@ -125,13 +125,24 @@ class WebSocketDisplayAdapter:
         total_agents: int | None = None,
     ) -> None:
         phase_str = str(phase_name) if not isinstance(phase_name, str) else phase_name
-        self._manager.update_session_state(self._session_id, current_phase=phase_str)
+        phase_str = phase_str.lower()
+
+        # Track the previous phase for completed_phases
+        state = self._manager.get_state(self._session_id)
+        from_phase = state.current_phase if state else None
+
+        updates: dict[str, Any] = {"current_phase": phase_str}
         if max_rounds is not None:
-            self._manager.update_session_state(self._session_id, max_rounds=max_rounds)
+            updates["max_rounds"] = max_rounds
+        if from_phase and state:
+            updates["completed_phases"] = [*state.completed_phases, from_phase]
+        self._manager.update_session_state(self._session_id, **updates)
+
         _fire_and_forget(
             self._manager.broadcast_message(
                 self._session_id,
                 PhaseTransitionMsg(
+                    from_phase=from_phase,
                     to_phase=phase_str,
                     max_rounds=max_rounds,
                     active_agents=active_agents,
@@ -164,6 +175,7 @@ class WebSocketDisplayAdapter:
                 RoundUpdateMsg(round_num=round_num, max_rounds=max_rounds),
             )
         )
+        self._broadcast_state()
 
     # ------------------------------------------------------------------
     # Convergence
@@ -211,6 +223,7 @@ class WebSocketDisplayAdapter:
                 ),
             )
         )
+        self._broadcast_state()
 
     def agent_error(self, agent_id: str, error: str | Exception) -> None:
         self._notify(f"{agent_id} failed: {error}", level="error", category="agent")
@@ -233,6 +246,7 @@ class WebSocketDisplayAdapter:
             f"{agent_id}: '{query[:40]}' -> {new_results} new papers",
             category="search",
         )
+        self._broadcast_state()
 
     def search_skipped(self, query: str, *, reason: str = "similar") -> None:
         self._notify(f"Skipped {reason} query", category="search", level="info")
@@ -258,6 +272,7 @@ class WebSocketDisplayAdapter:
                 self._session_id, papers_found=state.papers_found + count
             )
         self._notify(f"{agent_id} followed {arxiv_id} -> {count}", category="search")
+        self._broadcast_state()
 
     def follow_budget_exhausted(self, arxiv_id: str) -> None:
         pass
@@ -275,6 +290,7 @@ class WebSocketDisplayAdapter:
                 self._session_id, papers_found=state.papers_found + count
             )
         self._notify(f"{agent_id} cited-by {arxiv_id} -> {count}", category="search")
+        self._broadcast_state()
 
     def cited_by_budget_exhausted(self, arxiv_id: str) -> None:
         pass

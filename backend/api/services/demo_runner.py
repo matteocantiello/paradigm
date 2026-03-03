@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 from datetime import datetime, timezone
 
 from backend.api.models.messages import (
@@ -20,6 +21,7 @@ from backend.api.models.messages import (
     NotificationMsg,
     PhaseTransitionMsg,
     RoundUpdateMsg,
+    SessionStateMsg,
 )
 
 logger = logging.getLogger(__name__)
@@ -335,6 +337,29 @@ async def run_demo_cycle(session_id: str, manager) -> None:
 
                 state.total_tokens = total_tokens
                 state.updated_at = datetime.now(timezone.utc)
+
+                # Broadcast updated session state (stats, elapsed time)
+                await manager.broadcast_message(
+                    session_id,
+                    SessionStateMsg(
+                        session_id=session_id,
+                        status=state.status.value,
+                        current_phase=state.current_phase,
+                        round_num=state.round_num,
+                        max_rounds=state.max_rounds,
+                        thread_id=state.thread_id,
+                        active_agents=state.active_agents,
+                        total_tokens=state.total_tokens,
+                        total_searches=state.total_searches,
+                        papers_found=state.papers_found,
+                        elapsed_seconds=round(
+                            time.monotonic()
+                            - manager._session_start_times.get(session_id, time.monotonic()),
+                            1,
+                        ),
+                        completed_phases=state.completed_phases or [],
+                    ),
+                )
                 await asyncio.sleep(0.5)
 
             # Notifications

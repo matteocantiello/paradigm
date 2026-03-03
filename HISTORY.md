@@ -3027,3 +3027,11 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 > Can we add these recommendations to ROADMAP.md? Roadmap likely needs an update as well, given recent development
 
 **Scope**: Refresh ROADMAP.md to reflect what's been built (frontend, knowledge architecture, security hardening) and add security recommendations as a tracked phase.
+
+### Prompt 56 — Fix Stats Bar, Phase Tracker, and Elapsed Time Not Updating in Web UI
+
+> A few issues (see the image of the frontend): time, tokens, searches, papers are not updated. Also the current phase of the research is not shown. Maybe the recent changes have broken that workflow?
+
+**Root cause**: Pre-existing bugs, not caused by knowledge UI changes. (1) Stats never broadcast after update — `agent_response()`, `search_result()`, etc. call `update_session_state()` but never `_broadcast_state()`. (2) Phase names sent UPPERCASE from engine but frontend expects lowercase. (3) `from_phase` never included in `PhaseTransitionMsg`, so `completedPhases` never populated.
+
+**Artifacts**: backend/api/services/ws_display.py

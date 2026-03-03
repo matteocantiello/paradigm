@@ -40,6 +40,7 @@ class SessionState(BaseModel):
     total_searches: int = 0
     papers_found: int = 0
     elapsed_seconds: float = 0.0
+    completed_phases: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime | None = None
 
