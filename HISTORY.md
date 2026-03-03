@@ -3058,3 +3058,15 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `frontend/src/api/client.ts` — config mode API functions
 - `frontend/src/hooks/useConfigMode.ts` — NEW: query + mutation hooks
 - `frontend/src/components/layout/Header.tsx` — toggle switch
+
+---
+
+### Prompt 58 — Fix Research Cycle Card: Delete + Click-to-Open
+
+> Implement the following plan:
+>
+> Fix two bugs in the Research Cycles UI: (1) DELETE endpoint only sets status=ABORTED but never removes the cycle from the in-memory `_cycles` dict — fix by adding `del _cycles[cycle_id]`. (2) The cycle card isn't clickable — make the entire card navigate to `/session/{thread_id}` when a thread_id exists, add cursor-pointer/hover styling, stopPropagation on trash button, and remove the separate ExternalLink icon button.
+
+**Artifacts modified:**
+- `backend/api/routes/research.py` — actually remove cycle from `_cycles` on DELETE
+- `frontend/src/components/research/CycleCard.tsx` — make card clickable, remove ExternalLink button

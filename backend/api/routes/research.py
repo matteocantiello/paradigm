@@ -97,5 +97,4 @@ async def delete_research_cycle(cycle_id: str, request: Request) -> None:
         if session.status in ("starting", "running"):
             await manager.abort_session(session.session_id)
 
-    cycle.status = CycleStatus.ABORTED
-    cycle.updated_at = datetime.now(timezone.utc)
+    del _cycles[cycle_id]
