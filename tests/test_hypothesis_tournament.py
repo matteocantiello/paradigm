@@ -3,24 +3,22 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from helpers import make_mock_agent, patch_config_provider
+from helpers import patch_config_provider
 
 from paradigm.config import Config
 from paradigm.knowledge.hypothesis_tournament import (
     HypothesisPopulation,
     MatchupResult,
-    TournamentState,
 )
-from paradigm.knowledge.models import Hypothesis, HypothesisStatus
+from paradigm.knowledge.models import Hypothesis
 from paradigm.knowledge.tournament_handler import TournamentHandler
 from paradigm.knowledge.world_model import WorldModel
 from paradigm.logging.events import EventLogger
 from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.storage.database import Database
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

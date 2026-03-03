@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from helpers import make_mock_agent, patch_config_provider
+from helpers import patch_config_provider
 
 from paradigm.config import Config
 from paradigm.knowledge.models import (
@@ -26,7 +26,6 @@ from paradigm.knowledge.world_model_handler import WorldModelHandler
 from paradigm.logging.events import EventLogger
 from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.storage.database import Database
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

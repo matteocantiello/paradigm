@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from helpers import make_mock_agent, patch_config_provider
+from helpers import patch_config_provider
 
 from paradigm.config import Config
 from paradigm.knowledge.conflict_detection import ConflictDetector
@@ -20,7 +20,6 @@ from paradigm.knowledge.evidence_graph import (
     ProvenanceStep,
 )
 from paradigm.knowledge.models import (
-    ConfidenceLevel,
     Evidence,
     EvidenceSource,
     Hypothesis,
@@ -31,7 +30,6 @@ from paradigm.knowledge.world_model_handler import WorldModelHandler
 from paradigm.logging.events import EventLogger
 from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.storage.database import Database
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -341,7 +339,7 @@ class TestConflictDetector:
             source=EvidenceSource.EXPERIMENT,
             supports_hypothesis_ids=[hid],
         )
-        ev_support_id = wm.add_evidence(ev_support)
+        wm.add_evidence(ev_support)
 
         conflicts = detector.check_new_evidence(ev_support)
         assert len(conflicts) == 1
