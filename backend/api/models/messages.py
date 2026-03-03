@@ -27,6 +27,7 @@ class ServerMessageType(str, Enum):
     ROUND_UPDATE = "round_update"
     ERROR = "error"
     NOTIFICATION = "notification"
+    KNOWLEDGE_UPDATE = "knowledge_update"
 
 
 class AgentOutputStreamMsg(BaseModel):
@@ -135,6 +136,32 @@ class NotificationMsg(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
+class KnowledgeUpdateMsg(BaseModel):
+    """Full knowledge architecture snapshot (world model + evidence graph + tournament)."""
+
+    type: Literal["knowledge_update"] = "knowledge_update"
+    # World model
+    entities: list[dict[str, object]] = Field(default_factory=list)
+    relationships: list[dict[str, object]] = Field(default_factory=list)
+    hypotheses: list[dict[str, object]] = Field(default_factory=list)
+    evidence: list[dict[str, object]] = Field(default_factory=list)
+    open_questions: list[dict[str, object]] = Field(default_factory=list)
+    research_goals: list[dict[str, object]] = Field(default_factory=list)
+    # Evidence graph
+    conflicts: list[dict[str, object]] = Field(default_factory=list)
+    assumptions: list[dict[str, object]] = Field(default_factory=list)
+    provenance_chains: list[dict[str, object]] = Field(default_factory=list)
+    # Tournament
+    tournament_rankings: list[dict[str, object]] = Field(default_factory=list)
+    matchup_results: list[dict[str, object]] = Field(default_factory=list)
+    tournament_status: str = ""
+    # Pre-rendered summaries
+    world_model_summary: str = ""
+    evidence_landscape_summary: str = ""
+    tournament_summary: str = ""
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
 # Discriminated union of all server messages
 ServerMessage = Annotated[
     AgentOutputStreamMsg
@@ -144,7 +171,8 @@ ServerMessage = Annotated[
     | PhaseTransitionMsg
     | RoundUpdateMsg
     | ErrorMsg
-    | NotificationMsg,
+    | NotificationMsg
+    | KnowledgeUpdateMsg,
     Field(discriminator="type"),
 ]
 

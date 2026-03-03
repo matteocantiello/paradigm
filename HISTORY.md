@@ -3005,3 +3005,25 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `tests/test_world_model.py` — World model tests
 - `tests/test_evidence_graph.py` — Evidence graph tests
 - `tests/test_hypothesis_tournament.py` — Tournament tests
+
+---
+
+## 2026-03-03
+
+### Prompt 54 — Security Audit for Web Deployment
+
+> Can you make sure that no API keys are publicly exposed, and that there are no security risks for Paradigm when deploying as a web app?
+
+**Scope**: Full security review of the codebase — API key handling, authentication, input validation, WebSocket security, Docker sandbox safety, and general OWASP concerns for web deployment.
+
+## Prompt 54 — Knowledge Architecture UI Integration (2026-03-03)
+
+> Implement the following plan: Knowledge Architecture UI Integration. Full snapshots via WebSocket, tabbed right panel (Events/Knowledge), REST fallback, demo runner updates. 18-step implementation across backend models, display adapter, session manager, engine, tournament handler, routes, demo runner, and full frontend (types, stores, hooks, components, pages, constants, REST client).
+
+**Artifacts**: backend/api/models/messages.py, backend/api/services/session_manager.py, backend/api/services/ws_display.py, src/paradigm/display/manager.py, src/paradigm/knowledge/tournament_handler.py, src/paradigm/orchestrator/engine.py, backend/api/routes/sessions.py, backend/api/services/demo_runner.py, frontend/src/api/ws-types.ts, frontend/src/stores/sessionStore.ts, frontend/src/stores/uiStore.ts, frontend/src/hooks/useResearchSession.ts, frontend/src/lib/constants.ts, frontend/src/components/session/KnowledgePanel.tsx, frontend/src/components/session/RightPanel.tsx, frontend/src/components/session/SessionView.tsx, frontend/src/pages/SessionPage.tsx, frontend/src/api/client.ts
+
+### Prompt 55 — Update ROADMAP.md with Security Recommendations
+
+> Can we add these recommendations to ROADMAP.md? Roadmap likely needs an update as well, given recent development
+
+**Scope**: Refresh ROADMAP.md to reflect what's been built (frontend, knowledge architecture, security hardening) and add security recommendations as a tracked phase.

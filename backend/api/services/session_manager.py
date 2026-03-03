@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 import time
-import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from backend.api.models.messages import (
     ApprovalRequestMsg,
     ErrorMsg,
+    KnowledgeUpdateMsg,
     NotificationMsg,
     SessionStateMsg,
 )
@@ -52,6 +53,9 @@ class SessionManager:
         self._cycle_metadata: dict[str, dict[str, Any]] = {}
         self._session_start_times: dict[str, float] = {}
 
+        # Knowledge snapshot cache (latest per session, for reconnect)
+        self._knowledge_snapshots: dict[str, KnowledgeUpdateMsg] = {}
+
     # ------------------------------------------------------------------
     # Session lifecycle
     # ------------------------------------------------------------------
@@ -64,7 +68,7 @@ class SessionManager:
         team_roles: list[str] | None = None,
     ) -> SessionState:
         """Create a new session for a research cycle."""
-        session_id = f"session-{uuid.uuid4().hex[:12]}"
+        session_id = f"session-{secrets.token_hex(16)}"
         now = datetime.now(timezone.utc)
 
         state = SessionState(
@@ -106,19 +110,30 @@ class SessionManager:
         self._tasks[session_id] = task
 
     async def _run_cycle(self, session_id: str, meta: dict[str, Any]) -> None:
-        """Run OrchestrationEngine.run_research_cycle() in a background task."""
+        """Run OrchestrationEngine.run_research_cycle() in a background task.
+
+        Falls back to demo mode when the Paradigm core is not available.
+        """
         state = self._sessions[session_id]
+
+        # Check if Paradigm core is available
+        if self._config is None or self._db is None or self._event_logger is None:
+            logger.warning(
+                "Paradigm core not initialized — running session %s in demo mode",
+                session_id,
+            )
+            from backend.api.services.demo_runner import run_demo_cycle
+
+            await run_demo_cycle(session_id, self)
+            return
+
         try:
             # Import here to avoid startup dependency
+            # Create the WebSocket display adapter
+            from backend.api.services.ws_display import WebSocketDisplayAdapter
             from paradigm.agents.factory import AgentFactory
             from paradigm.literature.corpus import Corpus
             from paradigm.orchestrator.engine import OrchestrationEngine
-
-            if self._config is None or self._db is None or self._event_logger is None:
-                raise RuntimeError("Paradigm core not initialized")
-
-            # Create the WebSocket display adapter
-            from backend.api.services.ws_display import WebSocketDisplayAdapter
 
             display = WebSocketDisplayAdapter(session_id, self)
 
@@ -127,15 +142,20 @@ class SessionManager:
 
             # Build the corpus
             corpus = Corpus(
-                persist_dir=str(self._config.storage.vector_db_path),
+                database=self._db,
+                literature_config=self._config.literature,
+                storage_config=self._config.storage,
                 logger=self._event_logger,
             )
 
-            # Build the agent factory
-            agent_factory = AgentFactory(self._config)
-
-            # Load domain profile
+            # Load domain profile (needed for prompts_dir)
             domain_profile = self._config.get_domain_profile()
+
+            # Build the agent factory with domain-specific prompts
+            agent_factory = AgentFactory(
+                self._config,
+                prompts_dir=domain_profile.prompts_dir,
+            )
 
             # Create engine with our WS-backed display and intervention hook
             engine = OrchestrationEngine(
@@ -175,13 +195,17 @@ class SessionManager:
             state.updated_at = datetime.now(timezone.utc)
             logger.info("Session %s cancelled", session_id)
 
-        except Exception as e:
+        except Exception:
             state.status = SessionStatus.FAILED
             state.updated_at = datetime.now(timezone.utc)
             logger.exception("Session %s failed", session_id)
             await self._broadcast(
                 session_id,
-                ErrorMsg(code="session_failed", message=str(e), recoverable=False),
+                ErrorMsg(
+                    code="session_failed",
+                    message="Session failed due to an internal error",
+                    recoverable=False,
+                ),
             )
 
     def _make_intervention_hook(self, session_id: str):
@@ -221,7 +245,7 @@ class SessionManager:
         to_phase: str,
     ) -> str:
         """Send approval request via WebSocket and wait for response."""
-        request_id = f"approval-{uuid.uuid4().hex[:8]}"
+        request_id = f"approval-{secrets.token_hex(8)}"
         event = asyncio.Event()
         self._intervention_events[request_id] = event
 
@@ -309,6 +333,18 @@ class SessionManager:
         return sessions
 
     # ------------------------------------------------------------------
+    # Knowledge snapshot cache
+    # ------------------------------------------------------------------
+
+    def store_knowledge_snapshot(self, session_id: str, snapshot: KnowledgeUpdateMsg) -> None:
+        """Cache the latest knowledge snapshot for reconnect."""
+        self._knowledge_snapshots[session_id] = snapshot
+
+    def get_knowledge_snapshot(self, session_id: str) -> KnowledgeUpdateMsg | None:
+        """Return the cached knowledge snapshot, if any."""
+        return self._knowledge_snapshots.get(session_id)
+
+    # ------------------------------------------------------------------
     # WebSocket connection management
     # ------------------------------------------------------------------
 
@@ -335,8 +371,14 @@ class SessionManager:
                     total_searches=state.total_searches,
                     papers_found=state.papers_found,
                     elapsed_seconds=state.elapsed_seconds,
+                    completed_phases=state.completed_phases,
                 ),
             )
+
+        # Send cached knowledge snapshot (reconnect support)
+        knowledge = self._knowledge_snapshots.get(session_id)
+        if knowledge is not None:
+            await self._send_ws(ws, knowledge)
 
     async def disconnect_ws(self, session_id: str, ws: WebSocket) -> None:
         """Unregister a WebSocket connection."""

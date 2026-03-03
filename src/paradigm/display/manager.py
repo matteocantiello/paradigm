@@ -1355,3 +1355,10 @@ class DisplayManager:
             self._refresh()
         else:
             self._fallback.novelty_confirmed()
+
+    # ------------------------------------------------------------------
+    # Knowledge architecture (no-op for CLI — data is in Rich panels)
+    # ------------------------------------------------------------------
+
+    def knowledge_updated(self, **kwargs) -> None:  # noqa: ARG002
+        """No-op for terminal display; knowledge is shown in Rich panels."""

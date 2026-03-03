@@ -6,13 +6,13 @@ import json
 import re
 import time
 import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from paradigm.agents.base import Agent
 from paradigm.agents.factory import AgentFactory
 from paradigm.config import Config
 from paradigm.journal.publication import publish_paper
+from paradigm.knowledge.world_model_handler import WorldModelHandler
 from paradigm.literature.corpus import Corpus
 from paradigm.literature.prompt_utils import extract_urls
 from paradigm.literature.resources import (
@@ -42,7 +42,6 @@ from paradigm.orchestrator.constants import (
     _SYNTHESIS_CLOSING_TEMPLATES,
     InterventionHook,
 )
-from paradigm.knowledge.world_model_handler import WorldModelHandler
 from paradigm.orchestrator.debate import DebateHandler
 from paradigm.orchestrator.experimentation import ExperimentationHandler
 from paradigm.orchestrator.literature import LiteratureHandler
@@ -127,6 +126,41 @@ class OrchestrationEngine:
         from paradigm.knowledge.tournament_handler import TournamentHandler
 
         self._tournament = TournamentHandler(self)
+
+    def _emit_knowledge_update(self) -> None:
+        """Broadcast the current knowledge architecture state via the display adapter."""
+        kwargs: dict[str, Any] = {}
+
+        # World model
+        wm = self.state.world_model
+        if wm is not None:
+            snap = wm.to_snapshot()
+            kwargs["entities"] = list(snap.get("entities", {}).values())
+            kwargs["relationships"] = list(snap.get("relationships", {}).values())
+            kwargs["hypotheses"] = list(snap.get("hypotheses", {}).values())
+            kwargs["evidence"] = list(snap.get("evidence", {}).values())
+            kwargs["open_questions"] = list(snap.get("open_questions", {}).values())
+            kwargs["research_goals"] = list(snap.get("research_goals", {}).values())
+            kwargs["world_model_summary"] = wm.summarize_state()
+
+        # Evidence graph
+        eg = self.state.evidence_graph
+        if eg is not None:
+            eg_snap = eg.to_snapshot()
+            kwargs["conflicts"] = list(eg_snap.get("conflicts", {}).values())
+            kwargs["assumptions"] = list(eg_snap.get("assumptions", {}).values())
+            kwargs["provenance_chains"] = list(eg_snap.get("provenance_chains", {}).values())
+            kwargs["evidence_landscape_summary"] = eg.summarize_evidence_landscape()
+
+        # Tournament
+        t_data = self._tournament.get_tournament_data()
+        if t_data is not None:
+            kwargs["tournament_rankings"] = t_data["rankings"]
+            kwargs["matchup_results"] = t_data["matchup_results"]
+            kwargs["tournament_summary"] = t_data.get("summary", "")
+            kwargs["tournament_status"] = "completed"
+
+        self._display.knowledge_updated(**kwargs)
 
     def _get_phase_active_roles(self, phase: ResearchPhase) -> set[str] | None:
         """Get the set of active roles for a given phase.
@@ -213,6 +247,10 @@ class OrchestrationEngine:
         if self._config.knowledge.enable_evidence_graph:
             self.state.evidence_graph = self._world_model.initialize_evidence_graph()
 
+        # Emit initial knowledge state (empty but signals feature is enabled)
+        if self.state.world_model is not None or self.state.evidence_graph is not None:
+            self._emit_knowledge_update()
+
         # Phase 2: IDEATION
         max_rounds = self._config.orchestrator.max_rounds_per_phase
         checkpoint_interval = self._config.orchestrator.checkpoint_interval
@@ -241,6 +279,7 @@ class OrchestrationEngine:
         if self._config.knowledge.enable_hypothesis_tournament:
             winners = await self._tournament.run_tournament()
             if winners:
+                self._emit_knowledge_update()
                 await self._run_tournament_synthesis(winners)
             else:
                 await self._run_synthesis_round(ResearchPhase.IDEATION)
@@ -356,6 +395,8 @@ class OrchestrationEngine:
                 checkpoint_interval=checkpoint_interval,
             )
             await self._run_synthesis_round(ResearchPhase.POST_EXECUTION)
+            if self.state.world_model is not None:
+                self._emit_knowledge_update()
             ran_post_execution = True
             # Capture POST_EXECUTION discussion summary for WRITING
             self.state.post_execution_summary = self._build_post_execution_summary()
@@ -592,7 +633,9 @@ class OrchestrationEngine:
         # Compute active agent count for convergence detection
         active_roles = self._get_phase_active_roles(phase)
         if active_roles is not None:
-            active_count = sum(1 for a in self.state.agents.values() if a.skill_profile in active_roles)
+            active_count = sum(
+                1 for a in self.state.agents.values() if a.skill_profile in active_roles
+            )
         else:
             active_count = len(self.state.agents)
 
@@ -754,9 +797,8 @@ class OrchestrationEngine:
 
             # Update world model from structured tags ([ENTITY:], [HYPOTHESIS:], [EVIDENCE:])
             if self.state.world_model is not None:
-                self._world_model.update_from_agent_response(
-                    agent_id, response.content, str(phase)
-                )
+                self._world_model.update_from_agent_response(agent_id, response.content, str(phase))
+                self._emit_knowledge_update()
 
     async def _run_synthesis_round(self, phase: ResearchPhase) -> None:
         """Run a synthesis round at the end of a phase.
@@ -827,8 +869,7 @@ class OrchestrationEngine:
             return
 
         winners_summary = "\n".join(
-            f"- **{w.statement}** (Elo: {w.elo_rating:.0f}): {w.rationale}"
-            for w in winners
+            f"- **{w.statement}** (Elo: {w.elo_rating:.0f}): {w.rationale}" for w in winners
         )
 
         recent = self.state.messages[-_RECENT_MESSAGES_LIMIT:]
@@ -845,12 +886,12 @@ class OrchestrationEngine:
         try:
             response = await synthesizer.generate(prompt)
         except Exception as e:
-            self._logger.log_error(
-                e, agent_id=synthesizer.agent_id, thread_id=self.state.thread_id
-            )
+            self._logger.log_error(e, agent_id=synthesizer.agent_id, thread_id=self.state.thread_id)
             return
 
-        self._log_agent_response(synthesizer.agent_id, response, ResearchPhase.IDEATION, "synthesis")
+        self._log_agent_response(
+            synthesizer.agent_id, response, ResearchPhase.IDEATION, "synthesis"
+        )
 
         synthesis_text = response.content[:1500]
         self.state.phase_synthesis[str(ResearchPhase.IDEATION)] = synthesis_text
@@ -961,7 +1002,9 @@ class OrchestrationEngine:
             consensus_block = (
                 "## Prior Phase Consensus\n"
                 "The following conclusions were agreed upon in earlier phases. "
-                "Do NOT re-derive these — build on them.\n\n" + self.state.consensus_summary + "\n\n"
+                "Do NOT re-derive these — build on them.\n\n"
+                + self.state.consensus_summary
+                + "\n\n"
             )
             checkpoint_context = consensus_block + checkpoint_context
 
@@ -1016,13 +1059,17 @@ class OrchestrationEngine:
             # General anti-repetition rule for all agents
             formatted += _GENERAL_LATER_ROUND_REINFORCEMENT
             # Inject established points to further reduce redundancy
-            established = self._build_established_points(self.state.messages[-_RECENT_MESSAGES_LIMIT:])
+            established = self._build_established_points(
+                self.state.messages[-_RECENT_MESSAGES_LIMIT:]
+            )
             if established:
                 formatted += established
             # Role-specific reinforcement (mode override > profile default > hardcoded)
             reinforcement = ""
             if self._profile is not None:
-                mode_reinforcements = self._profile.mode_role_reinforcements.get(self.state.mode, {})
+                mode_reinforcements = self._profile.mode_role_reinforcements.get(
+                    self.state.mode, {}
+                )
                 reinforcement = mode_reinforcements.get(
                     agent.skill_profile,
                     self._profile.role_later_round_reinforcements.get(agent.skill_profile, ""),

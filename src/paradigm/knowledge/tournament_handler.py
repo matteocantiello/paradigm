@@ -12,6 +12,8 @@ from paradigm.knowledge.hypothesis_tournament import (
 from paradigm.knowledge.models import Hypothesis, HypothesisStatus
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from paradigm.orchestrator.engine import OrchestrationEngine
 
 
@@ -30,6 +32,8 @@ class TournamentHandler:
 
     def __init__(self, engine: OrchestrationEngine) -> None:
         self._engine = engine
+        self._last_population: HypothesisPopulation | None = None
+        self._last_matchup_results: list[MatchupResult] = []
 
     async def run_tournament(self) -> list[Hypothesis]:
         """Run a full hypothesis tournament.
@@ -62,6 +66,7 @@ class TournamentHandler:
 
         # Step 3: Generate matchups and judge
         matchups = population.generate_matchups()
+        matchup_results: list[MatchupResult] = []
         for hyp_a_id, hyp_b_id in matchups:
             result = await self._judge_matchup(
                 population.hypotheses[hyp_a_id],
@@ -69,6 +74,11 @@ class TournamentHandler:
             )
             if result is not None:
                 population.record_result(result)
+                matchup_results.append(result)
+
+        # Store for external access
+        self._last_population = population
+        self._last_matchup_results = matchup_results
 
         # Step 4: Select winners
         winners = population.select_winners(n=config.tournament_winners)
@@ -88,6 +98,27 @@ class TournamentHandler:
         )
 
         return winners
+
+    def get_tournament_data(self) -> dict[str, Any] | None:
+        """Return serializable tournament data, or None if no tournament has run."""
+        if self._last_population is None:
+            return None
+        rankings = [
+            {
+                "hypothesis_id": h.id,
+                "statement": h.statement,
+                "elo_rating": round(h.elo_rating, 1),
+                "status": h.status.value if hasattr(h.status, "value") else str(h.status),
+            }
+            for h in self._last_population.ranked
+        ]
+        matchups = [r.model_dump() for r in self._last_matchup_results]
+        summary = self._last_population.get_tournament_summary()
+        return {
+            "rankings": rankings,
+            "matchup_results": matchups,
+            "summary": summary,
+        }
 
     async def _extract_hypotheses_from_discussion(self) -> list[Hypothesis]:
         """Use an LLM call to extract hypotheses from IDEATION messages."""

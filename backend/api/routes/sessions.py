@@ -156,6 +156,23 @@ async def list_checkpoints(session_id: str, request: Request) -> CheckpointList:
     return CheckpointList(items=[], total=0)
 
 
+@router.get(
+    "/api/v1/sessions/{session_id}/knowledge",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_knowledge(session_id: str, request: Request) -> dict:
+    """Get the latest knowledge architecture snapshot for a session."""
+    manager = request.app.state.session_manager
+    state = manager.get_state(session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    snapshot = manager.get_knowledge_snapshot(session_id)
+    if snapshot is None:
+        return {"session_id": session_id, "knowledge": None}
+    return {"session_id": session_id, "knowledge": snapshot.model_dump()}
+
+
 @router.post(
     "/api/v1/sessions/{session_id}/checkpoints",
     response_model=CheckpointResponse,

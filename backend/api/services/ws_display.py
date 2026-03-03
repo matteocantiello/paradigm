@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from backend.api.models.messages import (
     AgentOutputStreamMsg,
+    KnowledgeUpdateMsg,
     NotificationMsg,
     PhaseTransitionMsg,
     RoundUpdateMsg,
@@ -732,3 +733,13 @@ class WebSocketDisplayAdapter:
 
     def novelty_confirmed(self) -> None:
         self._notify("Idea appears novel", category="novelty")
+
+    # ------------------------------------------------------------------
+    # Knowledge architecture
+    # ------------------------------------------------------------------
+
+    def knowledge_updated(self, **kwargs: Any) -> None:
+        """Broadcast a knowledge architecture snapshot to connected clients."""
+        msg = KnowledgeUpdateMsg(**kwargs)
+        self._manager.store_knowledge_snapshot(self._session_id, msg)
+        _fire_and_forget(self._manager.broadcast_message(self._session_id, msg))
