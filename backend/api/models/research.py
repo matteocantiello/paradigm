@@ -36,6 +36,7 @@ class ResearchCycleResponse(BaseModel):
     mode: str
     status: CycleStatus
     team_roles: list[str] | None = None
+    session_id: str | None = None
     thread_id: str | None = None
     paper_id: str | None = None
     current_phase: str | None = None

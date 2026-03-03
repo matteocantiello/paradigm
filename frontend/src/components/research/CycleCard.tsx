@@ -11,11 +11,11 @@ interface CycleCardProps {
 
 export function CycleCard({ cycle, onDelete }: CycleCardProps) {
   const navigate = useNavigate();
-  const isClickable = !!cycle.thread_id;
+  const isClickable = !!cycle.session_id;
 
   function handleCardClick() {
     if (isClickable) {
-      navigate(`/session/${cycle.thread_id}`);
+      navigate(`/session/${cycle.session_id}`);
     }
   }
 

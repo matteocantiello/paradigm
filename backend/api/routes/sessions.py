@@ -48,8 +48,9 @@ async def start_session(
     )
     await manager.start_session(state.session_id)
 
-    # Update cycle status
+    # Update cycle status and link session
     cycle.status = CycleStatus.RUNNING
+    cycle.session_id = state.session_id
     cycle.updated_at = datetime.now(timezone.utc)
 
     return SessionResponse(

@@ -36,6 +36,7 @@ export interface ResearchCycleResponse {
   mode: string;
   status: string;
   team_roles?: string[] | null;
+  session_id?: string | null;
   thread_id?: string | null;
   paper_id?: string | null;
   current_phase?: string | null;
