@@ -123,6 +123,15 @@ class Database:
             )
         """)
 
+        # World model snapshots (knowledge architecture)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS world_model_snapshots (
+                thread_id TEXT PRIMARY KEY,
+                snapshot TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Create indices for common queries
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_papers_status ON papers(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_papers_published_at ON papers(published_at)")
@@ -561,6 +570,44 @@ class Database:
 
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
+
+    # World model snapshot operations
+
+    def save_world_model_snapshot(self, thread_id: str, json_str: str) -> None:
+        """Save or update a world model snapshot for a thread.
+
+        Args:
+            thread_id: Thread ID.
+            json_str: JSON-serialized world model.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO world_model_snapshots (thread_id, snapshot, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            """,
+            (thread_id, json_str),
+        )
+        self.conn.commit()
+
+    def load_world_model_snapshot(self, thread_id: str) -> str | None:
+        """Load a world model snapshot for a thread.
+
+        Args:
+            thread_id: Thread ID.
+
+        Returns:
+            JSON string, or None if no snapshot exists.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT snapshot FROM world_model_snapshots WHERE thread_id = ?",
+            (thread_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return row["snapshot"]
 
     def close(self) -> None:
         """Close database connection."""

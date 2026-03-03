@@ -42,6 +42,7 @@ from paradigm.orchestrator.constants import (
     _SYNTHESIS_CLOSING_TEMPLATES,
     InterventionHook,
 )
+from paradigm.knowledge.world_model_handler import WorldModelHandler
 from paradigm.orchestrator.debate import DebateHandler
 from paradigm.orchestrator.experimentation import ExperimentationHandler
 from paradigm.orchestrator.literature import LiteratureHandler
@@ -120,6 +121,12 @@ class OrchestrationEngine:
         self._citation_handler = CitationHandler(self)
         self._experimentation = ExperimentationHandler(self)
         self._memory = MemoryHandler(self)
+        self._world_model = WorldModelHandler(self)
+
+        # Lazy import to avoid circular dependency (tournament_handler → constants → engine)
+        from paradigm.knowledge.tournament_handler import TournamentHandler
+
+        self._tournament = TournamentHandler(self)
 
     def _get_phase_active_roles(self, phase: ResearchPhase) -> set[str] | None:
         """Get the set of active roles for a given phase.
@@ -198,6 +205,14 @@ class OrchestrationEngine:
                 self._logger.log_error(e, thread_id=self.state.thread_id)
                 self._display.seed_discovery_error(e)
 
+        # Initialize world model (if enabled)
+        if self._config.knowledge.enable_world_model:
+            self.state.world_model = self._world_model.initialize_world_model()
+
+        # Initialize evidence graph (if enabled)
+        if self._config.knowledge.enable_evidence_graph:
+            self.state.evidence_graph = self._world_model.initialize_evidence_graph()
+
         # Phase 2: IDEATION
         max_rounds = self._config.orchestrator.max_rounds_per_phase
         checkpoint_interval = self._config.orchestrator.checkpoint_interval
@@ -222,7 +237,15 @@ class OrchestrationEngine:
             max_rounds=max_rounds,
             checkpoint_interval=checkpoint_interval,
         )
-        await self._run_synthesis_round(ResearchPhase.IDEATION)
+        # Hypothesis tournament (optional, runs before synthesis)
+        if self._config.knowledge.enable_hypothesis_tournament:
+            winners = await self._tournament.run_tournament()
+            if winners:
+                await self._run_tournament_synthesis(winners)
+            else:
+                await self._run_synthesis_round(ResearchPhase.IDEATION)
+        else:
+            await self._run_synthesis_round(ResearchPhase.IDEATION)
 
         # Novelty check (optional, after IDEATION)
         if self._config.citation.enable_novelty_check:
@@ -729,6 +752,12 @@ class OrchestrationEngine:
                 agent_id, response.content, phase, round_num
             )
 
+            # Update world model from structured tags ([ENTITY:], [HYPOTHESIS:], [EVIDENCE:])
+            if self.state.world_model is not None:
+                self._world_model.update_from_agent_response(
+                    agent_id, response.content, str(phase)
+                )
+
     async def _run_synthesis_round(self, phase: ResearchPhase) -> None:
         """Run a synthesis round at the end of a phase.
 
@@ -784,6 +813,47 @@ class OrchestrationEngine:
         # Store synthesis, capped at 1500 chars
         synthesis_text = response.content[:1500]
         self.state.phase_synthesis[str(phase)] = synthesis_text
+
+    async def _run_tournament_synthesis(self, winners: list) -> None:
+        """Run a synthesis round using tournament winners instead of normal closing.
+
+        Args:
+            winners: List of winning Hypothesis objects from the tournament.
+        """
+        from paradigm.orchestrator.constants import _TOURNAMENT_SYNTHESIS_TEMPLATE
+
+        synthesizer = self._find_agent_by_role("synthesizer")
+        if synthesizer is None:
+            return
+
+        winners_summary = "\n".join(
+            f"- **{w.statement}** (Elo: {w.elo_rating:.0f}): {w.rationale}"
+            for w in winners
+        )
+
+        recent = self.state.messages[-_RECENT_MESSAGES_LIMIT:]
+        recent_messages = "\n\n".join(
+            f"**{m.get('from', 'unknown')}**: {m.get('content', '')[:500]}" for m in recent
+        )
+
+        prompt = _TOURNAMENT_SYNTHESIS_TEMPLATE.format(
+            seed_prompt=self.state.seed_prompt,
+            winners_summary=winners_summary,
+            recent_messages=recent_messages,
+        )
+
+        try:
+            response = await synthesizer.generate(prompt)
+        except Exception as e:
+            self._logger.log_error(
+                e, agent_id=synthesizer.agent_id, thread_id=self.state.thread_id
+            )
+            return
+
+        self._log_agent_response(synthesizer.agent_id, response, ResearchPhase.IDEATION, "synthesis")
+
+        synthesis_text = response.content[:1500]
+        self.state.phase_synthesis[str(ResearchPhase.IDEATION)] = synthesis_text
 
     def _build_agent_prompt(
         self,
@@ -916,6 +986,24 @@ class OrchestrationEngine:
             mem_ctx = format_memory_context(ranked, max_chars=self._config.memory.max_memory_chars)
             if mem_ctx:
                 checkpoint_context = mem_ctx + "\n\n" + checkpoint_context
+
+        # Inject world model context (if enabled and populated)
+        if "world_model" in context_needs and self._config.knowledge.enable_world_model:
+            wm_ctx = self._world_model.build_world_model_context(
+                max_chars=self._config.knowledge.world_model_max_context_chars,
+            )
+            if wm_ctx:
+                checkpoint_context = wm_ctx + "\n\n" + checkpoint_context
+
+        # Inject evidence landscape (if enabled, role-gated)
+        if (
+            "evidence_landscape" in context_needs
+            and self._config.knowledge.enable_evidence_graph
+            and agent.skill_profile in ("skeptic", "synthesizer", "analyst")
+        ):
+            el_ctx = self._world_model.build_evidence_landscape_context()
+            if el_ctx:
+                checkpoint_context = el_ctx + "\n\n" + checkpoint_context
 
         formatted = template.format(
             seed_prompt=self.state.seed_prompt,
@@ -1704,3 +1792,7 @@ class OrchestrationEngine:
         self._save_transcript(paper_id)
         if self.state.successful_code:
             self._save_experiment_code(paper_id)
+        # Save world model snapshot
+        if self.state.world_model is not None:
+            self._world_model.save_to_thread(paper_id)
+            self._world_model.persist_snapshot()

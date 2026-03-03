@@ -908,9 +908,13 @@ _PHASE_ACTIVE_ROLES: dict[ResearchPhase, set[str]] = {
 }
 
 _PHASE_CONTEXT_NEEDS: dict[ResearchPhase, set[str]] = {
-    ResearchPhase.IDEATION: {"literature", "references", "memory"},
-    ResearchPhase.PLANNING: {"literature", "code_data", "memory"},
-    ResearchPhase.POST_EXECUTION: {"literature", "execution", "memory"},
+    ResearchPhase.IDEATION: {"literature", "references", "memory", "world_model"},
+    ResearchPhase.PLANNING: {
+        "literature", "code_data", "memory", "world_model", "evidence_landscape",
+    },
+    ResearchPhase.POST_EXECUTION: {
+        "literature", "execution", "memory", "world_model", "evidence_landscape",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -1422,3 +1426,47 @@ def _format_execution_result(experiment_name: str, result: ExecutionResult) -> s
         file_list = ", ".join(f"`{f.filename}`" for f in result.output_files)
         parts.append(f"**Output files:** {file_list}")
     return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis tournament prompts (Stage 3)
+# ---------------------------------------------------------------------------
+
+_HYPOTHESIS_EXTRACTION_PROMPT = (
+    "Extract the distinct testable hypotheses from the following research discussion.\n\n"
+    "## Research Topic\n{seed_prompt}\n\n"
+    "## Discussion\n{discussion}\n\n"
+    "Return a JSON array of objects, each with:\n"
+    '- "statement": the hypothesis in one sentence\n'
+    '- "rationale": brief supporting rationale\n\n'
+    "Include only genuinely distinct hypotheses. Merge near-duplicates. "
+    "Return at most {max_hypotheses} hypotheses.\n\n"
+    "Output ONLY valid JSON (no markdown fences, no extra text)."
+)
+
+_TOURNAMENT_JUDGE_PROMPT = (
+    "You are judging a hypothesis matchup.\n\n"
+    "## Research Topic\n{seed_prompt}\n\n"
+    "## Hypothesis A\n{hypothesis_a}\n\n"
+    "## Hypothesis B\n{hypothesis_b}\n\n"
+    "Evaluate both hypotheses on: testability, explanatory power, parsimony, "
+    "novelty, and feasibility.\n\n"
+    "You MUST pick a winner. Output ONLY valid JSON:\n"
+    '{{"winner": "A" or "B", "reasoning": "2-3 sentences", "margin": 0.5-1.0}}'
+)
+
+_TOURNAMENT_SYNTHESIS_TEMPLATE = (
+    "You are the synthesizer closing the IDEATION phase after a hypothesis tournament.\n"
+    "Topic: {seed_prompt}\n\n"
+    "## Tournament Winners\n{winners_summary}\n\n"
+    "## Recent Discussion\n{recent_messages}\n\n"
+    "The tournament selected the strongest hypotheses above. Write a structured "
+    "synthesis incorporating these winners:\n\n"
+    "### Agreed Hypotheses\n"
+    "List the tournament winners and their rationale.\n\n"
+    "### Unresolved Questions\n"
+    "List open questions for the PLANNING phase.\n\n"
+    "### Scope Boundaries\n"
+    "What is IN scope and OUT of scope for this research.\n\n"
+    "Be concise — this synthesis will be carried forward to all subsequent phases."
+)

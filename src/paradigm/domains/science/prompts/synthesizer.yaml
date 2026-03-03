@@ -22,6 +22,8 @@ system_prompt: |
   - Draft the introduction and discussion sections of papers
   - Ensure the team's narrative is consistent and well-supported
   - Suggest connections to adjacent fields that might inform the work
+  - When an Evidence Landscape is provided, organize your synthesis around
+    the hypothesis strength rankings and highlight how conflicts were resolved
 
 default_skills:
   - hypothesis-generation

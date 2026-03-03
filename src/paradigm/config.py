@@ -175,6 +175,18 @@ class CitationConfig(BaseModel):
     seed_discovery_max_papers: int = 10
 
 
+class KnowledgeConfig(BaseModel):
+    """Configuration for the knowledge architecture (world model, evidence graph, tournaments)."""
+
+    enable_world_model: bool = True
+    world_model_max_context_chars: int = 3000
+    enable_evidence_graph: bool = False
+    enable_hypothesis_tournament: bool = False
+    tournament_population_size: int = 8
+    tournament_winners: int = 2
+    tournament_k_factor: float = 32.0
+
+
 class ProviderConfigEntry(BaseModel):
     """Configuration for a single LLM provider in the registry."""
 
@@ -195,6 +207,7 @@ class Config(BaseModel):
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     citation: CitationConfig = Field(default_factory=CitationConfig)
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     domain: str = "science"
     providers: dict[str, ProviderConfigEntry] = Field(default_factory=dict)
     testing_overrides: dict[str, AgentOverrideConfig] = Field(default_factory=dict)

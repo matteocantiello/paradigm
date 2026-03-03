@@ -2876,6 +2876,33 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 
 ---
 
+## 2026-03-03
+
+### Prompt — Knowledge Architecture Upgrade: World Model, Hypothesis Tournaments, and Evidence Graphs
+
+> Three-stage upgrade to Paradigm's knowledge infrastructure:
+> - **Stage 1:** Structured World Model — persistent, queryable knowledge store with entities, relationships, evidence, hypotheses, open questions, and research goals. Agents write to and read from it throughout a research cycle.
+> - **Stage 2:** Knowledge Graph for Conflicting Evidence — epistemic structure with conflict edges, assumption tracking, evidence weighting, provenance chains. Turns flat evidence store into proper knowledge graph.
+> - **Stage 3:** Evolutionary Hypothesis Selection — population-based hypothesis generation with Elo-rated tournaments, evolutionary refinement, and selection of winners for testing.
+>
+> Inspired by Kosmos (structured world model), Google AI Co-Scientist (tournament-based Elo ranking), and Microsoft Discovery (graph-based knowledge engine).
+>
+> Each stage builds on the previous. Do not start Stage 2 until Stage 1 is complete and tested. Do not start Stage 3 until Stage 2 is complete and tested.
+
+**Key decisions:** TBD (entering plan mode)
+
+**Artifacts to produce:**
+- `src/paradigm/knowledge/__init__.py` (new)
+- `src/paradigm/knowledge/world_model.py` (new, Stage 1)
+- `src/paradigm/knowledge/evidence_graph.py` (new, Stage 2)
+- `src/paradigm/knowledge/conflict_detection.py` (new, Stage 2)
+- `src/paradigm/knowledge/hypothesis_tournament.py` (new, Stage 3)
+- `src/paradigm/agents/prompts/debate_judge.yaml` (new, Stage 3)
+- Modifications to engine.py, phases.py, base.py, database.py, config.py, default.yaml, and agent prompts
+- `tests/test_world_model.py`, `tests/test_evidence_graph.py`, `tests/test_hypothesis_tournament.py`
+
+---
+
 ## 2026-02-26
 
 ### Prompt 53 — Implement Web Frontend Backend (FastAPI) + Frontend Architecture Plan
@@ -2929,3 +2956,52 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `docs/API.md` — New comprehensive API reference document
 - `INSTALL.md` — Added API dependencies section
 - `ROADMAP.md` — Added Web API to Phase 6 tasks
+
+### Prompt 55 — Implement React/TypeScript Frontend
+
+> Implement the following plan:
+>
+> Paradigm Frontend — full React 18 + TypeScript implementation with Vite 6, Tailwind CSS 4, shadcn/ui, Zustand 5, TanStack Query v5.
+> Phases 0-7: Project scaffold, API client + app shell, WebSocket + session store, session cockpit, research cycles + dashboard, paper viewer, agent config, polish.
+
+**Artifacts produced:**
+- `frontend/` — Complete React/TypeScript frontend application
+
+## 2026-03-03
+
+### Prompt 56 — Knowledge Architecture Upgrade: World Model, Evidence Graphs, Hypothesis Tournaments
+
+> Implement the following plan:
+>
+> Knowledge Architecture Upgrade: World Model, Evidence Graphs, Hypothesis Tournaments
+>
+> Three-stage upgrade adding: (1) structured world model (queryable knowledge store with entities, hypotheses, evidence), (2) evidence graph (conflict tracking, assumption management, provenance chains), and (3) evolutionary hypothesis tournament (population-based selection via Elo-rated debates).
+
+**Key decisions:**
+- World model as in-memory dicts with snapshot-based JSON persistence
+- Evidence graph wraps world model, adds conflict detection and assumption cascade
+- Tournament runs as internal steps within IDEATION phase (no new phases)
+- All features behind KnowledgeConfig toggles (world model on by default, others off)
+- Handler pattern matches existing ExperimentationHandler, DebateHandler
+
+**Artifacts produced/modified:**
+- `src/paradigm/knowledge/__init__.py` — Package init
+- `src/paradigm/knowledge/models.py` — Pydantic models
+- `src/paradigm/knowledge/world_model.py` — WorldModel class
+- `src/paradigm/knowledge/world_model_handler.py` — Handler
+- `src/paradigm/knowledge/evidence_graph.py` — EvidenceGraph + ConflictDetector
+- `src/paradigm/knowledge/conflict_detection.py` — ConflictDetector
+- `src/paradigm/knowledge/hypothesis_tournament.py` — Elo logic
+- `src/paradigm/knowledge/tournament_handler.py` — Tournament handler
+- `src/paradigm/config.py` — KnowledgeConfig added
+- `src/paradigm/storage/database.py` — world_model_snapshots table
+- `src/paradigm/orchestrator/state.py` — world_model + evidence_graph fields
+- `src/paradigm/orchestrator/constants.py` — context needs + tournament prompts
+- `src/paradigm/orchestrator/engine.py` — handler integration
+- `src/paradigm/domains/science/prompts/debate_judge.yaml` — New agent role
+- `src/paradigm/domains/science/prompts/skeptic.yaml` — Evidence graph awareness
+- `src/paradigm/domains/science/prompts/synthesizer.yaml` — Evidence landscape awareness
+- `configs/default.yaml` — knowledge section
+- `tests/test_world_model.py` — World model tests
+- `tests/test_evidence_graph.py` — Evidence graph tests
+- `tests/test_hypothesis_tournament.py` — Tournament tests

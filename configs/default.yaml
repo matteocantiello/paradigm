@@ -147,6 +147,16 @@ memory:
   collection_name: "agent_memories"
   max_memory_chars: 2000
 
+# Knowledge architecture (world model, evidence graph, tournaments)
+knowledge:
+  enable_world_model: true
+  world_model_max_context_chars: 3000
+  enable_evidence_graph: false
+  enable_hypothesis_tournament: false
+  tournament_population_size: 8
+  tournament_winners: 2
+  tournament_k_factor: 32.0
+
 # Citation grounding and novelty checking
 citation:
   enable_citation_grounding: true

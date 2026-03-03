@@ -87,7 +87,7 @@ class TestAgentFactory:
         assert "theorist" in roles
         assert "analyst" in roles
         assert "skeptic" in roles
-        assert len(roles) == 8
+        assert len(roles) == 9
 
     def test_get_role(self, config: Config, science_prompts_dir: Path) -> None:
         factory = AgentFactory(config, prompts_dir=science_prompts_dir)

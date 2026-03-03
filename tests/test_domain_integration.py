@@ -65,7 +65,7 @@ class TestAgentCreationFromProfile:
         factory = AgentFactory(config, prompts_dir=profile.prompts_dir)
 
         roles = factory.list_roles()
-        assert len(roles) == 8
+        assert len(roles) == 9
         expected = {
             "theorist",
             "analyst",
@@ -75,6 +75,7 @@ class TestAgentCreationFromProfile:
             "writer",
             "editor",
             "reviewer",
+            "debate_judge",
         }
         assert set(roles) == expected
 

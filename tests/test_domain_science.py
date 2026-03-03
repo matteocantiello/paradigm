@@ -55,7 +55,7 @@ def test_science_profile_prompts_dir():
     profile = get_domain("science")
     assert profile.prompts_dir.is_dir()
     yaml_files = list(profile.prompts_dir.glob("*.yaml"))
-    assert len(yaml_files) == 8
+    assert len(yaml_files) == 9
 
 
 def test_science_section_assignments_match_paper_py():

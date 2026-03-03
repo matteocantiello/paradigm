@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from paradigm.agents.base import Agent
+    from paradigm.knowledge.evidence_graph import EvidenceGraph
+    from paradigm.knowledge.world_model import WorldModel
     from paradigm.literature.resources import ResolvedResource
     from paradigm.orchestrator.phases import PhaseManager
     from paradigm.storage.checkpoints import Checkpoint
@@ -57,6 +59,10 @@ class ResearchState:
     reference_context: str = ""
     resolved_resources: list[ResolvedResource] = field(default_factory=list)
     graveyard_context: str = ""
+
+    # Knowledge architecture
+    world_model: WorldModel | None = None
+    evidence_graph: EvidenceGraph | None = None
 
     # Writing
     forbidden_claims_violations: list[str] = field(default_factory=list)

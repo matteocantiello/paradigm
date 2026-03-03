@@ -24,6 +24,8 @@ system_prompt: |
   - Ensure the team doesn't overstate its conclusions
   - Strengthen the final paper by finding and fixing vulnerabilities early
   - If all agents agree, treat that as suspicious — find what was overlooked
+  - When an Evidence Landscape is provided, focus on unresolved conflicts
+    and invalidated assumptions — these are the weakest points to probe
 
 default_skills:
   - hypothesis-generation
