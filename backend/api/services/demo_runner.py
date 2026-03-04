@@ -193,6 +193,53 @@ DEMO_PHASES = [
             ("success", "review", "Internal review passed (7.8/10)"),
         ],
     },
+    {
+        "phase": "submitted",
+        "rounds": 1,
+        "agents": ["agent-writer-1"],
+        "messages": [
+            (
+                "agent-writer-1",
+                "Paper submitted to the Paradigm Journal: 'Subsurface Convection as the Driver of Stochastic Variability in Massive Stars: Evidence from TESS Photometry'. Awaiting peer review assignment.",
+            ),
+        ],
+        "notifications": [
+            ("success", "writing", "Paper submitted to journal"),
+        ],
+    },
+    {
+        "phase": "peer_review",
+        "rounds": 1,
+        "agents": ["agent-skeptic-1", "agent-editor-1"],
+        "messages": [
+            (
+                "agent-skeptic-1",
+                "Peer review report: The paper presents a compelling analysis of SLF variability. The $T_{\\mathrm{eff}}$–$\\nu_0$ correlation is statistically robust (r=0.72). Minor revision requested: expand discussion of selection effects and TESS window function impact.",
+            ),
+            (
+                "agent-editor-1",
+                "Editorial decision: Accept with minor revisions. The methodology is sound and the conclusions are well-supported by the data. Revisions to Section 5.2 addressing selection effects are satisfactory.",
+            ),
+        ],
+        "notifications": [
+            ("info", "review", "Peer review received (1 referee)"),
+            ("success", "review", "Editorial decision: Accept with minor revisions"),
+        ],
+    },
+    {
+        "phase": "published",
+        "rounds": 1,
+        "agents": ["agent-editor-1"],
+        "messages": [
+            (
+                "agent-editor-1",
+                "Paper accepted and published in the Paradigm Journal. Final version includes all referee-requested revisions. DOI assigned.",
+            ),
+        ],
+        "notifications": [
+            ("success", "lifecycle", "Paper published successfully"),
+        ],
+    },
 ]
 
 # Sample content for the demo paper
@@ -241,6 +288,65 @@ These results support the subsurface convection hypothesis proposed by Cantiello
 
 Stochastic variability in massive stars is driven by subsurface convection zones.
 """
+
+
+def _create_demo_paper(state) -> None:
+    """Create a demo paper in the in-memory store and link it to the cycle."""
+    from backend.api.routes.papers import _demo_papers
+    from backend.api.routes.research import _cycles
+
+    paper_id = f"paper-demo-{state.session_id[-8:]}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    _demo_papers[paper_id] = {
+        "id": paper_id,
+        "title": (
+            "Subsurface Convection as the Driver of Stochastic Variability "
+            "in Massive Stars: Evidence from TESS Photometry"
+        ),
+        "abstract": (
+            "We present an analysis of stochastic low-frequency variability in 42 massive "
+            "OB stars observed by TESS. Using broken power-law fits to the power spectral "
+            "density, we find a significant correlation between the characteristic frequency "
+            "and effective temperature."
+        ),
+        "authors": ["Agent Theorist", "Agent Analyst", "Agent Writer"],
+        "body": DEMO_PAPER_BODY,
+        "status": "submitted",
+        "keywords": [
+            "massive stars",
+            "stellar variability",
+            "convection",
+            "TESS",
+            "red noise",
+        ],
+        "citation_count": 0,
+        "created_at": now,
+        "published_at": None,
+    }
+
+    # Link paper to the research cycle
+    for cycle in _cycles.values():
+        if cycle.session_id == state.session_id:
+            cycle.paper_id = paper_id
+            break
+
+    logger.info("Demo paper %s created for session %s", paper_id, state.session_id)
+
+
+def _publish_demo_paper(state) -> None:
+    """Update the demo paper status to published."""
+    from backend.api.routes.papers import _demo_papers
+    from backend.api.routes.research import _cycles
+
+    for cycle in _cycles.values():
+        if cycle.session_id == state.session_id and cycle.paper_id:
+            paper = _demo_papers.get(cycle.paper_id)
+            if paper:
+                paper["status"] = "published"
+                paper["published_at"] = datetime.now(timezone.utc).isoformat()
+                logger.info("Demo paper %s published", cycle.paper_id)
+            break
 
 
 async def run_demo_cycle(session_id: str, manager) -> None:
@@ -392,6 +498,12 @@ async def run_demo_cycle(session_id: str, manager) -> None:
                 knowledge_msg = _build_demo_knowledge_execution()
                 manager.store_knowledge_snapshot(session_id, knowledge_msg)
                 await manager.broadcast_message(session_id, knowledge_msg)
+
+            # Create demo paper after writing phase
+            if phase == "writing":
+                _create_demo_paper(state)
+            elif phase == "published":
+                _publish_demo_paper(state)
 
             await asyncio.sleep(1.0)
 

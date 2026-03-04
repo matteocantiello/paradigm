@@ -947,6 +947,31 @@ Issue 1: 9 execution failures were environmental — 4× ModuleNotFoundError: re
 - `docker/Dockerfile.sandbox` — Added 10 packages to the default install
 - `src/paradigm/orchestrator/engine.py` — Updated "Available libraries" list and shrank offline cache list in execution prompt
 
+## 2026-03-03
+
+### Prompt — Complete Demo Runner: Add Missing Phases + Paper Creation
+
+> Implement the following plan:
+> Complete Demo Runner: Add Missing Phases + Paper Creation
+>
+> The demo runner (`demo_runner.py`) simulates a research cycle when the Paradigm core can't import (Python 3.10).
+> It currently stops at the "internal" (review) phase and never creates a paper. Users see the cycle complete at Review
+> but the Submitted/Peer Review/Published phases never fire, and the Papers page is empty.
+>
+> Changes: (1) Add in-memory `_demo_papers` store to papers.py with fallbacks in list_papers/get_paper/list_outputs,
+> (2) Add submitted/peer_review/published phases to demo_runner.py, create demo paper after writing phase,
+> link paper_id to cycle via `_cycles`.
+
+**Key decisions:**
+- Module-level `_demo_papers` dict in papers.py (same pattern as `_cycles` in research.py)
+- Demo runner imports `_cycles` from research.py to set `paper_id` on the cycle
+- Three new phases: submitted, peer_review, published
+- Paper created after writing phase using existing `DEMO_PAPER_BODY` constant
+
+**Artifacts modified:**
+- `backend/api/routes/papers.py` — Added `_demo_papers` fallback store
+- `backend/api/services/demo_runner.py` — Added 3 phases, create demo paper, link to cycle
+
 ### Prompt — Reduce Token Usage Per Research Cycle
 
 > Implement the plan to reduce token usage per research cycle (~530K → ~300K target, ~40% reduction). Changes: (1) Phase-appropriate context injection via `_PHASE_CONTEXT_NEEDS` dict gating `_build_agent_prompt()`, (2) Reduce `_SEARCH_ENABLED_PHASES` from 7 to 3, (3) Fuzzy query deduplication via Jaccard similarity, (4) Reduce limits: `_LITERATURE_CONTEXT_LIMIT` 15K→10K, `max_papers` 5→3, `max_searches_per_round` 10→5.

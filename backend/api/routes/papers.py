@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -16,6 +17,9 @@ from backend.api.models.papers import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["papers"])
+
+# In-memory store for demo papers (populated by demo_runner when core unavailable)
+_demo_papers: dict[str, dict[str, Any]] = {}
 
 
 @router.get(
@@ -48,6 +52,23 @@ async def list_outputs(session_id: str, request: Request) -> OutputList:
                         created_at=paper.get("created_at"),
                     )
                 )
+    elif db is None:
+        # Demo mode: check in-memory demo papers for this session's cycle
+        from backend.api.routes.research import _cycles
+
+        for cycle in _cycles.values():
+            if cycle.session_id == session_id and cycle.paper_id:
+                paper = _demo_papers.get(cycle.paper_id)
+                if paper:
+                    outputs.append(
+                        OutputSummary(
+                            output_id=cycle.paper_id,
+                            output_type="paper",
+                            title=paper.get("title", ""),
+                            created_at=paper.get("created_at"),
+                        )
+                    )
+                break
 
     return OutputList(items=outputs, total=len(outputs))
 
@@ -118,7 +139,23 @@ async def list_papers(
     """List all papers with optional filtering."""
     db = request.app.state.database
     if db is None:
-        return PaperList(items=[], total=0, offset=offset, limit=limit)
+        # Demo mode: serve from in-memory demo papers
+        all_papers = list(_demo_papers.values())
+        if status:
+            all_papers = [p for p in all_papers if p.get("status") == status]
+        page = all_papers[offset : offset + limit]
+        items = [
+            PaperSummary(
+                paper_id=p["id"],
+                title=p.get("title", ""),
+                status=p.get("status", ""),
+                abstract=p.get("abstract", "")[:500],
+                created_at=p.get("created_at"),
+                published_at=p.get("published_at"),
+            )
+            for p in page
+        ]
+        return PaperList(items=items, total=len(all_papers), offset=offset, limit=limit)
 
     papers = db.list_papers(status=status, limit=limit)
 
@@ -151,7 +188,22 @@ async def get_paper(paper_id: str, request: Request) -> PaperDetail:
     """Get full paper details."""
     db = request.app.state.database
     if db is None:
-        raise HTTPException(status_code=503, detail="Database not available")
+        # Demo mode: serve from in-memory demo papers
+        paper = _demo_papers.get(paper_id)
+        if paper is None:
+            raise HTTPException(status_code=404, detail="Paper not found")
+        return PaperDetail(
+            paper_id=paper["id"],
+            title=paper.get("title", ""),
+            abstract=paper.get("abstract", ""),
+            authors=paper.get("authors", []),
+            body=paper.get("body", ""),
+            status=paper.get("status", ""),
+            keywords=paper.get("keywords", []),
+            citation_count=paper.get("citation_count", 0),
+            created_at=paper.get("created_at"),
+            published_at=paper.get("published_at"),
+        )
 
     paper = db.get_paper(paper_id)
     if paper is None:
