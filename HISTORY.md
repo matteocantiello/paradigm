@@ -3124,3 +3124,15 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 > 10. Fix React.ReactNode without React import
 > 11. Add 404 catch-all route
 > 12. Batch error handler set() calls in sessionStore
+
+### Prompt 61 — Documentation Update (6 files)
+
+> Implement the documentation update plan: replace frontend/README.md Vite boilerplate with project-specific docs, update backend/README.md with missing endpoints and WS types, update docs/API.md with config mode / knowledge / abort / knowledge_update sections, append Web UI subsection to docs/MANUAL.md section 21, prepend deviation note to frontend-plan.md, and add frontend/README.md to root README.md documentation table.
+
+**Artifacts modified:**
+- `frontend/README.md` — full rewrite
+- `backend/README.md` — add endpoints, WS types, architecture entries
+- `docs/API.md` — add sections + fix existing entries
+- `docs/MANUAL.md` — append Web UI subsection
+- `frontend-plan.md` — prepend deviation note
+- `README.md` — add doc table row

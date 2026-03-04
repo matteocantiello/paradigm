@@ -1,3 +1,17 @@
+> **Note:** This was the original architecture plan. The actual implementation is documented in [`frontend/README.md`](frontend/README.md). Key deviations from this plan:
+>
+> - **React 19 / Vite 7** (plan assumed React 18 / Vite 5)
+> - **No SettingsPage** --- not implemented
+> - **No CheckpointControls component** --- checkpoint UI not built
+> - **MessagesPanel + AgentPanel** instead of a single AgentLane component
+> - **StatsBar** instead of TokenCounter
+> - **No separate cycleStore** --- cycle state managed via TanStack Query only
+> - **Hand-written TypeScript types** (`ws-types.ts`) instead of auto-generated from OpenAPI
+> - **Added KnowledgePanel, RightPanel, ConnectionIndicator** --- not in original plan
+> - **Lucide React icons** instead of shadcn/ui (shadcn not used)
+> - **Environment variables** are `VITE_API_BASE_URL` / `VITE_WS_BASE_URL` (plan had `VITE_API_URL` / `VITE_WS_URL`)
+> - **Dev server on port 3000** with Vite proxy (plan did not specify)
+
 # Paradigm Frontend Architecture Plan
 
 ## 1. Stack

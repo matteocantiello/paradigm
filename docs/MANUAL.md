@@ -1817,3 +1817,39 @@ The API wraps existing Paradigm internals without modifying them:
 - **InterventionHook bridge** converts the synchronous intervention callable to an async pattern backed by `asyncio.Event`, enabling frontend approval workflows
 
 For full API reference with request/response examples, see [`docs/API.md`](API.md).
+
+### Web UI (React Frontend)
+
+Paradigm includes an optional React frontend for browser-based monitoring and control.
+
+#### Running the Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The dev server starts on **http://localhost:3000** and proxies API requests to the backend at `localhost:8000`.
+
+#### Pages
+
+| Route | Page | Description |
+|-------|------|-------------|
+| `/` | Dashboard | Overview of recent cycles, running sessions, and quick stats |
+| `/research` | Research | Create and manage research cycles |
+| `/session/:id` | Session | Real-time session monitoring and control |
+| `/papers` | Papers | Browse published papers with status filter |
+| `/agents` | Agents | View and configure agent models and parameters |
+
+#### Key Capabilities
+
+- **Live monitoring** --- real-time agent output streaming, phase progression, round counters, and token usage via WebSocket
+- **Knowledge panel** --- view the evolving knowledge architecture (entities, hypotheses, evidence, open questions) as agents work
+- **Approval workflows** --- approve or reject phase transitions in interactive mode directly from the browser
+- **Session control** --- pause, resume, or abort running sessions
+- **Paper viewer** --- full Markdown + LaTeX math rendering with table of contents and export
+- **Agent configuration** --- change models, providers, and token budgets per agent role
+- **Mode toggle** --- switch between production and testing configurations at runtime
+
+See [`frontend/README.md`](../frontend/README.md) for full setup, directory structure, and architecture details.

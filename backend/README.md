@@ -49,9 +49,10 @@ backend/api/
   main.py              # FastAPI app, CORS, lifespan
   routes/
     research.py        # CRUD for research cycles
-    sessions.py        # Session management
+    sessions.py        # Session management + knowledge endpoint
     agents.py          # Agent configuration
     papers.py          # Paper browsing
+    config.py          # Config mode (production/testing)
     ws.py              # WebSocket endpoint
   models/
     research.py        # Research cycle schemas
@@ -64,6 +65,7 @@ backend/api/
     ws_display.py      # DisplayManager -> WebSocket bridge
     agent_router.py    # Routes user interventions
     checkpoint.py      # Checkpoint/fork logic
+    demo_runner.py     # Demo mode cycle simulation
   middleware/
     auth.py            # API key authentication
 ```
@@ -80,6 +82,9 @@ backend/api/
 | WS | `/api/v1/sessions/{id}/ws` | Live WebSocket |
 | GET | `/api/v1/papers` | List papers |
 | GET | `/api/v1/agents` | List agent types |
+| GET | `/api/v1/config/mode` | Get config mode (production/testing) |
+| PUT | `/api/v1/config/mode` | Switch config mode |
+| GET | `/api/v1/sessions/{id}/knowledge` | Knowledge architecture snapshot |
 
 ## WebSocket Protocol
 
@@ -88,14 +93,17 @@ Connect to `ws://localhost:8000/api/v1/sessions/{session_id}/ws`
 ### Server -> Client Messages
 - `session_state` — Full state sync (on connect)
 - `agent_output_stream` — Agent output chunks
+- `agent_step_complete` — Agent finished a step
 - `phase_transition` — Phase change
+- `round_update` — Round progress within a phase
 - `approval_request` — Needs user input
 - `notification` — Informational events
 - `error` — Errors
+- `knowledge_update` — Knowledge architecture state
 
 ### Client -> Server Messages
 - `approval_response` — Respond to approval request
-- `session_control` — Pause/resume/checkpoint
+- `session_control` — Pause/resume/checkpoint/rewind/abort
 - `user_intervention` — Redirect agent
 - `user_message` — Message to agent
 

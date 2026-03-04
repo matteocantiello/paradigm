@@ -244,6 +244,7 @@ Returns the full session state snapshot:
   "total_searches": 4,
   "papers_found": 12,
   "elapsed_seconds": 151.3,
+  "completed_phases": ["seeding"],
   "created_at": "2026-02-27T12:00:05Z",
   "updated_at": "2026-02-27T12:02:36Z"
 }
@@ -256,6 +257,36 @@ GET /api/v1/sessions/{session_id}/history?limit=100&offset=0
 ```
 
 Returns the full interaction event history for a session.
+
+#### Get Session Knowledge
+
+```
+GET /api/v1/sessions/{session_id}/knowledge
+```
+
+Returns the current knowledge architecture snapshot for a running session (entities, hypotheses, evidence, open questions, research goals, tournament state).
+
+**Response:**
+
+```json
+{
+  "session_id": "sess-xyz789",
+  "knowledge": {
+    "entities": [...],
+    "relationships": [...],
+    "hypotheses": [...],
+    "evidence": [...],
+    "open_questions": [...],
+    "research_goals": [...],
+    "conflicts": [...],
+    "assumptions": [...],
+    "tournament_rankings": [...],
+    "world_model_summary": "...",
+    "evidence_landscape_summary": "...",
+    "tournament_summary": "..."
+  }
+}
+```
 
 ---
 
@@ -341,14 +372,65 @@ GET /api/v1/agents/{agent_type}
 PUT /api/v1/agents/{agent_type}
 ```
 
-**Request body:**
+**Request body (all fields optional):**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `provider` | string | LLM provider name |
 | `model` | string | Model identifier |
+| `provider` | string | LLM provider name |
 | `max_tokens` | int | Max output tokens |
-| `temperature` | float | Sampling temperature |
+| `token_budget` | int | Token budget for this agent |
+| `extra_body` | object | Extra parameters passed to the LLM provider |
+
+---
+
+### Config Mode
+
+Switch between production and testing configurations at runtime.
+
+#### Get Config Mode
+
+```
+GET /api/v1/config/mode
+```
+
+**Response:**
+
+```json
+{
+  "mode": "production",
+  "testing_available": true
+}
+```
+
+#### Set Config Mode
+
+```
+PUT /api/v1/config/mode
+```
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mode` | string | Yes | `production` or `testing` |
+
+**Example:**
+
+```bash
+curl -X PUT http://localhost:8000/api/v1/config/mode \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "testing"}'
+```
+
+**Response:**
+
+```json
+{
+  "mode": "testing",
+  "testing_available": true
+}
+```
 
 ---
 
@@ -503,6 +585,29 @@ Error or warning.
 }
 ```
 
+#### `knowledge_update`
+
+Knowledge architecture state update. Sent when the session's world model, evidence graph, or hypothesis tournament changes.
+
+```json
+{
+  "type": "knowledge_update",
+  "entities": [{"name": "Cepheids", "type": "object", "description": "..."}],
+  "relationships": [...],
+  "hypotheses": [{"id": "h1", "text": "...", "status": "active"}],
+  "evidence": [...],
+  "open_questions": [...],
+  "research_goals": [...],
+  "conflicts": [...],
+  "assumptions": [...],
+  "tournament_rankings": [...],
+  "world_model_summary": "Current understanding of...",
+  "evidence_landscape_summary": "Evidence supports...",
+  "tournament_summary": "Leading hypothesis is...",
+  "timestamp": "2026-02-27T12:06:00Z"
+}
+```
+
 ### Client -> Server Messages
 
 #### `approval_response`
@@ -533,7 +638,7 @@ Control the session lifecycle.
 }
 ```
 
-`action` must be one of: `pause`, `resume`, `checkpoint`, `rewind`.
+`action` must be one of: `pause`, `resume`, `checkpoint`, `rewind`, `abort`.
 
 #### `user_intervention`
 
@@ -588,9 +693,10 @@ backend/api/
   main.py              FastAPI app, CORS, lifespan
   routes/
     research.py        CRUD for research cycles
-    sessions.py        Session management + start/list
+    sessions.py        Session management + start/list + knowledge
     agents.py          Agent configuration
     papers.py          Paper browsing/export
+    config.py          Config mode (production/testing)
     ws.py              WebSocket endpoint
   models/
     research.py        Research cycle Pydantic schemas
@@ -603,6 +709,7 @@ backend/api/
     ws_display.py      DisplayManager -> WebSocket bridge
     agent_router.py    Routes user interventions to agents
     checkpoint.py      Checkpoint/fork logic
+    demo_runner.py     Demo mode cycle simulation
   middleware/
     auth.py            API key authentication
 ```

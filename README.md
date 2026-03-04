@@ -262,7 +262,8 @@ tests/                 pytest + pytest-asyncio
 | [`docs/MANUAL.md`](docs/MANUAL.md) | Operations manual (comprehensive usage guide) |
 | [`docs/API.md`](docs/API.md) | Web API reference (REST endpoints, WebSocket protocol) |
 | [`backend/README.md`](backend/README.md) | Backend setup and architecture |
-| [`frontend-plan.md`](frontend-plan.md) | Frontend architecture plan (React/Vite) |
+| [`frontend/README.md`](frontend/README.md) | Frontend setup, structure, and architecture |
+| [`frontend-plan.md`](frontend-plan.md) | Frontend architecture plan (historical) |
 | [`ROADMAP.md`](ROADMAP.md) | Implementation roadmap and phase status |
 | [`HISTORY.md`](HISTORY.md) | Complete development history |
 
