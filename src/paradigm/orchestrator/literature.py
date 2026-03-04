@@ -378,8 +378,18 @@ class LiteratureHandler:
             self.agent_search_count[agent_id] = self.agent_search_count.get(agent_id, 0) + 1
 
             display_query = f"[{provider}] {query}" if provider else query
+            paper_dicts = [
+                {
+                    "arxiv_id": p.id,
+                    "title": p.title,
+                    "authors": p.authors[:3],
+                    "year": p.date.strftime("%Y") if p.date else "?",
+                }
+                for p in papers
+            ]
             self._engine._display.search_result(
-                agent_id, display_query, len(papers), len(new_papers)
+                agent_id, display_query, len(papers), len(new_papers),
+                papers=paper_dicts, phase=str(phase),
             )
 
             log_content: dict[str, Any] = {

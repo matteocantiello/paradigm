@@ -14,6 +14,9 @@ from typing import TYPE_CHECKING, Any
 from backend.api.models.messages import (
     AgentOutputStreamMsg,
     KnowledgeUpdateMsg,
+    LiteraturePaperMsg,
+    LiteratureSearchMsg,
+    LiteratureUpdateMsg,
     NotificationMsg,
     PhaseTransitionMsg,
     RoundUpdateMsg,
@@ -45,6 +48,9 @@ class WebSocketDisplayAdapter:
     def __init__(self, session_id: str, manager: SessionManager) -> None:
         self._session_id = session_id
         self._manager = manager
+        # Live literature accumulator
+        self._search_log: list[LiteratureSearchMsg] = []
+        self._unique_papers: dict[str, LiteraturePaperMsg] = {}  # keyed by arxiv_id
 
     def _notify(
         self,
@@ -233,7 +239,14 @@ class WebSocketDisplayAdapter:
     # ------------------------------------------------------------------
 
     def search_result(
-        self, agent_id: str, query: str, total_results: int, new_results: int
+        self,
+        agent_id: str,
+        query: str,
+        total_results: int,
+        new_results: int,
+        *,
+        papers: list[dict[str, object]] | None = None,
+        phase: str = "",
     ) -> None:
         state = self._manager.get_state(self._session_id)
         if state is not None:
@@ -246,6 +259,9 @@ class WebSocketDisplayAdapter:
             f"{agent_id}: '{query[:40]}' -> {new_results} new papers",
             category="search",
         )
+        # Accumulate literature and broadcast live update
+        if papers:
+            self._accumulate_literature(query, agent_id, phase, papers)
         self._broadcast_state()
 
     def search_skipped(self, query: str, *, reason: str = "similar") -> None:
@@ -315,6 +331,50 @@ class WebSocketDisplayAdapter:
 
     def read_not_found(self, arxiv_id: str) -> None:
         pass
+
+    # ------------------------------------------------------------------
+    # Live literature helpers
+    # ------------------------------------------------------------------
+
+    def _accumulate_literature(
+        self,
+        query: str,
+        agent_id: str,
+        phase: str,
+        papers: list[dict[str, object]],
+    ) -> None:
+        """Accumulate search results and broadcast a literature update."""
+        paper_msgs = []
+        for p in papers:
+            aid = str(p.get("arxiv_id", ""))
+            paper_msg = LiteraturePaperMsg(
+                arxiv_id=aid,
+                title=str(p.get("title", "")),
+                authors=[str(a) for a in (p.get("authors") or [])],
+                year=str(p.get("year", "")),
+            )
+            paper_msgs.append(paper_msg)
+            if aid and aid not in self._unique_papers:
+                self._unique_papers[aid] = paper_msg
+
+        self._search_log.append(
+            LiteratureSearchMsg(
+                query=query,
+                agent_id=agent_id,
+                phase=phase,
+                papers=paper_msgs,
+            )
+        )
+        self._broadcast_literature()
+
+    def _broadcast_literature(self) -> None:
+        """Broadcast the accumulated literature state to all WS clients."""
+        msg = LiteratureUpdateMsg(
+            searches=self._search_log,
+            unique_papers=list(self._unique_papers.values()),
+            total_searches=len(self._search_log),
+        )
+        _fire_and_forget(self._manager.broadcast_message(self._session_id, msg))
 
     # ------------------------------------------------------------------
     # Data staging

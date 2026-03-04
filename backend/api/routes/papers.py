@@ -385,14 +385,16 @@ async def get_paper_experiment(
     _validate_filename(filename)
     paper_dir = _paper_dir(request, paper_id)
     if paper_dir is not None:
-        exp_file = paper_dir / "experiments" / filename
-        if exp_file.is_file() and exp_file.resolve().is_relative_to(paper_dir.resolve()):
-            return PaperArtifactContent(
-                paper_id=paper_id,
-                filename=filename,
-                content_type="text/x-python" if filename.endswith(".py") else "text/plain",
-                content=exp_file.read_text(),
-            )
+        # Check both "experiments" and "code" directories
+        for dir_name in ("experiments", "code"):
+            exp_file = paper_dir / dir_name / filename
+            if exp_file.is_file() and exp_file.resolve().is_relative_to(paper_dir.resolve()):
+                return PaperArtifactContent(
+                    paper_id=paper_id,
+                    filename=filename,
+                    content_type="text/x-python" if filename.endswith(".py") else "text/plain",
+                    content=exp_file.read_text(),
+                )
     raise HTTPException(status_code=404, detail="Experiment file not found")
 
 

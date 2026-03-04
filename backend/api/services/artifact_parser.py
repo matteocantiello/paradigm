@@ -62,7 +62,11 @@ def parse_literature_searches(md_text: str) -> LiteratureSearchLog:
                 authors=pm.group(3).strip(),
                 year=pm.group(4),
                 arxiv_id=arxiv_id,
-                arxiv_url=f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else "",
+                arxiv_url=(
+                    f"https://arxiv.org/abs/{arxiv_id}"
+                    if arxiv_id and not arxiv_id.startswith("ext-")
+                    else ""
+                ),
             )
             papers.append(paper)
             if arxiv_id not in seen_arxiv:
@@ -95,13 +99,16 @@ def scan_paper_artifacts(paper_dir: Path) -> PaperArtifactList:
     """Check which artifact files/dirs exist for a paper."""
     paper_id = paper_dir.name
 
-    has_paper = (paper_dir / "paper.md").exists()
+    has_paper = (paper_dir / "paper.md").exists() or (paper_dir / f"{paper_id}.md").exists()
     has_literature = (paper_dir / "literature_searches.md").exists()
     has_reviews = (paper_dir / "reviews.md").exists()
     has_transcript = (paper_dir / "transcript.md").exists()
 
     experiment_files: list[str] = []
+    # Check both "experiments" and "code" directories
     experiments_dir = paper_dir / "experiments"
+    if not experiments_dir.is_dir():
+        experiments_dir = paper_dir / "code"
     if experiments_dir.is_dir():
         experiment_files = sorted(
             f.name

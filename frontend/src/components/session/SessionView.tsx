@@ -10,7 +10,7 @@ import { ConnectionIndicator } from "./ConnectionIndicator";
 import { LiteraturePanel } from "./LiteraturePanel";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { ConnectionStatus } from "@/api/websocket";
-import type { AgentOutput, Notification, KnowledgeState } from "@/stores/sessionStore";
+import type { AgentOutput, Notification, KnowledgeState, LiveLiterature } from "@/stores/sessionStore";
 import type { ApprovalRequestMsg } from "@/api/ws-types";
 
 interface SessionViewProps {
@@ -27,6 +27,7 @@ interface SessionViewProps {
   elapsedSeconds: number;
   agentOutputs: AgentOutput[];
   notifications: Notification[];
+  literature: LiveLiterature;
   knowledge: KnowledgeState;
   pendingApproval: ApprovalRequestMsg | null;
   paperId?: string;
@@ -88,6 +89,7 @@ export function SessionView(props: SessionViewProps) {
         <LiteraturePanel
           paperId={props.paperId}
           papersFound={props.papersFound}
+          liveLiterature={props.literature}
           onClose={() => setShowLiterature(false)}
         />
       )}

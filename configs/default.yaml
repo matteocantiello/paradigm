@@ -151,8 +151,8 @@ memory:
 knowledge:
   enable_world_model: true
   world_model_max_context_chars: 3000
-  enable_evidence_graph: false
-  enable_hypothesis_tournament: false
+  enable_evidence_graph: true
+  enable_hypothesis_tournament: true
   tournament_population_size: 8
   tournament_winners: 2
   tournament_k_factor: 32.0

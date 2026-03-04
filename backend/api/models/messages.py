@@ -28,6 +28,7 @@ class ServerMessageType(str, Enum):
     ERROR = "error"
     NOTIFICATION = "notification"
     KNOWLEDGE_UPDATE = "knowledge_update"
+    LITERATURE_UPDATE = "literature_update"
 
 
 class AgentOutputStreamMsg(BaseModel):
@@ -136,6 +137,34 @@ class NotificationMsg(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
+class LiteraturePaperMsg(BaseModel):
+    """A single discovered paper (used inside LiteratureUpdateMsg)."""
+
+    arxiv_id: str
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    year: str = ""
+
+
+class LiteratureSearchMsg(BaseModel):
+    """A single search entry (used inside LiteratureUpdateMsg)."""
+
+    query: str
+    agent_id: str
+    phase: str = ""
+    papers: list[LiteraturePaperMsg] = Field(default_factory=list)
+
+
+class LiteratureUpdateMsg(BaseModel):
+    """Live literature data streamed during a research cycle."""
+
+    type: Literal["literature_update"] = "literature_update"
+    searches: list[LiteratureSearchMsg] = Field(default_factory=list)
+    unique_papers: list[LiteraturePaperMsg] = Field(default_factory=list)
+    total_searches: int = 0
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
 class KnowledgeUpdateMsg(BaseModel):
     """Full knowledge architecture snapshot (world model + evidence graph + tournament)."""
 
@@ -172,7 +201,8 @@ ServerMessage = Annotated[
     | RoundUpdateMsg
     | ErrorMsg
     | NotificationMsg
-    | KnowledgeUpdateMsg,
+    | KnowledgeUpdateMsg
+    | LiteratureUpdateMsg,
     Field(discriminator="type"),
 ]
 

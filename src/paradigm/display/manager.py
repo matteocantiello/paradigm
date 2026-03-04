@@ -305,7 +305,14 @@ class DisplayManager:
     # ------------------------------------------------------------------
 
     def search_result(
-        self, agent_id: str, query: str, total_results: int, new_results: int
+        self,
+        agent_id: str,
+        query: str,
+        total_results: int,
+        new_results: int,
+        *,
+        papers: list[dict[str, object]] | None = None,
+        phase: str = "",
     ) -> None:
         self._state.total_searches += 1
         self._state.papers_count += new_results

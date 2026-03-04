@@ -13,6 +13,8 @@ import type {
   KnowledgeOpenQuestion,
   TournamentRanking,
   TournamentMatchup,
+  LiteraturePaper,
+  LiteratureSearch,
 } from "@/api/ws-types";
 
 export type AgentOutput = {
@@ -52,6 +54,18 @@ export type KnowledgeState = {
   evidenceLandscapeSummary: string;
   tournamentSummary: string;
   lastUpdated: string | null;
+};
+
+export type LiveLiterature = {
+  searches: LiteratureSearch[];
+  uniquePapers: LiteraturePaper[];
+  totalSearches: number;
+};
+
+const EMPTY_LITERATURE: LiveLiterature = {
+  searches: [],
+  uniquePapers: [],
+  totalSearches: 0,
 };
 
 const EMPTY_KNOWLEDGE: KnowledgeState = {
@@ -95,6 +109,9 @@ interface SessionStoreState {
   agentOutputs: AgentOutput[];
   notifications: Notification[];
 
+  // Live literature (during cycle)
+  literature: LiveLiterature;
+
   // Knowledge architecture
   knowledge: KnowledgeState;
 
@@ -136,6 +153,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   completedPhases: [],
   agentOutputs: [],
   notifications: [],
+  literature: { ...EMPTY_LITERATURE },
   knowledge: { ...EMPTY_KNOWLEDGE },
   pendingApproval: null,
 
@@ -163,6 +181,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       completedPhases: [],
       agentOutputs: [],
       notifications: [],
+      literature: { ...EMPTY_LITERATURE },
       knowledge: { ...EMPTY_KNOWLEDGE },
       pendingApproval: null,
     });
@@ -324,6 +343,17 @@ function handleServerMessage(
         notifications: [...s.notifications.slice(-99), notif],
         agentOutputs: [...s.agentOutputs.slice(-199), errOut],
       }));
+      break;
+    }
+
+    case "literature_update": {
+      set({
+        literature: {
+          searches: msg.searches,
+          uniquePapers: msg.unique_papers,
+          totalSearches: msg.total_searches,
+        },
+      });
       break;
     }
 

@@ -168,6 +168,28 @@ export interface TournamentMatchup {
   [key: string]: unknown;
 }
 
+export interface LiteraturePaper {
+  arxiv_id: string;
+  title: string;
+  authors: string[];
+  year: string;
+}
+
+export interface LiteratureSearch {
+  query: string;
+  agent_id: string;
+  phase: string;
+  papers: LiteraturePaper[];
+}
+
+export interface LiteratureUpdateMsg {
+  type: "literature_update";
+  searches: LiteratureSearch[];
+  unique_papers: LiteraturePaper[];
+  total_searches: number;
+  timestamp: string;
+}
+
 export interface KnowledgeUpdateMsg {
   type: "knowledge_update";
   entities: KnowledgeEntity[];
@@ -197,7 +219,8 @@ export type ServerMessage =
   | RoundUpdateMsg
   | ErrorMsg
   | NotificationMsg
-  | KnowledgeUpdateMsg;
+  | KnowledgeUpdateMsg
+  | LiteratureUpdateMsg;
 
 // --- Client → Server ---
 

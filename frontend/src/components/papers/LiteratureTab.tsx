@@ -80,7 +80,15 @@ export function LiteratureTab({ paperId }: LiteratureTabProps) {
   );
 }
 
+function isValidArxivId(id: string): boolean {
+  if (!id) return false;
+  if (id.startsWith("ext-")) return false;
+  if (/^[0-9a-f]{10,}$/.test(id)) return false;
+  return true;
+}
+
 function PaperRow({ paper }: { paper: LiteratureSearchPaper }) {
+  const hasValidId = isValidArxivId(paper.arxiv_id);
   return (
     <div className="flex items-start gap-3 rounded-md border border-border p-3 hover:border-indigo-500/40 transition-colors">
       <div className="flex-1 min-w-0">
@@ -89,10 +97,10 @@ function PaperRow({ paper }: { paper: LiteratureSearchPaper }) {
           {paper.authors} ({paper.year})
         </p>
       </div>
-      {paper.arxiv_id && (
+      {paper.arxiv_id && hasValidId && (
         <div className="flex items-center gap-2 shrink-0">
           <a
-            href={paper.arxiv_url}
+            href={paper.arxiv_url || `https://arxiv.org/abs/${paper.arxiv_id}`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 hover:underline"
@@ -154,9 +162,9 @@ function SearchBlock({
               <div className="min-w-0">
                 <span className="font-medium">{paper.title}</span>
                 <span className="text-muted-foreground"> — {paper.authors} ({paper.year})</span>
-                {paper.arxiv_id && (
+                {paper.arxiv_id && isValidArxivId(paper.arxiv_id) && (
                   <a
-                    href={paper.arxiv_url}
+                    href={paper.arxiv_url || `https://arxiv.org/abs/${paper.arxiv_id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="ml-1 text-indigo-400 hover:underline"
