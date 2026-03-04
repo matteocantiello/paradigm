@@ -68,12 +68,14 @@ Named after Thomas Kuhn --- paradigm shifts emerge from communities of researche
 ## Quick Start
 
 ```bash
-# Clone and install
+# Clone and set up environment
 git clone https://github.com/matteocantiello/paradigm.git
 cd paradigm
+conda create -n paradigm python=3.12 -y
+conda activate paradigm
 pip install -e ".[dev]"
 
-# Set your API keys
+# Set your API keys (or create a .env file)
 export ANTHROPIC_API_KEY="sk-ant-..."
 export GEMINI_API_KEY="..."
 

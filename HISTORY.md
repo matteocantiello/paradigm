@@ -3136,3 +3136,35 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `docs/MANUAL.md` — append Web UI subsection
 - `frontend-plan.md` — prepend deviation note
 - `README.md` — add doc table row
+
+## Prompt 54: Backend Config Loading Without Paradigm Import
+Date: 2026-03-03
+
+Understand how to make backend load config without importing from `paradigm` (which requires Python 3.11+, but runtime is 3.10).
+
+Tasks:
+1. Read src/paradigm/config.py fully
+2. Read backend/api/main.py — _load_paradigm_config function
+3. Search for app.state.config usage across backend/api/
+4. Check backend/api/routes/agents.py config usage
+5. Check backend/api/services/session_manager.py config usage
+6. Report which Config attributes/methods are actually used by backend
+
+Goal: Identify minimal config data structure needed for backend independence.
+
+### Prompt 62 — Fix Backend Config Loading on Python 3.10
+
+> Implement the following plan:
+>
+> Create a lightweight config loader in the backend (`backend/api/config.py`) that reads the YAML config file directly and constructs simple Pydantic models — no import from `paradigm` needed. This mirrors the minimal subset of `Config` that the backend routes actually use. The full `paradigm.Config` object is still needed for `SessionManager._run_cycle()`, but that already works in demo mode when core isn't available.
+>
+> Changes:
+> 1. Create `backend/api/config.py` — lightweight config models + loader
+> 2. Update `backend/api/main.py` — use new loader as fallback
+> 3. Update `backend/api/routes/agents.py` — switch AgentOverrideConfig import
+
+**Artifacts produced/modified:**
+- `backend/api/config.py` — new lightweight config models + loader
+- `backend/api/main.py` — fallback to backend config loader
+- `backend/api/routes/agents.py` — import from backend config
+

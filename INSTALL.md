@@ -2,40 +2,32 @@
 
 ## System Requirements
 
-- **Python**: 3.11 or higher (3.12+ recommended)
+- **Python**: 3.12+ (via conda/mamba recommended)
 - **Operating System**: Linux, macOS, or Windows with WSL2
 - **Docker**: Required for Phase 3 (computational sandbox)
 - **API Access**: Anthropic API key with Claude access
 
 ## Step-by-Step Installation
 
-### 1. Check Python Version
+### 1. Create a Conda Environment (Recommended)
+
+Using conda or mamba ensures the correct Python version and isolates dependencies:
 
 ```bash
-python3 --version
+# Using mamba (faster) or conda
+mamba create -n paradigm python=3.12 -y   # or: conda create -n paradigm python=3.12 -y
+conda activate paradigm
 ```
 
-If you have Python 3.11+, you're good. If not, install Python 3.12:
-
-**Ubuntu/Debian:**
-```bash
-sudo apt update
-sudo apt install python3.12 python3.12-venv python3.12-dev
-```
-
-**macOS (with Homebrew):**
-```bash
-brew install python@3.12
-```
-
-### 2. Create Virtual Environment (Recommended)
+**Alternative (if you already have Python 3.12+):**
 
 ```bash
+python3 --version  # must be 3.12+
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-### 3. Install Paradigm
+### 2. Install Paradigm
 
 ```bash
 pip install -e ".[dev]"
@@ -176,7 +168,10 @@ Or use a virtual environment (recommended).
 To run the web API backend:
 
 ```bash
-# Install API dependencies
+# Activate the paradigm environment
+conda activate paradigm
+
+# Install API dependencies (if not already installed)
 pip install -e ".[api]"
 
 # Start the development server

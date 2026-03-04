@@ -5,6 +5,9 @@ FastAPI backend for the Paradigm agentic research platform.
 ## Setup
 
 ```bash
+# Activate the paradigm environment (Python 3.12+)
+conda activate paradigm
+
 # Install with API dependencies
 pip install -e ".[api]"
 

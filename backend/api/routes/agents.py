@@ -119,7 +119,7 @@ async def update_agent_config(
         raise HTTPException(status_code=404, detail=f"Unknown agent type: {agent_type}")
 
     # Apply override
-    from paradigm.config import AgentOverrideConfig
+    from backend.api.config import AgentOverrideConfig
 
     current = config.agent.overrides.get(agent_type, AgentOverrideConfig())
     if body.model is not None:

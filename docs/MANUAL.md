@@ -49,7 +49,7 @@ You provide a research question or topic. A team of specialized AI agents (theor
 
 ### Prerequisites
 
-- Python 3.11+ (3.12+ recommended)
+- Python 3.12+ (via conda/mamba recommended)
 - Anthropic API key (for default mode)
 - Google Gemini API key (for default mode)
 - Together.ai API key (for testing mode)
@@ -58,9 +58,11 @@ You provide a research question or topic. A team of specialized AI agents (theor
 ### From zero to first paper in 5 commands
 
 ```bash
-# 1. Clone and install
+# 1. Clone and set up environment
 git clone https://github.com/matteocantiello/paradigm.git
 cd paradigm
+conda create -n paradigm python=3.12 -y
+conda activate paradigm
 pip install -e ".[dev]"
 
 # 2. Set your API keys (or create a .env file)

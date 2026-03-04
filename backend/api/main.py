@@ -17,13 +17,29 @@ logger = logging.getLogger(__name__)
 
 
 def _load_paradigm_config() -> Any:
-    """Load Paradigm config (lazy, so it only fails if actually needed)."""
+    """Load Paradigm config.
+
+    Tries the full ``paradigm.config.load_config`` first (available when running
+    on Python 3.11+).  Falls back to the lightweight backend-local loader so
+    that routes still work on Python 3.10 where the core package cannot be
+    imported.
+    """
     try:
         from paradigm.config import load_config
 
         return load_config()
+    except Exception:
+        pass
+
+    # Fallback: lightweight backend-local loader
+    try:
+        from backend.api.config import load_backend_config
+
+        cfg = load_backend_config()
+        logger.info("Loaded backend-local config (paradigm core not available)")
+        return cfg
     except Exception as e:
-        logger.warning("Could not load Paradigm config: %s", e)
+        logger.warning("Could not load any config: %s", e)
         return None
 
 
