@@ -659,6 +659,31 @@ _CHALLENGE_INSTRUCTION = (
     "resolved in an earlier round or phase.**\n"
 )
 
+_KNOWLEDGE_TAG_INSTRUCTION = """
+
+## Structured Knowledge Tags
+
+As you analyze and reason, emit these tags to build a shared knowledge model:
+
+- **Entities** — key concepts, objects, methods, datasets:
+  `[ENTITY: name | type | description]`
+  Types: concept, object, process, quantity, method, dataset, result
+
+- **Hypotheses** — testable claims or proposed explanations:
+  `[HYPOTHESIS: statement]`
+
+- **Evidence** — findings that support or contradict hypotheses:
+  `[EVIDENCE: content | source]`
+  Sources: literature, experiment, theoretical, agent_reasoning
+
+Examples:
+  [ENTITY: Little Red Dots | object | Compact red sources at z>4 found by JWST]
+  [HYPOTHESIS: LRDs are dust-reddened AGN with Compton-thick obscuration]
+  [EVIDENCE: X-ray stacking shows 23x weakness factor | literature]
+
+Emit tags inline as you discover entities, form hypotheses, and evaluate evidence. These tags are parsed automatically — do not omit them.
+"""
+
 _ADVISORY_PROMPT_TEMPLATE = (
     "The experimentalist has encountered {consecutive_failures} consecutive "
     "failures while researching:\n\n"

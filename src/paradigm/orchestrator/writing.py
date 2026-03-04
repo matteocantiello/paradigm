@@ -663,6 +663,10 @@ class WritingHandler:
                     fig_lines.append(
                         f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`"
                     )
+                fig_lines.append(
+                    f"\nYou have exactly {len(self._engine.state.execution_figures)} figures. "
+                    "Do NOT reference any Figure number beyond this count."
+                )
                 prompt += "\n".join(fig_lines)
             elif (
                 self._engine._config.orchestrator.enable_conceptual_figures
@@ -847,6 +851,11 @@ class WritingHandler:
             for i, (exp_name, fpath) in enumerate(self._engine.state.execution_figures, 1):
                 dest_name = self.figure_dest_name(exp_name, fpath)
                 fig_lines.append(f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`")
+            fig_lines.append(
+                f"\nIMPORTANT: Only {len(self._engine.state.execution_figures)} figures exist. "
+                "Do NOT reference Figure numbers beyond this count. "
+                "Remove any references to non-existent figures from the section drafts."
+            )
             prompt += "\n".join(fig_lines)
         elif (
             self._engine._config.orchestrator.enable_conceptual_figures
@@ -1108,8 +1117,7 @@ class WritingHandler:
 
             match = ref_pattern.search(body)
             if match is None:
-                # No textual reference — append at end of body
-                body = body.rstrip() + f"\n\n![Figure {fig_num}](figures/{dest_name})\n"
+                # No textual reference — skip (don't force-append unreferenced figures)
                 continue
 
             # Find the end of the paragraph containing the reference
@@ -1124,6 +1132,18 @@ class WritingHandler:
                 insert_pos = next_blank + 2  # after the \n\n
                 tag = f"![Figure {fig_num}](figures/{dest_name})\n\n"
                 body = body[:insert_pos] + tag + body[insert_pos:]
+
+        # Strip orphan image tags referencing figures beyond our count
+        max_fig = len(fig_map)
+        orphan_re = re.compile(
+            r"\n*!\[(?:Figure|Fig\.?)\s*(\d+)[^\]]*\]\(figures/[^)]+\)\n*"
+        )
+
+        def _strip_orphan(m: re.Match) -> str:
+            num = int(m.group(1))
+            return "" if num > max_fig else m.group(0)
+
+        body = orphan_re.sub(_strip_orphan, body)
 
         return body
 

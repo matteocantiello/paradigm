@@ -3228,3 +3228,56 @@ Goal: Identify minimal config data structure needed for backend independence.
 - `frontend/src/components/session/SessionView.tsx` — Wire literature panel
 - `frontend/src/pages/PapersPage.tsx` — Tabbed artifact viewer
 
+### Prompt 63 — Live Literature Panel and Broken arXiv Link Fix
+
+> When I click on a paper it eventually loads but it is very slow. And opening literature, review etc it also takes a long time (several tens of seconds). Why is that? Can we fix this? Also the links to abstract and pdf are all broken (e.g. https://arxiv.org/pdf/bbff2f80d2855bf6e4e94aeb3ef542936dbd82cd). Also: when I look at the papers (clicking on the papers counter) it says "Not yet available" even when the counter has a large number of papers. Can we expose the literature during the research cycle?
+
+**Root cause (live literature):** `LiteraturePanel` required a `paperId` which only exists after cycle completion. During the cycle, papers_found counter was live but clicking it showed "Not yet available".
+
+**Root cause (broken links):** Synthetic IDs like `ext-f1a306c75ff5` (SHA256 hashes of external URLs) were treated as arXiv IDs, generating invalid URLs like `https://arxiv.org/pdf/ext-f1a306c75ff5`.
+
+**Fix — Live literature streaming:**
+1. Added `LiteratureUpdateMsg` WS message type with search log and unique papers
+2. `WebSocketDisplayAdapter` accumulates paper data during searches and broadcasts via WebSocket
+3. Extended `search_result()` interface with optional `papers` kwarg to pass paper details through
+4. Frontend `sessionStore` handles new `literature_update` message, stores in `LiveLiterature` state
+5. `LiteraturePanel` uses live WebSocket data when no `paperId` available, shows "LIVE" badge
+
+**Fix — Broken arXiv links:**
+1. Backend `artifact_parser.py`: skip `arxiv_url` construction for `ext-` prefixed IDs
+2. Frontend `LiteraturePanel`: added `isValidArxivId()` guard — filters out `ext-` and hex-hash IDs
+3. Frontend `LiteratureTab` (papers page): same `isValidArxivId()` guard for Abstract/PDF links
+
+**Artifacts modified:**
+- `backend/api/models/messages.py` — Add LiteratureUpdateMsg, LiteraturePaperMsg, LiteratureSearchMsg
+- `backend/api/services/ws_display.py` — Accumulate and broadcast literature data
+- `backend/api/services/artifact_parser.py` — Fix arxiv_url for ext- IDs
+- `src/paradigm/display/manager.py` — Add optional papers/phase kwargs to search_result
+- `src/paradigm/orchestrator/literature.py` — Pass paper dicts through search_result
+- `frontend/src/api/ws-types.ts` — Add LiteratureUpdateMsg types
+- `frontend/src/stores/sessionStore.ts` — Handle literature_update, add LiveLiterature state
+- `frontend/src/hooks/useResearchSession.ts` — Expose literature from store
+- `frontend/src/components/session/SessionView.tsx` — Pass liveLiterature to LiteraturePanel
+- `frontend/src/components/session/LiteraturePanel.tsx` — Full rewrite: support live + API data, fix links
+- `frontend/src/components/papers/LiteratureTab.tsx` — Fix broken arXiv links with isValidArxivId
+
+### Prompt — Fix Knowledge Feature Activation + Figure Validation
+
+> Implement the following plan: Fix Knowledge Feature Activation + Figure Validation
+>
+> Two issues from paper-891269b98270:
+> 1. Knowledge features (world model) produced empty output — agents never emit [ENTITY:], [HYPOTHESIS:], [EVIDENCE:] tags because no prompt instructs them to.
+> 2. Figure duplication/mismatch — writer references more figures than exist; embed_figures_inline() force-appends unreferenced figures and can duplicate on multiple calls.
+>
+> Fixes: (1) Add _KNOWLEDGE_TAG_INSTRUCTION constant and inject it in _build_agent_prompt() for world-model-enabled phases. (2) Add figure count caps in section drafting + assembly prompts, strip orphan image tags in embed_figures_inline(), remove force-append fallback.
+
+**Key decisions:**
+- Knowledge tag instructions injected at same point as literature/debate instructions (end of `_build_agent_prompt()`)
+- Only target phases with `world_model` in `_PHASE_CONTEXT_NEEDS` (IDEATION, PLANNING, POST_EXECUTION)
+- Figure orphan cleanup uses regex to strip image tags referencing figures beyond actual count
+
+**Artifacts modified:**
+- `src/paradigm/orchestrator/constants.py` — Add `_KNOWLEDGE_TAG_INSTRUCTION` constant
+- `src/paradigm/orchestrator/engine.py` — Inject knowledge tags in `_build_agent_prompt()`
+- `src/paradigm/orchestrator/writing.py` — Figure count caps + orphan tag cleanup in `embed_figures_inline()`
+

@@ -28,6 +28,7 @@ from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.citation_handler import CitationHandler
 from paradigm.orchestrator.constants import (
     _CHALLENGE_INSTRUCTION,
+    _KNOWLEDGE_TAG_INSTRUCTION,
     _CONVERGENCE_CHECK_PHASES,
     _CONVERGENCE_CHECK_PROMPT,
     _DEBATE_ENABLED_PHASES,
@@ -1120,6 +1121,14 @@ class OrchestrationEngine:
         # Append debate/challenge instructions for debate-enabled phases
         if phase in _DEBATE_ENABLED_PHASES and self._config.orchestrator.enable_debates:
             formatted += _CHALLENGE_INSTRUCTION
+
+        # Append knowledge tag instructions for world-model-enabled phases
+        if (
+            self._config.knowledge.enable_world_model
+            and phase in _PHASE_CONTEXT_NEEDS
+            and "world_model" in _PHASE_CONTEXT_NEEDS[phase]
+        ):
+            formatted += _KNOWLEDGE_TAG_INSTRUCTION
 
         return formatted
 
