@@ -19,7 +19,7 @@ export function Header() {
   const setMode = useSetConfigMode();
 
   const isHealthy = health.data?.status === "ok";
-  const isTesting = configMode.data?.mode === "testing";
+  const mode = configMode.data?.mode ?? "demo"; // "demo" | "testing" | "production"
   const testingAvailable = configMode.data?.testing_available ?? false;
 
   return (
@@ -45,14 +45,14 @@ export function Header() {
           />
           <span>{isHealthy ? "API Online" : "API Offline"}</span>
         </div>
-        {testingAvailable && (
+        {testingAvailable ? (
           <button
-            onClick={() => setMode.mutate(isTesting ? "production" : "testing")}
+            onClick={() => setMode.mutate(mode === "testing" ? "production" : "testing")}
             disabled={setMode.isPending}
             className={cn(
               "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors",
               setMode.isPending && "opacity-50 cursor-not-allowed",
-              isTesting
+              mode === "testing"
                 ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25"
                 : "bg-green-500/15 text-green-600 dark:text-green-400 hover:bg-green-500/25"
             )}
@@ -60,11 +60,16 @@ export function Header() {
             <div
               className={cn(
                 "h-2 w-2 rounded-full",
-                isTesting ? "bg-amber-500" : "bg-green-500"
+                mode === "testing" ? "bg-amber-500" : "bg-green-500"
               )}
             />
-            {isTesting ? "Testing" : "Production"}
+            {mode === "testing" ? "Testing" : "Production"}
           </button>
+        ) : (
+          <span className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400">
+            <div className="h-2 w-2 rounded-full bg-amber-500" />
+            Demo
+          </span>
         )}
         <button
           onClick={toggleTheme}

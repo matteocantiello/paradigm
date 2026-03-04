@@ -32,7 +32,7 @@ async def get_config_mode(request: Request) -> ConfigModeResponse:
     """Return the current configuration mode."""
     config = request.app.state.config
     if config is None:
-        return ConfigModeResponse(mode="production", testing_available=False)
+        return ConfigModeResponse(mode="demo", testing_available=False)
 
     return ConfigModeResponse(
         mode="testing" if config.is_testing_mode else "production",

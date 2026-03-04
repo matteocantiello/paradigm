@@ -3095,3 +3095,14 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 **Artifacts modified:**
 - `backend/api/routes/research.py` — actually remove cycle from `_cycles` on DELETE
 - `frontend/src/components/research/CycleCard.tsx` — make card clickable, remove ExternalLink button
+
+### Prompt 59 — Fix Stale State Between Cycles + Show Mode Badge
+
+> Implement the following plan:
+>
+> Fix three issues: (1) Starting a new research cycle doesn't clear old events/messages/knowledge from the previous session — reset all session state in `connect()`. (2) The Testing/Production mode badge no longer appears in the header when config is unavailable — always show mode badge, with "Demo" variant. (3) Return `mode="demo"` from backend config endpoint when config is None.
+
+**Artifacts modified:**
+- `frontend/src/stores/sessionStore.ts` — reset all session state in `connect()`
+- `frontend/src/components/layout/Header.tsx` — always show mode badge, handle "demo" mode
+- `backend/api/routes/config.py` — return `mode="demo"` when config unavailable

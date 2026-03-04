@@ -151,7 +151,25 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       onStatusChange: (status) => set({ connectionStatus: status }),
       onMessage: (msg) => handleServerMessage(msg, set, get),
     });
-    set({ ws, sessionId });
+    // Reset all session-specific state before connecting
+    set({
+      ws,
+      sessionId,
+      status: "",
+      currentPhase: null,
+      roundNum: 0,
+      maxRounds: 0,
+      activeAgents: {},
+      totalTokens: 0,
+      totalSearches: 0,
+      papersFound: 0,
+      elapsedSeconds: 0,
+      completedPhases: [],
+      agentOutputs: [],
+      notifications: [],
+      knowledge: { ...EMPTY_KNOWLEDGE },
+      pendingApproval: null,
+    });
     ws.connect(sessionId);
   },
 
