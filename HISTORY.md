@@ -3106,3 +3106,21 @@ After testing, chose **coverage + title+abstract at 0.15** over title-only (test
 - `frontend/src/stores/sessionStore.ts` — reset all session state in `connect()`
 - `frontend/src/components/layout/Header.tsx` — always show mode badge, handle "demo" mode
 - `backend/api/routes/config.py` — return `mode="demo"` when config unavailable
+
+### Prompt 60 — Frontend Audit: Fix & Improve (12 issues)
+
+> Implement the following plan:
+>
+> Comprehensive audit of the frontend revealed functional bugs, dead code, type mismatches with the backend, and code quality issues. This plan addresses 12 issues across 14 files:
+> 1. Abort button sends "pause" instead of "abort"
+> 2. Paper TOC scroll is broken (no id attrs on headings)
+> 3. Wrong height calculation in SessionPage
+> 4. WebSocket reconnect backoff has no max delay cap
+> 5. Remove dead code (eventLogVisible, EVIDENCE_SOURCE_LABELS, cssVar)
+> 6. Fix type mismatches with backend (completed_phases, extra_body, modifications)
+> 7. Consolidate duplicate imports in Dashboard
+> 8. Add radix to parseInt calls
+> 9. Remove redundant type casts in sessionStore
+> 10. Fix React.ReactNode without React import
+> 11. Add 404 catch-all route
+> 12. Batch error handler set() calls in sessionStore

@@ -111,7 +111,7 @@ export class ParadigmWebSocket {
       return;
     }
     this.callbacks.onStatusChange("reconnecting");
-    const delay = BASE_DELAY * Math.pow(2, this.reconnectAttempts);
+    const delay = Math.min(30_000, BASE_DELAY * Math.pow(2, this.reconnectAttempts));
     this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

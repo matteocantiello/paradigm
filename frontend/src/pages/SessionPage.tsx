@@ -7,7 +7,7 @@ export function SessionPage() {
   const session = useResearchSession(id);
 
   return (
-    <div className="h-[calc(100vh-7rem)]">
+    <div className="h-[calc(100vh-5rem)]">
       <SessionView {...session} />
     </div>
   );

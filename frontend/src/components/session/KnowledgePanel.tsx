@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { KnowledgeState } from "@/stores/sessionStore";
 import {
   HYPOTHESIS_STATUS_COLORS,
@@ -20,7 +20,7 @@ function CollapsibleSection({
   title: string;
   count: number;
   defaultOpen?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   if (count === 0) return null;

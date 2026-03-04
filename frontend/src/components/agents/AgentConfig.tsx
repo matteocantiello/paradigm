@@ -32,8 +32,8 @@ export function AgentConfig({ agentType, onClose }: AgentConfigProps) {
       body: {
         model: model || null,
         provider: provider || null,
-        max_tokens: maxTokens ? parseInt(maxTokens) : null,
-        token_budget: tokenBudget ? parseInt(tokenBudget) : null,
+        max_tokens: maxTokens ? parseInt(maxTokens, 10) : null,
+        token_budget: tokenBudget ? parseInt(tokenBudget, 10) : null,
       },
     });
   };

@@ -119,3 +119,5 @@ async def _handle_session_control(manager, session_id: str, msg: SessionControlM
     elif msg.action == "rewind":
         # TODO: Rewind to checkpoint
         pass
+    elif msg.action == "abort":
+        await manager.abort_session(session_id)

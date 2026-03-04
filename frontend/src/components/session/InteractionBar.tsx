@@ -74,7 +74,7 @@ export function InteractionBar() {
           </button>
         ) : null}
         <button
-          onClick={() => sendSessionControl("pause")}
+          onClick={() => sendSessionControl("abort")}
           className="rounded-md p-1.5 text-red-400 hover:bg-accent"
           title="Abort"
         >

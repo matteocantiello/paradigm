@@ -1,9 +1,25 @@
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import remarkGfm from "remark-gfm";
 import rehypeKatex from "rehype-katex";
 import type { PaperDetail } from "@/api/client";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+
+function toSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-");
+}
+
+function headingWithId(level: number) {
+  const Tag = `h${level}` as const;
+  return function HeadingComponent({ children }: { children?: ReactNode }) {
+    const text = typeof children === "string" ? children : String(children ?? "");
+    return <Tag id={toSlug(text)}>{children}</Tag>;
+  };
+}
 
 interface PaperViewerProps {
   paper: PaperDetail;
@@ -47,7 +63,11 @@ export function PaperViewer({ paper }: PaperViewerProps) {
 
       {/* Body */}
       <div className="prose-paper">
-        <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+        <ReactMarkdown
+          remarkPlugins={[remarkMath, remarkGfm]}
+          rehypePlugins={[rehypeKatex]}
+          components={{ h2: headingWithId(2), h3: headingWithId(3) }}
+        >
           {paper.body}
         </ReactMarkdown>
       </div>

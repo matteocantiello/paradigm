@@ -15,7 +15,6 @@ export interface AgentTheme {
   icon: LucideIcon;
   color: string;
   label: string;
-  cssVar: string;
 }
 
 export const AGENT_THEMES: Record<string, AgentTheme> = {
@@ -23,49 +22,41 @@ export const AGENT_THEMES: Record<string, AgentTheme> = {
     icon: Telescope,
     color: "text-blue-400",
     label: "Theorist",
-    cssVar: "var(--agent-theorist)",
   },
   analyst: {
     icon: BarChart3,
     color: "text-orange-400",
     label: "Analyst",
-    cssVar: "var(--agent-analyst)",
   },
   experimentalist: {
     icon: FlaskConical,
     color: "text-green-400",
     label: "Experimentalist",
-    cssVar: "var(--agent-experimentalist)",
   },
   synthesizer: {
     icon: Link,
     color: "text-fuchsia-400",
     label: "Synthesizer",
-    cssVar: "var(--agent-synthesizer)",
   },
   skeptic: {
     icon: Search,
     color: "text-red-400",
     label: "Skeptic",
-    cssVar: "var(--agent-skeptic)",
   },
   writer: {
     icon: PenTool,
     color: "text-cyan-400",
     label: "Writer",
-    cssVar: "var(--agent-writer)",
   },
   editor: {
     icon: FileEdit,
     color: "text-yellow-400",
     label: "Editor",
-    cssVar: "var(--agent-editor)",
   },
   reviewer: {
     icon: ClipboardList,
     color: "text-gray-200",
     label: "Reviewer",
-    cssVar: "var(--agent-reviewer)",
   },
 };
 
@@ -148,13 +139,6 @@ export const ENTITY_TYPE_COLORS: Record<string, string> = {
   concept: "bg-pink-500/20 text-pink-300",
 };
 
-export const EVIDENCE_SOURCE_LABELS: Record<string, string> = {
-  observation: "Observation",
-  experiment: "Experiment",
-  analysis: "Analysis",
-  literature: "Literature",
-  theory: "Theory",
-};
 
 export const CONFLICT_TYPE_COLORS: Record<string, string> = {
   unresolved: "text-red-400 border-red-500/30",

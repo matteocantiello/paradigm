@@ -100,6 +100,7 @@ export interface SessionState {
   total_searches: number;
   papers_found: number;
   elapsed_seconds: number;
+  completed_phases: string[];
   created_at: string;
   updated_at?: string | null;
 }
@@ -196,6 +197,7 @@ export interface AgentOverrideResponse {
   model?: string | null;
   max_tokens?: number | null;
   token_budget?: number | null;
+  extra_body?: Record<string, unknown> | null;
   active: boolean;
 }
 

@@ -213,6 +213,7 @@ export interface ApprovalResponseMsg {
   request_id: string;
   decision: "continue" | "pause" | "abort";
   notes?: string;
+  modifications?: Record<string, unknown> | null;
 }
 
 export interface UserMessageMsg {
@@ -223,7 +224,7 @@ export interface UserMessageMsg {
 
 export interface SessionControlMsg {
   type: "session_control";
-  action: "pause" | "resume" | "checkpoint" | "rewind";
+  action: "pause" | "resume" | "checkpoint" | "rewind" | "abort";
   checkpoint_id?: string | null;
 }
 

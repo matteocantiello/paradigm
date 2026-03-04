@@ -4,10 +4,6 @@ import type { ConnectionStatus } from "@/api/websocket";
 import type {
   ServerMessage,
   ApprovalRequestMsg,
-  AgentOutputStreamMsg,
-  AgentStepCompleteMsg,
-  NotificationMsg,
-  KnowledgeUpdateMsg,
   KnowledgeEntity,
   KnowledgeHypothesis,
   KnowledgeEvidence,
@@ -109,7 +105,7 @@ interface SessionStoreState {
   connect: (sessionId: string) => void;
   disconnect: () => void;
   sendApprovalResponse: (requestId: string, decision: "continue" | "pause" | "abort", notes?: string) => void;
-  sendSessionControl: (action: "pause" | "resume" | "checkpoint" | "rewind") => void;
+  sendSessionControl: (action: "pause" | "resume" | "checkpoint" | "rewind" | "abort") => void;
   sendUserMessage: (content: string, targetAgent?: string | null) => void;
   sendIntervention: (action: "redirect" | "constrain" | "inform", content: string, targetAgent?: string | null) => void;
 }
@@ -234,7 +230,7 @@ function handleServerMessage(
       break;
 
     case "agent_output_stream": {
-      const m = msg as AgentOutputStreamMsg;
+      const m = msg;
       const output: AgentOutput = {
         id: nextOutputId(),
         agentId: m.agent_id,
@@ -254,7 +250,7 @@ function handleServerMessage(
     }
 
     case "agent_step_complete": {
-      const m = msg as AgentStepCompleteMsg;
+      const m = msg;
       const output: AgentOutput = {
         id: nextOutputId(),
         agentId: m.agent_id,
@@ -291,7 +287,7 @@ function handleServerMessage(
       break;
 
     case "notification": {
-      const m = msg as NotificationMsg;
+      const m = msg;
       const notif: Notification = {
         id: nextNotifId(),
         level: m.level,
@@ -313,10 +309,6 @@ function handleServerMessage(
         message: `[${msg.code}] ${msg.message}`,
         timestamp: msg.timestamp,
       };
-      set((s) => ({
-        notifications: [...s.notifications.slice(-99), notif],
-      }));
-      // Also add to agentOutputs so it's visible
       const errOut: AgentOutput = {
         id: nextOutputId(),
         agentId: "system",
@@ -329,13 +321,14 @@ function handleServerMessage(
         isFinal: true,
       };
       set((s) => ({
+        notifications: [...s.notifications.slice(-99), notif],
         agentOutputs: [...s.agentOutputs.slice(-199), errOut],
       }));
       break;
     }
 
     case "knowledge_update": {
-      const k = msg as KnowledgeUpdateMsg;
+      const k = msg;
       // Sort hypotheses by Elo rating descending
       const sortedHypotheses = [...k.hypotheses].sort(
         (a, b) => (b.elo_rating ?? 0) - (a.elo_rating ?? 0)

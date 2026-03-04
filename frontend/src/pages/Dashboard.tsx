@@ -1,7 +1,6 @@
 import { useNavigate } from "react-router-dom";
-import { useCycles } from "@/hooks/useCycles";
+import { useCycles, useDeleteCycle } from "@/hooks/useCycles";
 import { CycleCard } from "@/components/research/CycleCard";
-import { useDeleteCycle } from "@/hooks/useCycles";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Plus, Beaker } from "lucide-react";
