@@ -863,15 +863,15 @@ class TestEmbedFiguresInline:
         # Should not duplicate the tag
         assert result.count("![Figure 1]") == 1
 
-    def test_appends_if_no_text_reference(self, tmp_path):
+    def test_skips_if_no_text_reference(self, tmp_path):
         engine = self._make_engine(tmp_path)
         engine.state.execution_figures = [("test_exp", Path("/tmp/plot.png"))]
 
         body = "# Paper\n\n## Abstract\n\nNo figure mention here."
         result = engine._writing.embed_figures_inline(body)
-        assert "![Figure 1](figures/test_exp_plot.png)" in result
-        # Should be at the end
-        assert result.strip().endswith("![Figure 1](figures/test_exp_plot.png)")
+        # Unreferenced figures are not force-appended
+        assert "![Figure 1]" not in result
+        assert result == body
 
     def test_multiple_figures(self, tmp_path):
         engine = self._make_engine(tmp_path)
