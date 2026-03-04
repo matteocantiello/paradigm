@@ -165,7 +165,7 @@ Start of cycle: engine._build_agent_prompt() → AgentMemoryStore.search() → r
     citation_count INTEGER DEFAULT 0
   );
   ```
-- **Embeddings**: Abstract + section summaries embedded in ChromaDB (`paradigm_papers` collection) for semantic retrieval
+- **Embeddings**: Abstract + section summaries embedded in ChromaDB for semantic retrieval. Each research cycle uses an isolated collection (`paradigm_papers_{cycle_id}`) to prevent cross-cycle contamination
 - **Agent memories**: Episodic memories stored in a separate ChromaDB collection (`agent_memories`) — see §4.4
 - **Citation graph**: Stored in SQLite, queryable for influence metrics
 

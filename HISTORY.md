@@ -3281,3 +3281,23 @@ Goal: Identify minimal config data structure needed for backend independence.
 - `src/paradigm/orchestrator/engine.py` — Inject knowledge tags in `_build_agent_prompt()`
 - `src/paradigm/orchestrator/writing.py` — Figure count caps + orphan tag cleanup in `embed_figures_inline()`
 
+
+---
+
+## Prompt 63 — Per-Cycle ChromaDB Collection Isolation
+
+**Date:** 2026-03-04
+
+> Implement the following plan: Per-Cycle ChromaDB Collection Isolation.
+> Literature search results from previous research cycles leak into new ones because all cycles share a single persistent ChromaDB collection named "paradigm_papers". Thread a collection_name through the Corpus/provider initialization chain so each cycle gets its own ChromaDB collection.
+
+**Key decisions:**
+- Use `session_id` (backend) or generated short UUID (CLI) as collection suffix
+- Collection name format: `paradigm_papers_{id}`
+- Thread `collection_name` through Corpus and provider_factory constructors
+
+**Artifacts modified:**
+- `src/paradigm/literature/corpus.py` — Add `collection_name` param, forward to EmbeddingStore
+- `src/paradigm/literature/provider_factory.py` — Add `collection_name` param, forward to EmbeddingStore
+- `src/paradigm/main.py` — Generate cycle_id, pass collection_name to Corpus + providers
+- `backend/api/services/session_manager.py` — Pass session_id-based collection_name to Corpus

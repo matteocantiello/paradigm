@@ -37,6 +37,7 @@ def create_source_providers(
     storage_config: StorageConfig,
     database: Database,
     logger: EventLogger | None = None,
+    collection_name: str | None = None,
 ) -> dict[str, SourceProvider]:
     """Create SourceProvider instances from domain profile configuration.
 
@@ -49,6 +50,7 @@ def create_source_providers(
         storage_config: Storage configuration (vector DB path, etc.).
         database: SQLite database for paper storage.
         logger: Optional event logger.
+        collection_name: Optional ChromaDB collection name for cycle isolation.
 
     Returns:
         Dict mapping provider name to SourceProvider instance.
@@ -78,6 +80,7 @@ def create_source_providers(
         elif name == "internal_corpus":
             embedding_store = EmbeddingStore(
                 vector_db_path=storage_config.vector_db_path,
+                collection_name=collection_name,
             )
             providers[name] = InternalCorpusProvider(embedding_store, database)
 

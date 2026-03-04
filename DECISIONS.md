@@ -147,3 +147,18 @@
 **Rationale**: The research output (paper, checkpoint, graveyard entry) is the primary deliverable. Memories are an optimization for future cycles, not a requirement for the current one. Making reflection fatal would mean transient API issues could prevent a completed cycle from returning its results.
 
 **Consequences**: Some cycles may produce no memories (e.g., if API quota is exhausted at the end). The system degrades gracefully — agents without memories still function, they just don't benefit from cross-cycle learning.
+
+---
+
+## ADR-011: Per-Cycle ChromaDB Collection Isolation for Paper Embeddings
+
+**Status**: Accepted
+**Date**: 2026-03-04
+
+**Context**: All research cycles shared a single `paradigm_papers` ChromaDB collection. When cycle 2 searched for "red noise", it also retrieved Cepheid papers ingested by cycle 1. The contamination grew with each cycle, degrading search relevance.
+
+**Decision**: Each cycle gets its own ChromaDB collection named `paradigm_papers_{cycle_id}`. In the CLI, `cycle_id` is a random 12-char hex UUID; in the backend, it's the session ID. The `collection_name` parameter is threaded through `Corpus` and `create_source_providers()` down to `EmbeddingStore`.
+
+**Rationale**: `EmbeddingStore.__init__()` already accepted a `collection_name` parameter (used only for test isolation). Wiring it through the initialization chain is minimal work with high impact. Agent memories intentionally remain in a shared `agent_memories` collection — cross-cycle learning is their purpose.
+
+**Consequences**: Each cycle starts with an empty embedding corpus. Papers from previous cycles are still in SQLite (shared) and accessible via direct DB lookups, but don't pollute semantic search. The `vector_db/` directory will accumulate per-cycle collections over time; a future cleanup job can prune old ones.

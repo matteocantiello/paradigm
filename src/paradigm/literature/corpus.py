@@ -43,6 +43,7 @@ class Corpus:
         semantic_scholar_client: SemanticScholarClient | None = None,
         source_providers: dict[str, SourceProvider] | None = None,
         topic: str = "",
+        collection_name: str | None = None,
     ) -> None:
         """Initialize corpus.
 
@@ -59,12 +60,14 @@ class Corpus:
                 providers and return SourceResult. Legacy clients are still
                 created for ingestion and PDF fetch.
             topic: Research topic / seed prompt for domain-aware provider routing.
+            collection_name: Optional ChromaDB collection name for cycle isolation.
         """
         self._db = database
         self._config = literature_config
         self._logger = logger
         self._providers = source_providers
         self._topic = topic
+        self._collection_name = collection_name
 
         self._arxiv = arxiv_client or ArxivClient(
             rate_limit=literature_config.arxiv_rate_limit,
@@ -72,6 +75,7 @@ class Corpus:
         )
         self._embeddings = embedding_store or EmbeddingStore(
             vector_db_path=storage_config.vector_db_path,
+            collection_name=collection_name,
         )
         self._citations = CitationTracker(database)
         self._s2 = semantic_scholar_client or SemanticScholarClient(

@@ -669,13 +669,19 @@ You can press `Ctrl+C` at any time to interrupt a running cycle. The thread will
 
 Paradigm's internal corpus grows over time. Published papers are indexed in ChromaDB and become discoverable by future research cycles.
 
+### Per-Cycle Collection Isolation
+
+Each research cycle gets its own ChromaDB collection (`paradigm_papers_{cycle_id}`) so that literature embeddings from one cycle don't leak into another. In the CLI, the cycle ID is a random short UUID; in the backend, it's the session ID. This prevents unrelated papers (e.g., Cepheid papers from cycle 1) from polluting search results in a different-topic cycle 2.
+
+Agent memories, by contrast, use a shared `agent_memories` collection that persists across cycles — this is intentional so agents can learn from past experience.
+
 ### How It Works
 
 1. **Cycle 1** runs and publishes a paper (e.g., `paper-abc123def456`)
-2. The paper is embedded in ChromaDB with its title and abstract
-3. **Cycle 2** starts. During the SEEDING phase, the orchestrator searches the corpus for literature relevant to the new seed prompt
-4. If cycle 1's paper is relevant, it appears in the literature context provided to agents
-5. Agents can cite it (using its internal ID `paper-abc123def456` or arXiv IDs)
+2. The paper is embedded in its cycle-specific ChromaDB collection with its title and abstract
+3. **Cycle 2** starts with a fresh, empty collection. During the SEEDING phase, the orchestrator searches arXiv and other external sources for literature relevant to the new seed prompt
+4. If cycle 1's paper was also stored in SQLite (which is shared), it can still be found via direct DB lookups, but it won't pollute semantic search results
+5. Agents can cite papers (using internal ID `paper-abc123def456` or arXiv IDs)
 6. On publication, citations are extracted from the paper body and recorded in the citation graph
 
 ### Citation Tracking

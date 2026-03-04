@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import uuid
 from pathlib import Path
 
 import click
@@ -77,12 +78,19 @@ def _run_research(
         skill_registry=skill_registry,
         prompts_dir=domain_profile.prompts_dir,
     )
+
+    # Generate a cycle-specific ChromaDB collection name to isolate
+    # literature embeddings across research cycles.
+    cycle_id = uuid.uuid4().hex[:12]
+    collection_name = f"paradigm_papers_{cycle_id}"
+
     source_providers = create_source_providers(
         provider_configs=domain_profile.source_providers,
         literature_config=config.literature,
         storage_config=config.storage,
         database=database,
         logger=logger,
+        collection_name=collection_name,
     )
     corpus = Corpus(
         database=database,
@@ -91,6 +99,7 @@ def _run_research(
         logger=logger,
         source_providers=source_providers or None,
         topic=seed_prompt,
+        collection_name=collection_name,
     )
     # Override rounds per phase if specified
     if rounds is not None:

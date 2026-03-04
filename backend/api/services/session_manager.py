@@ -140,12 +140,15 @@ class SessionManager:
             # Create the intervention hook that bridges to WebSocket
             intervention_hook = self._make_intervention_hook(session_id)
 
-            # Build the corpus
+            # Build the corpus with a session-specific ChromaDB collection
+            # to isolate literature embeddings across research cycles.
+            collection_name = f"paradigm_papers_{session_id}"
             corpus = Corpus(
                 database=self._db,
                 literature_config=self._config.literature,
                 storage_config=self._config.storage,
                 logger=self._event_logger,
+                collection_name=collection_name,
             )
 
             # Load domain profile (needed for prompts_dir)

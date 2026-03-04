@@ -250,7 +250,7 @@ Cross-cycle learning that persists between research runs.
 - Recency decay: `score = similarity × 0.5^(age_days / half_life_days)`
 - Bounded: max 5 memories, max 2000 chars injected per prompt
 - Non-fatal: reflection failure doesn't block the cycle
-- Stored alongside paper embeddings in the same ChromaDB path (different collection)
+- Stored alongside paper embeddings in the same ChromaDB path (different collection). Paper embeddings use per-cycle isolated collections (`paradigm_papers_{cycle_id}`), while agent memories share a single `agent_memories` collection across cycles
 
 ## Reputation & Incentives
 
