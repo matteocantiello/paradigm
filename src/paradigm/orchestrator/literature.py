@@ -388,8 +388,12 @@ class LiteratureHandler:
                 for p in papers
             ]
             self._engine._display.search_result(
-                agent_id, display_query, len(papers), len(new_papers),
-                papers=paper_dicts, phase=str(phase),
+                agent_id,
+                display_query,
+                len(papers),
+                len(new_papers),
+                papers=paper_dicts,
+                phase=str(phase),
             )
 
             log_content: dict[str, Any] = {

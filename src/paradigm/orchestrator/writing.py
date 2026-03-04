@@ -1135,9 +1135,7 @@ class WritingHandler:
 
         # Strip orphan image tags referencing figures beyond our count
         max_fig = len(fig_map)
-        orphan_re = re.compile(
-            r"\n*!\[(?:Figure|Fig\.?)\s*(\d+)[^\]]*\]\(figures/[^)]+\)\n*"
-        )
+        orphan_re = re.compile(r"\n*!\[(?:Figure|Fig\.?)\s*(\d+)[^\]]*\]\(figures/[^)]+\)\n*")
 
         def _strip_orphan(m: re.Match) -> str:
             num = int(m.group(1))
