@@ -28,11 +28,11 @@ from paradigm.logging.events import EventLogger, EventType
 from paradigm.orchestrator.citation_handler import CitationHandler
 from paradigm.orchestrator.constants import (
     _CHALLENGE_INSTRUCTION,
-    _KNOWLEDGE_TAG_INSTRUCTION,
     _CONVERGENCE_CHECK_PHASES,
     _CONVERGENCE_CHECK_PROMPT,
     _DEBATE_ENABLED_PHASES,
     _GENERAL_LATER_ROUND_REINFORCEMENT,
+    _KNOWLEDGE_TAG_INSTRUCTION,
     _MODE_PROMPT_OVERRIDES,
     _MODE_SYNTHESIS_OVERRIDES,
     _PHASE_ACTIVE_ROLES,
