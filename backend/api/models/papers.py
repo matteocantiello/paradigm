@@ -58,3 +58,59 @@ class OutputList(BaseModel):
 
     items: list[OutputSummary]
     total: int
+
+
+# --- Paper artifact models ---
+
+
+class LiteratureSearchPaper(BaseModel):
+    """A paper found during a literature search."""
+
+    rank: int
+    title: str
+    authors: str = ""
+    year: str = ""
+    arxiv_id: str = ""
+    arxiv_url: str = ""
+
+
+class LiteratureSearchEntry(BaseModel):
+    """A single search performed by an agent."""
+
+    search_num: int
+    phase: str = ""
+    agent_id: str = ""
+    query: str = ""
+    papers: list[LiteratureSearchPaper] = Field(default_factory=list)
+
+
+class LiteratureSearchLog(BaseModel):
+    """Full literature search log for a paper."""
+
+    thread_id: str = ""
+    total_searches: int = 0
+    searches: list[LiteratureSearchEntry] = Field(default_factory=list)
+    unique_papers: list[LiteratureSearchPaper] = Field(default_factory=list)
+
+
+class PaperArtifactList(BaseModel):
+    """Which artifacts are available for a paper."""
+
+    paper_id: str
+    has_paper: bool = False
+    has_literature: bool = False
+    has_reviews: bool = False
+    has_transcript: bool = False
+    has_experiments: bool = False
+    has_figures: bool = False
+    experiment_files: list[str] = Field(default_factory=list)
+    figure_files: list[str] = Field(default_factory=list)
+
+
+class PaperArtifactContent(BaseModel):
+    """Raw content of a paper artifact."""
+
+    paper_id: str
+    filename: str
+    content_type: str = "text/markdown"
+    content: str = ""

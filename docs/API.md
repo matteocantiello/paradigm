@@ -348,6 +348,109 @@ GET /api/v1/sessions/{session_id}/outputs
 
 Returns outputs (papers, figures, etc.) produced by a session.
 
+#### Get Paper Artifacts
+
+```
+GET /api/v1/papers/{paper_id}/artifacts
+```
+
+Returns which artifacts are available for a paper (literature searches, reviews, transcript, experiments, figures).
+
+**Response:**
+
+```json
+{
+  "paper_id": "paper-abc123",
+  "has_paper": true,
+  "has_literature": true,
+  "has_reviews": true,
+  "has_transcript": true,
+  "has_experiments": true,
+  "has_figures": true,
+  "experiment_files": ["analysis.py", "simulation.py"],
+  "figure_files": ["plot1.png", "spectrum.png"]
+}
+```
+
+#### Get Paper Literature
+
+```
+GET /api/v1/papers/{paper_id}/literature
+```
+
+Returns parsed literature search log with structured data about all searches performed and unique papers found.
+
+**Response:**
+
+```json
+{
+  "thread_id": "",
+  "total_searches": 3,
+  "searches": [
+    {
+      "search_num": 1,
+      "phase": "seeding",
+      "agent_id": "agent-theorist-1",
+      "query": "stochastic low-frequency variability massive OB stars",
+      "papers": [
+        {
+          "rank": 1,
+          "title": "Low-frequency photometric variability in massive stars",
+          "authors": "Bowman, D. M. et al.",
+          "year": "2019",
+          "arxiv_id": "1901.04515",
+          "arxiv_url": "https://arxiv.org/abs/1901.04515"
+        }
+      ]
+    }
+  ],
+  "unique_papers": [...]
+}
+```
+
+#### Get Paper Reviews
+
+```
+GET /api/v1/papers/{paper_id}/reviews
+```
+
+Returns raw review markdown content.
+
+**Response:**
+
+```json
+{
+  "paper_id": "paper-abc123",
+  "filename": "reviews.md",
+  "content_type": "text/markdown",
+  "content": "# Peer Review Report\n..."
+}
+```
+
+#### Get Paper Transcript
+
+```
+GET /api/v1/papers/{paper_id}/transcript
+```
+
+Returns raw conversation transcript markdown.
+
+#### Get Paper Experiment
+
+```
+GET /api/v1/papers/{paper_id}/experiments/{filename}
+```
+
+Returns experiment source code content. Filenames are validated against path traversal.
+
+#### Get Paper Figure
+
+```
+GET /api/v1/papers/{paper_id}/figures/{filename}
+```
+
+Serves a figure image file as a binary response with appropriate content type. Filenames are validated against path traversal.
+
 ---
 
 ### Agents
@@ -695,21 +798,24 @@ backend/api/
     research.py        CRUD for research cycles
     sessions.py        Session management + start/list + knowledge
     agents.py          Agent configuration
-    papers.py          Paper browsing/export
+    papers.py          Paper browsing/export + artifact endpoints
     config.py          Config mode (production/testing)
+    settings.py        Settings (orchestrator, sandbox, literature, etc.)
     ws.py              WebSocket endpoint
   models/
     research.py        Research cycle Pydantic schemas
     session.py         Session state schemas
     agents.py          Agent config schemas
     messages.py        WebSocket message protocol (discriminated unions)
-    papers.py          Paper/output schemas
+    papers.py          Paper/output schemas + artifact models
+    settings.py        Settings Pydantic schemas
   services/
     session_manager.py Core: manages running sessions, intervention queues
     ws_display.py      DisplayManager -> WebSocket bridge
     agent_router.py    Routes user interventions to agents
     checkpoint.py      Checkpoint/fork logic
     demo_runner.py     Demo mode cycle simulation
+    artifact_parser.py Paper artifact parsing (literature logs, directory scanning)
   middleware/
     auth.py            API key authentication
 ```

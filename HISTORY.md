@@ -3168,3 +3168,63 @@ Goal: Identify minimal config data structure needed for backend independence.
 - `backend/api/main.py` — fallback to backend config loader
 - `backend/api/routes/agents.py` — import from backend config
 
+### Prompt 68 — Implement Dedicated Settings Page
+
+> Implement a dedicated Settings page: backend GET/PUT endpoints for 6 config sections (orchestrator, sandbox, literature, knowledge, memory, citation), frontend Settings page with left tab strip, per-section save/reset, toggle/number/select field components, TanStack Query hooks, sidebar nav item.
+
+**Key decisions:**
+- Backend: `GET /api/v1/settings` returns all sections, `PUT /api/v1/settings/{section}` updates one at a time
+- Frontend: VS Code / GitHub style left tab strip + scrollable content area
+- Per-section Save/Reset buttons with dirty state tracking
+- Config compatibility: `hasattr(config, section)` checks for both full and lightweight config
+
+**Artifacts produced:**
+- `backend/api/models/settings.py` (NEW)
+- `backend/api/routes/settings.py` (NEW)
+- `frontend/src/hooks/useSettings.ts` (NEW)
+- `frontend/src/components/settings/SettingsField.tsx` (NEW)
+- `frontend/src/components/settings/SettingsSection.tsx` (NEW)
+- `frontend/src/pages/SettingsPage.tsx` (NEW)
+
+**Artifacts modified:**
+- `backend/api/main.py` — Register settings router
+- `frontend/src/api/client.ts` — Add settings interfaces + functions
+- `frontend/src/App.tsx` — Add settings route
+- `frontend/src/components/layout/Sidebar.tsx` — Add settings nav item
+
+---
+
+## 2026-03-03
+
+### Prompt 69 — Literature References Panel & Research Folder Browser
+
+> Implement the following plan:
+>
+> 1. **Clickable literature count** — StatsBar papers count opens a panel showing actual papers found, with arXiv/PDF links
+> 2. **Research folder browser** — Tabbed viewer on the Papers page exposing all artifacts: paper, literature, reviews, transcript, code, figures
+> 3. **Visual polish** — Consistent styling, empty states, hover effects on interactive elements
+>
+> Backend: Add papers_dir to config, artifact models, artifact_parser.py, 6 REST endpoints (artifacts, literature, reviews, transcript, experiments, figures), demo literature/reviews data.
+> Frontend: API client interfaces + hooks, LiteraturePanel slide-over, clickable StatsBar, ArtifactTabs with 6 tab types, PapersPage update.
+
+**Artifacts produced:**
+- `backend/api/services/artifact_parser.py` (NEW)
+- `frontend/src/components/session/LiteraturePanel.tsx` (NEW)
+- `frontend/src/components/papers/ArtifactTabs.tsx` (NEW)
+- `frontend/src/components/papers/LiteratureTab.tsx` (NEW)
+- `frontend/src/components/papers/ReviewsTab.tsx` (NEW)
+- `frontend/src/components/papers/TranscriptTab.tsx` (NEW)
+- `frontend/src/components/papers/CodeTab.tsx` (NEW)
+- `frontend/src/components/papers/FiguresTab.tsx` (NEW)
+
+**Artifacts modified:**
+- `backend/api/config.py` — Add papers_dir property
+- `backend/api/models/papers.py` — Add 5 artifact models
+- `backend/api/routes/papers.py` — Add 6 artifact endpoints
+- `backend/api/services/demo_runner.py` — Add demo literature/reviews data
+- `frontend/src/api/client.ts` — Add artifact interfaces + functions
+- `frontend/src/hooks/usePapers.ts` — Add 4 artifact hooks
+- `frontend/src/components/session/StatsBar.tsx` — Clickable papers count
+- `frontend/src/components/session/SessionView.tsx` — Wire literature panel
+- `frontend/src/pages/PapersPage.tsx` — Tabbed artifact viewer
+

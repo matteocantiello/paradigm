@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.routes import agents, config, papers, research, sessions, ws
+from backend.api.routes import agents, config, papers, research, sessions, settings, ws
 from backend.api.services.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -138,6 +138,7 @@ def create_app() -> FastAPI:
     app.include_router(agents.router)
     app.include_router(papers.router)
     app.include_router(config.router)
+    app.include_router(settings.router)
     app.include_router(ws.router)
 
     return app

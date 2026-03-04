@@ -7,6 +7,7 @@ import { ResearchPage } from "@/pages/ResearchPage";
 import { SessionPage } from "@/pages/SessionPage";
 import { PapersPage } from "@/pages/PapersPage";
 import { AgentsPage } from "@/pages/AgentsPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,7 @@ export default function App() {
               <Route path="session/:id" element={<SessionPage />} />
               <Route path="papers" element={<PapersPage />} />
               <Route path="agents" element={<AgentsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
               <Route
                 path="*"
                 element={

@@ -87,7 +87,7 @@ testing_overrides:
 sandbox:
   enabled: true
   image_name: "paradigm-sandbox:latest"
-  network_mode: "none"
+  network_mode: "bridge"
   cpu_limit: 2.0
   memory_limit: "2g"
   execution_timeout: 300

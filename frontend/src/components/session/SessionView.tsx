@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { PhaseTracker } from "./PhaseTracker";
 import { StatsBar } from "./StatsBar";
 import { AgentPanel } from "./AgentPanel";
@@ -6,6 +7,7 @@ import { RightPanel } from "./RightPanel";
 import { InteractionBar } from "./InteractionBar";
 import { ApprovalDialog } from "./ApprovalDialog";
 import { ConnectionIndicator } from "./ConnectionIndicator";
+import { LiteraturePanel } from "./LiteraturePanel";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { ConnectionStatus } from "@/api/websocket";
 import type { AgentOutput, Notification, KnowledgeState } from "@/stores/sessionStore";
@@ -27,9 +29,12 @@ interface SessionViewProps {
   notifications: Notification[];
   knowledge: KnowledgeState;
   pendingApproval: ApprovalRequestMsg | null;
+  paperId?: string;
 }
 
 export function SessionView(props: SessionViewProps) {
+  const [showLiterature, setShowLiterature] = useState(false);
+
   return (
     <div className="flex h-full flex-col">
       {/* Header bar */}
@@ -56,6 +61,7 @@ export function SessionView(props: SessionViewProps) {
         totalSearches={props.totalSearches}
         totalTokens={props.totalTokens}
         elapsedSeconds={props.elapsedSeconds}
+        onPapersClick={() => setShowLiterature(true)}
       />
 
       {/* 3-column layout */}
@@ -76,6 +82,15 @@ export function SessionView(props: SessionViewProps) {
 
       {/* Approval dialog overlay */}
       {props.pendingApproval && <ApprovalDialog approval={props.pendingApproval} />}
+
+      {/* Literature panel overlay */}
+      {showLiterature && (
+        <LiteraturePanel
+          paperId={props.paperId}
+          papersFound={props.papersFound}
+          onClose={() => setShowLiterature(false)}
+        />
+      )}
     </div>
   );
 }

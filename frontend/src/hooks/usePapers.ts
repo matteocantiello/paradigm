@@ -15,3 +15,35 @@ export function usePaper(paperId: string | undefined) {
     enabled: !!paperId,
   });
 }
+
+export function usePaperArtifacts(paperId: string | undefined) {
+  return useQuery({
+    queryKey: ["paper-artifacts", paperId],
+    queryFn: () => api.getPaperArtifacts(paperId!),
+    enabled: !!paperId,
+  });
+}
+
+export function usePaperLiterature(paperId: string | undefined) {
+  return useQuery({
+    queryKey: ["paper-literature", paperId],
+    queryFn: () => api.getPaperLiterature(paperId!),
+    enabled: !!paperId,
+  });
+}
+
+export function usePaperReviews(paperId: string | undefined) {
+  return useQuery({
+    queryKey: ["paper-reviews", paperId],
+    queryFn: () => api.getPaperReviews(paperId!),
+    enabled: !!paperId,
+  });
+}
+
+export function usePaperTranscript(paperId: string | undefined) {
+  return useQuery({
+    queryKey: ["paper-transcript", paperId],
+    queryFn: () => api.getPaperTranscript(paperId!),
+    enabled: !!paperId,
+  });
+}

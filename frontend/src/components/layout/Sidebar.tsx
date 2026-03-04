@@ -4,6 +4,7 @@ import {
   FlaskConical,
   FileText,
   Users,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +46,22 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
+      <div className="px-2 pb-3">
+        <NavLink
+          to="/settings"
+          className={({ isActive }) =>
+            cn(
+              "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              isActive
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+            )
+          }
+        >
+          <Settings className="h-4 w-4" />
+          Settings
+        </NavLink>
+      </div>
     </aside>
   );
 }

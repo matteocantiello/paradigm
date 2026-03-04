@@ -47,6 +47,10 @@ class StorageConfig(BaseModel):
             v = Path(v)
         return v.expanduser().resolve()
 
+    @property
+    def papers_dir(self) -> Path:
+        return self.data_dir / "papers"
+
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
         self.data_dir.mkdir(parents=True, exist_ok=True)

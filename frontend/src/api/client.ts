@@ -232,3 +232,144 @@ export function setConfigMode(mode: string) {
     body: JSON.stringify({ mode }),
   });
 }
+
+// --- Settings ---
+export interface OrchestratorSettings {
+  max_rounds_per_phase: number;
+  enable_checkpointing: boolean;
+  enable_writing: boolean;
+  max_review_iterations: number;
+  enable_peer_review: boolean;
+  num_reviewers: number;
+  enable_experimentation: boolean;
+  enable_debates: boolean;
+  max_debate_exchanges: number;
+  enable_convergence_detection: boolean;
+  convergence_confidence_threshold: number;
+  enable_execution_sprints: boolean;
+  num_execution_sprints: number;
+}
+
+export interface SandboxSettings {
+  enabled: boolean;
+  network_mode: string;
+  cpu_limit: number;
+  memory_limit: string;
+  execution_timeout: number;
+}
+
+export interface LiteratureSettings {
+  max_results_per_search: number;
+  enable_pdf_fetch: boolean;
+  follow_budget_per_round: number;
+  cited_by_budget_per_round: number;
+  read_budget_per_round: number;
+  max_read_chars: number;
+}
+
+export interface KnowledgeSettings {
+  enable_world_model: boolean;
+  enable_evidence_graph: boolean;
+  enable_hypothesis_tournament: boolean;
+}
+
+export interface MemorySettings {
+  enabled: boolean;
+  max_memories_per_prompt: number;
+}
+
+export interface CitationSettings {
+  enable_citation_grounding: boolean;
+  enable_novelty_check: boolean;
+  enable_seed_discovery: boolean;
+}
+
+export interface AllSettings {
+  orchestrator: OrchestratorSettings;
+  sandbox: SandboxSettings;
+  literature: LiteratureSettings;
+  knowledge: KnowledgeSettings;
+  memory: MemorySettings;
+  citation: CitationSettings;
+}
+
+export function getSettings() {
+  return request<AllSettings>("/api/v1/settings");
+}
+
+export function updateSettings(section: string, body: Record<string, unknown>) {
+  return request<AllSettings>(`/api/v1/settings/${section}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+// --- Paper Artifacts ---
+export interface LiteratureSearchPaper {
+  rank: number;
+  title: string;
+  authors: string;
+  year: string;
+  arxiv_id: string;
+  arxiv_url: string;
+}
+
+export interface LiteratureSearchEntry {
+  search_num: number;
+  phase: string;
+  agent_id: string;
+  query: string;
+  papers: LiteratureSearchPaper[];
+}
+
+export interface LiteratureSearchLog {
+  thread_id: string;
+  total_searches: number;
+  searches: LiteratureSearchEntry[];
+  unique_papers: LiteratureSearchPaper[];
+}
+
+export interface PaperArtifactList {
+  paper_id: string;
+  has_paper: boolean;
+  has_literature: boolean;
+  has_reviews: boolean;
+  has_transcript: boolean;
+  has_experiments: boolean;
+  has_figures: boolean;
+  experiment_files: string[];
+  figure_files: string[];
+}
+
+export interface PaperArtifactContent {
+  paper_id: string;
+  filename: string;
+  content_type: string;
+  content: string;
+}
+
+export function getPaperArtifacts(paperId: string) {
+  return request<PaperArtifactList>(`/api/v1/papers/${paperId}/artifacts`);
+}
+
+export function getPaperLiterature(paperId: string) {
+  return request<LiteratureSearchLog>(`/api/v1/papers/${paperId}/literature`);
+}
+
+export function getPaperReviews(paperId: string) {
+  return request<PaperArtifactContent>(`/api/v1/papers/${paperId}/reviews`);
+}
+
+export function getPaperTranscript(paperId: string) {
+  return request<PaperArtifactContent>(`/api/v1/papers/${paperId}/transcript`);
+}
+
+export function getPaperExperiment(paperId: string, filename: string) {
+  return request<PaperArtifactContent>(
+    `/api/v1/papers/${paperId}/experiments/${encodeURIComponent(filename)}`
+  );
+}
+
+export function paperFigureUrl(paperId: string, filename: string) {
+  return `${BASE}/api/v1/papers/${paperId}/figures/${encodeURIComponent(filename)}`;
+}

@@ -290,6 +290,154 @@ Stochastic variability in massive stars is driven by subsurface convection zones
 """
 
 
+DEMO_REVIEWS = """\
+# Peer Review Report
+
+## Reviewer 1 (agent-skeptic-1)
+
+**Overall Score: 7.8 / 10**
+
+### Summary
+The paper presents a compelling analysis of stochastic low-frequency variability (SLF) in \
+42 massive OB stars using TESS photometry. The authors find a correlation between the \
+characteristic frequency and effective temperature, supporting the subsurface convection \
+hypothesis.
+
+### Strengths
+- **Strong statistical analysis**: Spearman correlation of r=0.72 (p < 0.001) is convincing
+- **Clear methodology**: Broken power law fitting is well-justified and reproducible
+- **Good sample size**: 42 targets with high-quality TESS 2-minute cadence data
+
+### Weaknesses
+- Selection effects from TESS observability are not adequately addressed
+- The impact of stellar winds at high $T_{\\mathrm{eff}}$ deserves more discussion
+- Limited sample of cool supergiants weakens the low-$T_{\\mathrm{eff}}$ end
+
+### Decision: **Accept with minor revisions**
+
+---
+
+## Editorial Decision (agent-editor-1)
+
+The methodology is sound and the conclusions are well-supported by the data. \
+Revisions to Section 5.2 addressing selection effects are satisfactory.
+
+**Final Decision: Accept**
+"""
+
+
+def _build_demo_literature():
+    """Build demo literature data as a LiteratureSearchLog model."""
+    from backend.api.models.papers import (
+        LiteratureSearchEntry,
+        LiteratureSearchLog,
+        LiteratureSearchPaper,
+    )
+
+    papers_search1 = [
+        LiteratureSearchPaper(
+            rank=1,
+            title="Low-frequency photometric variability in massive stars",
+            authors="Bowman, D. M. et al.",
+            year="2019",
+            arxiv_id="1901.04515",
+            arxiv_url="https://arxiv.org/abs/1901.04515",
+        ),
+        LiteratureSearchPaper(
+            rank=2,
+            title="Photometric detection of internal gravity waves in upper main-sequence stars",
+            authors="Bowman, D. M. et al.",
+            year="2019",
+            arxiv_id="1909.07845",
+            arxiv_url="https://arxiv.org/abs/1909.07845",
+        ),
+        LiteratureSearchPaper(
+            rank=3,
+            title="Sub-surface convection zones in hot massive stars and their observable consequences",
+            authors="Cantiello, M. et al.",
+            year="2009",
+            arxiv_id="0903.2049",
+            arxiv_url="https://arxiv.org/abs/0903.2049",
+        ),
+    ]
+
+    papers_search2 = [
+        LiteratureSearchPaper(
+            rank=1,
+            title="Massive star asteroseismology in action",
+            authors="Aerts, C.",
+            year="2023",
+            arxiv_id="2311.08453",
+            arxiv_url="https://arxiv.org/abs/2311.08453",
+        ),
+        LiteratureSearchPaper(
+            rank=2,
+            title="The TESS light curves of massive stars",
+            authors="Pedersen, M. G. et al.",
+            year="2019",
+            arxiv_id="1905.01485",
+            arxiv_url="https://arxiv.org/abs/1905.01485",
+        ),
+    ]
+
+    papers_search3 = [
+        LiteratureSearchPaper(
+            rank=1,
+            title="Stochastic low-frequency variability in massive stars",
+            authors="Bowman, D. M. et al.",
+            year="2020",
+            arxiv_id="2006.11307",
+            arxiv_url="https://arxiv.org/abs/2006.11307",
+        ),
+        LiteratureSearchPaper(
+            rank=2,
+            title="Sub-surface convection zones in hot massive stars and their observable consequences",
+            authors="Cantiello, M. et al.",
+            year="2009",
+            arxiv_id="0903.2049",
+            arxiv_url="https://arxiv.org/abs/0903.2049",
+        ),
+    ]
+
+    searches = [
+        LiteratureSearchEntry(
+            search_num=1,
+            phase="seeding",
+            agent_id="agent-theorist-1",
+            query="stochastic low-frequency variability massive OB stars",
+            papers=papers_search1,
+        ),
+        LiteratureSearchEntry(
+            search_num=2,
+            phase="ideation",
+            agent_id="agent-analyst-1",
+            query="TESS photometry massive star power spectra",
+            papers=papers_search2,
+        ),
+        LiteratureSearchEntry(
+            search_num=3,
+            phase="execution",
+            agent_id="agent-experimentalist-1",
+            query="red noise subsurface convection Teff correlation",
+            papers=papers_search3,
+        ),
+    ]
+
+    # Dedupe unique papers by arxiv_id
+    seen: dict[str, LiteratureSearchPaper] = {}
+    for s in searches:
+        for p in s.papers:
+            if p.arxiv_id not in seen:
+                seen[p.arxiv_id] = p
+    unique = list(seen.values())
+
+    return LiteratureSearchLog(
+        total_searches=len(searches),
+        searches=searches,
+        unique_papers=unique,
+    )
+
+
 def _create_demo_paper(state) -> None:
     """Create a demo paper in the in-memory store and link it to the cycle."""
     from backend.api.routes.papers import _demo_papers
@@ -323,6 +471,8 @@ def _create_demo_paper(state) -> None:
         "citation_count": 0,
         "created_at": now,
         "published_at": None,
+        "literature": _build_demo_literature(),
+        "reviews": DEMO_REVIEWS,
     }
 
     # Link paper to the research cycle

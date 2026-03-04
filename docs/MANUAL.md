@@ -1841,8 +1841,9 @@ The dev server starts on **http://localhost:3000** and proxies API requests to t
 | `/` | Dashboard | Overview of recent cycles, running sessions, and quick stats |
 | `/research` | Research | Create and manage research cycles |
 | `/session/:id` | Session | Real-time session monitoring and control |
-| `/papers` | Papers | Browse published papers with status filter |
+| `/papers` | Papers | Browse papers with tabbed artifact viewer |
 | `/agents` | Agents | View and configure agent models and parameters |
+| `/settings` | Settings | Configure orchestrator, sandbox, literature, and other settings |
 
 #### Key Capabilities
 
@@ -1851,7 +1852,10 @@ The dev server starts on **http://localhost:3000** and proxies API requests to t
 - **Approval workflows** --- approve or reject phase transitions in interactive mode directly from the browser
 - **Session control** --- pause, resume, or abort running sessions
 - **Paper viewer** --- full Markdown + LaTeX math rendering with table of contents and export
+- **Research artifact browser** --- tabbed viewer for all paper artifacts: literature searches (with arXiv links), peer reviews, conversation transcript, experiment code, and generated figures
+- **Literature panel** --- clickable papers count in session stats opens a slide-over panel showing papers found during research with arXiv abstract/PDF links
 - **Agent configuration** --- change models, providers, and token budgets per agent role
+- **Settings page** --- configure orchestrator, sandbox, literature, knowledge, memory, and citation settings with per-section save/reset
 - **Mode toggle** --- switch between production and testing configurations at runtime
 
 See [`frontend/README.md`](../frontend/README.md) for full setup, directory structure, and architecture details.

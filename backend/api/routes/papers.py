@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from backend.api.middleware.auth import verify_api_key
 from backend.api.models.papers import (
+    LiteratureSearchLog,
     OutputList,
     OutputSummary,
+    PaperArtifactContent,
+    PaperArtifactList,
     PaperDetail,
     PaperList,
     PaperSummary,
+)
+from backend.api.services.artifact_parser import (
+    parse_literature_searches,
+    scan_paper_artifacts,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["papers"])
@@ -243,3 +253,171 @@ async def get_paper(paper_id: str, request: Request) -> PaperDetail:
         created_at=paper.get("created_at"),
         published_at=paper.get("published_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Paper artifact endpoints
+# ---------------------------------------------------------------------------
+
+_SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9_\-][a-zA-Z0-9_\-. ]{0,128}$")
+
+
+def _validate_filename(name: str) -> None:
+    """Reject path-traversal or invalid filenames."""
+    if ".." in name or "/" in name or "\\" in name or not _SAFE_FILENAME_RE.match(name):
+        raise HTTPException(status_code=400, detail=f"Invalid filename: {name}")
+
+
+def _paper_dir(request: Request, paper_id: str) -> Path | None:
+    """Resolve the on-disk directory for a paper, or None if it doesn't exist."""
+    config = request.app.state.config
+    papers_dir = config.storage.papers_dir
+    d = papers_dir / paper_id
+    if d.is_dir():
+        return d
+    return None
+
+
+@router.get(
+    "/papers/{paper_id}/artifacts",
+    response_model=PaperArtifactList,
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_paper_artifacts(paper_id: str, request: Request) -> PaperArtifactList:
+    """List available artifacts for a paper."""
+    paper_dir = _paper_dir(request, paper_id)
+    if paper_dir is not None:
+        return scan_paper_artifacts(paper_dir)
+
+    # Demo mode: derive from in-memory data
+    demo = _demo_papers.get(paper_id, {})
+    return PaperArtifactList(
+        paper_id=paper_id,
+        has_paper=bool(demo.get("body")),
+        has_literature=bool(demo.get("literature")),
+        has_reviews=bool(demo.get("reviews")),
+        has_transcript=False,
+        has_experiments=False,
+        has_figures=False,
+    )
+
+
+@router.get(
+    "/papers/{paper_id}/literature",
+    response_model=LiteratureSearchLog,
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_paper_literature(paper_id: str, request: Request) -> LiteratureSearchLog:
+    """Get parsed literature search log for a paper."""
+    paper_dir = _paper_dir(request, paper_id)
+    if paper_dir is not None:
+        lit_file = paper_dir / "literature_searches.md"
+        if lit_file.exists():
+            return parse_literature_searches(lit_file.read_text())
+        raise HTTPException(status_code=404, detail="Literature log not found")
+
+    # Demo mode
+    demo = _demo_papers.get(paper_id, {})
+    lit = demo.get("literature")
+    if lit is not None:
+        return lit
+    raise HTTPException(status_code=404, detail="Literature log not found")
+
+
+@router.get(
+    "/papers/{paper_id}/reviews",
+    response_model=PaperArtifactContent,
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_paper_reviews(paper_id: str, request: Request) -> PaperArtifactContent:
+    """Get raw review markdown for a paper."""
+    paper_dir = _paper_dir(request, paper_id)
+    if paper_dir is not None:
+        review_file = paper_dir / "reviews.md"
+        if review_file.exists():
+            return PaperArtifactContent(
+                paper_id=paper_id,
+                filename="reviews.md",
+                content=review_file.read_text(),
+            )
+        raise HTTPException(status_code=404, detail="Reviews not found")
+
+    # Demo mode
+    demo = _demo_papers.get(paper_id, {})
+    reviews = demo.get("reviews")
+    if reviews is not None:
+        return PaperArtifactContent(
+            paper_id=paper_id,
+            filename="reviews.md",
+            content=reviews,
+        )
+    raise HTTPException(status_code=404, detail="Reviews not found")
+
+
+@router.get(
+    "/papers/{paper_id}/transcript",
+    response_model=PaperArtifactContent,
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_paper_transcript(paper_id: str, request: Request) -> PaperArtifactContent:
+    """Get raw transcript markdown for a paper."""
+    paper_dir = _paper_dir(request, paper_id)
+    if paper_dir is not None:
+        transcript_file = paper_dir / "transcript.md"
+        if transcript_file.exists():
+            return PaperArtifactContent(
+                paper_id=paper_id,
+                filename="transcript.md",
+                content=transcript_file.read_text(),
+            )
+    raise HTTPException(status_code=404, detail="Transcript not found")
+
+
+@router.get(
+    "/papers/{paper_id}/experiments/{filename}",
+    response_model=PaperArtifactContent,
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_paper_experiment(
+    paper_id: str, filename: str, request: Request
+) -> PaperArtifactContent:
+    """Get experiment source code file."""
+    _validate_filename(filename)
+    paper_dir = _paper_dir(request, paper_id)
+    if paper_dir is not None:
+        exp_file = paper_dir / "experiments" / filename
+        if exp_file.is_file() and exp_file.resolve().is_relative_to(paper_dir.resolve()):
+            return PaperArtifactContent(
+                paper_id=paper_id,
+                filename=filename,
+                content_type="text/x-python" if filename.endswith(".py") else "text/plain",
+                content=exp_file.read_text(),
+            )
+    raise HTTPException(status_code=404, detail="Experiment file not found")
+
+
+_FIGURE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+}
+
+
+@router.get(
+    "/papers/{paper_id}/figures/{filename}",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_paper_figure(paper_id: str, filename: str, request: Request) -> FileResponse:
+    """Serve a figure image file."""
+    _validate_filename(filename)
+    paper_dir = _paper_dir(request, paper_id)
+    if paper_dir is not None:
+        fig_file = paper_dir / "figures" / filename
+        if fig_file.is_file() and fig_file.resolve().is_relative_to(paper_dir.resolve()):
+            ext = fig_file.suffix.lower()
+            media = _FIGURE_MEDIA_TYPES.get(ext, "application/octet-stream")
+            return FileResponse(fig_file, media_type=media)
+    raise HTTPException(status_code=404, detail="Figure not found")

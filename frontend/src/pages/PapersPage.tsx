@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { PaperList } from "@/components/papers/PaperList";
-import { PaperViewer } from "@/components/papers/PaperViewer";
-import { PaperTOC } from "@/components/papers/PaperTOC";
-import { PaperExport } from "@/components/papers/PaperExport";
-import { usePaper } from "@/hooks/usePapers";
+import { ArtifactTabs } from "@/components/papers/ArtifactTabs";
+import { usePaper, usePaperArtifacts } from "@/hooks/usePapers";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { ArrowLeft } from "lucide-react";
 
 export function PapersPage() {
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
-  const { data: paper, isLoading } = usePaper(selectedPaperId ?? undefined);
+  const { data: paper, isLoading: paperLoading } = usePaper(selectedPaperId ?? undefined);
+  const { data: artifacts, isLoading: artifactsLoading } = usePaperArtifacts(
+    selectedPaperId ?? undefined
+  );
+
+  const isLoading = paperLoading || artifactsLoading;
 
   if (selectedPaperId) {
     return (
@@ -26,16 +29,24 @@ export function PapersPage() {
           <div className="flex justify-center py-16">
             <LoadingSpinner />
           </div>
+        ) : paper && artifacts ? (
+          <ArtifactTabs paper={paper} artifacts={artifacts} />
         ) : paper ? (
-          <div className="grid grid-cols-[200px_1fr] gap-6">
-            <aside className="sticky top-0 self-start">
-              <PaperTOC body={paper.body} />
-              <div className="mt-4 border-t border-border pt-3">
-                <PaperExport title={paper.title} body={paper.body} />
-              </div>
-            </aside>
-            <PaperViewer paper={paper} />
-          </div>
+          // Fallback: artifacts fetch failed but paper is available
+          <ArtifactTabs
+            paper={paper}
+            artifacts={{
+              paper_id: paper.paper_id,
+              has_paper: true,
+              has_literature: false,
+              has_reviews: false,
+              has_transcript: false,
+              has_experiments: false,
+              has_figures: false,
+              experiment_files: [],
+              figure_files: [],
+            }}
+          />
         ) : (
           <p className="text-muted-foreground">Paper not found.</p>
         )}
