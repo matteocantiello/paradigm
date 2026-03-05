@@ -25,8 +25,8 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
   const recentOutputs = outputs.slice(-50);
 
   return (
-    <div ref={containerRef} className="flex flex-col gap-1 overflow-y-auto p-2 h-full">
-      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1 sticky top-0 bg-background z-10">
+    <div ref={containerRef} className="flex flex-col gap-1.5 overflow-y-auto p-2 h-full">
+      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.1em] px-1 mb-1 sticky top-0 bg-background/90 backdrop-blur-sm z-10 py-1">
         Messages
       </h3>
       {recentOutputs.length === 0 && (
@@ -36,13 +36,22 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
         const role = getAgentRole(out.agentId);
         const theme = AGENT_THEMES[role];
         const Icon = theme?.icon ?? User;
+        const borderColor = theme?.color
+          ? theme.color.replace("text-", "border-")
+          : "border-muted-foreground/30";
         return (
-          <div key={out.id} className="rounded-md border border-border/50 p-2 text-xs">
-            <div className="flex items-center gap-1.5 mb-1">
+          <div
+            key={out.id}
+            className={cn(
+              "rounded-lg border-l-2 bg-card/50 p-3 text-xs animate-fade-in",
+              borderColor
+            )}
+          >
+            <div className="flex items-center gap-1.5 mb-1.5">
               <Icon className={cn("h-3.5 w-3.5", theme?.color ?? "text-muted-foreground")} />
-              <span className="font-medium">{theme?.label ?? role}</span>
+              <span className="font-semibold text-foreground">{theme?.label ?? role}</span>
               {out.model && (
-                <span className="text-muted-foreground">({out.model})</span>
+                <span className="text-muted-foreground/60 font-mono text-[10px]">({out.model})</span>
               )}
             </div>
             <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">

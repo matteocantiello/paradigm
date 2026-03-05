@@ -25,12 +25,12 @@ export const AGENT_THEMES: Record<string, AgentTheme> = {
   },
   analyst: {
     icon: BarChart3,
-    color: "text-orange-400",
+    color: "text-amber-400",
     label: "Analyst",
   },
   experimentalist: {
     icon: FlaskConical,
-    color: "text-green-400",
+    color: "text-emerald-400",
     label: "Experimentalist",
   },
   synthesizer: {
@@ -40,7 +40,7 @@ export const AGENT_THEMES: Record<string, AgentTheme> = {
   },
   skeptic: {
     icon: Search,
-    color: "text-red-400",
+    color: "text-rose-400",
     label: "Skeptic",
   },
   writer: {
@@ -50,12 +50,12 @@ export const AGENT_THEMES: Record<string, AgentTheme> = {
   },
   editor: {
     icon: FileEdit,
-    color: "text-yellow-400",
+    color: "text-yellow-300",
     label: "Editor",
   },
   reviewer: {
     icon: ClipboardList,
-    color: "text-gray-200",
+    color: "text-slate-300",
     label: "Reviewer",
   },
 };
@@ -111,14 +111,14 @@ export const EVENT_COLORS: Record<string, string> = {
   phase: "text-blue-400",
   search: "text-yellow-400",
   debate: "text-amber-400",
-  experiment: "text-green-400",
+  experiment: "text-emerald-400",
   writing: "text-cyan-400",
   review: "text-purple-400",
   error: "text-red-400",
   success: "text-emerald-400",
   info: "text-muted-foreground",
   warning: "text-yellow-400",
-  knowledge: "text-indigo-400",
+  knowledge: "text-primary",
 };
 
 // Knowledge panel color maps
@@ -133,7 +133,7 @@ export const HYPOTHESIS_STATUS_COLORS: Record<string, string> = {
 export const ENTITY_TYPE_COLORS: Record<string, string> = {
   object: "bg-blue-500/20 text-blue-300",
   mechanism: "bg-purple-500/20 text-purple-300",
-  observable: "bg-green-500/20 text-green-300",
+  observable: "bg-emerald-500/20 text-emerald-300",
   instrument: "bg-cyan-500/20 text-cyan-300",
   model: "bg-amber-500/20 text-amber-300",
   concept: "bg-pink-500/20 text-pink-300",

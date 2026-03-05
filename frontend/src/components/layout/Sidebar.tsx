@@ -17,12 +17,15 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   return (
-    <aside className="flex h-full w-56 flex-col border-r border-border bg-sidebar">
-      <div className="flex items-center gap-2 px-4 py-4 border-b border-sidebar-border">
-        <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
-          <span className="text-sm font-bold text-primary-foreground">P</span>
+    <aside className="flex h-full w-56 flex-col border-r border-sidebar-border bg-gradient-to-b from-sidebar to-[oklch(0.09_0.02_260)] dark:to-[oklch(0.09_0.02_260)]">
+      <div className="flex items-center gap-3 px-4 py-4 border-b border-sidebar-border">
+        {/* Observatory logo mark */}
+        <div className="relative h-8 w-8 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border-2 border-primary/60" />
+          <div className="absolute inset-1.5 rounded-full border border-primary/40" />
+          <div className="h-2 w-2 rounded-full bg-primary" />
         </div>
-        <span className="text-base font-semibold text-sidebar-foreground tracking-tight">
+        <span className="text-sm font-semibold text-sidebar-foreground tracking-[0.15em] uppercase">
           Paradigm
         </span>
       </div>
@@ -34,33 +37,54 @@ export function Sidebar() {
             end={to === "/"}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-all relative",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-primary glow-sm"
+                  : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground border-l-2 border-transparent"
               )
             }
           >
-            <Icon className="h-4 w-4" />
-            {label}
+            {({ isActive }) => (
+              <>
+                <div className={cn(
+                  "flex items-center justify-center h-6 w-6 rounded-full transition-colors",
+                  isActive ? "bg-primary/15" : ""
+                )}>
+                  <Icon className="h-4 w-4" />
+                </div>
+                {label}
+              </>
+            )}
           </NavLink>
         ))}
       </nav>
-      <div className="px-2 pb-3">
+      <div className="px-2 pb-2">
         <NavLink
           to="/settings"
           className={({ isActive }) =>
             cn(
-              "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-all border-l-2",
               isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                ? "bg-sidebar-accent text-sidebar-accent-foreground border-primary glow-sm"
+                : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground border-transparent"
             )
           }
         >
-          <Settings className="h-4 w-4" />
-          Settings
+          {({ isActive }) => (
+            <>
+              <div className={cn(
+                "flex items-center justify-center h-6 w-6 rounded-full transition-colors",
+                isActive ? "bg-primary/15" : ""
+              )}>
+                <Settings className="h-4 w-4" />
+              </div>
+              Settings
+            </>
+          )}
         </NavLink>
+      </div>
+      <div className="px-4 pb-3">
+        <span className="text-[10px] text-muted-foreground/40 font-mono">v0.1 alpha</span>
       </div>
     </aside>
   );

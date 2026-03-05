@@ -30,39 +30,32 @@ export function StatsBar({
   ];
 
   return (
-    <div className="flex items-center gap-1 px-3 py-1.5 text-xs text-muted-foreground border-b border-border">
+    <div className="flex items-center gap-0 px-3 py-2 border-b border-border">
       {stats.map(({ icon: Icon, label, value, clickable }, idx) => {
         const isClickable = clickable && papersFound > 0 && onPapersClick;
 
         const content = (
-          <>
-            <Icon className="h-3 w-3" />
+          <div className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg bg-card/50 backdrop-blur-sm">
+            <Icon className="h-3.5 w-3.5 text-muted-foreground" />
             <span className={cn(
-              "font-medium text-foreground",
-              isClickable && "bg-indigo-500/20 text-indigo-300 px-1.5 rounded-full"
+              "text-sm font-semibold tabular-nums text-primary",
+              isClickable && "bg-primary/10 px-2 rounded-full cursor-pointer hover:bg-primary/20 transition-colors"
             )}>
               {value}
             </span>
-            <span>{label}</span>
-          </>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
+          </div>
         );
 
         return (
           <div key={label} className="flex items-center">
-            {idx > 0 && (
-              <span className="mx-2 h-3 w-px bg-border" />
-            )}
+            {idx > 0 && <span className="mx-1 h-6 w-px bg-border" />}
             {isClickable ? (
-              <button
-                onClick={onPapersClick}
-                className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
-              >
+              <button onClick={onPapersClick} className="transition-colors">
                 {content}
               </button>
             ) : (
-              <div className="flex items-center gap-1">
-                {content}
-              </div>
+              content
             )}
           </div>
         );

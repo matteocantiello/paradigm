@@ -3301,3 +3301,65 @@ Goal: Identify minimal config data structure needed for backend independence.
 - `src/paradigm/literature/provider_factory.py` — Add `collection_name` param, forward to EmbeddingStore
 - `src/paradigm/main.py` — Generate cycle_id, pass collection_name to Corpus + providers
 - `backend/api/services/session_manager.py` — Pass session_id-based collection_name to Corpus
+
+---
+
+## Prompt 64 — Polish Paradigm Frontend Design
+
+**Date:** 2026-03-04
+
+> Let's polish Paradigm frontend look. Let's make it more slick and functional.
+
+**Key decisions:**
+- TBD — Frontend design overhaul for visual polish and improved UX
+
+**Artifacts modified:**
+- TBD
+
+---
+
+## 2026-03-04
+
+### Prompt 63 — Frontend Polish: Observatory Control Room Theme
+
+> Implement the full frontend polish plan: Observatory Control Room theme with deep navy/charcoal darks, teal/cyan accents, Outfit + JetBrains Mono fonts, glassmorphism cards, animated phase tracker, observatory-inspired loading spinner, and atmospheric styling across all 17 component files.
+
+**Key decisions:**
+- Direction: Observatory Control Room — deep navy, teal accents, scientific precision
+- Fonts: Outfit (display/body) + JetBrains Mono (monospace)
+- 17 files modified across layout, dashboard, session, shared components, and constants
+
+**Artifacts modified:**
+- `frontend/index.html` — Google Fonts
+- `frontend/src/index.css` — Color system, scrollbar, glow utilities, noise texture
+- `frontend/src/components/layout/Sidebar.tsx` — Logo, gradient bg, version tag
+- `frontend/src/components/layout/Header.tsx` — Pulse indicators, taller, glow border
+- `frontend/src/components/layout/AppShell.tsx` — Radial gradient content area
+- `frontend/src/pages/Dashboard.tsx` — Gradient heading, styled sections
+- `frontend/src/components/research/CycleCard.tsx` — Glassmorphism, hover glow
+- `frontend/src/components/papers/PaperCard.tsx` — Glassmorphism, hover glow
+- `frontend/src/components/shared/StatusBadge.tsx` — Animated running dot
+- `frontend/src/components/shared/EmptyState.tsx` — Atmospheric styling
+- `frontend/src/components/shared/LoadingSpinner.tsx` — Observatory spinner
+- `frontend/src/components/session/PhaseTracker.tsx` — Connected pipeline nodes
+- `frontend/src/components/session/StatsBar.tsx` — Instrument cards
+- `frontend/src/components/session/AgentPanel.tsx` — Agent glow borders
+- `frontend/src/components/session/MessagesPanel.tsx` — Message animations
+- `frontend/src/components/session/RightPanel.tsx` — Pill tabs
+- `frontend/src/components/session/EventLog.tsx` — JetBrains Mono styling
+- `frontend/src/components/session/InteractionBar.tsx` — Themed input bar
+- `frontend/src/components/research/SetupWizard.tsx` — Glass modal
+- `frontend/src/lib/constants.ts` — Adjusted agent colors
+
+### Prompt 64 — Setup Wizard Textarea Size + Settings Auto-Save
+
+> A few things: the window where to include the Research Prompt should be larger (hard to read the final prompt otherwise). Also the save button in the settings seems superfluous: one should just be able to change the preferences with the buttons. The only extra button required is the 'reset to default'
+
+**Key decisions:**
+- Make SetupWizard prompt textarea and modal larger
+- Settings: auto-save on change, remove Save button, keep only Reset to Defaults
+
+**Artifacts modified:**
+- `frontend/src/components/research/SetupWizard.tsx`
+- `frontend/src/pages/SettingsPage.tsx`
+- `frontend/src/components/settings/SettingsSection.tsx`

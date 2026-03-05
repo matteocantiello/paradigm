@@ -32,17 +32,23 @@ export function EventLog({ notifications }: EventLogProps) {
   const recent = notifications.slice(-50);
 
   return (
-    <div ref={containerRef} className="flex flex-col gap-0.5 overflow-y-auto p-2 h-full font-mono">
-      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1 font-sans sticky top-0 bg-background z-10">
+    <div ref={containerRef} className="flex flex-col gap-0.5 overflow-y-auto p-2 h-full font-mono text-[11px]">
+      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.1em] px-1 mb-1 font-sans sticky top-0 bg-background/90 backdrop-blur-sm z-10 py-1">
         Events
       </h3>
       {recent.length === 0 && (
         <p className="text-xs text-muted-foreground/50 px-1 font-sans">No events yet</p>
       )}
       {recent.map((n) => (
-        <div key={n.id} className="text-[11px] leading-tight px-1">
-          <span className="text-muted-foreground">[{formatTime(n.timestamp)}]</span>{" "}
-          <span className={cn(EVENT_COLORS[n.category] ?? EVENT_COLORS[n.level] ?? "text-muted-foreground")}>
+        <div key={n.id} className="leading-tight px-1 py-0.5 hover:bg-accent/20 rounded transition-colors">
+          <span className="text-muted-foreground/60">[{formatTime(n.timestamp)}]</span>{" "}
+          <span className={cn(
+            "font-medium",
+            EVENT_COLORS[n.category] ?? EVENT_COLORS[n.level] ?? "text-muted-foreground"
+          )}>
+            [{n.category ?? n.level}]
+          </span>{" "}
+          <span className="text-foreground/80">
             {n.message}
           </span>
         </div>

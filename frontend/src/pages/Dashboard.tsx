@@ -14,15 +14,17 @@ export function Dashboard() {
   const recentCycles = data?.items ?? [];
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Overview of your research activity</p>
+          <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent dark:from-primary dark:to-foreground">
+            Mission Control
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">Overview of your research activity</p>
         </div>
         <button
           onClick={() => navigate("/research?new=1")}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-4 py-2 text-sm font-medium text-primary-foreground hover:shadow-lg hover:shadow-primary/20 transition-all"
         >
           <Plus className="h-4 w-4" />
           Quick Start
@@ -32,7 +34,11 @@ export function Dashboard() {
       {/* Running sessions */}
       {runningCycles.length > 0 && (
         <section>
-          <h2 className="text-sm font-medium text-muted-foreground mb-3">Running Sessions</h2>
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.1em] mb-3 flex items-center gap-2">
+            <div className="h-px flex-1 bg-border" />
+            Running Sessions
+            <div className="h-px flex-1 bg-border" />
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {runningCycles.map((cycle) => (
               <CycleCard
@@ -47,7 +53,11 @@ export function Dashboard() {
 
       {/* Recent cycles */}
       <section>
-        <h2 className="text-sm font-medium text-muted-foreground mb-3">Recent Cycles</h2>
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.1em] mb-3 flex items-center gap-2">
+          <div className="h-px flex-1 bg-border" />
+          Recent Cycles
+          <div className="h-px flex-1 bg-border" />
+        </h2>
         {isLoading ? (
           <div className="flex justify-center py-8">
             <LoadingSpinner />
@@ -60,7 +70,7 @@ export function Dashboard() {
             action={
               <button
                 onClick={() => navigate("/research?new=1")}
-                className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-4 py-2 text-sm font-medium text-primary-foreground hover:shadow-lg hover:shadow-primary/20 transition-all"
               >
                 <Plus className="h-4 w-4" />
                 New Research Cycle

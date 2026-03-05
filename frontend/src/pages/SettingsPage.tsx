@@ -42,12 +42,6 @@ const TABS: TabDef[] = [
 
 type SectionState = Record<string, unknown>;
 
-function pick(obj: Record<string, unknown>, keys: string[]): SectionState {
-  const out: SectionState = {};
-  for (const k of keys) if (k in obj) out[k] = obj[k];
-  return out;
-}
-
 function shallowEqual(a: SectionState, b: SectionState): boolean {
   const ka = Object.keys(a);
   const kb = Object.keys(b);
@@ -55,20 +49,13 @@ function shallowEqual(a: SectionState, b: SectionState): boolean {
   return ka.every((k) => a[k] === b[k]);
 }
 
-function diffFields(
-  local: SectionState,
-  remote: SectionState,
-): Record<string, unknown> {
-  const diff: Record<string, unknown> = {};
-  for (const k of Object.keys(local)) {
-    if (local[k] !== remote[k]) diff[k] = local[k];
-  }
-  return diff;
-}
+// --- Hooks for per-section form state with auto-save ---
 
-// --- Hooks for per-section form state ---
-
-function useSectionForm(remote: SectionState | undefined) {
+function useSectionForm(
+  section: string,
+  remote: SectionState | undefined,
+  save: (section: string, diff: Record<string, unknown>) => void,
+) {
   const [local, setLocal] = useState<SectionState>({});
   const initialized = useRef(false);
 
@@ -79,19 +66,27 @@ function useSectionForm(remote: SectionState | undefined) {
     }
   }, [remote]);
 
-  const dirty = remote ? !shallowEqual(local, remote) : false;
-
   const set = useCallback(
-    (field: string, value: unknown) =>
-      setLocal((prev) => ({ ...prev, [field]: value })),
-    [],
+    (field: string, value: unknown) => {
+      setLocal((prev) => {
+        const next = { ...prev, [field]: value };
+        // Auto-save the changed field
+        save(section, { [field]: value });
+        return next;
+      });
+    },
+    [section, save],
   );
 
   const reset = useCallback(() => {
-    if (remote) setLocal({ ...remote });
-  }, [remote]);
+    if (remote) {
+      setLocal({ ...remote });
+      // Save all remote values to reset to defaults
+      save(section, { ...remote });
+    }
+  }, [remote, section, save]);
 
-  return { local, dirty, set, reset };
+  return { local, set, reset };
 }
 
 // --- Main page ---
@@ -104,62 +99,60 @@ export function SettingsPage() {
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Per-section form states
-  const orchestrator = useSectionForm(
-    data?.orchestrator as unknown as SectionState | undefined,
-  );
-  const sandbox = useSectionForm(
-    data?.sandbox as unknown as SectionState | undefined,
-  );
-  const literature = useSectionForm(
-    data?.literature as unknown as SectionState | undefined,
-  );
-  const knowledge = useSectionForm(
-    data?.knowledge as unknown as SectionState | undefined,
-  );
-  const memory = useSectionForm(
-    data?.memory as unknown as SectionState | undefined,
-  );
-  const citation = useSectionForm(
-    data?.citation as unknown as SectionState | undefined,
+  const handleSave = useCallback(
+    (section: string, diff: Record<string, unknown>) => {
+      if (Object.keys(diff).length === 0) return;
+      setSavingSection(section);
+      setSaveError(null);
+      mutation.mutate(
+        { section, body: diff },
+        {
+          onSuccess: () => setSavingSection(null),
+          onError: (err) => {
+            setSavingSection(null);
+            setSaveError(err.message);
+          },
+        },
+      );
+    },
+    [mutation],
   );
 
-  const forms: Record<string, ReturnType<typeof useSectionForm>> = {
-    orchestrator,
-    sandbox,
-    literature,
-    knowledge,
-    memory,
-    citation,
-  };
+  // Per-section form states
+  const orchestrator = useSectionForm(
+    "orchestrator",
+    data?.orchestrator as unknown as SectionState | undefined,
+    handleSave,
+  );
+  const sandbox = useSectionForm(
+    "sandbox",
+    data?.sandbox as unknown as SectionState | undefined,
+    handleSave,
+  );
+  const literature = useSectionForm(
+    "literature",
+    data?.literature as unknown as SectionState | undefined,
+    handleSave,
+  );
+  const knowledge = useSectionForm(
+    "knowledge",
+    data?.knowledge as unknown as SectionState | undefined,
+    handleSave,
+  );
+  const memory = useSectionForm(
+    "memory",
+    data?.memory as unknown as SectionState | undefined,
+    handleSave,
+  );
+  const citation = useSectionForm(
+    "citation",
+    data?.citation as unknown as SectionState | undefined,
+    handleSave,
+  );
 
   const handleTabClick = (id: keyof AllSettings) => {
     setActiveTab(id);
     sectionRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-  const handleSave = (section: string) => {
-    const form = forms[section];
-    const remote = data?.[section as keyof AllSettings] as unknown as SectionState;
-    if (!form || !remote) return;
-    const diff = diffFields(form.local, remote);
-    if (Object.keys(diff).length === 0) return;
-    setSavingSection(section);
-    setSaveError(null);
-    mutation.mutate(
-      { section, body: diff },
-      {
-        onSuccess: () => {
-          setSavingSection(null);
-          // Re-sync local state from updated query data
-          form.reset();
-        },
-        onError: (err) => {
-          setSavingSection(null);
-          setSaveError(err.message);
-        },
-      },
-    );
   };
 
   if (isLoading) {
@@ -213,10 +206,8 @@ export function SettingsPage() {
             icon={Cog}
             title="Orchestrator"
             description="Research cycle behavior and phase control"
-            dirty={orchestrator.dirty}
             saving={savingSection === "orchestrator"}
             error={savingSection === "orchestrator" ? saveError : null}
-            onSave={() => handleSave("orchestrator")}
             onReset={orchestrator.reset}
           >
             <NumberField
@@ -319,10 +310,8 @@ export function SettingsPage() {
             icon={Container}
             title="Sandbox"
             description="Docker code execution environment"
-            dirty={sandbox.dirty}
             saving={savingSection === "sandbox"}
             error={savingSection === "sandbox" ? saveError : null}
-            onSave={() => handleSave("sandbox")}
             onReset={sandbox.reset}
           >
             <ToggleField
@@ -374,10 +363,8 @@ export function SettingsPage() {
             icon={BookOpen}
             title="Literature"
             description="Search, retrieval, and citation graph traversal"
-            dirty={literature.dirty}
             saving={savingSection === "literature"}
             error={savingSection === "literature" ? saveError : null}
-            onSave={() => handleSave("literature")}
             onReset={literature.reset}
           >
             <NumberField
@@ -436,10 +423,8 @@ export function SettingsPage() {
             icon={Brain}
             title="Knowledge"
             description="World model, evidence graph, hypothesis tournament"
-            dirty={knowledge.dirty}
             saving={savingSection === "knowledge"}
             error={savingSection === "knowledge" ? saveError : null}
-            onSave={() => handleSave("knowledge")}
             onReset={knowledge.reset}
           >
             <ToggleField
@@ -469,10 +454,8 @@ export function SettingsPage() {
             icon={Database}
             title="Memory"
             description="Agent episodic memory system"
-            dirty={memory.dirty}
             saving={savingSection === "memory"}
             error={savingSection === "memory" ? saveError : null}
-            onSave={() => handleSave("memory")}
             onReset={memory.reset}
           >
             <ToggleField
@@ -498,10 +481,8 @@ export function SettingsPage() {
             icon={Quote}
             title="Citation"
             description="Citation grounding and novelty checking"
-            dirty={citation.dirty}
             saving={savingSection === "citation"}
             error={savingSection === "citation" ? saveError : null}
-            onSave={() => handleSave("citation")}
             onReset={citation.reset}
           >
             <ToggleField

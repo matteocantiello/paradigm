@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useCreateCycle, useStartSession } from "@/hooks/useCycles";
 import { AGENT_THEMES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, ArrowRight, Play, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Play, Loader2, Check } from "lucide-react";
 
 const STEPS = ["Prompt", "Mode", "Team", "Review"] as const;
 type Step = (typeof STEPS)[number];
@@ -60,33 +60,40 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
   const isSubmitting = createCycle.isPending || startSession.isPending;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-xl">
-        {/* Step indicators */}
-        <div className="flex items-center gap-2 mb-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-xl border border-border/50 bg-card/95 backdrop-blur-md p-6 shadow-2xl shadow-primary/5">
+        {/* Step indicators — horizontal progress bar */}
+        <div className="flex items-center gap-0 mb-8">
           {STEPS.map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
-              {i > 0 && <div className="h-px w-6 bg-border" />}
-              <div
-                className={cn(
-                  "flex items-center justify-center h-6 w-6 rounded-full text-xs font-medium",
-                  i === stepIdx
-                    ? "bg-primary text-primary-foreground"
-                    : i < stepIdx
-                      ? "bg-green-500/20 text-green-400"
-                      : "bg-muted text-muted-foreground"
-                )}
-              >
-                {i + 1}
+            <div key={s} className="flex items-center flex-1 last:flex-none">
+              <div className="flex flex-col items-center gap-1.5">
+                <div
+                  className={cn(
+                    "flex items-center justify-center h-7 w-7 rounded-full text-xs font-semibold transition-all",
+                    i === stepIdx
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary/30"
+                      : i < stepIdx
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : "bg-muted text-muted-foreground"
+                  )}
+                >
+                  {i < stepIdx ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                </div>
+                <span
+                  className={cn(
+                    "text-[10px] uppercase tracking-wider",
+                    i === stepIdx ? "font-semibold text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  {s}
+                </span>
               </div>
-              <span
-                className={cn(
-                  "text-sm",
-                  i === stepIdx ? "font-medium" : "text-muted-foreground"
-                )}
-              >
-                {s}
-              </span>
+              {i < STEPS.length - 1 && (
+                <div className={cn(
+                  "flex-1 h-0.5 mx-2 mb-5 rounded-full",
+                  i < stepIdx ? "bg-emerald-500/40" : "bg-border"
+                )} />
+              )}
             </div>
           ))}
         </div>
@@ -95,15 +102,15 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
         <div className="min-h-[200px]">
           {step === "Prompt" && (
             <div>
-              <label className="block text-sm font-medium mb-2">Research Prompt</label>
+              <label className="block text-sm font-semibold mb-2">Research Prompt</label>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="Describe the research question or topic..."
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none h-32 placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm resize-y min-h-[12rem] h-48 placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
                 maxLength={10000}
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-1.5 font-mono">
                 {prompt.length}/10000 characters
               </p>
             </div>
@@ -111,20 +118,20 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
 
           {step === "Mode" && (
             <div className="space-y-2">
-              <label className="block text-sm font-medium mb-2">Research Mode</label>
+              <label className="block text-sm font-semibold mb-2">Research Mode</label>
               {MODES.map((m) => (
                 <button
                   key={m.value}
                   onClick={() => setMode(m.value)}
                   className={cn(
-                    "w-full rounded-md border p-3 text-left transition-colors",
+                    "w-full rounded-lg border p-3.5 text-left transition-all",
                     mode === m.value
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/50"
+                      ? "border-primary/50 bg-primary/5 glow-sm"
+                      : "border-border hover:border-primary/30 hover:bg-accent/30"
                   )}
                 >
-                  <div className="text-sm font-medium">{m.label}</div>
-                  <div className="text-xs text-muted-foreground">{m.desc}</div>
+                  <div className="text-sm font-semibold">{m.label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
                 </button>
               ))}
             </div>
@@ -132,7 +139,7 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
 
           {step === "Team" && (
             <div>
-              <label className="block text-sm font-medium mb-2">Agent Team</label>
+              <label className="block text-sm font-semibold mb-2">Agent Team</label>
               <div className="grid grid-cols-2 gap-2">
                 {ALL_ROLES.map((role) => {
                   const theme = AGENT_THEMES[role]!;
@@ -143,14 +150,19 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
                       key={role}
                       onClick={() => toggleRole(role)}
                       className={cn(
-                        "flex items-center gap-2 rounded-md border p-2 text-sm transition-colors",
+                        "flex items-center gap-2 rounded-lg border p-2.5 text-sm transition-all",
                         selected
-                          ? "border-primary bg-primary/5"
-                          : "border-border opacity-50 hover:opacity-80"
+                          ? "border-primary/50 bg-primary/5"
+                          : "border-border opacity-40 hover:opacity-70"
                       )}
                     >
-                      <Icon className={cn("h-4 w-4", theme.color)} />
-                      <span>{theme.label}</span>
+                      <div className={cn(
+                        "flex items-center justify-center h-7 w-7 rounded-full",
+                        selected ? "bg-accent/50" : "bg-muted/50"
+                      )}>
+                        <Icon className={cn("h-4 w-4", theme.color)} />
+                      </div>
+                      <span className="font-medium">{theme.label}</span>
                     </button>
                   );
                 })}
@@ -159,21 +171,21 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
           )}
 
           {step === "Review" && (
-            <div className="space-y-3">
-              <div>
-                <div className="text-xs text-muted-foreground">Prompt</div>
-                <p className="text-sm mt-0.5 line-clamp-3">{prompt}</p>
+            <div className="space-y-4">
+              <div className="rounded-lg bg-muted/30 p-3">
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Prompt</div>
+                <p className="text-sm max-h-32 overflow-y-auto whitespace-pre-wrap">{prompt}</p>
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Mode</div>
-                <p className="text-sm mt-0.5 capitalize">{mode}</p>
+              <div className="rounded-lg bg-muted/30 p-3">
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Mode</div>
+                <p className="text-sm capitalize font-medium">{mode}</p>
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Team</div>
-                <p className="text-sm mt-0.5">{roles.map((r) => AGENT_THEMES[r]?.label ?? r).join(", ")}</p>
+              <div className="rounded-lg bg-muted/30 p-3">
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Team</div>
+                <p className="text-sm">{roles.map((r) => AGENT_THEMES[r]?.label ?? r).join(", ")}</p>
               </div>
               {(createCycle.isError || startSession.isError) && (
-                <p className="text-sm text-red-400">
+                <p className="text-sm text-red-400 bg-red-500/10 rounded-lg p-3">
                   Error: {(createCycle.error ?? startSession.error)?.message}
                 </p>
               )}
@@ -185,7 +197,7 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
         <div className="flex items-center justify-between mt-6">
           <button
             onClick={stepIdx === 0 ? onClose : () => setStep(STEPS[stepIdx - 1])}
-            className="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+            className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-all"
           >
             <ArrowLeft className="h-4 w-4" />
             {stepIdx === 0 ? "Cancel" : "Back"}
@@ -195,7 +207,7 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
             <button
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-5 py-2 text-sm font-semibold text-primary-foreground hover:shadow-lg hover:shadow-primary/20 disabled:opacity-50 transition-all"
             >
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -208,7 +220,7 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
             <button
               onClick={() => setStep(STEPS[stepIdx + 1])}
               disabled={!canNext}
-              className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-all"
             >
               Next
               <ArrowRight className="h-4 w-4" />

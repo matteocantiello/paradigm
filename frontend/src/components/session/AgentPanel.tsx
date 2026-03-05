@@ -11,7 +11,7 @@ export function AgentPanel({ activeAgents }: AgentPanelProps) {
 
   return (
     <div className="flex flex-col gap-1 p-2">
-      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1">
+      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.1em] px-1 mb-1">
         Agents
       </h3>
       {entries.length === 0 && (
@@ -24,11 +24,21 @@ export function AgentPanel({ activeAgents }: AgentPanelProps) {
         return (
           <div
             key={agentId}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/50"
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-2 py-2 border-l-2 transition-all",
+              theme?.color
+                ? `${theme.color.replace("text-", "border-")} hover:bg-accent/30`
+                : "border-muted-foreground/30 hover:bg-accent/30"
+            )}
           >
-            <Icon className={cn("h-4 w-4 shrink-0", theme?.color ?? "text-muted-foreground")} />
+            <div className={cn(
+              "flex items-center justify-center h-7 w-7 rounded-full bg-accent/50",
+              activity && "animate-breathe"
+            )}>
+              <Icon className={cn("h-4 w-4 shrink-0", theme?.color ?? "text-muted-foreground")} />
+            </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-medium truncate">
+              <div className="text-xs font-semibold truncate">
                 {theme?.label ?? role}
               </div>
               <div className="text-[10px] text-muted-foreground truncate">

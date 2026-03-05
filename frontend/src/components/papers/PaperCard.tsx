@@ -11,7 +11,7 @@ export function PaperCard({ paper, onClick }: PaperCardProps) {
   return (
     <button
       onClick={onClick}
-      className="w-full rounded-lg border border-border bg-card p-4 text-left hover:border-primary/30 transition-colors"
+      className="group w-full rounded-lg border border-border/50 bg-card/80 backdrop-blur-sm p-4 text-left transition-all duration-200 hover:border-primary/40 hover:bg-card hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/5"
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <h3 className="text-sm font-medium line-clamp-2">{paper.title}</h3>
@@ -22,7 +22,7 @@ export function PaperCard({ paper, onClick }: PaperCardProps) {
           {truncate(paper.abstract, 200)}
         </p>
       )}
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
         {paper.created_at && (
           <span>{new Date(paper.created_at).toLocaleDateString()}</span>
         )}

@@ -27,11 +27,11 @@ export function InteractionBar() {
   const agentTargets = Object.keys(activeAgents);
 
   return (
-    <div className="flex items-center gap-2 border-t border-border px-3 py-2 bg-background">
+    <div className="flex items-center gap-2 border-t border-border px-3 py-2.5 bg-background/80 backdrop-blur-sm">
       <select
         value={target}
         onChange={(e) => setTarget(e.target.value)}
-        className="rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+        className="rounded-lg border border-input bg-card px-2.5 py-2 text-xs font-medium appearance-none cursor-pointer hover:border-primary/40 transition-colors"
       >
         <option value="orchestrator">Orchestrator</option>
         {agentTargets.map((id) => (
@@ -46,12 +46,12 @@ export function InteractionBar() {
         onChange={(e) => setMessage(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Send a message... (Ctrl+Enter)"
-        className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        className="flex-1 rounded-lg border border-input bg-card px-4 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
       />
       <button
         onClick={handleSend}
         disabled={!message.trim()}
-        className="rounded-md bg-primary p-1.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        className="rounded-lg bg-gradient-to-r from-primary to-primary/80 p-2 text-primary-foreground hover:shadow-md hover:shadow-primary/20 disabled:opacity-40 transition-all"
       >
         <Send className="h-4 w-4" />
       </button>
@@ -59,7 +59,7 @@ export function InteractionBar() {
         {status === "running" ? (
           <button
             onClick={() => sendSessionControl("pause")}
-            className="rounded-md p-1.5 text-yellow-400 hover:bg-accent"
+            className="rounded-lg p-2 text-yellow-400 hover:bg-yellow-500/10 transition-colors"
             title="Pause"
           >
             <Pause className="h-4 w-4" />
@@ -67,7 +67,7 @@ export function InteractionBar() {
         ) : status === "paused" ? (
           <button
             onClick={() => sendSessionControl("resume")}
-            className="rounded-md p-1.5 text-green-400 hover:bg-accent"
+            className="rounded-lg p-2 text-emerald-400 hover:bg-emerald-500/10 transition-colors"
             title="Resume"
           >
             <Play className="h-4 w-4" />
@@ -75,7 +75,7 @@ export function InteractionBar() {
         ) : null}
         <button
           onClick={() => sendSessionControl("abort")}
-          className="rounded-md p-1.5 text-red-400 hover:bg-accent"
+          className="rounded-lg p-2 text-red-400 hover:bg-red-500/10 transition-colors"
           title="Abort"
         >
           <Square className="h-4 w-4" />

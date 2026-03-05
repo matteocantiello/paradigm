@@ -17,15 +17,15 @@ export function RightPanel({ notifications, knowledge }: RightPanelProps) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Tab bar */}
-      <div className="flex border-b border-border bg-background shrink-0">
+      {/* Pill-style tab bar */}
+      <div className="flex gap-1 p-2 bg-background shrink-0">
         <button
           onClick={() => setTab("events")}
           className={cn(
-            "px-3 py-1.5 text-xs font-medium transition-colors",
+            "px-3 py-1.5 text-xs font-medium rounded-full transition-all",
             tab === "events"
-              ? "text-foreground border-b-2 border-indigo-500"
-              : "text-muted-foreground hover:text-foreground"
+              ? "bg-primary/15 text-primary"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
           )}
         >
           Events
@@ -33,15 +33,15 @@ export function RightPanel({ notifications, knowledge }: RightPanelProps) {
         <button
           onClick={() => setTab("knowledge")}
           className={cn(
-            "px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5",
+            "px-3 py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1.5",
             tab === "knowledge"
-              ? "text-foreground border-b-2 border-indigo-500"
-              : "text-muted-foreground hover:text-foreground"
+              ? "bg-primary/15 text-primary"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
           )}
         >
           Knowledge
           {hypothesisCount > 0 && (
-            <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0 rounded-full tabular-nums">
+            <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0 rounded-full tabular-nums">
               {hypothesisCount}
             </span>
           )}
