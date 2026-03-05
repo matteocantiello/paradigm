@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -19,6 +20,10 @@ from backend.api.models.messages import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
+
+# If no message received within this window, assume connection is dead.
+# The frontend sends a ping every 30s, so 90s gives 3 missed pings of slack.
+RECEIVE_TIMEOUT = 90
 
 
 @router.websocket("/api/v1/sessions/{session_id}/ws")
@@ -50,7 +55,20 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
 
     try:
         while True:
-            raw = await websocket.receive_text()
+            # Timeout detects dead connections when the client stops sending
+            # heartbeats. The frontend pings every 30s, so 90s allows 3 misses.
+            try:
+                raw = await asyncio.wait_for(
+                    websocket.receive_text(), timeout=RECEIVE_TIMEOUT
+                )
+            except TimeoutError:
+                logger.info(
+                    "WebSocket receive timeout for session %s — closing dead connection",
+                    session_id,
+                )
+                await websocket.close(code=1000, reason="Idle timeout")
+                break
+
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
@@ -63,6 +81,11 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
                 continue
 
             msg_type = data.get("type")
+
+            # Heartbeat: client pings, server pongs
+            if msg_type == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+                continue
 
             if msg_type == "approval_response":
                 msg = ApprovalResponseMsg(**data)

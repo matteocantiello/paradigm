@@ -6,6 +6,7 @@ import asyncio
 import logging
 import secrets
 import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -56,6 +57,10 @@ class SessionManager:
         # Knowledge snapshot cache (latest per session, for reconnect)
         self._knowledge_snapshots: dict[str, KnowledgeUpdateMsg] = {}
 
+        # Message replay buffer: last N messages per session for reconnect catch-up
+        self._message_buffers: dict[str, deque[str]] = {}
+        self._message_buffer_size = 200
+
     # ------------------------------------------------------------------
     # Session lifecycle
     # ------------------------------------------------------------------
@@ -80,6 +85,7 @@ class SessionManager:
         self._sessions[session_id] = state
         self._ws_connections[session_id] = set()
         self._session_start_times[session_id] = time.monotonic()
+        self._message_buffers[session_id] = deque(maxlen=self._message_buffer_size)
 
         # Store cycle metadata for starting the engine later
         self._cycle_metadata[session_id] = {
@@ -383,6 +389,15 @@ class SessionManager:
         if knowledge is not None:
             await self._send_ws(ws, knowledge)
 
+        # Replay buffered messages so reconnecting clients catch up
+        buf = self._message_buffers.get(session_id)
+        if buf:
+            for data in buf:
+                try:
+                    await ws.send_text(data)
+                except Exception:
+                    break
+
     async def disconnect_ws(self, session_id: str, ws: WebSocket) -> None:
         """Unregister a WebSocket connection."""
         conns = self._ws_connections.get(session_id)
@@ -394,6 +409,12 @@ class SessionManager:
         conns = self._ws_connections.get(session_id, set())
         dead: list[WebSocket] = []
         data = msg.model_dump_json()
+
+        # Buffer for replay on reconnect
+        buf = self._message_buffers.get(session_id)
+        if buf is not None:
+            buf.append(data)
+
         for ws in conns:
             try:
                 await ws.send_text(data)

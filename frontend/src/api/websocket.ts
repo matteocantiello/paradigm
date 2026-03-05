@@ -7,8 +7,9 @@ export interface WebSocketCallbacks {
   onStatusChange: (status: ConnectionStatus) => void;
 }
 
-const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_DELAY = 1000;
+const MAX_DELAY = 30_000;
+const HEARTBEAT_INTERVAL = 30_000; // Send ping every 30s
 
 export class ParadigmWebSocket {
   private ws: WebSocket | null = null;
@@ -16,6 +17,7 @@ export class ParadigmWebSocket {
   private sessionId: string | null = null;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private intentionalClose = false;
 
   constructor(callbacks: WebSocketCallbacks) {
@@ -31,6 +33,7 @@ export class ParadigmWebSocket {
 
   disconnect() {
     this.intentionalClose = true;
+    this._stopHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -80,12 +83,15 @@ export class ParadigmWebSocket {
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
       this.callbacks.onStatusChange("connected");
+      this._startHeartbeat();
     };
 
     this.ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data) as ServerMessage;
-        this.callbacks.onMessage(msg);
+        const msg = JSON.parse(event.data);
+        // Silently consume server pong responses
+        if (msg.type === "pong") return;
+        this.callbacks.onMessage(msg as ServerMessage);
       } catch {
         console.error("Failed to parse WS message:", event.data);
       }
@@ -93,6 +99,7 @@ export class ParadigmWebSocket {
 
     this.ws.onclose = (event) => {
       this.ws = null;
+      this._stopHeartbeat();
       if (this.intentionalClose || event.code === 4004) {
         this.callbacks.onStatusChange("disconnected");
         return;
@@ -105,13 +112,26 @@ export class ParadigmWebSocket {
     };
   }
 
-  private _scheduleReconnect() {
-    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      this.callbacks.onStatusChange("disconnected");
-      return;
+  private _startHeartbeat() {
+    this._stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, HEARTBEAT_INTERVAL);
+  }
+
+  private _stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
+  }
+
+  private _scheduleReconnect() {
+    // Always reconnect — no attempt limit. Backoff caps at 30s.
     this.callbacks.onStatusChange("reconnecting");
-    const delay = Math.min(30_000, BASE_DELAY * Math.pow(2, this.reconnectAttempts));
+    const delay = Math.min(MAX_DELAY, BASE_DELAY * Math.pow(2, this.reconnectAttempts));
     this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

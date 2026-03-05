@@ -3363,3 +3363,16 @@ Goal: Identify minimal config data structure needed for backend independence.
 - `frontend/src/components/research/SetupWizard.tsx`
 - `frontend/src/pages/SettingsPage.tsx`
 - `frontend/src/components/settings/SettingsSection.tsx`
+
+### Prompt 65 — In-App Music Player via YouTube Embeds
+
+### Prompt 66 — WebSocket Keepalive, Reconnect, and Message Buffer
+
+> WebSocket connections drop during long research cycles (overnight runs). Implement: (1) server-side ping/pong keepalive, (2) frontend heartbeat + unlimited reconnect, (3) message buffer so events aren't lost during brief disconnects.
+
+**Artifacts:** `backend/api/routes/ws.py`, `frontend/src/api/websocket.ts`, `backend/api/services/session_manager.py`
+
+> Let's attempt at implementing an 'in App' listen using youtube. Playback: YouTube embeds. The backend for audio is YouTube. YouTube for each track, embed the player. YouTube's free, has no API rate limits for embedded playback, and has nearly every song ever recorded. You're not streaming from your servers — you're just pointing to YouTube's infrastructure. Zero cost, zero bandwidth on our end.
+
+**Key decisions:**
+- TBD — Planning phase
