@@ -3364,15 +3364,89 @@ Goal: Identify minimal config data structure needed for backend independence.
 - `frontend/src/pages/SettingsPage.tsx`
 - `frontend/src/components/settings/SettingsSection.tsx`
 
-### Prompt 65 — In-App Music Player via YouTube Embeds
-
-### Prompt 66 — WebSocket Keepalive, Reconnect, and Message Buffer
+### Prompt 65 — WebSocket Keepalive, Reconnect, and Message Buffer
 
 > WebSocket connections drop during long research cycles (overnight runs). Implement: (1) server-side ping/pong keepalive, (2) frontend heartbeat + unlimited reconnect, (3) message buffer so events aren't lost during brief disconnects.
 
 **Artifacts:** `backend/api/routes/ws.py`, `frontend/src/api/websocket.ts`, `backend/api/services/session_manager.py`
 
-> Let's attempt at implementing an 'in App' listen using youtube. Playback: YouTube embeds. The backend for audio is YouTube. YouTube for each track, embed the player. YouTube's free, has no API rate limits for embedded playback, and has nearly every song ever recorded. You're not streaming from your servers — you're just pointing to YouTube's infrastructure. Zero cost, zero bandwidth on our end.
+---
+
+## 2026-06-03
+
+### Prompt 66 — Resume Work on Paradigm
+
+> Let's get back to working on paradigm
 
 **Key decisions:**
-- TBD — Planning phase
+- Removed a stray "in-app music player" history entry that had leaked in from a different project sharing this folder (Paradigm is the agentic science platform).
+- Produced a full project status report. Findings: Phases 0–11 complete (~25k LOC core, 1219 tests, clean ruff); real usage in DB shows 14 published / 24 rejected / **24 writing_failed** / 189 external papers. Frontier is reliability + output quality, not features.
+
+### Prompt 67 — Diagnose & Fix Failed Runs, Then Eval Harness & Efficiency
+
+> Let's start with 1 and then move to 2 and 3
+
+Where (1), (2), (3) refer to the recommended next steps from the status report:
+1. **Reliability** — diagnose and fix the 24 `writing_failed` runs (38% of research attempts never produced a paper).
+2. **Evaluation harness** — repeatable scorer over fixed seed prompts to measure quality systematically.
+3. **Orchestration efficiency** — reduce the ~65% token waste, tighten convergence, cap execution sprawl.
+
+**Key decisions:**
+- Starting with (1): root-cause the `writing_failed` runs from events.jsonl + transcripts before proposing fixes.
+
+**Diagnosis (step 1):** All 24 `writing_failed` papers had substantial bodies (10k–65k chars) — none were crashes. Every one was killed by the *internal editor* at INTERNAL_REVIEW, before peer review. Two buckets: (A) editor correctly rejected papers built on failed/synthetic experiments, forbidden claims, non-existent figures, bare-URL refs; (B) revise loop ran all 5 iterations as "Revise" and never reached "accept". Also found 2 live code bugs: `tournament_handler` called `provider.complete(system_prompt=, user_prompt=)` against a `(system=, messages=)` signature (tournament silently broken, 188 errors), and `SourceResult.id` rejected None ids from S2/bioRxiv/PubMed/ADS (144 errors → lost lit → bare-URL citations).
+
+**Fixes implemented (all 5, in order); 1226 tests pass, ruff clean, tsc clean:**
+1. Tournament `complete()` signature fixed; tests had encoded the buggy signature — updated to the real Protocol.
+2. `SourceResult` gained a `model_validator` that synthesizes a stable `src-<sha1>` id from url/title when the upstream id is falsy.
+3. Post-EXECUTION go/no-go gate: `abort_on_execution_failure` (default True) stops the cycle with status `execution_failed` when no experiment produced usable output (`successful_code` empty) — saves ~1M tokens on doomed papers.
+4. Revise-loop convergence: re-sanitize Unicode math on every revision; stall early-exit after 2 non-decreasing required-change counts.
+5. Split `writing_failed` into honest statuses: `writing_incomplete`, `review_rejected`, `revision_exhausted` (+`execution_failed`); updated engine, display (×3), terminal colors, frontend StatusBadge.
+
+**Artifacts modified:** `src/paradigm/knowledge/tournament_handler.py`, `src/paradigm/domains/base.py`, `src/paradigm/config.py`, `src/paradigm/orchestrator/{engine,review,writing}.py`, `src/paradigm/display/{manager,fallback,components}.py`, `backend/api/services/ws_display.py`, `frontend/src/components/shared/StatusBadge.tsx`, tests (`test_hypothesis_tournament`, `test_domain_base`, `test_orchestrator`, `test_peer_review`), `tasks/todo.md`.
+
+**Step 2 — Evaluation harness (Phase A, offline) DONE.** User chose: offline-now/live-opt-in, deterministic + LLM judge blended. New `src/paradigm/eval/` package: `models.py` (DeterministicMetrics/JudgeScores/PaperScore/EvalReport + OUTCOME_SCORES), `metrics.py` (domain-agnostic: outcome→score, sections, references + bare-URL ratio, figure present/referenced, citations), `judge.py` (optional, resilient LLM taste judge), `harness.py` (collect → `score_paper` → blend → render/CSV/JSON; `score_paper` reused by future live mode). Added DB `get_thread_id_for_paper` (token attribution) and CLI `paradigm eval` (`--judge/--no-judge`, `--limit`, `--include-external`, `--live` stub). 9 new tests; full suite **1235 passed**, ruff clean. Baseline over real `data/papers`: 63 generated papers, **mean quality 61.0/100**; harness auto-surfaced non-existent figures (paper-37146874e965: 0/32) and bare-URL citations (paper-98e5f2add2a9: 104/106). Phase B (`--live` engine wiring) deferred. Artifacts: `src/paradigm/eval/*`, `src/paradigm/storage/database.py`, `src/paradigm/main.py`, `tests/test_eval.py`, `tasks/todo-eval.md`.
+
+**Step 3 — Orchestration efficiency: DIAGNOSED, then PAUSED (no edits).** User chose diagnose-first + quality-first. Token by role (85.6M total): experimentalist 27.6%, synthesizer 18.8%, theorist 15.4%, analyst 12.9%, skeptic 8.8%, writer 8.5%, editor 6.8%. Initial headline numbers were corrected for honesty: the "64% duplicate searches" is mostly legitimate *cross-cycle* re-search (within-run dedup verified working at `literature.py:292-299`), and "76% zero-result" swept in events lacking a result-count field. **Clean finding:** agents issue `id:<arxiv-id>` lookups through the keyword-search interface, which always returns 0 — **471 zero-result `id:` queries** (e.g. `id:2509.12411` ×15). Proposals drafted (not implemented): P1 route id:/arXiv-ID queries to a real paper lookup; P2 normalize over-long queries to keywords; P3 stamp experiment names on `code_execution` events so retry waste becomes measurable. **Decision: pause and resume later.** User's steer: do paper lookups via **MCP or a dedicated fetch-by-ID path**, not a keyword-search reroute. See `tasks/todo-step3.md`.
+
+> NOTE: Step 1 + Step 2 code changes are complete and verified but **uncommitted** in the working tree.
+
+---
+
+### Prompt 68 — Literature Review & Strategic Synthesis from External Sources
+
+> Please have a look at this repo. Then look into the literature folder. After that I would like for you to lookup these links, downloads relevant articles if needed, and read through. Syntesize all important findings relevant to paradigm in a new md file inside /literature. At the end you should describe carefully and in a detailed way development directions for paradigm that are informed by what you read
+>
+> [16 links provided: Auto-claude-code adversarial research in sleep; Anthropic Operon; Sakana AI Scientist (Nature); OpenGauss (Lean/Math); AlphaXiv MCP (Pento); "AI Can learn scientific taste" (alphaXiv); Self-evolving Agent skills (arXiv 2605.23904); "Why AI Cannot do good science without humans" (Nature); Claude 101 for academia (X/Mushtaq Bilal); "Accelerating scientific research with Gemini" (arXiv 2602.03837); The AI Scientist (arXiv 2408.06292); "What will be scarce?" (Alex Imas substack); Paperclip scientific literature MCP; gxl.ai paperclip CLI; "A new consciousness of mathematics" (substack)]
+
+**Key decisions:**
+- Read existing literature folder (Paradigm Agentic Science research dossier + Competitive Landscape Analysis).
+- Fan out to fetch/read all 16 external sources; synthesize into a new `/literature` md file with Paradigm-relevant findings + detailed development directions.
+
+**Artifacts produced:**
+- `literature/2026-06_Research-Synthesis_and_Development-Directions.md` — synthesis of all 15 external sources (read via 6 parallel research subagents) + 12 prioritized development directions (D1–D12) tied to specific modules, a 4-phase roadmap, and strategic-positioning guidance.
+
+**Key findings (for quick reference):**
+- Master theme: build a **verification kernel** (re-execution + sympy/unit checks + claim-DAG with `sorry`-gates) since empirical science has no Lean kernel — attacks the 38% no-paper rate, quality variability, and credibility at once.
+- Replace the linear execution loop with **tree-search + Experiment Progress Manager** (AI Scientist v2) to fix `writing_failed`.
+- Wire a **held-out eval harness** (prereq for everything) + calibrate the reviewer against the real 14-published/24-rejected DB.
+- **Cross-model adversarial review** ("a loop cannot acquit") + `/kill-argument` phase; **trained taste judge** as the tournament adjudicator (Elo + win-rate, tiered debate cost); **gated skill optimization** (SkillOpt) to make reflection reproducible.
+- Interop: **expose Paradigm as an MCP server** + consume alphaXiv/Paperclip MCP + **paper→repo reproduction**.
+- Strategic: don't optimize for paper *throughput* (Imas: AI output is non-scarce); keep **mandatory human gates** (Nature) at problem-selection/prioritization/verification/ethics; provenance + git threads + verification kernel = the moat.
+- Provenance correction: arXiv 2602.03837 is the Gemini *case-studies* paper, **not** the Co-Scientist tournament paper (that's 2502.18864).
+
+> Note: a research subagent spawned during this prompt auto-appended a spurious "Prompt 69" entry here (subagents inherited the CLAUDE.md logging rule); it was an internal research dispatch, not a human prompt, and has been removed.
+
+---
+
+### Prompt 69 — Commit Prompt-67 Work to a Branch
+
+> Yes, let's commit to a branch
+
+**Action:** Created branch `prompt67-reliability-eval` and committed the (previously uncommitted) Step 1 reliability fixes and Step 2 evaluation harness as two logical commits. Pre-existing untracked files (`PROMPT-*.md`, `literature/`, `paper-*.pdf`) were intentionally left out.
+
+### Prompt 70 — Push and Open a PR
+
+> yes push and open a PR
+
+**Action:** Pushed `prompt67-reliability-eval` to `origin`. The `gh` CLI is not installed in this environment, so the PR is opened via the GitHub compare URL (title/body prepared by Claude) rather than programmatically.

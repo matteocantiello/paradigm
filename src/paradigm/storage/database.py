@@ -278,6 +278,19 @@ class Database:
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_thread_id_for_paper(self, paper_id: str) -> str | None:
+        """Return the thread whose current draft is this paper, if any.
+
+        Used by the evaluation harness to attribute token cost to a paper.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT id FROM threads WHERE current_draft_id = ? LIMIT 1",
+            (paper_id,),
+        )
+        row = cursor.fetchone()
+        return row["id"] if row else None
+
     # Agent operations
 
     def create_agent(

@@ -431,6 +431,92 @@ def paper(config: Config, paper_id: str, export: Path | None) -> None:
         database.close()
 
 
+@cli.command(name="eval")
+@click.option(
+    "--judge/--no-judge",
+    default=False,
+    help="Score with the LLM taste judge in addition to deterministic metrics (costs API tokens).",
+)
+@click.option(
+    "--judge-role",
+    default="editor",
+    help="Config role used to pick the judge provider/model.",
+)
+@click.option("--limit", type=int, default=None, help="Max papers to score (most recent first).")
+@click.option(
+    "--include-external",
+    is_flag=True,
+    default=False,
+    help="Also score ingested external papers (default: only papers this system generated).",
+)
+@click.option(
+    "--live",
+    type=int,
+    default=0,
+    help="(Coming soon) run N live cycles end-to-end and score the fresh output.",
+)
+@click.pass_obj
+def eval_cmd(
+    config: Config,
+    judge: bool,
+    judge_role: str,
+    limit: int | None,
+    include_external: bool,
+    live: int,
+) -> None:
+    """Score research papers on a deterministic + (optional) LLM rubric.
+
+    Examples:
+        paradigm eval
+        paradigm eval --judge --limit 20
+    """
+    from paradigm.eval.harness import (
+        JudgeContext,
+        render_report,
+        run_offline_eval,
+        write_report,
+    )
+    from paradigm.storage.database import Database
+
+    if live:
+        raise click.ClickException(
+            "Live evaluation is not yet wired up. Run offline (omit --live) to score the "
+            "papers already in the database."
+        )
+
+    judge_ctx = None
+    if judge:
+        try:
+            provider, model, extra_body = config.get_provider_and_model_for_role(judge_role)
+            judge_ctx = JudgeContext(provider=provider, model=model, extra_body=extra_body)
+        except Exception as e:  # noqa: BLE001 — degrade gracefully without the judge
+            click.echo(
+                f"[!] Could not initialize the judge ({e}); using deterministic-only scoring.",
+                err=True,
+            )
+
+    database = Database(config.storage.db_path)
+    try:
+        report = run_offline_eval(
+            database,
+            config.storage.papers_dir,
+            limit=limit,
+            include_external=include_external,
+            judge=judge_ctx,
+        )
+    finally:
+        database.close()
+
+    if report.count == 0:
+        click.echo("No papers to score.")
+        return
+
+    click.echo(render_report(report))
+    out_dir = config.storage.data_dir / "eval"
+    json_path, csv_path = write_report(report, out_dir)
+    click.echo(f"\nWrote {json_path}\n      {csv_path}")
+
+
 @cli.command()
 @click.pass_obj
 def agents(config: Config) -> None:
