@@ -366,6 +366,20 @@ class OrchestrationEngine:
             self.state.successful_code = exp_result.successful_code
             self.state.experiment_metadata = exp_result.experiment_metadata
 
+            # Go/no-go gate: if experiments were attempted but none produced usable
+            # output, a data-driven paper is impossible. Stop before WRITING rather
+            # than burning ~1M tokens on a paper the internal editor will reject for
+            # "reporting failed experiments as results". (successful_code excludes
+            # vacuous runs, which are reclassified to FAILURE upstream.)
+            if (
+                self._config.orchestrator.abort_on_execution_failure
+                and not exp_result.successful_code
+            ):
+                self._db.update_thread(self.state.thread_id, status="execution_failed")
+                self._display.execution_failed_abort(exp_result.caveats)
+                self._print_token_summary()
+                return self.state.thread_id
+
         # Phase 3.75: POST_EXECUTION discussion (optional — after experimentation)
         ran_post_execution = False
         if (
@@ -449,10 +463,12 @@ class OrchestrationEngine:
             self._display.phase_transition("INTERNAL_REVIEW")
             await self._review.run_review_phase(paper_draft)
 
-            # Check if internal review exhausted iterations without acceptance
+            # Check if internal review ended without acceptance (editor rejected the
+            # paper, or revisions never converged within the iteration budget).
             thread = self._db.get_thread(self.state.thread_id)
-            if thread and thread.get("status") == "writing_failed":
-                self._display.writing_failed_review_exhausted()
+            review_status = thread.get("status") if thread else None
+            if review_status in ("review_rejected", "revision_exhausted"):
+                self._display.writing_failed_review_exhausted(review_status)
                 paper_id = thread.get("current_draft_id") if thread else None
                 if paper_id:
                     self._save_auxiliary_files(paper_id)

@@ -85,6 +85,98 @@ class TestOrchestrationEngine:
         assert usage["total_tokens"] > 0
 
     @pytest.mark.asyncio
+    async def test_execution_failure_aborts_before_writing(
+        self, tmp_path, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """Experiments producing no usable output abort the cycle before WRITING."""
+        from paradigm.orchestrator.experimentation import ExperimentationResult
+
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "checkpoint_interval": 1,
+                "enable_writing": True,
+                "enable_experimentation": True,
+                "enable_post_execution_discussion": False,
+                "abort_on_execution_failure": True,
+            },
+        )
+        patch_config_provider(config)
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
+
+        no_results = ExperimentationResult(
+            execution_context="", successful_code=[], caveats=["All experiments failed."]
+        )
+        with (
+            patch.object(
+                engine._experimentation,
+                "run_experimentation_phase",
+                AsyncMock(return_value=no_results),
+            ),
+            patch.object(engine._writing, "run_writing_phase", AsyncMock()) as mock_write,
+        ):
+            thread_id = await engine.run_research_cycle(
+                seed_prompt="Test stellar convection", mode="experimental"
+            )
+
+        thread = tmp_db.get_thread(thread_id)
+        assert thread["status"] == "execution_failed"
+        mock_write.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execution_failure_gate_can_be_disabled(
+        self, tmp_path, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """With abort_on_execution_failure=False, the cycle still proceeds to WRITING."""
+        from paradigm.orchestrator.experimentation import ExperimentationResult
+
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "checkpoint_interval": 1,
+                "enable_writing": True,
+                "enable_experimentation": True,
+                "enable_post_execution_discussion": False,
+                "abort_on_execution_failure": False,
+            },
+        )
+        patch_config_provider(config)
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
+
+        no_results = ExperimentationResult(execution_context="", successful_code=[], caveats=[])
+        with (
+            patch.object(
+                engine._experimentation,
+                "run_experimentation_phase",
+                AsyncMock(return_value=no_results),
+            ),
+            patch.object(
+                engine._writing, "run_writing_phase", AsyncMock(return_value=None)
+            ) as mock_write,
+        ):
+            await engine.run_research_cycle(
+                seed_prompt="Test stellar convection", mode="experimental"
+            )
+
+        mock_write.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_thread_creation(
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):
@@ -933,7 +1025,7 @@ class TestOrchestrationEngine:
 
     @pytest.mark.asyncio
     async def test_empty_paper_guard(self, tmp_db, tmp_logger, mock_factory, mock_corpus):
-        """Writing phase that produces empty content sets writing_failed status."""
+        """Writing phase that produces empty content sets writing_incomplete status."""
         config = Config(
             api_key="fake-api-key",
             storage={"data_dir": str(tmp_db.db_path.parent / "data")},
@@ -943,6 +1035,9 @@ class TestOrchestrationEngine:
                 "enable_checkpointing": False,
                 "enable_writing": True,
                 "enable_peer_review": False,
+                # Isolate the WRITING empty-paper guard: skip EXECUTION so the
+                # post-execution go/no-go gate doesn't intercept first.
+                "enable_experimentation": False,
             },
         )
         patch_config_provider(config)
@@ -983,7 +1078,7 @@ class TestOrchestrationEngine:
         )
 
         thread = tmp_db.get_thread(thread_id)
-        assert thread["status"] == "writing_failed"
+        assert thread["status"] == "writing_incomplete"
         # No paper should have been created
         assert thread.get("current_draft_id") is None
 

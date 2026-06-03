@@ -298,7 +298,7 @@ class TestTournamentHandler:
 
         call_count = [0]
 
-        def mock_complete(system_prompt, user_prompt, model, max_tokens, extra_body=None):
+        def mock_complete(*, model, system, messages, max_tokens, temperature=0.7, extra_body=None):
             call_count[0] += 1
             if call_count[0] == 1:
                 # Extraction call
@@ -379,7 +379,7 @@ class TestTournamentHandler:
 
         call_count = [0]
 
-        def mock_complete(system_prompt, user_prompt, model, max_tokens, extra_body=None):
+        def mock_complete(*, model, system, messages, max_tokens, temperature=0.7, extra_body=None):
             call_count[0] += 1
             if call_count[0] == 1:
                 raise ValueError("LLM error")

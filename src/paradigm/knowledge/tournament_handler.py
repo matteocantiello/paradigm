@@ -148,9 +148,9 @@ class TournamentHandler:
                 "synthesizer"
             )
             response_text, input_tokens, output_tokens = provider.complete(
-                system_prompt="You extract hypotheses from research discussions.",
-                user_prompt=prompt,
                 model=model,
+                system="You extract hypotheses from research discussions.",
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=2048,
                 extra_body=extra_body,
             )
@@ -209,9 +209,9 @@ class TournamentHandler:
                 "debate_judge"
             )
             response_text, input_tokens, output_tokens = provider.complete(
-                system_prompt="You are an impartial hypothesis judge.",
-                user_prompt=prompt,
                 model=model,
+                system="You are an impartial hypothesis judge.",
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=512,
                 extra_body=extra_body,
             )

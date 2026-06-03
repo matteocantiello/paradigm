@@ -922,21 +922,36 @@ class DisplayManager:
         else:
             self._fallback.conceptual_figures_none()
 
+    def execution_failed_abort(self, caveats: list[str] | None = None) -> None:
+        self._state.outcome = "execution_failed"
+        self._state.add_event(
+            "error", "Experiments produced no usable output — aborting before writing"
+        )
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.execution_failed_abort(caveats or [])
+
     def writing_failed_skip_review(self) -> None:
-        self._state.outcome = "writing_failed"
-        self._state.add_event("error", "Writing failed, skipping review")
+        self._state.outcome = "writing_incomplete"
+        self._state.add_event("error", "Writing produced too little content, skipping review")
         if self._use_rich:
             self._refresh()
         else:
             self._fallback.writing_failed_skip_review()
 
-    def writing_failed_review_exhausted(self) -> None:
-        self._state.outcome = "writing_failed"
-        self._state.add_event("error", "Internal review never accepted paper")
+    def writing_failed_review_exhausted(self, status: str = "revision_exhausted") -> None:
+        self._state.outcome = status
+        msg = (
+            "Internal review rejected the paper"
+            if status == "review_rejected"
+            else "Internal review never accepted the paper after revisions"
+        )
+        self._state.add_event("error", msg)
         if self._use_rich:
             self._refresh()
         else:
-            self._fallback.writing_failed_review_exhausted()
+            self._fallback.writing_failed_review_exhausted(status)
 
     # ------------------------------------------------------------------
     # Review

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # Source provider models
@@ -25,6 +26,26 @@ class SourceResult(BaseModel):
     date: datetime | None = None
     content: str | None = None
     metadata: dict = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ensure_id(cls, data: object) -> object:
+        """Synthesize a stable id when the upstream source provides none.
+
+        Several providers (Semantic Scholar ``paperId``, bioRxiv DOI, PubMed
+        PMID, NASA ADS ``arxiv_id``/``bibcode``) can legitimately return a null
+        primary identifier. Rather than dropping an otherwise-useful result with
+        a Pydantic validation error, derive a deterministic id from the url or
+        title so dedup and citation grounding still work.
+        """
+        if isinstance(data, dict) and not data.get("id"):
+            seed = str(data.get("url") or data.get("title") or "").strip()
+            if seed:
+                digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:16]
+                data["id"] = f"src-{digest}"
+            else:
+                data["id"] = "src-unknown"
+        return data
 
 
 class SourceDocument(BaseModel):

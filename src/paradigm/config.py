@@ -111,6 +111,9 @@ class OrchestratorConfig(BaseModel):
     num_reviewers: int = 2
     max_revision_rounds: int = 4
     enable_experimentation: bool = True
+    # When experiments were attempted but none produced usable output, abort the
+    # cycle before WRITING instead of writing a paper the editor will reject.
+    abort_on_execution_failure: bool = True
     enable_post_execution_discussion: bool = True
     max_experiment_rounds: int | None = None  # Default: 2 × max_rounds_per_phase
     max_searches_per_round: int = 3

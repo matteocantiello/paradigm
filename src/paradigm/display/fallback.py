@@ -369,11 +369,21 @@ class PlainTextFallback:
     def conceptual_figures_none(self) -> None:
         click.echo("  [!] All conceptual figure attempts failed, stripping references")
 
-    def writing_failed_skip_review(self) -> None:
-        click.echo("  Skipping review/submission \u2014 writing phase failed.")
+    def execution_failed_abort(self, caveats: list[str]) -> None:
+        click.echo(
+            "  Aborting before writing \u2014 experiments produced no usable output."
+        )
+        for c in caveats:
+            click.echo(f"    - {c}")
 
-    def writing_failed_review_exhausted(self) -> None:
-        click.echo("  Writing failed \u2014 internal review never accepted the paper.")
+    def writing_failed_skip_review(self) -> None:
+        click.echo("  Skipping review/submission \u2014 writing produced too little content.")
+
+    def writing_failed_review_exhausted(self, status: str = "revision_exhausted") -> None:
+        if status == "review_rejected":
+            click.echo("  Internal review rejected the paper.")
+        else:
+            click.echo("  Internal review never accepted the paper after revisions.")
 
     # ------------------------------------------------------------------
     # Review

@@ -741,11 +741,11 @@ class TestEngineRevisionLoop:
 
 
 class TestReviewLoopWritingFailedOnExhaustion:
-    """Regression test: max review iterations without acceptance → writing_failed."""
+    """Regression test: max review iterations without acceptance → revision_exhausted."""
 
     @pytest.mark.asyncio
     async def test_writing_failed_on_exhaustion(self, tmp_path, tmp_db, tmp_logger, mock_corpus):
-        """When editor never accepts during internal review, paper gets writing_failed."""
+        """When editor never accepts during internal review, paper gets revision_exhausted."""
         config = Config(
             api_key="fake-api-key",
             storage={"data_dir": str(tmp_path / "data")},
@@ -786,12 +786,94 @@ class TestReviewLoopWritingFailedOnExhaustion:
         )
 
         thread = tmp_db.get_thread(thread_id)
-        assert thread["status"] == "writing_failed"
+        assert thread["status"] == "revision_exhausted"
 
-        # Paper should also be writing_failed
+        # Paper should also be revision_exhausted
         if thread.get("current_draft_id"):
             paper = tmp_db.get_paper(thread["current_draft_id"])
-            assert paper["status"] == "writing_failed"
+            assert paper["status"] == "revision_exhausted"
+
+    @pytest.mark.asyncio
+    async def test_internal_review_reject_sets_review_rejected(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """An explicit editor 'Reject' marks the paper review_rejected (not writing_failed)."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "checkpoint_interval": 1,
+                "enable_writing": True,
+                "enable_experimentation": False,
+                "max_review_iterations": 3,
+                "enable_peer_review": True,
+            },
+        )
+        patch_config_provider(config)
+        factory = _make_writing_factory(
+            editor_desk_response=(
+                "## Strengths\n- Interesting\n\n"
+                "## Weaknesses\n- Fatal, unrecoverable flaw\n\n"
+                "## Recommendation\nReject"
+            )
+        )
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Paper the editor rejects", mode="directed"
+        )
+        thread = tmp_db.get_thread(thread_id)
+        assert thread["status"] == "review_rejected"
+
+    @pytest.mark.asyncio
+    async def test_review_loop_stops_early_when_not_converging(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Non-decreasing required changes across iterations triggers an early stall exit."""
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "checkpoint_interval": 1,
+                "enable_writing": True,
+                "enable_experimentation": False,
+                "max_review_iterations": 5,
+                "enable_peer_review": False,
+            },
+        )
+        patch_config_provider(config)
+        factory = _make_writing_factory(
+            editor_desk_response=(
+                "## Weaknesses\n- Persistent gap\n\n"
+                "## Required Changes\n- Fix the methodology\n\n"
+                "## Recommendation\nRevise"
+            )
+        )
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Paper that never converges", mode="directed"
+        )
+        # Stall limit is 2 consecutive non-decreasing iterations → break on the 3rd,
+        # well short of the 5-iteration budget.
+        internal_reviews = [
+            e for e in engine._review.review_log if e.get("type") == "internal_review"
+        ]
+        assert len(internal_reviews) == 3
+        thread = tmp_db.get_thread(thread_id)
+        assert thread["status"] == "revision_exhausted"
 
 
 class TestExecutionMetadataInjection:

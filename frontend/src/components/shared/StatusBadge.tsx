@@ -10,6 +10,12 @@ const STATUS_STYLES: Record<string, string> = {
   aborted: "bg-red-500/15 text-red-400 border-red-500/25",
   failed: "bg-red-500/15 text-red-400 border-red-500/25",
   rejected: "bg-red-500/15 text-red-400 border-red-500/25",
+  // Distinct end states for runs that did not produce a published paper.
+  writing_failed: "bg-red-500/15 text-red-400 border-red-500/25", // legacy/historical
+  writing_incomplete: "bg-red-500/15 text-red-400 border-red-500/25",
+  execution_failed: "bg-orange-500/15 text-orange-400 border-orange-500/25",
+  review_rejected: "bg-red-500/15 text-red-400 border-red-500/25",
+  revision_exhausted: "bg-amber-500/15 text-amber-400 border-amber-500/25",
   draft: "bg-muted text-muted-foreground border-border",
   submitted: "bg-purple-500/15 text-purple-400 border-purple-500/25",
 };
@@ -19,6 +25,9 @@ const ANIMATED_STATUSES = new Set(["running", "starting"]);
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   const style = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   const isAnimated = ANIMATED_STATUSES.has(status);
+  // Render multi-word statuses readably (e.g. "revision_exhausted" → "revision exhausted");
+  // the `capitalize` class then title-cases each word.
+  const label = status.replace(/_/g, " ");
 
   return (
     <span
@@ -34,7 +43,7 @@ export function StatusBadge({ status, className }: { status: string; className?:
           <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
         </span>
       )}
-      {status}
+      {label}
     </span>
   );
 }

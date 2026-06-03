@@ -597,11 +597,27 @@ class WebSocketDisplayAdapter:
     def conceptual_figures_none(self) -> None:
         self._notify("All conceptual figure attempts failed", category="writing", level="warning")
 
-    def writing_failed_skip_review(self) -> None:
-        self._notify("Writing failed, skipping review", category="writing", level="error")
+    def execution_failed_abort(self, caveats: list[str] | None = None) -> None:
+        self._notify(
+            "Experiments produced no usable output — aborting before writing",
+            category="execution",
+            level="error",
+        )
 
-    def writing_failed_review_exhausted(self) -> None:
-        self._notify("Internal review never accepted paper", category="writing", level="error")
+    def writing_failed_skip_review(self) -> None:
+        self._notify(
+            "Writing produced too little content, skipping review",
+            category="writing",
+            level="error",
+        )
+
+    def writing_failed_review_exhausted(self, status: str = "revision_exhausted") -> None:
+        msg = (
+            "Internal review rejected the paper"
+            if status == "review_rejected"
+            else "Internal review never accepted the paper after revisions"
+        )
+        self._notify(msg, category="writing", level="error")
 
     # ------------------------------------------------------------------
     # Review

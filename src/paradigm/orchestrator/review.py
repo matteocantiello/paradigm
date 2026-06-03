@@ -11,6 +11,7 @@ from paradigm.journal.paper import (
     PaperDraft,
     parse_review_feedback,
     parse_sections_from_markdown,
+    sanitize_unicode_math,
     strip_agent_scaffolding,
 )
 from paradigm.journal.publication import reject_paper
@@ -35,6 +36,11 @@ if TYPE_CHECKING:
 
 
 _INTERNAL_REVIEW_MAX_RETRIES = 2
+
+# If the editor's required-change count fails to decrease for this many consecutive
+# revise iterations, the writer isn't converging — stop early instead of burning the
+# remaining rounds on a paper that won't reach "accept".
+_REVIEW_STALL_LIMIT = 2
 
 
 class ReviewHandler:
@@ -164,6 +170,9 @@ class ReviewHandler:
             return
 
         max_iterations = self._engine._config.orchestrator.max_review_iterations
+
+        prev_required_count: int | None = None
+        stall_count = 0
 
         for iteration in range(1, max_iterations + 1):
             self._engine._display.review_iteration(iteration, max_iterations)
@@ -296,10 +305,10 @@ class ReviewHandler:
                 thread = self._engine._db.get_thread(self._engine.state.thread_id)
                 if thread and thread.get("current_draft_id"):
                     self._engine._db.update_paper(
-                        thread["current_draft_id"], status="writing_failed"
+                        thread["current_draft_id"], status="review_rejected"
                     )
                 self._engine._db.update_thread(
-                    self._engine.state.thread_id, status="writing_failed"
+                    self._engine.state.thread_id, status="review_rejected"
                 )
                 return
 
@@ -309,6 +318,19 @@ class ReviewHandler:
                 if thread and thread.get("current_draft_id"):
                     self._engine._db.update_paper(thread["current_draft_id"], status="reviewed")
                 return
+
+            # Convergence check: if the writer isn't reducing the editor's required
+            # changes across consecutive iterations, it isn't converging. Stop early
+            # rather than burning the remaining rounds (Bucket B: papers that spent all
+            # 5 iterations stuck on "Revise" and never reached "accept").
+            required_count = len(feedback.required_changes)
+            if prev_required_count is not None and required_count >= prev_required_count:
+                stall_count += 1
+            else:
+                stall_count = 0
+            prev_required_count = required_count
+            if stall_count >= _REVIEW_STALL_LIMIT:
+                break
 
             # Revision needed — writer revises
             if iteration < max_iterations:
@@ -327,12 +349,16 @@ class ReviewHandler:
                     )
                     self._engine._writing.save_paper_file(paper_id, current_body)
 
-        # Max iterations reached without editor acceptance — writing failed
+        # Loop ended without editor acceptance (max iterations or stalled revisions).
         self._engine._display.review_max_iterations()
         thread = self._engine._db.get_thread(self._engine.state.thread_id)
         if thread and thread.get("current_draft_id"):
-            self._engine._db.update_paper(thread["current_draft_id"], status="writing_failed")
-        self._engine._db.update_thread(self._engine.state.thread_id, status="writing_failed")
+            self._engine._db.update_paper(
+                thread["current_draft_id"], status="revision_exhausted"
+            )
+        self._engine._db.update_thread(
+            self._engine.state.thread_id, status="revision_exhausted"
+        )
 
     async def run_revision(self, current_body: str, review_text: str) -> str:
         """Writer revises the paper based on review feedback.
@@ -380,7 +406,11 @@ class ReviewHandler:
             await self._engine._literature.process_literature_actions(
                 writer.agent_id, response.content, ResearchPhase.INTERNAL_REVIEW
             )
-            return strip_agent_scaffolding(response.content)
+            # Re-sanitize: the initial assembly converts Unicode math to LaTeX, but a
+            # revision can reintroduce Unicode symbols (μ, ∑, α, subscripts). Without this,
+            # the editor flags "mathematical notation violations" every iteration and the
+            # review loop never converges (see paper-b94ddf: all 5 rounds "Revise").
+            return sanitize_unicode_math(strip_agent_scaffolding(response.content))
         except Exception as e:
             self._engine._logger.log_error(
                 e, agent_id=writer.agent_id, thread_id=self._engine.state.thread_id

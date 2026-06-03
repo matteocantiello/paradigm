@@ -278,7 +278,11 @@ def build_final_summary(
             "reviewed": "bold green",
             "rejected": "bold red",
             "aborted": "bold red",
-            "writing_failed": "bold red",
+            "writing_failed": "bold red",  # legacy/historical threads
+            "writing_incomplete": "bold red",
+            "execution_failed": "bold red",
+            "review_rejected": "bold red",
+            "revision_exhausted": "bold red",
         }.get(state.outcome, "bold yellow")
         content.append("Outcome: ", style="bold")
         content.append(f"{state.outcome.upper()}\n", style=outcome_style)
