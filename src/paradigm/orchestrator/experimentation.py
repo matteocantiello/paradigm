@@ -33,7 +33,23 @@ from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, Execution
 
 if TYPE_CHECKING:
     from paradigm.agents.base import Agent
+    from paradigm.knowledge.models import PredictionRule
     from paradigm.orchestrator.engine import OrchestrationEngine
+
+
+def _format_rule_bound(rule: PredictionRule) -> str:
+    """Human-readable description of when a pre-registered prediction holds."""
+    key = rule.metric_stdout_key
+    direction = str(rule.direction)
+    if direction == "inside" and rule.low is not None and rule.high is not None:
+        return f"claim holds when {rule.low:g} <= {key} <= {rule.high:g}"
+    if direction == "outside" and rule.low is not None and rule.high is not None:
+        return f"claim holds when {key} < {rule.low:g} or {key} > {rule.high:g}"
+    if direction == "greater" and rule.low is not None:
+        return f"claim holds when {key} > {rule.low:g}"
+    if direction == "less" and rule.high is not None:
+        return f"claim holds when {key} < {rule.high:g}"
+    return f"report {key}"
 
 
 def _truncate_code_for_retry(code: str, error_lineno: int | None, context_lines: int = 10) -> str:
@@ -448,6 +464,23 @@ class ExperimentationHandler:
                             "Execute them in order of priority:\n"
                             + engine.state.planning_action_items
                         )
+
+                    # Inject pre-registered predictions (1A): the experimentalist MUST
+                    # compute and print each metric token so the verdict can be evaluated.
+                    if engine.state.registered_rules:
+                        rule_lines = [
+                            "\n\n## PRE-REGISTERED PREDICTIONS (you MUST report these)",
+                            "For each prediction below, compute the metric and print it on its "
+                            "own line as `<metric_stdout_key>=<value>` (and `<key>_p=<value>` if a "
+                            "p-value is required). These EXACT tokens are parsed to decide whether "
+                            "each hypothesis is confirmed or refuted — do not rename them.",
+                        ]
+                        for r in engine.state.registered_rules:
+                            rule_lines.append(
+                                f"- `{r.metric_stdout_key}` ({r.metric_name}): "
+                                f"{_format_rule_bound(r)}. Refutation: {r.refutation_condition}"
+                            )
+                        prompt += "\n".join(rule_lines) + "\n"
 
                     # Inject strategy redirect, advisory, and skipped-experiment messages
                     if _strategy_redirect_message:

@@ -1502,3 +1502,29 @@ _TOURNAMENT_SYNTHESIS_TEMPLATE = (
     "What is IN scope and OUT of scope for this research.\n\n"
     "Be concise — this synthesis will be carried forward to all subsequent phases."
 )
+
+# Pre-registration (1A): freeze a falsifiable prediction per hypothesis BEFORE execution.
+_PREREGISTRATION_PROMPT = (
+    "You are pre-registering falsifiable predictions BEFORE any experiment is run. "
+    "For each candidate hypothesis below, define ONE machine-readable prediction that "
+    "would CONFIRM or REFUTE it, so the result cannot be reinterpreted after the fact.\n\n"
+    "## Research Topic\n{seed_prompt}\n\n"
+    "## Candidate Hypotheses\n{hypotheses}\n\n"
+    "## Planned Methodology\n{planning_actions}\n\n"
+    "Return a JSON array with one object per hypothesis. Each object MUST have:\n"
+    '- "hypothesis_index": 0-based index into the list above\n'
+    '- "metric_name": the quantity that decides the claim (e.g. "pearson_r", "rmse")\n'
+    '- "metric_stdout_key": the EXACT token the experiment must print, as '
+    "`metric_stdout_key=<value>` on its own line (use a short snake_case identifier)\n"
+    '- "direction": one of "inside" | "outside" | "greater" | "less"\n'
+    '- "low": lower bound (number or null)\n'
+    '- "high": upper bound (number or null)\n'
+    '- "significance_max_p": required max p-value (number or null)\n'
+    '- "refutation_condition": REQUIRED, non-empty — a concrete statement of what '
+    "observation would prove the hypothesis WRONG\n\n"
+    "Rules: a claim holds when the metric satisfies (direction, low, high). For 'inside'/"
+    "'outside' provide BOTH low and high; for 'greater' provide low; for 'less' provide high. "
+    "Every hypothesis MUST have a non-empty refutation_condition — if you cannot state one, "
+    "the hypothesis is not falsifiable and should be dropped (omit it).\n\n"
+    "Output ONLY valid JSON (no markdown fences, no extra text)."
+)

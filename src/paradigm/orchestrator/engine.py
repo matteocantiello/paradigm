@@ -48,6 +48,7 @@ from paradigm.orchestrator.experimentation import ExperimentationHandler
 from paradigm.orchestrator.literature import LiteratureHandler
 from paradigm.orchestrator.memory import MemoryHandler
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
+from paradigm.orchestrator.preregistration import PreRegistrationHandler
 from paradigm.orchestrator.review import ReviewHandler
 from paradigm.orchestrator.scheduler import Scheduler
 from paradigm.orchestrator.state import ResearchState
@@ -122,6 +123,7 @@ class OrchestrationEngine:
         self._experimentation = ExperimentationHandler(self)
         self._memory = MemoryHandler(self)
         self._world_model = WorldModelHandler(self)
+        self._prereg = PreRegistrationHandler(self)
 
         # Lazy import to avoid circular dependency (tournament_handler → constants → engine)
         from paradigm.knowledge.tournament_handler import TournamentHandler
@@ -280,6 +282,8 @@ class OrchestrationEngine:
         if self._config.knowledge.enable_hypothesis_tournament:
             winners = await self._tournament.run_tournament()
             if winners:
+                # Carry winners forward so PRE_REGISTRATION (1A) can freeze rules for them.
+                self.state.selected_hypotheses = list(winners)
                 self._emit_knowledge_update()
                 await self._run_tournament_synthesis(winners)
             else:
@@ -355,8 +359,27 @@ class OrchestrationEngine:
                 self._display.phase_paused()
                 return self.state.thread_id
 
-            self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
-            self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
+            # Phase 3.4: PRE_REGISTRATION (1A, optional) — freeze falsifiable
+            # predictions before execution so results can't be reinterpreted later.
+            if self._config.knowledge.enable_preregistration:
+                self.state.phase_manager.transition_to(ResearchPhase.PRE_REGISTRATION)
+                self._log_phase_transition(
+                    ResearchPhase.PLANNING, ResearchPhase.PRE_REGISTRATION
+                )
+                self._display.phase_transition("PRE_REGISTRATION")
+                frozen_rules = await self._prereg.run_freeze()
+                if not frozen_rules and self._config.knowledge.prereg_on_empty == "blocking":
+                    self._db.update_thread(self.state.thread_id, status="prereg_failed")
+                    self._display.phase_aborted()
+                    self._print_token_summary()
+                    return self.state.thread_id
+                self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
+                self._log_phase_transition(
+                    ResearchPhase.PRE_REGISTRATION, ResearchPhase.EXECUTION
+                )
+            else:
+                self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
+                self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
             self.state.messages = []
             self._display.phase_transition("EXECUTION")
             exp_result = await self._experimentation.run_experimentation_phase()
@@ -365,6 +388,16 @@ class OrchestrationEngine:
             self.state.execution_figures = exp_result.execution_figures
             self.state.successful_code = exp_result.successful_code
             self.state.experiment_metadata = exp_result.experiment_metadata
+
+            # Pre-registration verdicts (1A): evaluate frozen rules against the
+            # captured experiment output. Verdicts feed the writing Fact Sheet so
+            # refuted hypotheses are reported honestly (and are publishable).
+            if self._config.knowledge.enable_preregistration and self.state.registered_rules:
+                verdicts = self._prereg.evaluate(exp_result.experiment_metadata)
+                for v in verdicts:
+                    self._display.info(
+                        f"Pre-registration verdict [{v['verdict']}]: {v['detail']}"
+                    )
 
             # Go/no-go gate: if experiments were attempted but none produced usable
             # output, a data-driven paper is impossible. Stop before WRITING rather

@@ -188,6 +188,10 @@ class KnowledgeConfig(BaseModel):
     tournament_population_size: int = 8
     tournament_winners: int = 2
     tournament_k_factor: float = 32.0
+    # Pre-registration / falsifiability (Phase 1A). Off by default.
+    enable_preregistration: bool = False
+    prereg_require_refutation: bool = True  # reject hypotheses lacking a refutation condition
+    prereg_on_empty: str = "advisory"  # "advisory" (warn + continue) or "blocking" (abort)
 
 
 class ProviderConfigEntry(BaseModel):

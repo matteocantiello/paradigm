@@ -15,6 +15,7 @@ class TestResearchPhase:
             "ideation",
             "planning",
             "literature",
+            "pre_registration",
             "execution",
             "post_execution",
             "writing",

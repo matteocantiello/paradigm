@@ -104,6 +104,24 @@ class WritingHandler:
             lines.append("*(All experiments succeeded.)*")
             lines.append("")
 
+        # --- Pre-registered verdicts (1A) ---
+        verdicts = self._engine.state.prereg_verdicts
+        if verdicts:
+            lines.append("### Pre-Registered Verdicts (report honestly)")
+            for v in verdicts:
+                lines.append(
+                    f"- **{v.get('metric', '?')}**: "
+                    f"{v.get('verdict', '?').upper()} — {v.get('detail', '')}"
+                )
+                rc = v.get("refutation_condition")
+                if rc:
+                    lines.append(f"  (refutation condition: {rc})")
+            lines.append(
+                "A REFUTED or INCONCLUSIVE prediction is a valid, publishable result — "
+                "report it as such; do NOT spin it as confirmation."
+            )
+            lines.append("")
+
         lines.append(
             "**If you write a number not found in any Actual Output block above, "
             "you are confabulating. Cross-check every quantitative claim.**"
@@ -177,6 +195,16 @@ class WritingHandler:
                 forbidden.append(
                     f"Do NOT describe experiment '{name}' as having produced results "
                     f"(it FAILED: {reason})"
+                )
+
+        # Auto-generate from refuted pre-registered predictions (1A): a refuted
+        # hypothesis must not be presented as supported.
+        for v in self._engine.state.prereg_verdicts:
+            if v.get("verdict") == "refuted":
+                forbidden.append(
+                    f"Do NOT claim the hypothesis behind pre-registered metric "
+                    f"'{v.get('metric', '?')}' is supported — it was REFUTED "
+                    f"({v.get('detail', '')})."
                 )
 
         return forbidden

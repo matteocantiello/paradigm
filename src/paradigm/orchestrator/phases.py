@@ -10,6 +10,7 @@ class ResearchPhase(StrEnum):
     IDEATION = "ideation"
     PLANNING = "planning"
     LITERATURE = "literature"
+    PRE_REGISTRATION = "pre_registration"
     EXECUTION = "execution"
     POST_EXECUTION = "post_execution"
     WRITING = "writing"
@@ -27,10 +28,16 @@ _TRANSITIONS: dict[ResearchPhase, list[ResearchPhase]] = {
     ResearchPhase.IDEATION: [ResearchPhase.PLANNING],
     ResearchPhase.PLANNING: [
         ResearchPhase.LITERATURE,
+        ResearchPhase.PRE_REGISTRATION,
         ResearchPhase.EXECUTION,
         ResearchPhase.WRITING,
     ],
-    ResearchPhase.LITERATURE: [ResearchPhase.EXECUTION, ResearchPhase.PLANNING],
+    ResearchPhase.LITERATURE: [
+        ResearchPhase.PRE_REGISTRATION,
+        ResearchPhase.EXECUTION,
+        ResearchPhase.PLANNING,
+    ],
+    ResearchPhase.PRE_REGISTRATION: [ResearchPhase.EXECUTION, ResearchPhase.PLANNING],
     ResearchPhase.EXECUTION: [
         ResearchPhase.POST_EXECUTION,
         ResearchPhase.WRITING,
@@ -55,6 +62,7 @@ _DESCRIPTIONS: dict[ResearchPhase, str] = {
     ResearchPhase.IDEATION: "Agents propose and debate hypotheses through structured discussion rounds.",
     ResearchPhase.PLANNING: "Develop a concrete research plan: experiments, data needs, success criteria.",
     ResearchPhase.LITERATURE: "Deep literature review to inform execution.",
+    ResearchPhase.PRE_REGISTRATION: "Freeze falsifiable predictions and decision rules before execution.",
     ResearchPhase.EXECUTION: "Run computational experiments in sandboxed environment.",
     ResearchPhase.POST_EXECUTION: "Team discusses experimental results: interprets findings, flags limitations, agrees on conclusions.",
     ResearchPhase.WRITING: "Draft the research paper in markdown format.",

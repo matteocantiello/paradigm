@@ -26,6 +26,7 @@ PHASE_ICONS: dict[ResearchPhase, str] = {
     ResearchPhase.IDEATION: "\U0001f4a1",  # 💡
     ResearchPhase.PLANNING: "\U0001f4d0",  # 📐
     ResearchPhase.LITERATURE: "\U0001f4da",  # 📚
+    ResearchPhase.PRE_REGISTRATION: "\U0001f4cb",  # 📋
     ResearchPhase.EXECUTION: "\u2699\ufe0f",  # ⚙️
     ResearchPhase.POST_EXECUTION: "\U0001f4ac",  # 💬
     ResearchPhase.WRITING: "\U0001f4dd",  # 📝

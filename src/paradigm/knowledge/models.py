@@ -69,6 +69,25 @@ class ConfidenceLevel(StrEnum):
     ESTABLISHED = "established"
 
 
+class PredictionDirection(StrEnum):
+    """How a metric value relates to the bound(s) for a claim to hold."""
+
+    INSIDE = "inside"  # claim holds iff low <= metric <= high
+    OUTSIDE = "outside"  # claim holds iff metric < low or metric > high
+    GREATER = "greater"  # claim holds iff metric > low
+    LESS = "less"  # claim holds iff metric < high
+
+
+class PredictionVerdict(StrEnum):
+    """Outcome of evaluating a pre-registered prediction against captured results."""
+
+    UNREGISTERED = "unregistered"
+    REGISTERED = "registered"
+    CONFIRMED = "confirmed"
+    REFUTED = "refuted"
+    INCONCLUSIVE = "inconclusive"
+
+
 # ---------------------------------------------------------------------------
 # Core models
 # ---------------------------------------------------------------------------
@@ -119,6 +138,57 @@ class Hypothesis(BaseModel):
     supporting_evidence_ids: list[str] = Field(default_factory=list)
     contradicting_evidence_ids: list[str] = Field(default_factory=list)
     elo_rating: float = 1500.0
+    # Pre-registration (1A): link to a frozen prediction rule + its evaluated verdict.
+    prediction_rule_id: str | None = None
+    verdict: PredictionVerdict = PredictionVerdict.UNREGISTERED
+
+
+class PredictionRule(BaseModel):
+    """A machine-readable, falsifiable prediction frozen before EXECUTION.
+
+    The post-execution verdict is computed *only* against this frozen rule
+    (never re-read from agent text), which blocks post-hoc redefinition.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    hypothesis_id: str = ""
+    metric_name: str = ""  # human-readable metric name, e.g. "pearson_r"
+    metric_stdout_key: str = ""  # exact token the experimentalist must print, e.g. "pearson_r"
+    direction: PredictionDirection = PredictionDirection.INSIDE
+    low: float | None = None
+    high: float | None = None
+    significance_max_p: float | None = None  # if set, p-value must be <= this
+    refutation_condition: str = ""  # REQUIRED non-empty: what would prove the claim wrong
+    registered_at: str = ""  # ISO timestamp, set at the freeze gate
+    frozen: bool = False  # True once frozen; immutable thereafter
+
+    def is_well_formed(self) -> bool:
+        """A rule is admissible only if it has a refutation condition and a usable bound."""
+        if not self.refutation_condition.strip():
+            return False
+        if not self.metric_stdout_key.strip():
+            return False
+        if self.direction in (PredictionDirection.INSIDE, PredictionDirection.OUTSIDE):
+            return self.low is not None and self.high is not None
+        if self.direction == PredictionDirection.GREATER:
+            return self.low is not None
+        if self.direction == PredictionDirection.LESS:
+            return self.high is not None
+        return False
+
+    def holds(self, value: float) -> bool:
+        """Whether a measured value satisfies the claim (the hypothesis is confirmed)."""
+        if self.direction == PredictionDirection.INSIDE:
+            return self.low is not None and self.high is not None and self.low <= value <= self.high
+        if self.direction == PredictionDirection.OUTSIDE:
+            return self.low is not None and self.high is not None and (
+                value < self.low or value > self.high
+            )
+        if self.direction == PredictionDirection.GREATER:
+            return self.low is not None and value > self.low
+        if self.direction == PredictionDirection.LESS:
+            return self.high is not None and value < self.high
+        return False
 
 
 class OpenQuestion(BaseModel):
