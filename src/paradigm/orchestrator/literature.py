@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import TYPE_CHECKING, Any
 
 from paradigm.domains.base import arxiv_paper_to_source_result
@@ -48,6 +49,25 @@ if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
 
 _logger = logging.getLogger(__name__)
+
+# An arXiv-id lookup disguised as a keyword query (new-style 2509.12411[v2] or
+# old-style astro-ph/0601001), optionally `id:`/`arxiv:` prefixed. The whole query
+# must be the id — normal keyword queries never match (anchored).
+_ARXIV_ID_QUERY_RE = re.compile(
+    r"^(?:id:\s*|arxiv:\s*)?"
+    r"(?P<id>\d{4}\.\d{4,5}(?:v\d+)?|[a-z][a-z\-]+(?:\.[A-Za-z]{2})?/\d{7}(?:v\d+)?)$",
+    re.IGNORECASE,
+)
+
+
+def _extract_arxiv_id_query(query: str) -> str | None:
+    """Return the bare arXiv id if a search query is really an id lookup, else None.
+
+    Catches the common token-waste pattern where agents issue ``[SEARCH: id:2509.12411]``
+    (or a bare id) into the keyword interface, which can never satisfy it.
+    """
+    match = _ARXIV_ID_QUERY_RE.match(query.strip())
+    return match.group("id") if match else None
 
 
 class LiteratureHandler:
@@ -309,6 +329,14 @@ class LiteratureHandler:
                 self._engine._display.search_agent_cap(agent_id, per_agent_cap, query)
                 break
 
+            # Interop slice: route arXiv-id lookups to a direct fetch-by-id instead of
+            # keyword search (which can never satisfy them) — eliminates guaranteed-zero
+            # `id:<arxiv-id>` queries that otherwise waste the search budget.
+            arxiv_id = _extract_arxiv_id_query(query)
+            if arxiv_id is not None:
+                await self._resolve_id_query(agent_id, query, query_key, arxiv_id, new_kw, phase)
+                continue
+
             try:
                 papers = await self._engine._corpus.search(
                     query,
@@ -443,6 +471,64 @@ class LiteratureHandler:
                 exhaustion_warning += examples
             if "\u26a0 Keyword searches are exhausted" not in self.literature_context:
                 self._append_to_context(exhaustion_warning, trim=False)
+
+    async def _resolve_id_query(
+        self,
+        agent_id: str,
+        query: str,
+        query_key: str,
+        arxiv_id: str,
+        new_kw: frozenset[str],
+        phase: ResearchPhase,
+    ) -> None:
+        """Resolve an ``id:<arxiv-id>`` query via a direct fetch-by-id (not keyword search).
+
+        Counts against the per-round/per-agent search budget (so it can't be abused)
+        but NOT against the keyword-stale throttle, since a precise id lookup is a
+        legitimate, non-keyword request.
+        """
+        self.searched_queries.add(query_key)
+        if new_kw:
+            self.searched_query_keywords.append(new_kw)
+        self.search_count_this_round += 1
+        self.agent_search_count[agent_id] = self.agent_search_count.get(agent_id, 0) + 1
+
+        lit_config = self._engine._config.literature
+        try:
+            result = await self._engine._corpus.read_paper(
+                arxiv_id, max_chars=lit_config.max_read_chars
+            )
+        except Exception as e:
+            self._engine._logger.log_error(
+                e, agent_id=agent_id, thread_id=self._engine.state.thread_id
+            )
+            self._engine._display.read_error(arxiv_id, e)
+            return
+
+        found = result is not None
+        title = result[0] if found else ""
+        if found:
+            _, extracted_text = result
+            self._append_to_context(format_read_result(arxiv_id, title, extracted_text))
+            self.seen_paper_ids.add(arxiv_id)
+            self._engine._display.read_result(agent_id, arxiv_id, title, len(extracted_text))
+        else:
+            self._engine._display.read_not_found(arxiv_id)
+
+        self._engine._logger.log(
+            EventType.LITERATURE_SEARCH,
+            content={
+                "query": query,
+                "agent_id": agent_id,
+                "results": 1 if found else 0,
+                "phase": str(phase),
+                "resolved_as": "fetch_by_id",
+                "arxiv_id": arxiv_id,
+                "found": found,
+            },
+            thread_id=self._engine.state.thread_id,
+            phase=str(phase),
+        )
 
     # ------------------------------------------------------------------
     # Literature actions ([FOLLOW:], [CITED_BY:], [READ:])

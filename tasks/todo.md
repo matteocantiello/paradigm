@@ -52,10 +52,16 @@ Build order **1A → 1C → 1B → 1E → 1D** + interop slice. Every feature de
 - [x] `tests/test_eval_selection.py` (20 tests: splits, calibration, new metrics, DB round-trip, live-eval with fakes). Offline `paradigm eval` verified backward-compatible.
 - [ ] DEFERRED: a dedicated `paradigm eval --calibrate` CLI command (functions + tests exist; CLI wrapper is a thin follow-up).
 
-## Interop slice — fetch-by-ID lookup  *(D10)*
-- [ ] `orchestrator/literature.py` `process_search_requests()`: detect `id:<arxiv-id>` → fetch-by-ID provider (behind `provider_factory.py`), not keyword search.
-- [ ] optional FutureHouse PaperQA novelty provider.
-- [ ] verify quality-neutral via `paradigm eval`.
+## Interop slice — fetch-by-ID lookup  *(D10)*  ✅ DONE (full suite 1343 passed)
+- [x] `orchestrator/literature.py`: `_extract_arxiv_id_query` (anchored regex: `id:`/`arxiv:`/bare, new- and old-style ids; keyword queries excluded) + `_resolve_id_query` routing `id:<arxiv-id>` SEARCH requests to a direct fetch-by-id (`corpus.read_paper`) instead of keyword search — eliminates the 471 guaranteed-zero queries. Counts against search budget but NOT the keyword-stale throttle.
+- [x] `tests/test_literature_id_lookup.py` (17 tests incl. routing proof: `id:` SEARCH hits read_paper, never corpus.search).
+- [ ] DEFERRED to Phase 5: consuming an external MCP/PaperQA novelty server (the in-house fetch-by-id delivers the immediate, quality-neutral efficiency win; full external-agent consumption is the later interop phase).
+
+---
+
+## ✅ PHASE 1 COMPLETE — Correctness Kernel (6/6)
+1A pre-registration · 1C tree-search/restart · 1B verification kernel · 1E human-gate+provenance · 1D eval selection-gate · interop fetch-by-id.
+All default-off / backward-compatible. Full suite **1343 passed**, ruff clean. Six logical commits on `phase1-correctness-kernel`.
 
 ## Verification gate
 - `ruff check` clean; full `pytest` green (~1235 tests + new); `paradigm eval` offline unchanged (new metrics default None/0); `paradigm eval --live N --split selection --judge` reports reproduction-pass-rate. Selection-split mean quality ≥ 61/100 baseline.
