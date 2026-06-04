@@ -211,6 +211,25 @@ class VerificationRecord(BaseModel):
     detail: str = ""
 
 
+class ProvenanceRecord(BaseModel):
+    """Who framed / registered / verified a paper (Phase 1E).
+
+    Makes the human-vs-agent chain of accountability a legible, first-class
+    artifact. Fields are written by the engine (never by agents) so they can't
+    be confabulated.
+    """
+
+    paper_id: str = ""
+    thread_id: str = ""
+    framed_by: str = "agents"  # "human" or "agents"
+    registered_by: str = "none"  # who authored the pre-registration rules
+    verified_by: str = "none"  # e.g. "kernel", "kernel+human"
+    human_gate_mode: str = "off"
+    gate_decisions: dict[str, str] = Field(default_factory=dict)
+    prereg_rule_ids: list[str] = Field(default_factory=list)
+    verification_summary: dict[str, str] = Field(default_factory=dict)
+
+
 class OpenQuestion(BaseModel):
     """An unresolved question identified during research."""
 

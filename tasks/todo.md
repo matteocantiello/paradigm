@@ -35,11 +35,13 @@ Build order **1A → 1C → 1B → 1E → 1D** + interop slice. Every feature de
 - [x] `tests/test_verification.py` (19 tests) + `test_phases.py`.
 - [ ] DEFERRED: sympy/units/leakage checker battery (LLM-authored assertions) — core re-execution shipped; battery is a follow-up. `verification` SQLite column → 1D (eval reads it). Post-hoc paper-text claim surgery not needed (source-level gate covers it).
 
-## 1E — Hybrid human-gate + provenance  *(Nature/Imas / Operon)*
-- [ ] `engine.py`: `_human_gate(point)` (off/advisory/blocking + no-hook deadlock guard) at `problem_selection`/`pre_registration`/`final_verification`.
-- [ ] `knowledge/models.py`: `ProvenanceRecord`; persist to `papers.provenance`; engine-written `framed_by`/`verified_by`.
-- [ ] `config.py`: `human_gate_mode`, `human_gate_points`; CLI hook renders gate payload (`main.py`).
-- [ ] `tests/test_human_gate.py`.
+## 1E — Hybrid human-gate + provenance  *(Nature/Imas / Operon)*  ✅ DONE (full suite 1306 passed)
+- [x] `orchestrator/human_gate.py`: pure `decide_human_gate` (off/advisory/blocking + no-hook deadlock guard) + `build_provenance`.
+- [x] `engine.py`: `_human_gate(point)` + `_handle_gate_decision` wired at `problem_selection` (pre-IDEATION), `pre_registration` (post-freeze), `final_verification` (post-verify); `_record_provenance` after writing (only when gates/verification/prereg active → default unchanged).
+- [x] `knowledge/models.py`: `ProvenanceRecord` (engine-written `framed_by`/`registered_by`/`verified_by`); `state.py`: `gate_decisions`, `provenance`.
+- [x] `config.py`: `human_gate_mode` (off default), `human_gate_points`.
+- [x] `tests/test_human_gate.py` (12 tests: gate matrix + deadlock guard + provenance assembly).
+- [ ] DEFERRED: persist `provenance` to SQLite (`papers.provenance`) → 1D; richer CLI-hook payload rendering in `main.py` (advisory payload already shown via display.info).
 
 ## 1D — Eval extension (selection gate)  *(D3)*
 - [ ] `eval/seeds.py`: `SeedPrompt` + `split_seeds` (hash-fixed train/selection/test).

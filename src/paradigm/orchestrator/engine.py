@@ -45,6 +45,7 @@ from paradigm.orchestrator.constants import (
 )
 from paradigm.orchestrator.debate import DebateHandler
 from paradigm.orchestrator.experimentation import ExperimentationHandler
+from paradigm.orchestrator.human_gate import build_provenance, decide_human_gate
 from paradigm.orchestrator.literature import LiteratureHandler
 from paradigm.orchestrator.memory import MemoryHandler
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
@@ -261,6 +262,12 @@ class OrchestrationEngine:
         checkpoint_interval = self._config.orchestrator.checkpoint_interval
         agent_count = len(self.state.agents)
 
+        # 1E: problem-selection human gate (default-off).
+        if self._handle_gate_decision(
+            self._human_gate("problem_selection", payload=f"Problem: {seed_prompt[:200]}")
+        ):
+            return self.state.thread_id
+
         self.state.phase_manager.transition_to(ResearchPhase.IDEATION)
         self._log_phase_transition(ResearchPhase.SEEDING, ResearchPhase.IDEATION)
         active_ideation = self._get_phase_active_roles(ResearchPhase.IDEATION)
@@ -375,6 +382,12 @@ class OrchestrationEngine:
                     self._display.phase_aborted()
                     self._print_token_summary()
                     return self.state.thread_id
+                # 1E: pre-registration human gate (default-off).
+                gate_payload = f"{len(frozen_rules)} prediction(s) frozen before execution"
+                if self._handle_gate_decision(
+                    self._human_gate("pre_registration", payload=gate_payload)
+                ):
+                    return self.state.thread_id
                 self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
                 self._log_phase_transition(
                     ResearchPhase.PRE_REGISTRATION, ResearchPhase.EXECUTION
@@ -436,6 +449,15 @@ class OrchestrationEngine:
                         ["No experiments reproduced under verification."]
                     )
                     self._print_token_summary()
+                    return self.state.thread_id
+                # 1E: final-verification human gate (default-off).
+                accepted = sum(1 for r in records if r.status == "accepted")
+                if self._handle_gate_decision(
+                    self._human_gate(
+                        "final_verification",
+                        payload=f"{accepted}/{len(records)} experiment(s) reproduced",
+                    )
+                ):
                     return self.state.thread_id
 
         # Phase 3.75: POST_EXECUTION discussion (optional — after experimentation)
@@ -513,6 +535,15 @@ class OrchestrationEngine:
                     self._save_auxiliary_files(paper_id)
                 self._print_token_summary()
                 return self.state.thread_id
+
+            # 1E: record provenance once a paper exists (only when gates/verification/
+            # pre-registration were in play, so default runs are unchanged).
+            if (
+                self._config.orchestrator.human_gate_mode != "off"
+                or self.state.verification_records
+                or self.state.registered_rules
+            ):
+                self._record_provenance()
 
             # Phase 5: INTERNAL REVIEW
             self.state.phase_manager.transition_to(ResearchPhase.INTERNAL_REVIEW)
@@ -1288,6 +1319,68 @@ class OrchestrationEngine:
         if result not in ("continue", "pause", "abort"):
             return "continue"
         return result
+
+    def _human_gate(self, point: str, payload: str = "") -> str:
+        """Config-driven human gate (1E) at a named point.
+
+        Records the decision in ``state.gate_decisions`` (for provenance) and, in
+        ``advisory`` mode, surfaces the payload without blocking. Returns
+        "continue" when the gate is off/unset or no hook is registered.
+
+        Args:
+            point: Gate-point name (problem_selection / pre_registration / final_verification).
+            payload: Short human-readable context shown in advisory mode.
+
+        Returns:
+            "continue", "pause", or "abort".
+        """
+        cfg = self._config.orchestrator
+        decision, reason = decide_human_gate(
+            cfg.human_gate_mode,
+            cfg.human_gate_points,
+            point,
+            self._intervention_hook,
+            self.state.thread_id,
+        )
+        if cfg.human_gate_mode != "off" and point in cfg.human_gate_points:
+            self.state.gate_decisions[point] = decision
+            if cfg.human_gate_mode == "advisory":
+                self._display.info(f"[human gate: {point}] {payload or '(review and continue)'}")
+            elif decision != "continue":
+                self._display.info(f"[human gate: {point}] {decision} ({reason})")
+        return decision
+
+    def _handle_gate_decision(self, decision: str) -> bool:
+        """Apply a pause/abort gate decision. Returns True if the cycle should stop."""
+        if decision == "abort":
+            self._db.update_thread(self.state.thread_id, status="aborted")
+            self._display.phase_aborted()
+            self._print_token_summary()
+            return True
+        if decision == "pause":
+            self._db.update_thread(self.state.thread_id, status="paused")
+            self._display.phase_paused()
+            self._print_token_summary()
+            return True
+        return False
+
+    def _record_provenance(self) -> None:
+        """Build and surface the human-vs-agent provenance record for the draft (1E)."""
+        thread = self._db.get_thread(self.state.thread_id)
+        paper_id = (thread.get("current_draft_id") if thread else "") or ""
+        record = build_provenance(
+            paper_id=paper_id,
+            thread_id=self.state.thread_id,
+            mode=self._config.orchestrator.human_gate_mode,
+            gate_decisions=self.state.gate_decisions,
+            registered_rules=self.state.registered_rules,
+            verification_records=self.state.verification_records,
+        )
+        self.state.provenance = record
+        self._display.info(
+            f"Provenance: framed_by={record.framed_by}, registered_by={record.registered_by}, "
+            f"verified_by={record.verified_by}, gate_mode={record.human_gate_mode}"
+        )
 
     def _build_post_execution_summary(self) -> str:
         """Build a compact summary of POST_EXECUTION discussion findings.
