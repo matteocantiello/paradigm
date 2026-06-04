@@ -16,7 +16,10 @@ OUTCOME_SCORES: dict[str, float] = {
     "rejected": 0.20,  # peer-review rejection
     "writing_incomplete": 0.10,
     "execution_failed": 0.10,
+    "verification_failed": 0.10,  # ran experiments but none reproduced (1B)
+    "prereg_failed": 0.05,  # no falsifiable prediction could be frozen (1A)
     "writing_failed": 0.10,  # legacy/historical threads
+    "paused": 0.0,
     "aborted": 0.0,
 }
 
@@ -37,6 +40,11 @@ class DeterministicMetrics(BaseModel):
     citation_quality: float = 1.0  # 1 - bare/total (1.0 when no references)
     citation_count: int = 0
     total_tokens: int | None = None  # None when the thread can't be mapped
+    # Correctness-kernel signals (1A/1B). None/0 for papers produced without them
+    # (reported-only; NOT folded into deterministic_score, to keep the baseline stable).
+    reproduction_pass_rate: float | None = None  # accepted / total verification records
+    prereg_verdict: str | None = None  # confirmed | refuted | inconclusive | mixed | None
+    claims_dropped: int = 0
 
     @property
     def structure_score(self) -> float:

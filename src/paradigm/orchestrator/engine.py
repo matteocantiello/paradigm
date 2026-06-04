@@ -1377,6 +1377,15 @@ class OrchestrationEngine:
             verification_records=self.state.verification_records,
         )
         self.state.provenance = record
+        if paper_id:
+            # Persist correctness-kernel artifacts on the paper so the eval harness
+            # (1D) can read reproduction-pass-rate, prereg verdicts, and provenance.
+            self._db.update_paper(
+                paper_id,
+                provenance=record.model_dump(),
+                verification=[r.model_dump() for r in self.state.verification_records],
+                prereg=self.state.prereg_verdicts,
+            )
         self._display.info(
             f"Provenance: framed_by={record.framed_by}, registered_by={record.registered_by}, "
             f"verified_by={record.verified_by}, gate_mode={record.human_gate_mode}"

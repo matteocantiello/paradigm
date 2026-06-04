@@ -74,6 +74,59 @@ def score_paper(
     )
 
 
+def score_thread_paper(
+    database: Any,
+    papers_dir: Path,
+    thread_id: str,
+    judge: JudgeContext | None = None,
+) -> PaperScore | None:
+    """Find the paper produced by a thread and score it (None if no paper)."""
+    thread = database.get_thread(thread_id)
+    paper_id = (thread.get("current_draft_id") if thread else None) or None
+    if not paper_id:
+        return None
+    paper = database.get_paper(paper_id)
+    if not paper:
+        return None
+    return score_paper(paper, papers_dir, database, judge)
+
+
+def run_live_eval(
+    run_cycle: Any,
+    seeds: list,
+    database: Any,
+    papers_dir: Path,
+    judge: JudgeContext | None = None,
+) -> EvalReport:
+    """Run each seed end-to-end via ``run_cycle`` and score the fresh output.
+
+    Args:
+        run_cycle: Callable ``seed -> thread_id | None`` (one full research cycle).
+        seeds: Seed prompts to run (e.g. one split).
+        database: Open database for looking up the produced paper.
+        papers_dir: Directory holding per-paper figures/aux files.
+        judge: Optional LLM judge context.
+
+    Returns:
+        Aggregate report over the scored fresh papers.
+    """
+    scores: list[PaperScore] = []
+    judged_any = False
+    for seed in seeds:
+        try:
+            thread_id = run_cycle(seed)
+        except SystemExit:  # a single seed's cycle failing must not kill the eval
+            thread_id = None
+        if not thread_id:
+            continue
+        ps = score_thread_paper(database, papers_dir, thread_id, judge)
+        if ps is None:
+            continue
+        judged_any = judged_any or ps.judge is not None
+        scores.append(ps)
+    return EvalReport(scores=scores, judged=judged_any)
+
+
 def run_offline_eval(
     database: Any,
     papers_dir: Path,

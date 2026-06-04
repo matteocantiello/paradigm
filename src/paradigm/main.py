@@ -19,7 +19,7 @@ def _run_research(
     testing: bool = False,
     verbose: bool = False,
     fresh_corpus: bool = False,
-) -> None:
+) -> str | None:
     """Run a research cycle synchronously (wraps async engine).
 
     Args:
@@ -141,9 +141,12 @@ def _run_research(
     )
 
     display.start()
+    result_thread_id: str | None = None
     try:
-        thread_id = asyncio.run(engine.run_research_cycle(seed_prompt=seed_prompt, mode=mode))
-        display.cycle_complete(thread_id)
+        result_thread_id = asyncio.run(
+            engine.run_research_cycle(seed_prompt=seed_prompt, mode=mode)
+        )
+        display.cycle_complete(result_thread_id)
     except KeyboardInterrupt:
         display.cycle_interrupted()
         sys.exit(130)
@@ -158,6 +161,7 @@ def _run_research(
             import shutil
 
             shutil.rmtree(_fresh_corpus_dir, ignore_errors=True)
+    return result_thread_id
 
 
 @click.group()
@@ -453,7 +457,13 @@ def paper(config: Config, paper_id: str, export: Path | None) -> None:
     "--live",
     type=int,
     default=0,
-    help="(Coming soon) run N live cycles end-to-end and score the fresh output.",
+    help="Run N live cycles end-to-end (from --split) and score the fresh output.",
+)
+@click.option(
+    "--split",
+    type=click.Choice(["train", "selection", "test"]),
+    default="selection",
+    help="Seed split to draw --live cycles from (default: selection).",
 )
 @click.pass_obj
 def eval_cmd(
@@ -463,26 +473,23 @@ def eval_cmd(
     limit: int | None,
     include_external: bool,
     live: int,
+    split: str,
 ) -> None:
     """Score research papers on a deterministic + (optional) LLM rubric.
 
     Examples:
         paradigm eval
         paradigm eval --judge --limit 20
+        paradigm eval --live 3 --split selection --judge
     """
     from paradigm.eval.harness import (
         JudgeContext,
         render_report,
+        run_live_eval,
         run_offline_eval,
         write_report,
     )
     from paradigm.storage.database import Database
-
-    if live:
-        raise click.ClickException(
-            "Live evaluation is not yet wired up. Run offline (omit --live) to score the "
-            "papers already in the database."
-        )
 
     judge_ctx = None
     if judge:
@@ -495,17 +502,36 @@ def eval_cmd(
                 err=True,
             )
 
-    database = Database(config.storage.db_path)
-    try:
-        report = run_offline_eval(
-            database,
-            config.storage.papers_dir,
-            limit=limit,
-            include_external=include_external,
-            judge=judge_ctx,
-        )
-    finally:
-        database.close()
+    if live:
+        from paradigm.eval.seeds import DEFAULT_SEEDS, split_seeds
+
+        chosen = split_seeds(DEFAULT_SEEDS).get(split, [])[:live]
+        if not chosen:
+            raise click.ClickException(f"No seeds in the '{split}' split to run.")
+        click.echo(f"Running {len(chosen)} live cycle(s) from the '{split}' split...")
+        database = Database(config.storage.db_path)
+        try:
+            report = run_live_eval(
+                run_cycle=lambda seed: _run_research(config, seed.prompt, mode="directed"),
+                seeds=chosen,
+                database=database,
+                papers_dir=config.storage.papers_dir,
+                judge=judge_ctx,
+            )
+        finally:
+            database.close()
+    else:
+        database = Database(config.storage.db_path)
+        try:
+            report = run_offline_eval(
+                database,
+                config.storage.papers_dir,
+                limit=limit,
+                include_external=include_external,
+                judge=judge_ctx,
+            )
+        finally:
+            database.close()
 
     if report.count == 0:
         click.echo("No papers to score.")

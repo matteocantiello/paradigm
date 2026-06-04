@@ -33,6 +33,15 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self._create_schema()
 
+    @staticmethod
+    def _add_columns_if_missing(cursor: Any, table: str, columns: dict[str, str]) -> None:
+        """Add columns to ``table`` if absent (idempotent ALTER; literal identifiers only)."""
+        cursor.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in cursor.fetchall()}
+        for name, coltype in columns.items():
+            if name not in existing:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {coltype}")
+
     def _create_schema(self) -> None:
         """Create database schema if it doesn't exist."""
         cursor = self.conn.cursor()
@@ -56,6 +65,14 @@ class Database:
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Correctness-kernel artifacts (Phase 1B/1D/1E), added idempotently so
+        # existing databases pick them up without a migration framework.
+        self._add_columns_if_missing(
+            cursor,
+            "papers",
+            {"verification": "TEXT", "prereg": "TEXT", "provenance": "TEXT"},
+        )
 
         # Agents table
         cursor.execute("""
@@ -234,7 +251,15 @@ class Database:
         """
         _validate_field_names(fields)
         # Handle JSON fields
-        json_fields = ["authors", "keywords", "citations", "review_scores"]
+        json_fields = [
+            "authors",
+            "keywords",
+            "citations",
+            "review_scores",
+            "verification",
+            "prereg",
+            "provenance",
+        ]
         for field in json_fields:
             if field in fields and fields[field] is not None:
                 fields[field] = self._serialize_json(fields[field])

@@ -7,8 +7,10 @@ directory). Nothing here assumes a scientific domain — only general paper stru
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from typing import Any
 
 from paradigm.eval.models import OUTCOME_SCORES, DeterministicMetrics
 
@@ -98,6 +100,38 @@ def figure_stats(body: str, paper_dir: Path | None) -> tuple[int, int]:
     return (referenced, present)
 
 
+def _parse_json_list(raw: Any) -> list[dict]:
+    """Parse a JSON-list column (verification/prereg); tolerate None/garbage."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [x for x in raw if isinstance(x, dict)]
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+
+def reproduction_pass_rate(paper: dict) -> float | None:
+    """accepted / total over the paper's persisted verification records (None if absent)."""
+    records = _parse_json_list(paper.get("verification"))
+    if not records:
+        return None
+    accepted = sum(1 for r in records if r.get("status") == "accepted")
+    return round(accepted / len(records), 3)
+
+
+def prereg_verdict(paper: dict) -> str | None:
+    """Aggregate the paper's pre-registration verdicts: single value, 'mixed', or None."""
+    verdicts = {
+        str(v.get("verdict")) for v in _parse_json_list(paper.get("prereg")) if v.get("verdict")
+    }
+    if not verdicts:
+        return None
+    return next(iter(verdicts)) if len(verdicts) == 1 else "mixed"
+
+
 def compute_metrics(
     paper: dict,
     paper_dir: Path | None = None,
@@ -127,4 +161,6 @@ def compute_metrics(
         citation_quality=round(citation_quality, 3),
         citation_count=int(paper.get("citation_count") or 0),
         total_tokens=total_tokens,
+        reproduction_pass_rate=reproduction_pass_rate(paper),
+        prereg_verdict=prereg_verdict(paper),
     )

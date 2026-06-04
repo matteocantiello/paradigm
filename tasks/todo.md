@@ -43,12 +43,14 @@ Build order **1A → 1C → 1B → 1E → 1D** + interop slice. Every feature de
 - [x] `tests/test_human_gate.py` (12 tests: gate matrix + deadlock guard + provenance assembly).
 - [ ] DEFERRED: persist `provenance` to SQLite (`papers.provenance`) → 1D; richer CLI-hook payload rendering in `main.py` (advisory payload already shown via display.info).
 
-## 1D — Eval extension (selection gate)  *(D3)*
-- [ ] `eval/seeds.py`: `SeedPrompt` + `split_seeds` (hash-fixed train/selection/test).
-- [ ] `eval/models.py`/`metrics.py`: `reproduction_pass_rate`, `prereg_verdict`, `claims_dropped`; `OUTCOME_SCORES` for `verification_failed`/`prereg_failed`.
-- [ ] `eval/calibration.py`: balanced-accuracy threshold vs real published/rejected; persist `data/eval/calibration.json`.
-- [ ] `main.py`/`harness.py`: shared `build_engine`; wire `paradigm eval --live N --split selection`.
-- [ ] extend `tests/test_eval.py`.
+## 1D — Eval extension (selection gate)  *(D3)*  ✅ DONE (full suite 1326 passed)
+- [x] `eval/seeds.py`: `SeedPrompt` + `DEFAULT_SEEDS` + hash-fixed `split_seeds` (no test leakage; adding seeds never reshuffles) + `load_seeds`.
+- [x] `eval/models.py`/`metrics.py`: `reproduction_pass_rate`, `prereg_verdict`, `claims_dropped` (reported-only, baseline unchanged) + `OUTCOME_SCORES` for `verification_failed`/`prereg_failed`/`paused`; `compute_metrics` reads persisted JSON.
+- [x] `eval/calibration.py`: pure `fit_threshold` (balanced-accuracy sweep) + `calibrate_from_db` + save/load `data/eval/calibration.json`.
+- [x] `main.py`/`harness.py`: `_run_research` returns thread_id; `run_live_eval`/`score_thread_paper`; wired `paradigm eval --live N --split {train,selection,test}`.
+- [x] **SQLite persistence (folded from 1A/1B/1E):** idempotent `verification`/`prereg`/`provenance` columns on `papers`; engine `_record_provenance` persists them.
+- [x] `tests/test_eval_selection.py` (20 tests: splits, calibration, new metrics, DB round-trip, live-eval with fakes). Offline `paradigm eval` verified backward-compatible.
+- [ ] DEFERRED: a dedicated `paradigm eval --calibrate` CLI command (functions + tests exist; CLI wrapper is a thin follow-up).
 
 ## Interop slice — fetch-by-ID lookup  *(D10)*
 - [ ] `orchestrator/literature.py` `process_search_requests()`: detect `id:<arxiv-id>` → fetch-by-ID provider (behind `provider_factory.py`), not keyword search.
