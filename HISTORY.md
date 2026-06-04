@@ -3538,3 +3538,6 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 2. `orchestrator/constants.py` — added a concrete worked example to `_PREREGISTRATION_PROMPT` to elicit well-formed rules (addresses 1A's 0-rules outcome).
 3. `configs/default.yaml` — fixed `testing_overrides` (dead DeepSeek-V3.1 → DeepSeek-V4-Pro/Kimi-K2.6/GLM-5.1); added `configs/validate.yaml`.
 - Noted (non-fatal): occasional checkpoint-JSON parse fallback; a `SyntaxWarning '\s'` in agent-written code.
+
+**PHASE 2 STARTED — Output quality & credibility.** Tasks: P2-LaTeX (journal-ready LaTeX + compile-repair), P2-VLM (figure-aware multimodal review, D8), P2-cite (resolve-or-drop citations).
+- **P2-cite COMPLETE & verified** (full suite 1355 passed, ruff clean). Default-off (`citation.drop_unresolved_citations`). `literature/bibliography.py`: `drop_unresolved_references` (drop refs with no resolved metadata + renumber, return index remap) + `remap_citation_markers` (rewrite/remove in-text `[N]` so dropped citations don't dangle); wired into `orchestrator/citation_handler.py`; `config.py` flag; tests `test_citation_drop.py` (6). Completes 1B's resolve-or-drop discipline at the bibliography stage (attacks the bare-URL references that drove `writing_failed`).

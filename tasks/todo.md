@@ -68,5 +68,15 @@ All default-off / backward-compatible. Full suite **1343 passed**, ruff clean. S
 
 ---
 
+## LIVE VALIDATION (Prompt 73–74) ✅
+Full `--testing` cycle (V4-Pro/Kimi/GLM) confirmed the kernel end-to-end: **1B re-executed 3 experiments under `--network=none` and reproduced 13 RESULT[] metrics @ 0.00 rel error**; gates + provenance persisted; eval read it back. Refines applied: review "revise+0-changes→accept"; prereg prompt example; fixed dead testing models.
+
+## PHASE 2 — Output quality & credibility
+- [x] **P2-cite** — resolve-or-drop citation finalize: `bibliography.py` `drop_unresolved_references` + `remap_citation_markers`; wired in `citation_handler.py`; `citation.drop_unresolved_citations` flag (default off); `test_citation_drop.py` (6). Full suite 1355.
+- [ ] **P2-LaTeX** — journal-ready LaTeX + LLM compile-repair (`journal/latex.py` + presets; xelatex; .log→fix→recompile; writing.py hook).
+- [ ] **P2-VLM** — figure-aware multimodal review (vision in `AnthropicProvider`; figures→reviewer prompt).
+
+---
+
 ## Progress log
-- (in progress) Housekeeping: roadmap doc + todo seeded. Starting 1A.
+- Phase 1 complete (6/6) + live-validated + refined. Phase 2 started; P2-cite done. Next: P2-LaTeX or P2-VLM.

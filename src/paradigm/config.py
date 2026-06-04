@@ -182,6 +182,7 @@ class CitationConfig(BaseModel):
     """Configuration for citation grounding and novelty checking."""
 
     enable_citation_grounding: bool = False
+    drop_unresolved_citations: bool = False  # drop refs that don't resolve (vs bare-URL)
     perplexity_api_key_env: str = "PERPLEXITY_API_KEY"
     citation_sections: list[str] = Field(default_factory=lambda: ["introduction", "methods"])
     max_retries_per_paragraph: int = 2
