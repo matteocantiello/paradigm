@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -19,6 +20,7 @@ from paradigm.orchestrator.constants import (
     _NETWORK_ERROR_PATTERNS,
     _PHASE_INSTRUCTIONS,
     _WRITING_MAX_TOKENS,
+    _best_first_order,
     _extract_code_blocks,
     _format_execution_result,
     _is_vacuous_success,
@@ -284,6 +286,8 @@ class ExperimentationHandler:
         # Sprint tracking
         self._current_sprint: int = 0
         self._sprint_results: list[str] = []
+        # 1C: experiments that have failed at least once this phase (for best-first ordering)
+        self._buggy_experiments: set[str] = set()
 
     async def run_experimentation_phase(self) -> ExperimentationResult:
         """Run the EXECUTION phase: agents propose and run computational experiments.
@@ -342,6 +346,7 @@ class ExperimentationHandler:
         self._failure_categories = {}
         self._consecutive_failures = 0
         self._strategy_redirects = 0
+        self._buggy_experiments = set()
         _strategy_redirect_message = ""
         _advisory_message = ""
         _skipped_message = ""
@@ -537,6 +542,14 @@ class ExperimentationHandler:
 
                     # Sort by dependency order and execute
                     code_blocks = _topological_sort(code_blocks)
+                    # 1C: prefer non-buggy experiments within the round (default-off).
+                    if engine._config.orchestrator.enable_best_first_nodes:
+                        code_blocks = _best_first_order(
+                            code_blocks,
+                            self._buggy_experiments,
+                            engine._config.orchestrator.debug_buggy_node_prob,
+                            random.Random(f"{engine.state.thread_id}:{round_num}"),
+                        )
                     round_total = 0
                     round_failures = 0
                     failed_in_round: set[str] = set()
@@ -614,6 +627,7 @@ class ExperimentationHandler:
                             _total_failures += 1
                             self._consecutive_failures += 1
                             failed_in_round.add(block.name)
+                            self._buggy_experiments.add(block.name)  # 1C best-first signal
 
                             # Categorize failure for strategy redirect
                             category = _categorize_failure(result)
@@ -1325,6 +1339,17 @@ class ExperimentationHandler:
                 ws_manifest = _build_workspace_manifest(workspace_dir)
                 if ws_manifest:
                     retry_checkpoint = ws_manifest + "\n\n" + retry_checkpoint
+                    # 1C: tell the agent to resume from completed steps instead of
+                    # recomputing everything (default-off).
+                    if engine._config.orchestrator.enable_step_restart:
+                        retry_checkpoint += (
+                            "\n\n## STEP RESTART\n"
+                            "Intermediate artifacts from completed steps are listed above. "
+                            "Reload them and resume from the step that failed — do NOT recompute "
+                            "steps that already succeeded. Add a `# RESTART_AT: <step>` comment "
+                            "at the resume point and print `STEP_COMPLETE: <step>` after each "
+                            "step you finish so progress is recoverable."
+                        )
             template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["retry_after_failure"]
             retry_prompt = template.format(
                 seed_prompt=engine.state.seed_prompt,

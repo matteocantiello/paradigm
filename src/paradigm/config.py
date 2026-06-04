@@ -136,6 +136,11 @@ class OrchestratorConfig(BaseModel):
     max_conceptual_figures: int = 3  # Cap on figures per paper
     enable_execution_sprints: bool = False  # Off by default for backward compat
     num_execution_sprints: int = 3
+    # Tree-search / step-restart (Phase 1C). All off by default.
+    enable_step_restart: bool = False  # inject "resume from prior artifacts" retry guidance
+    enable_best_first_nodes: bool = False  # prefer non-buggy experiments in within-round order
+    debug_buggy_node_prob: float = 0.3  # chance a ready buggy node is promoted to be retried
+    max_step_restarts_per_experiment: int = 2  # reserved for per-step resume budget
     sprint_review_roles: list[str] = Field(
         default_factory=lambda: ["theorist", "analyst", "skeptic"]
     )

@@ -1,5 +1,6 @@
 """Constants, prompt templates, and pure helper functions for the orchestrator."""
 
+import random
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -1072,6 +1073,7 @@ _DATA_ERROR_PATTERNS: list[str] = [
 _CODE_BLOCK_RE = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
 _EXPERIMENT_NAME_RE = re.compile(r"^#\s*EXPERIMENT:\s*(.+)", re.MULTILINE)
 _EXPERIMENT_DEPENDS_RE = re.compile(r"^#\s*DEPENDS:\s*(.+)", re.MULTILINE)
+_RESTART_AT_RE = re.compile(r"^#\s*RESTART_AT:\s*(\d+)", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -1081,6 +1083,7 @@ class CodeBlock:
     name: str
     code: str
     depends_on: tuple[str, ...]  # empty if no dependencies
+    restart_at_step: int = 0  # 1C: step index the agent intends to resume from (0 = fresh)
 
 
 # ---------------------------------------------------------------------------
@@ -1171,7 +1174,12 @@ def _extract_code_blocks(text: str) -> list[CodeBlock]:
             deps = tuple(d.strip() for d in deps_match.group(1).split(",") if d.strip())
         else:
             deps = ()
-        blocks.append(CodeBlock(name=name, code=code, depends_on=deps))
+        # 1C: optional resume point declared by the agent (# RESTART_AT: <k>)
+        restart_match = _RESTART_AT_RE.search(code)
+        restart_at = int(restart_match.group(1)) if restart_match else 0
+        blocks.append(
+            CodeBlock(name=name, code=code, depends_on=deps, restart_at_step=restart_at)
+        )
     return blocks
 
 
@@ -1224,6 +1232,71 @@ def _topological_sort(blocks: list[CodeBlock]) -> list[CodeBlock]:
     if len(sorted_names) != len(blocks):
         return list(blocks)
 
+    return [name_to_block[n] for n in sorted_names]
+
+
+def _best_first_order(
+    blocks: list[CodeBlock],
+    buggy_names: set[str],
+    debug_prob: float,
+    rng: random.Random,
+) -> list[CodeBlock]:
+    """Dependency-respecting order that prefers non-buggy experiments (1C).
+
+    Like :func:`_topological_sort`, but among nodes whose dependencies are already
+    satisfied it prefers experiments that have NOT failed before. A ready buggy node
+    is promoted ahead of ready non-buggy nodes only with probability ``debug_prob``,
+    so the per-phase experiment budget / circuit breaker is spent on promising work
+    first while a known-bad experiment is still occasionally retried. Deterministic
+    for a given ``rng``. Falls back to the original order on a dependency cycle.
+
+    Args:
+        blocks: Code blocks to order.
+        buggy_names: Names of experiments that have failed previously.
+        debug_prob: Probability of promoting a ready buggy node ahead of non-buggy ones.
+        rng: Seeded RNG for deterministic tie-breaking.
+
+    Returns:
+        Dependency-valid ordering preferring non-buggy nodes.
+    """
+    if len(blocks) <= 1:
+        return list(blocks)
+
+    name_to_block = {b.name: b for b in blocks}
+    batch_names = set(name_to_block)
+    adj: dict[str, list[str]] = {b.name: [] for b in blocks}
+    in_degree: dict[str, int] = {b.name: 0 for b in blocks}
+    for block in blocks:
+        for dep in block.depends_on:
+            if dep in batch_names:
+                adj[dep].append(block.name)
+                in_degree[block.name] += 1
+
+    original_order = {b.name: i for i, b in enumerate(blocks)}
+    ready = [n for n in in_degree if in_degree[n] == 0]
+    sorted_names: list[str] = []
+    while ready:
+        non_buggy = sorted(
+            (n for n in ready if n not in buggy_names), key=lambda n: original_order[n]
+        )
+        buggy = sorted(
+            (n for n in ready if n in buggy_names), key=lambda n: original_order[n]
+        )
+        if non_buggy and buggy:
+            chosen = buggy[0] if rng.random() < debug_prob else non_buggy[0]
+        elif non_buggy:
+            chosen = non_buggy[0]
+        else:
+            chosen = buggy[0]
+        ready.remove(chosen)
+        sorted_names.append(chosen)
+        for dependent in adj[chosen]:
+            in_degree[dependent] -= 1
+            if in_degree[dependent] == 0:
+                ready.append(dependent)
+
+    if len(sorted_names) != len(blocks):
+        return list(blocks)
     return [name_to_block[n] for n in sorted_names]
 
 

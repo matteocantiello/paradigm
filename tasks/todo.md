@@ -17,11 +17,12 @@ Build order **1A → 1C → 1B → 1E → 1D** + interop slice. Every feature de
 - [x] `tests/test_preregistration.py` (24 tests) + `test_phases.py` updated.
 - [ ] DEFERRED to 1D: persist `prereg`/`prereg_verdicts` to SQLite (only consumed by the eval extension). Skeptic adversarial re-check of rules also deferred (well-formedness gate covers the core).
 
-## 1C — Tree-search / step-restart  *(D2 / Denario restart_at_step)*
-- [ ] `constants.py`: extend `CodeBlock` (`restart_at_step`, `is_buggy`); parse `# RESTART_AT: <k>`; `_best_first_order(...)`.
-- [ ] `experimentation.py`: per-step artifacts `workspace/<exp>/step_<k>/`; resume in `_execute_with_retry`; optional best-first (deterministic RNG by thread_id).
-- [ ] `config.py`: `enable_step_restart`, `enable_best_first_nodes`, `debug_buggy_node_prob`, `max_step_restarts_per_experiment`.
-- [ ] extend `tests/test_experimentation.py`.
+## 1C — Tree-search / step-restart  *(D2 / Denario restart_at_step)*  ✅ DONE (full suite 1275 passed)
+- [x] `constants.py`: `CodeBlock.restart_at_step` + `# RESTART_AT: <k>` parsing; `_best_first_order(...)` (dependency-respecting Kahn traversal preferring non-buggy ready nodes, deterministic RNG).
+- [x] `experimentation.py`: best-first ordering applied after topo-sort (default-off); `_buggy_experiments` tracked across rounds; step-restart retry guidance reusing the workspace manifest (default-off).
+- [x] `config.py`: `enable_step_restart`, `enable_best_first_nodes`, `debug_buggy_node_prob`, `max_step_restarts_per_experiment`.
+- [x] `tests/test_tree_search.py` (10 tests: RESTART_AT parsing + best-first dependency/preference/determinism/cycle).
+- [ ] DEFERRED: rigid per-step artifact dirs (`workspace/<exp>/step_<k>/`) — current resume is prompt/manifest-driven, which fits the atomic-block model; full sub-step machinery only if needed.
 
 ## 1B — Verification Kernel  *(D1 / console-as-data-bus / resolve-or-drop)*
 - [ ] `orchestrator/verification.py`: `verify_experiments()` (fresh-workspace re-exec + tolerance compare), checker battery, `resolve_or_drop_claims()`.
