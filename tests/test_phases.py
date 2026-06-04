@@ -17,6 +17,7 @@ class TestResearchPhase:
             "literature",
             "pre_registration",
             "execution",
+            "verification",
             "post_execution",
             "writing",
             "internal",

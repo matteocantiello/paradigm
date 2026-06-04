@@ -24,15 +24,16 @@ Build order **1A → 1C → 1B → 1E → 1D** + interop slice. Every feature de
 - [x] `tests/test_tree_search.py` (10 tests: RESTART_AT parsing + best-first dependency/preference/determinism/cycle).
 - [ ] DEFERRED: rigid per-step artifact dirs (`workspace/<exp>/step_<k>/`) — current resume is prompt/manifest-driven, which fits the atomic-block model; full sub-step machinery only if needed.
 
-## 1B — Verification Kernel  *(D1 / console-as-data-bus / resolve-or-drop)*
-- [ ] `orchestrator/verification.py`: `verify_experiments()` (fresh-workspace re-exec + tolerance compare), checker battery, `resolve_or_drop_claims()`.
-- [ ] `knowledge/models.py`: `VerificationRecord`; `state.py`: `verification_records`, `dropped_claims`.
-- [ ] `phases.py`: add `VERIFICATION` (EXECUTION/POST_EXECUTION → VERIFICATION → WRITING).
-- [ ] `engine.py`: VERIFICATION block + gate (demote non-accepted; abort `verification_failed` if none).
-- [ ] `constants.py`: strengthen EXECUTION prompt (`RESULT[label]=value`); `_VERIFICATION_CHECKER_PROMPT`.
-- [ ] `writing.py`: Verification Ledger; resolve-or-drop numeric claims (reuse `_extract_numerical_claims`) + unresolved citations.
-- [ ] `config.py` + `storage/database.py` (`verification` column on papers).
-- [ ] `tests/test_verification.py`.
+## 1B — Verification Kernel  *(D1 / console-as-data-bus / resolve-or-drop)*  ✅ DONE (full suite 1294 passed)
+- [x] `orchestrator/verification.py`: `verify_experiments()` (fresh isolated `verify/<thread>` workspace, seeded re-exec, `RESULT[...]` tolerance compare → accepted/rejected/nondeterministic) + `apply_gate()` (demote non-accepted).
+- [x] `knowledge/models.py`: `VerificationRecord`; `state.py`: `verification_records`, `dropped_claims`.
+- [x] `phases.py`: `VERIFICATION` sub-phase (EXECUTION→VERIFICATION→{POST_EXECUTION,WRITING}; legacy retained) + description + icon.
+- [x] `engine.py`: VERIFICATION block after the execution go/no-go gate; demote non-accepted; abort `verification_failed` if none reproduce.
+- [x] `experimentation.py`: console-as-data-bus contract (`RESULT[label]=value`) injected into the EXECUTION prompt (gated on `enable_verification`).
+- [x] `writing.py`: Verification Ledger in the Fact Sheet. **resolve-or-drop achieved at the source**: demoted experiments → `failure` metadata → existing FAILED/FORBIDDEN machinery (writer can only use ACCEPTED numbers).
+- [x] `config.py` flags (`enable_verification`, tolerance, seed, reexec_budget, abort_on_verification_failure).
+- [x] `tests/test_verification.py` (19 tests) + `test_phases.py`.
+- [ ] DEFERRED: sympy/units/leakage checker battery (LLM-authored assertions) — core re-execution shipped; battery is a follow-up. `verification` SQLite column → 1D (eval reads it). Post-hoc paper-text claim surgery not needed (source-level gate covers it).
 
 ## 1E — Hybrid human-gate + provenance  *(Nature/Imas / Operon)*
 - [ ] `engine.py`: `_human_gate(point)` (off/advisory/blocking + no-hook deadlock guard) at `problem_selection`/`pre_registration`/`final_verification`.

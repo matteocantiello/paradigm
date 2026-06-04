@@ -122,6 +122,19 @@ class WritingHandler:
             )
             lines.append("")
 
+        # --- Verification ledger (1B) ---
+        records = self._engine.state.verification_records
+        if records:
+            lines.append("### Verification Ledger (re-execution)")
+            for r in records:
+                err = f", max rel error {r.max_rel_error:.2e}" if r.max_rel_error is not None else ""
+                lines.append(f"- **{r.experiment_name}**: {r.status.upper()}{err} — {r.detail}")
+            lines.append(
+                "Only ACCEPTED experiments reproduced under re-execution. Do NOT report "
+                "numbers from experiments that did not verify."
+            )
+            lines.append("")
+
         lines.append(
             "**If you write a number not found in any Actual Output block above, "
             "you are confabulating. Cross-check every quantitative claim.**"

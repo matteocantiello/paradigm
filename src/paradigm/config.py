@@ -141,6 +141,12 @@ class OrchestratorConfig(BaseModel):
     enable_best_first_nodes: bool = False  # prefer non-buggy experiments in within-round order
     debug_buggy_node_prob: float = 0.3  # chance a ready buggy node is promoted to be retried
     max_step_restarts_per_experiment: int = 2  # reserved for per-step resume budget
+    # Verification kernel (Phase 1B): re-execution as ground truth. All off by default.
+    enable_verification: bool = False
+    verification_tolerance: float = 1e-6  # relative tolerance for reproducing RESULT[...] tokens
+    verification_seed: int = 12345  # deterministic seed injected before re-execution
+    verification_reexec_budget: int = 20  # cap on re-runs per cycle (cost control)
+    abort_on_verification_failure: bool = True  # abort before WRITING if nothing reproduces
     sprint_review_roles: list[str] = Field(
         default_factory=lambda: ["theorist", "analyst", "skeptic"]
     )

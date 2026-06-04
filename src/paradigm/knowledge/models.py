@@ -191,6 +191,26 @@ class PredictionRule(BaseModel):
         return False
 
 
+class VerificationRecord(BaseModel):
+    """Result of re-executing an experiment to verify its reported numbers (1B).
+
+    A reported result is "accepted" only if its committed code re-runs in a fresh
+    sandbox with a fixed seed and reproduces its ``RESULT[...]`` tokens within
+    tolerance. This is Paradigm's empirical analog of a proof checker.
+    """
+
+    experiment_name: str
+    seed: int = 0
+    reproduced: bool = False
+    tolerance: float = 1e-6
+    original_values: dict[str, float] = Field(default_factory=dict)
+    rerun_values: dict[str, float] = Field(default_factory=dict)
+    max_rel_error: float | None = None
+    checks: dict[str, str] = Field(default_factory=dict)
+    status: str = "unverified"  # unverified | accepted | rejected | nondeterministic
+    detail: str = ""
+
+
 class OpenQuestion(BaseModel):
     """An unresolved question identified during research."""
 

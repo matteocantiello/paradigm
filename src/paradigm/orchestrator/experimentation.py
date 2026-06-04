@@ -470,6 +470,17 @@ class ExperimentationHandler:
                             + engine.state.planning_action_items
                         )
 
+                    # Inject the console-as-data-bus contract (1B): print key numbers as
+                    # machine-readable tokens so results can be re-extracted and verified.
+                    if engine._config.orchestrator.enable_verification:
+                        prompt += (
+                            "\n\n## MACHINE-READABLE RESULTS (required)\n"
+                            "Print every key numerical result to stdout on its own line as "
+                            "`RESULT[<label>]=<value>` (e.g. `RESULT[rmse]=0.123`). These exact "
+                            "tokens are re-extracted and the code is re-run to verify the result "
+                            "reproduces — do not omit or rename them."
+                        )
+
                     # Inject pre-registered predictions (1A): the experimentalist MUST
                     # compute and print each metric token so the verdict can be evaluated.
                     if engine.state.registered_rules:

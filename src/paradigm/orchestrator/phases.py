@@ -12,6 +12,7 @@ class ResearchPhase(StrEnum):
     LITERATURE = "literature"
     PRE_REGISTRATION = "pre_registration"
     EXECUTION = "execution"
+    VERIFICATION = "verification"
     POST_EXECUTION = "post_execution"
     WRITING = "writing"
     INTERNAL_REVIEW = "internal"
@@ -39,6 +40,12 @@ _TRANSITIONS: dict[ResearchPhase, list[ResearchPhase]] = {
     ],
     ResearchPhase.PRE_REGISTRATION: [ResearchPhase.EXECUTION, ResearchPhase.PLANNING],
     ResearchPhase.EXECUTION: [
+        ResearchPhase.VERIFICATION,
+        ResearchPhase.POST_EXECUTION,
+        ResearchPhase.WRITING,
+        ResearchPhase.PLANNING,
+    ],
+    ResearchPhase.VERIFICATION: [
         ResearchPhase.POST_EXECUTION,
         ResearchPhase.WRITING,
         ResearchPhase.PLANNING,
@@ -64,6 +71,7 @@ _DESCRIPTIONS: dict[ResearchPhase, str] = {
     ResearchPhase.LITERATURE: "Deep literature review to inform execution.",
     ResearchPhase.PRE_REGISTRATION: "Freeze falsifiable predictions and decision rules before execution.",
     ResearchPhase.EXECUTION: "Run computational experiments in sandboxed environment.",
+    ResearchPhase.VERIFICATION: "Re-execute experiments in a fresh sandbox to verify results reproduce.",
     ResearchPhase.POST_EXECUTION: "Team discusses experimental results: interprets findings, flags limitations, agrees on conclusions.",
     ResearchPhase.WRITING: "Draft the research paper in markdown format.",
     ResearchPhase.INTERNAL_REVIEW: "Internal quality review before submission.",

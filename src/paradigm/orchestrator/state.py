@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from paradigm.agents.base import Agent
     from paradigm.knowledge.evidence_graph import EvidenceGraph
-    from paradigm.knowledge.models import Hypothesis, PredictionRule
+    from paradigm.knowledge.models import Hypothesis, PredictionRule, VerificationRecord
     from paradigm.knowledge.world_model import WorldModel
     from paradigm.literature.resources import ResolvedResource
     from paradigm.orchestrator.phases import PhaseManager
@@ -70,6 +70,10 @@ class ResearchState:
     selected_hypotheses: list[Hypothesis] = field(default_factory=list)
     registered_rules: list[PredictionRule] = field(default_factory=list)
     prereg_verdicts: list[dict[str, str]] = field(default_factory=list)
+
+    # Verification kernel (1B): re-execution records + claims dropped for lacking backing.
+    verification_records: list[VerificationRecord] = field(default_factory=list)
+    dropped_claims: list[str] = field(default_factory=list)
 
     # Writing
     forbidden_claims_violations: list[str] = field(default_factory=list)

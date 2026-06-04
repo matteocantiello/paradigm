@@ -52,6 +52,7 @@ from paradigm.orchestrator.preregistration import PreRegistrationHandler
 from paradigm.orchestrator.review import ReviewHandler
 from paradigm.orchestrator.scheduler import Scheduler
 from paradigm.orchestrator.state import ResearchState
+from paradigm.orchestrator.verification import VerificationKernel
 from paradigm.orchestrator.writing import WritingHandler
 from paradigm.storage.checkpoints import CheckpointManager
 from paradigm.storage.database import Database
@@ -124,6 +125,7 @@ class OrchestrationEngine:
         self._memory = MemoryHandler(self)
         self._world_model = WorldModelHandler(self)
         self._prereg = PreRegistrationHandler(self)
+        self._verification = VerificationKernel(self)
 
         # Lazy import to avoid circular dependency (tournament_handler → constants → engine)
         from paradigm.knowledge.tournament_handler import TournamentHandler
@@ -412,6 +414,29 @@ class OrchestrationEngine:
                 self._display.execution_failed_abort(exp_result.caveats)
                 self._print_token_summary()
                 return self.state.thread_id
+
+            # Phase 3.6: VERIFICATION (1B, optional) — re-execute results in a fresh
+            # sandbox; demote anything that does not reproduce so WRITING can't use it.
+            if self._config.orchestrator.enable_verification and self.state.successful_code:
+                self.state.phase_manager.transition_to(ResearchPhase.VERIFICATION)
+                self._log_phase_transition(ResearchPhase.EXECUTION, ResearchPhase.VERIFICATION)
+                self._display.phase_transition("VERIFICATION")
+                records = await self._verification.verify_experiments()
+                demoted = VerificationKernel.apply_gate(self, records)
+                if demoted:
+                    self._display.info(
+                        f"Verification demoted {demoted} unreproduced experiment(s)."
+                    )
+                if (
+                    self._config.orchestrator.abort_on_verification_failure
+                    and not self.state.successful_code
+                ):
+                    self._db.update_thread(self.state.thread_id, status="verification_failed")
+                    self._display.execution_failed_abort(
+                        ["No experiments reproduced under verification."]
+                    )
+                    self._print_token_summary()
+                    return self.state.thread_id
 
         # Phase 3.75: POST_EXECUTION discussion (optional — after experimentation)
         ran_post_execution = False
