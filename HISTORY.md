@@ -3576,3 +3576,16 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 > yes
 
 **Action:** Updated `docs/correctness-kernel-implementation.md` to mark Phase 2 complete (P2-LaTeX/P2-VLM technical solutions + new flags in the table + status). Opened the Phase-2 PR **stacked on `phase1-correctness-kernel`** (base = the Phase-1 branch) so it shows only the 4 Phase-2 commits and PR #12 stays focused; can retarget to `main` once #12 merges.
+
+---
+
+### Prompt 78 — Integrate new features into docs + add GUI controls
+
+> Next can we document and integrate all the new improvements in the documentation? Also it would be good to implement controls for the new features in the graphical UI
+
+**Plan:** (1) Weave the Phase-1/2 features + config flags into the main docs (README, ARCHITECTURE, docs/MANUAL + API/DOMAINS as needed). (2) Add frontend (DenarioApp-style React) controls for the new toggles (pre-registration, verification, step-restart/best-first, human-gate, LaTeX/PDF output, multimodal review, drop-unresolved-citations), plumbed through the backend API → engine config. New branch stacked on `phase2-output-quality` (has all the flags).
+
+**Done (branch `docs-and-ui-controls`).**
+- **GUI controls (end-to-end):** backend `settings.py` models gained the new fields (Orchestrator: verification/best-first/step-restart/human-gate/multimodal; Knowledge: pre-registration; new Journal section; Citation: drop-unresolved) + the `journal` section registered in the route dispatch — GET/PUT `/api/v1/settings` now expose+update them (verified by a Config round-trip). Frontend `client.ts` interfaces mirrored; `SettingsPage.tsx` gained the controls in the Orchestrator/Knowledge/Citation sections + a new **Journal** tab, reusing Toggle/Select/Number fields + auto-save. Fixed a pre-existing `PaperViewer.tsx` TS2604 + removed dead `shallowEqual` so `tsc -b` is green. (One pre-existing eslint `set-state-in-effect` in the untouched `useSectionForm` hook left as-is.)
+- **Docs:** `configs/default.yaml` now inline-documents all new flags (correct names/defaults) under `orchestrator`/`knowledge`/`citation` + a new `journal` section; README gained the 2 kernel phases in the loop diagram, a Correctness-Kernel + Output-Quality feature group, and `paradigm eval` in the CLI table; ARCHITECTURE gained a "Correctness Kernel (optional sub-phases)" section; docs/MANUAL gained section 22 "Correctness Kernel & Output Formats" (flag tables + `paradigm eval`) + TOC entry. Corrected the explore agents' invented details (no `--calibrate-judges` CLI, no `enable_fetch_by_id` flag, no fake top-level YAML sections).
+- Verified: settings GET/PUT round-trip; `tsc -b` exit 0; `test_config.py` + ruff(src,backend) green. Each part committed separately on `docs-and-ui-controls`.

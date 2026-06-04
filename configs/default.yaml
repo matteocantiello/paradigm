@@ -129,6 +129,29 @@ orchestrator:
     - theorist
     - analyst
     - skeptic
+  # --- Correctness kernel (Phase 1) + output quality (Phase 2). All off by default. ---
+  # Verification kernel (1B): re-execute results in a fresh sandbox; accept only
+  # what reproduces its RESULT[label]=value tokens within tolerance.
+  enable_verification: false
+  verification_tolerance: 1.0e-6
+  verification_seed: 12345
+  verification_reexec_budget: 20
+  abort_on_verification_failure: true
+  # Tree-search / step-restart (1C)
+  enable_best_first_nodes: false
+  enable_step_restart: false
+  debug_buggy_node_prob: 0.3
+  max_step_restarts_per_experiment: 2
+  # Hybrid human-gate (1E): off | advisory | blocking (autonomous by default)
+  human_gate_mode: "off"
+  human_gate_points:
+    - problem_selection
+    - pre_registration
+    - final_verification
+  # Figure-aware multimodal review (Phase 2 P2-VLM)
+  enable_multimodal_review: false
+  multimodal_review_role: "editor"
+  max_review_figures: 6
 
 # Scientific skills configuration
 skills:
@@ -153,6 +176,16 @@ knowledge:
   tournament_population_size: 8
   tournament_winners: 2
   tournament_k_factor: 32.0
+  # Pre-registration / falsifiability (Phase 1A). Off by default.
+  enable_preregistration: false
+  prereg_require_refutation: true
+  prereg_on_empty: "advisory"  # advisory | blocking
+
+# Paper output formats (Phase 2). Markdown is always written; these are extra.
+journal:
+  enable_latex_output: false   # also write a journal-ready .tex
+  latex_journal: "none"        # none | arxiv | neurips
+  compile_pdf: false           # also compile the .tex to PDF (needs a LaTeX engine)
 
 # Citation grounding and novelty checking
 citation:
@@ -169,3 +202,4 @@ citation:
   novelty_max_iterations: 5
   enable_seed_discovery: true
   seed_discovery_max_papers: 10
+  drop_unresolved_citations: false  # drop refs that don't resolve (vs. bare URLs)

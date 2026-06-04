@@ -166,6 +166,56 @@
     Memories stored in ChromaDB for retrieval in future cycles
 ```
 
+## Correctness Kernel (optional sub-phases)
+
+Empirical/computational science has no proof checker (the way formal math has a kernel
+that makes hallucination structurally impossible). Paradigm manufactures **proxy
+kernels** that slot into the cycle as default-off, opt-in gates. When enabled they add
+two sub-phases and three human-gate points; the legacy autonomous flow is unchanged when
+they are off.
+
+```
+ PLANNING
+    │
+    ▼  (if knowledge.enable_preregistration)
+ PRE_REGISTRATION   Theorist freezes one machine-readable, falsifiable PredictionRule
+                    per hypothesis (metric token + direction + bounds + REQUIRED
+                    refutation condition). Non-falsifiable hypotheses are dropped.
+                    Rules are injected into the EXECUTION prompt.
+    │
+    ▼
+ EXECUTION          Experimentalist prints results as RESULT[label]=value
+                    (the "console-as-data-bus" contract).
+    │
+    ▼  (if orchestrator.enable_verification)
+ VERIFICATION       Each successful experiment re-runs in a FRESH, seeded
+                    --network=none `verify/<thread>` workspace. A result is "accepted"
+                    only if its RESULT[...] tokens reproduce within tolerance; otherwise
+                    it is demoted (accepted | nondeterministic | rejected). If nothing
+                    reproduces → status `verification_failed`, abort before WRITING.
+                    Post-execution, each frozen rule is evaluated → confirmed | refuted
+                    | inconclusive (computed ONLY from the frozen rule).
+    │
+    ▼
+ WRITING / REVIEW   Fact Sheet carries the verification ledger + pre-registration
+                    verdicts; refuted hypotheses become FORBIDDEN claims.
+```
+
+**Hybrid human-gate + provenance** (`orchestrator.human_gate_mode` = off | advisory |
+blocking). Configurable checkpoints at `problem_selection` (pre-IDEATION),
+`pre_registration`, and `final_verification`, reusing the `InterventionHook`. `blocking`
+with no hook registered falls back to *continue* (deadlock guard), so an autonomous run
+never hangs. Each paper records an engine-written `ProvenanceRecord` (framed_by /
+registered_by / verified_by) — never written by agents, so it can't be confabulated.
+
+**Persistence.** `verification`, `prereg`, and `provenance` are stored as JSON columns on
+the `papers` table (added via idempotent `ALTER TABLE`), and read back by `paradigm eval`
+(reproduction-pass-rate, pre-registration verdict).
+
+**Output formats** (Phase 2). Optional figure-aware multimodal review (the editor sees the
+actual figures), journal-ready LaTeX/PDF output, and resolve-or-drop citations are layered
+on the WRITING/REVIEW phases — all default-off toggles.
+
 ## Agent Interaction Model
 
 Agents interact through structured messages, never free-form conversation. This keeps interactions parseable and auditable.

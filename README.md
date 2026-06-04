@@ -35,6 +35,11 @@ Named after Thomas Kuhn --- paradigm shifts emerge from communities of researche
                     |            |  experiments, data needs, success criteria
                     +-----+-----+
                           |
+                 +--------v---------+
+                 | PRE-REGISTRATION |  (optional) freeze falsifiable
+                 |                  |  predictions before running
+                 +--------+---------+
+                          |
                +----------+----------+
                |                     |
          +-----v-----+        +-----v-----+
@@ -43,6 +48,11 @@ Named after Thomas Kuhn --- paradigm shifts emerge from communities of researche
          | Docker     |        |            |  citation context
          | experiments|        +-----+------+
          +-----+-----+              |
+               |                    |
+         +-----v---------+          |
+         | VERIFICATION  |          |  (optional) re-execute in a fresh
+         | re-execute    |          |  sandbox; keep only what reproduces
+         +-----+---------+          |
                |          +----------+
                |          |
          +-----v----------v+
@@ -180,6 +190,28 @@ pip install -e ".[openai]"
 
 **Focused Debates** --- When agents disagree, structured debates resolve conflicts through back-and-forth exchanges with synthesis, rather than averaging over disagreement.
 
+### Correctness Kernel (opt-in, default-off)
+
+Empirical science has no proof checker, so Paradigm manufactures proxy ones. All of the following are off by default and enabled via config (see `configs/default.yaml` or the Settings page):
+
+**Pre-registration / Falsifiability** --- Freeze a machine-readable, falsifiable prediction for each hypothesis *before* running experiments (a new `PRE_REGISTRATION` phase). The verdict (confirmed / refuted / inconclusive) is computed only against the frozen rule, so results can't be reinterpreted after the fact; refuted results are reported honestly. (`knowledge.enable_preregistration`)
+
+**Verification Kernel** --- A reported result is accepted only if its code re-executes in a fresh, seeded `--network=none` sandbox and reproduces its `RESULT[label]=value` tokens within tolerance (a new `VERIFICATION` phase). Experiments that don't reproduce are demoted so the writer can't cite them. (`orchestrator.enable_verification`)
+
+**Tree-search & Step-restart** --- Best-first ordering prefers experiments that haven't failed, and failed multi-step experiments resume from prior artifacts instead of restarting. (`orchestrator.enable_best_first_nodes` / `enable_step_restart`)
+
+**Hybrid Human Gates + Provenance** --- Configurable human checkpoints (`off` / `advisory` / `blocking`, with a no-hook deadlock guard) at problem-selection, pre-registration, and final-verification; every paper records a human-vs-agent provenance chain. (`orchestrator.human_gate_mode`)
+
+### Output Quality
+
+**Figure-aware Review** --- The editor visually inspects the actual figures (multimodal) to catch caption↔figure mismatches, missing labels, and duplicate/blank figures. (`orchestrator.enable_multimodal_review`)
+
+**Journal-ready LaTeX/PDF** --- Optionally emit a journal-styled `.tex` (and compile a PDF) alongside the markdown paper. (`journal.enable_latex_output` / `compile_pdf`)
+
+**Resolve-or-drop Citations** --- Drop references that don't resolve to real metadata (instead of leaving bare URLs the editor rejects), rewriting in-text markers so none dangle. (`citation.drop_unresolved_citations`)
+
+**Reproducibility Evaluation** --- `paradigm eval` scores papers on a deterministic + LLM-judge rubric; `--live N --split {train,selection,test}` runs fresh cycles on held-out seed splits and reports reproduction-pass-rate, with judge calibration against real publish/reject outcomes.
+
 **Intervention Hooks** --- Run in `--interactive` mode to approve or pause at each phase transition. Or provide a custom hook function for programmatic control.
 
 **Web API** --- Optional FastAPI backend with REST endpoints and WebSocket support for building web-based frontends. Start research cycles, monitor live progress, and intervene with agents in real time. See [`docs/API.md`](docs/API.md).
@@ -220,6 +252,7 @@ No frameworks (no LangChain, no CrewAI). The orchestrator is plain Python with e
 | Command | Description |
 |---------|-------------|
 | `paradigm run` | Run a research cycle (`--mode`, `--prompt`, `--prompt-file`, `--rounds`, `--interactive`, `--network-access`, `--fresh-corpus`) |
+| `paradigm eval` | Score papers on a deterministic + LLM-judge rubric; `--live N --split {train,selection,test}` runs fresh cycles and reports reproduction-pass-rate |
 | `paradigm status` | System statistics and token usage |
 | `paradigm papers` | List papers (filter by `--status`) |
 | `paradigm paper ID` | View or export a paper (`--export path.md`) |

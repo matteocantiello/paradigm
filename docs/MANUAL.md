@@ -27,6 +27,7 @@ A comprehensive guide for scientist-operators running Paradigm, the agentic scie
 19. [Novelty Checking](#19-novelty-checking)
 20. [Agent Memory & Reflection](#20-agent-memory--reflection)
 21. [Web API](#21-web-api)
+22. [Correctness Kernel & Output Formats](#22-correctness-kernel--output-formats)
 
 ---
 
@@ -1861,7 +1862,105 @@ The dev server starts on **http://localhost:3000** and proxies API requests to t
 - **Research artifact browser** --- tabbed viewer for all paper artifacts: literature searches (with arXiv links), peer reviews, conversation transcript, experiment code, and generated figures
 - **Literature panel** --- clickable papers count in session stats opens a slide-over panel showing papers found during research with arXiv abstract/PDF links
 - **Agent configuration** --- change models, providers, and token budgets per agent role
-- **Settings page** --- configure orchestrator, sandbox, literature, knowledge, memory, and citation settings with per-section save/reset
+- **Settings page** --- configure orchestrator, sandbox, literature, knowledge, memory, citation, and journal settings (including the correctness-kernel + output-quality toggles below) with per-section auto-save/reset
 - **Mode toggle** --- switch between production and testing configurations at runtime
 
 See [`frontend/README.md`](../frontend/README.md) for full setup, directory structure, and architecture details.
+
+---
+
+## 22. Correctness Kernel & Output Formats
+
+Empirical science has no proof checker, so Paradigm provides opt-in *proxy* gates that
+harden correctness and output quality. **Every feature here is off by default** — the
+legacy autonomous pipeline is unchanged until you enable it. Toggle them in
+`configs/default.yaml`, a custom config (`paradigm --config my.yaml run ...`), or the web
+**Settings page** (Orchestrator / Knowledge / Citation / Journal sections). A deep
+implementation write-up lives in [`docs/correctness-kernel-implementation.md`](correctness-kernel-implementation.md).
+
+### Pre-registration / falsifiability
+
+Before EXECUTION (a new `PRE_REGISTRATION` phase), the theorist freezes one
+machine-readable, falsifiable `PredictionRule` per hypothesis — a metric token, a
+direction (`inside`/`outside`/`greater`/`less`) with bounds, and a **required** refutation
+condition. Hypotheses with no admissible rule are dropped. After execution the verdict
+(`confirmed`/`refuted`/`inconclusive`) is computed *only* from the frozen rule, so results
+can't be reinterpreted; refuted/negative results are reported honestly.
+
+| Key (`knowledge.`) | Type | Default | Description |
+|---|---|---|---|
+| `enable_preregistration` | bool | `false` | Turn on the pre-registration phase |
+| `prereg_require_refutation` | bool | `true` | Drop hypotheses lacking a refutation condition |
+| `prereg_on_empty` | str | `advisory` | `advisory` (warn + continue) or `blocking` (abort) when no rule survives |
+
+### Verification kernel (re-execution as ground truth)
+
+When enabled, each successful experiment re-runs in a **fresh, seeded `--network=none`
+sandbox** (a new `VERIFICATION` phase) and is accepted only if its `RESULT[label]=value`
+tokens reproduce within tolerance — otherwise it is demoted so the writer can't cite it.
+Enabling verification also activates the **console-as-data-bus contract**: experiments must
+print every key number as `RESULT[label]=value`.
+
+| Key (`orchestrator.`) | Type | Default | Description |
+|---|---|---|---|
+| `enable_verification` | bool | `false` | Re-execute results to verify reproducibility |
+| `verification_tolerance` | float | `1e-6` | Relative tolerance for reproducing metrics |
+| `verification_seed` | int | `12345` | Seed injected before re-execution |
+| `verification_reexec_budget` | int | `20` | Cap on re-runs per cycle |
+| `abort_on_verification_failure` | bool | `true` | Abort before WRITING if nothing reproduces |
+
+### Tree-search & step-restart
+
+| Key (`orchestrator.`) | Type | Default | Description |
+|---|---|---|---|
+| `enable_best_first_nodes` | bool | `false` | Prefer non-buggy experiments within a round |
+| `enable_step_restart` | bool | `false` | Resume failed multi-step experiments from prior artifacts |
+| `debug_buggy_node_prob` | float | `0.3` | Chance a ready buggy node is promoted for a retry |
+| `max_step_restarts_per_experiment` | int | `2` | Per-experiment restart budget |
+
+### Hybrid human gates & provenance
+
+`human_gate_mode` adds human checkpoints at `problem_selection`, `pre_registration`, and
+`final_verification`. `advisory` surfaces the decision without blocking; `blocking` defers
+to the intervention hook (and **continues with a logged warning if no hook is registered**,
+so autonomous runs never deadlock). Each paper records an engine-written provenance chain
+(`framed_by` / `registered_by` / `verified_by`).
+
+| Key (`orchestrator.`) | Type | Default | Description |
+|---|---|---|---|
+| `human_gate_mode` | str | `off` | `off` / `advisory` / `blocking` |
+| `human_gate_points` | list | all three | Which gates are active |
+
+### Output formats
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `orchestrator.enable_multimodal_review` | bool | `false` | Editor visually inspects the actual figures |
+| `orchestrator.multimodal_review_role` | str | `editor` | Role whose model performs the figure review |
+| `orchestrator.max_review_figures` | int | `6` | Cap on images sent to the vision model |
+| `journal.enable_latex_output` | bool | `false` | Also write a journal-ready `.tex` |
+| `journal.latex_journal` | str | `none` | Preset: `none` / `arxiv` / `neurips` |
+| `journal.compile_pdf` | bool | `false` | Also compile the `.tex` to PDF (needs a LaTeX engine) |
+| `citation.drop_unresolved_citations` | bool | `false` | Drop refs that don't resolve (vs. bare URLs) |
+
+### Reproducibility evaluation (`paradigm eval`)
+
+Score papers on a deterministic + optional LLM-judge rubric.
+
+```bash
+paradigm eval                              # score papers already in the DB (offline)
+paradigm eval --judge --limit 20           # add the LLM taste judge
+paradigm eval --live 3 --split selection --judge   # run fresh cycles + score them
+```
+
+| Option | Description |
+|---|---|
+| `--judge` / `--judge-role` | Add the LLM taste judge (novelty/rigor/clarity/significance/honesty) |
+| `--limit N` | Cap papers scored (offline) |
+| `--include-external` | Also score ingested external papers |
+| `--live N` | Run N fresh cycles end-to-end and score the output |
+| `--split {train,selection,test}` | Seed split to draw `--live` cycles from (hash-fixed; the test split never leaks) |
+
+New metrics include `reproduction_pass_rate` (accepted/total verification records) and the
+pre-registration verdict; the judge can be calibrated against the real published/rejected
+boundary. Reports are written to `data/eval/`.
