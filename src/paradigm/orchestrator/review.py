@@ -17,11 +17,13 @@ from paradigm.journal.paper import (
 from paradigm.journal.publication import reject_paper
 from paradigm.journal.review import (
     PeerReview,
+    encode_figures_for_review,
     parse_peer_review,
     score_categories_from_criteria,
     synthesize_decision,
 )
 from paradigm.orchestrator.constants import (
+    _FIGURE_REVIEW_PROMPT,
     _MIN_PAPER_LENGTH,
     _PAPER_CONTEXT_LIMIT,
     _PEER_REVIEW_METADATA_LIMIT,
@@ -177,6 +179,53 @@ class ReviewHandler:
                 return "accept"
         return recommendation
 
+    async def _run_figure_review(self) -> str:
+        """Visually inspect the paper's figures with a vision model (P2-VLM, default-off).
+
+        Returns concrete figure findings to inject into the editor's review, or "" when
+        disabled, when there are no figures, or on any error (graceful degradation —
+        e.g. the configured model isn't vision-capable).
+        """
+        cfg = self._engine._config.orchestrator
+        if not cfg.enable_multimodal_review:
+            return ""
+        figures = self._engine.state.execution_figures
+        if not figures:
+            return ""
+        encoded = encode_figures_for_review(figures, max_figures=cfg.max_review_figures)
+        if not encoded:
+            return ""
+        try:
+            provider, model, extra_body = self._engine._config.get_provider_and_model_for_role(
+                cfg.multimodal_review_role
+            )
+            if not hasattr(provider, "build_image_message"):
+                return ""
+            figure_list = "\n".join(
+                f"{i}. {name}" for i, (name, _mt, _data) in enumerate(encoded, 1)
+            )
+            prompt = _FIGURE_REVIEW_PROMPT.format(
+                n_figures=len(encoded), figure_list=figure_list
+            )
+            message = provider.build_image_message(prompt, [(mt, data) for _n, mt, data in encoded])
+            text, input_tokens, output_tokens = provider.complete(
+                model=model,
+                system="You are a meticulous scientific figure-quality reviewer.",
+                messages=[message],
+                max_tokens=1024,
+                extra_body=extra_body,
+            )
+            self._engine._db.record_token_usage(
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                thread_id=self._engine.state.thread_id,
+            )
+            return text.strip()
+        except Exception as e:  # noqa: BLE001 — figure review is best-effort, never fatal
+            self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+            return ""
+
     async def run_review_phase(self, draft: PaperDraft) -> None:
         """Run the INTERNAL_REVIEW phase: editor reviews, optionally loop back.
 
@@ -190,6 +239,10 @@ class ReviewHandler:
             return
 
         max_iterations = self._engine._config.orchestrator.max_review_iterations
+
+        # P2-VLM: visually inspect figures once up front (figures are stable across
+        # revisions); inject findings into each editor review below.
+        figure_findings = await self._run_figure_review()
 
         prev_required_count: int | None = None
         stall_count = 0
@@ -263,6 +316,14 @@ class ReviewHandler:
                     "The following potential forbidden claim violations were "
                     "detected automatically. Verify each one:\n"
                     + "\n".join(f"- {v}" for v in self._engine.state.forbidden_claims_violations)
+                )
+
+            # P2-VLM: inject visual figure-review findings (default-off).
+            if figure_findings:
+                prompt += (
+                    "\n\n## Figure Review (visual inspection of the actual figures)\n"
+                    + figure_findings
+                    + "\nIncorporate any real figure issues above into your required changes."
                 )
 
             response = None

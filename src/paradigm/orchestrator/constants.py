@@ -1606,3 +1606,17 @@ _PREREGISTRATION_PROMPT = (
     '[-0.55, -0.45] would refute the 1/sqrt(n) scaling"}}]\n\n'
     "Output ONLY valid JSON (no markdown fences, no extra text)."
 )
+
+# Figure-aware multimodal review (P2-VLM): the reviewer SEES the actual figures.
+_FIGURE_REVIEW_PROMPT = (
+    "You are reviewing the {n_figures} figure(s) of a scientific paper — the actual "
+    "images are attached below, in order.\n\n"
+    "## Figures (in order)\n{figure_list}\n\n"
+    "Inspect each image and report concrete problems only:\n"
+    "- Missing or unreadable axis labels, units, or legends.\n"
+    "- A figure that does not match its stated caption/intent.\n"
+    "- Duplicated figures, or a figure that is blank/corrupted.\n"
+    "- Misleading scales (e.g. a claimed power law on linear axes).\n\n"
+    "Be specific (reference the figure by its number/name). If everything is fine, "
+    "reply exactly: 'No figure issues found.'"
+)

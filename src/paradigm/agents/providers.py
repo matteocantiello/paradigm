@@ -59,6 +59,18 @@ class LLMProvider(Protocol):
         """
         ...
 
+    def build_image_message(self, text: str, images: list[tuple[str, bytes]]) -> dict:
+        """Build a multimodal user message (text + base64 images) in provider format.
+
+        Args:
+            text: The prompt text.
+            images: List of ``(media_type, raw_bytes)`` (e.g. ``("image/png", b"...")``).
+
+        Returns:
+            A ``{"role": "user", "content": [...]}`` dict for use with ``complete``.
+        """
+        ...
+
 
 class AnthropicProvider:
     """LLM provider wrapping the Anthropic SDK."""
@@ -95,6 +107,25 @@ class AnthropicProvider:
             if hasattr(block, "text"):
                 content += block.text
         return content, response.usage.input_tokens, response.usage.output_tokens
+
+    @staticmethod
+    def build_image_message(text: str, images: list[tuple[str, bytes]]) -> dict:
+        """Anthropic vision format: text block + base64 image blocks."""
+        import base64
+
+        content: list[dict] = [{"type": "text", "text": text}]
+        for media_type, data in images:
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": base64.standard_b64encode(data).decode("ascii"),
+                    },
+                }
+            )
+        return {"role": "user", "content": content}
 
     def complete_streaming(
         self,
@@ -168,6 +199,19 @@ class OpenAICompatibleProvider:
         input_tokens = usage.prompt_tokens if usage else 0
         output_tokens = usage.completion_tokens if usage else 0
         return content, input_tokens, output_tokens
+
+    @staticmethod
+    def build_image_message(text: str, images: list[tuple[str, bytes]]) -> dict:
+        """OpenAI-compatible vision format: text part + data-URL image_url parts."""
+        import base64
+
+        content: list[dict] = [{"type": "text", "text": text}]
+        for media_type, data in images:
+            b64 = base64.standard_b64encode(data).decode("ascii")
+            content.append(
+                {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}}
+            )
+        return {"role": "user", "content": content}
 
     def complete_streaming(
         self,

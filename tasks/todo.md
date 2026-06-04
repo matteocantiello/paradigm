@@ -74,8 +74,11 @@ Full `--testing` cycle (V4-Pro/Kimi/GLM) confirmed the kernel end-to-end: **1B r
 ## PHASE 2 — Output quality & credibility
 - [x] **P2-cite** — resolve-or-drop citation finalize: `bibliography.py` `drop_unresolved_references` + `remap_citation_markers`; wired in `citation_handler.py`; `citation.drop_unresolved_citations` flag (default off); `test_citation_drop.py` (6). Full suite 1355.
 - [x] **P2-LaTeX** — toggleable journal-ready LaTeX + best-effort PDF compile: `journal/latex.py` (`markdown_to_latex` math-preserving converter, `JOURNAL_PRESETS`, `compile_pdf`, `write_paper_latex`); `JournalConfig` toggles (`enable_latex_output`/`compile_pdf`, default off); writing hook; `test_latex_output.py` (19, incl. real xelatex compile). Demonstrated: validation paper → .tex → 312 KB PDF. Full suite 1374.
-- [ ] **P2-VLM** — figure-aware multimodal review (vision in `AnthropicProvider`; figures→reviewer prompt).
-  - Follow-up (deferred): LLM compile-repair loop (`.log`→fix→recompile) and journal-specific classes (revtex/aastex); current compile is best-effort + base-TeX presets.
+- [x] **P2-VLM** — figure-aware multimodal review: `build_image_message` on both providers (vision), `encode_figures_for_review`, `_run_figure_review` (sends real figures to the editor's model, injects findings into the review; graceful fallback); `enable_multimodal_review` flag (default off); `test_multimodal_review.py` (14). Full suite 1386.
+  - Follow-up (deferred): LaTeX LLM compile-repair loop (`.log`→fix→recompile) + journal-specific classes (revtex/aastex); current compile is best-effort + base-TeX presets.
+
+## ✅ PHASE 2 COMPLETE — Output quality & credibility (3/3)
+P2-cite (resolve-or-drop citations) · P2-LaTeX (toggleable LaTeX/PDF) · P2-VLM (figure-aware review). All default-off; full suite **1386 passed**, ruff clean; branch `phase2-output-quality`.
 
 ---
 
