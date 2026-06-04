@@ -3503,3 +3503,13 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 **1E — Hybrid human-gate + provenance: COMPLETE & verified** (full suite 1306 passed, ruff clean). Default-off (`orchestrator.human_gate_mode="off"`). `orchestrator/human_gate.py` (pure `decide_human_gate` off/advisory/blocking + no-hook deadlock guard; `build_provenance`); `engine.py` (`_human_gate`/`_handle_gate_decision` at problem_selection/pre_registration/final_verification + `_record_provenance`); `knowledge/models.py` `ProvenanceRecord`; `state.py` (`gate_decisions`, `provenance`); `config.py`; tests `test_human_gate.py` (12). Provenance SQLite persistence deferred to 1D.
 
 **1B — Verification Kernel: COMPLETE & verified** (full suite 1294 passed, ruff clean). Default-off (`orchestrator.enable_verification`). `orchestrator/verification.py` (re-execute `successful_code` in a fresh seeded `--network=none` `verify/<thread>` workspace; compare `RESULT[...]` tokens within tolerance → accepted/rejected/nondeterministic; `apply_gate` demotes non-accepted); `knowledge/models.py` `VerificationRecord`; `state.py`; `phases.py` `VERIFICATION` sub-phase; `engine.py` block+gate (abort `verification_failed` if none reproduce); `experimentation.py` `RESULT[]` console contract; `writing.py` Verification Ledger (resolve-or-drop at source via demotion→FORBIDDEN); `config.py`; tests `test_verification.py` (19). Checker battery + SQLite persistence deferred to follow-up/1D.
+
+---
+
+### Prompt 73 — Push Phase-1 Branch + Open PR, then Validate Live
+
+> 1 and then validate live
+
+(Where "1" = the offered "push the branch + open a PR for the Phase-1 series" option.)
+
+**Action:** Push `phase1-correctness-kernel` to `origin` and open a PR (via `gh` if available, else the GitHub compare URL with prepared title/body). Then validate the kernel live — enable the default-off flags and run a real cycle + `paradigm eval --live`.
