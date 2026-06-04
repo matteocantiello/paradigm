@@ -89,18 +89,22 @@ Non-fatal notes logged: an occasional checkpoint-JSON parse fallback; a `SyntaxW
 
 ---
 
-## 3. Phase 2 — Output quality & credibility (started)
+## 3. Phase 2 — Output quality & credibility (complete)
 
 ### P2-cite · resolve-or-drop citation finalize  *(done)*
 **Motivation.** Unresolved references render as **bare URLs**, which the internal editor rejects — a documented driver of `writing_failed`. Completes 1B's resolve-or-drop discipline at the bibliography stage.
 
 **Technical solution.** `literature/bibliography.py`: `drop_unresolved_references` (drop refs whose metadata didn't resolve, renumber survivors, return an original→new index remap) + `remap_citation_markers` (rewrite in-text `[N]` markers, removing dropped ones so no citation dangles); wired into `citation_handler.py` behind `citation.drop_unresolved_citations` (off).
 
-### P2-LaTeX · journal-ready LaTeX + compile-repair  *(planned)*
-Journal presets + `xelatex` compile + `.log`→LLM-fix→recompile loop. The "ship a real paper" centerpiece.
+### P2-LaTeX · toggleable journal-ready LaTeX + PDF  *(done)*
+**Motivation.** Markdown output undercut credibility; a verified result deserves a submission-shaped artifact. The operator must be able to switch the format on/off.
 
-### P2-VLM · figure-aware multimodal review (D8)  *(planned)*
-Vision support in `AnthropicProvider`; render figures into the reviewer prompt to catch caption↔figure mismatches and missing/duplicate figures.
+**Technical solution.** `journal/latex.py`: `markdown_to_latex` — a deterministic, math-preserving converter (headings, abstract, figures→`\includegraphics`, lists, bold/italic, references; escapes special chars only outside `$...$`) — plus `JOURNAL_PRESETS` (none/arxiv/neurips, base-TeX-only), best-effort `compile_pdf` (tectonic/xelatex/pdflatex; graceful when none installed), and `write_paper_latex`. `JournalConfig` toggles `enable_latex_output` / `compile_pdf` / `latex_journal` (default off); emitted non-fatally from `WritingHandler.save_paper_file`. **Verified live:** the 23 KB validation paper compiled to a 312 KB PDF via xelatex.
+
+### P2-VLM · figure-aware multimodal review (D8)  *(done)*
+**Motivation.** Text-only review can't see the figures — it misses caption↔figure mismatches, missing axis labels, duplicate/blank figures, misleading scales. (Both the AI Scientist v2 VLM check and Denario's multimodal referee confirmed the value.)
+
+**Technical solution.** `agents/providers.py`: `build_image_message` on both providers (Anthropic image blocks / OpenAI `image_url` data-URLs), reusing the existing `complete()`. `journal/review.py`: `encode_figures_for_review` (read PNG/JPG/GIF/WEBP figures to bytes; cap count/size; skip PDFs/missing). `orchestrator/review.py`: `_run_figure_review` resolves the editor's provider/model, sends the actual images, and injects concrete findings into the editor's review — fully graceful (returns "" when disabled, no figures, the model isn't vision-capable, or on any error). `config.enable_multimodal_review` / `multimodal_review_role` / `max_review_figures` (default off).
 
 ---
 
@@ -138,6 +142,12 @@ Vision support in `AnthropicProvider`; render figures into the reviewer prompt t
 | `orchestrator` | `human_gate_mode` | `"off"` |
 | `orchestrator` | `human_gate_points` | `[problem_selection, pre_registration, final_verification]` |
 | `citation` | `drop_unresolved_citations` | `false` |
+| `journal` | `enable_latex_output` | `false` |
+| `journal` | `latex_journal` | `"none"` |
+| `journal` | `compile_pdf` | `false` |
+| `orchestrator` | `enable_multimodal_review` | `false` |
+| `orchestrator` | `multimodal_review_role` | `"editor"` |
+| `orchestrator` | `max_review_figures` | `6` |
 
 ### Cross-cutting design discipline
 Plain-Python (no frameworks); every feature default-off; idempotent `ALTER TABLE ... ADD COLUMN` (PRAGMA-guarded, no migration framework); new phases as *additional* transitions; each feature its own tested commit; full suite green at every step.
@@ -146,6 +156,6 @@ Plain-Python (no frameworks); every feature default-off; idempotent `ALTER TABLE
 
 ## 5. Status & what's next
 - **PR #12** (`phase1-correctness-kernel` → `main`): reliability + eval harness + Phase 1 Correctness Kernel + validation refines. Open. (Superseded #11.)
-- **`phase2-output-quality`** (branch, pushed): P2-cite. Phase-2 PR to be opened when the phase is further along.
+- **`phase2-output-quality`** (branch, pushed): Phase 2 complete — P2-cite + P2-LaTeX + P2-VLM. PR stacked on the Phase-1 branch.
 - **Next:** P2-LaTeX, P2-VLM (Phase 2); then the roadmap's Phase 3 (taste judge, diversity, cross-model adversarial review), Phase 4 (gated skill-evolution, reputation), Phase 5 (MCP interop).
 - **Optional:** a re-validation run would confirm the refines (1A now freezing rules; editor converging to a published paper) end-to-end — deferred (a full cheap cycle ran ~1h41m / ~850K tokens).

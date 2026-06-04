@@ -3568,3 +3568,11 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 **P2-VLM COMPLETE & verified** (full suite 1386 passed, ruff clean). Default-off (`orchestrator.enable_multimodal_review`). `agents/providers.py`: `build_image_message` on both providers (Anthropic image blocks / OpenAI `image_url` data-URLs) + Protocol method. `journal/review.py`: `encode_figures_for_review` (read PNG/JPG/GIF/WEBP figures → bytes, cap count/size, skip PDFs/missing). `orchestrator/review.py`: `_run_figure_review` (resolves the editor's provider, sends the actual figure images via `build_image_message`+`complete`, returns concrete findings; graceful "" on disable/no-figures/non-vision-model/error) — findings injected into the editor's review prompt. `constants.py` `_FIGURE_REVIEW_PROMPT`; `config.py` flags (`enable_multimodal_review`/`multimodal_review_role`/`max_review_figures`). Tests `test_multimodal_review.py` (14). 
 
 > **✅ PHASE 2 COMPLETE (3/3):** P2-cite · P2-LaTeX · P2-VLM. All default-off / backward-compatible; full suite 1386 passed, ruff clean. Branch `phase2-output-quality`.
+
+---
+
+### Prompt 77 — Open Phase-2 PR + mark Phase 2 done in docs
+
+> yes
+
+**Action:** Updated `docs/correctness-kernel-implementation.md` to mark Phase 2 complete (P2-LaTeX/P2-VLM technical solutions + new flags in the table + status). Opened the Phase-2 PR **stacked on `phase1-correctness-kernel`** (base = the Phase-1 branch) so it shows only the 4 Phase-2 commits and PR #12 stays focused; can retarget to `main` once #12 merges.
