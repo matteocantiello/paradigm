@@ -1005,3 +1005,35 @@ class TestEnginePeerReviewDisabled:
 
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "reviewed"
+
+
+# --- Internal-review recommendation resolution (Prompt-73 refine) ---
+
+
+class TestResolveInternalRecommendation:
+    """ReviewHandler._resolve_internal_recommendation override logic."""
+
+    @staticmethod
+    def _resolve(rec, changes, failures):
+        from paradigm.orchestrator.review import ReviewHandler
+
+        return ReviewHandler._resolve_internal_recommendation(rec, changes, failures)
+
+    def test_revise_with_no_changes_becomes_accept(self):
+        # The live-validation failure mode: editor says "revise" but lists 0 changes.
+        assert self._resolve("revise", 0, 0) == "accept"
+
+    def test_revise_with_failed_checks_becomes_reject(self):
+        assert self._resolve("revise", 5, 4) == "reject"
+
+    def test_failed_checks_take_precedence_over_no_changes(self):
+        assert self._resolve("revise", 0, 4) == "reject"
+
+    def test_revise_with_changes_stays_revise(self):
+        assert self._resolve("revise", 3, 1) == "revise"
+
+    def test_accept_passes_through(self):
+        assert self._resolve("accept", 0, 0) == "accept"
+
+    def test_reject_passes_through(self):
+        assert self._resolve("reject", 0, 0) == "reject"

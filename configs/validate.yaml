@@ -1,7 +1,7 @@
-# Paradigm Default Configuration
-# API key is loaded from .env file (ANTHROPIC_API_KEY)
+# Phase-1 live-validation config.
+# Lean + cheap (use with `--testing` for open-weight models), isolated data dir,
+# with all Phase-1 correctness-kernel flags ENABLED to exercise them end-to-end.
 
-# LLM provider registry
 providers:
   anthropic:
     type: anthropic
@@ -18,7 +18,6 @@ providers:
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
     default_model: gemini-3-pro-preview
 
-# Agent configuration
 agent:
   default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
   opus_model: "claude-opus-4-6"
@@ -31,32 +30,12 @@ agent:
     theorist:
       provider: anthropic
       model: claude-opus-4-6
-      token_budget_per_agent: 300000
-    experimentalist:
-      provider: anthropic
-      model: claude-opus-4-6
-      token_budget_per_agent: 300000
-    analyst:
-      provider: anthropic
-      model: claude-opus-4-6
-      token_budget_per_agent: 300000
-    synthesizer:
-      provider: anthropic
-      model: claude-opus-4-6
-      token_budget_per_agent: 300000
     writer:
       provider: anthropic
       model: claude-opus-4-6
       max_tokens: 16384
-      token_budget_per_agent: 300000
-    skeptic:
-      provider: google
-      model: gemini-3-pro-preview
-    editor:
-      provider: google
-      model: gemini-3-pro-preview
 
-# Testing mode overrides (applied when --testing flag is passed)
+# Cheap open-weight models, applied with `--testing`.
 testing_overrides:
   theorist:
     provider: together
@@ -80,92 +59,89 @@ testing_overrides:
     provider: together
     model: moonshotai/Kimi-K2.6
 
-# Sandbox configuration
+# Verification re-executes in a fresh --network=none sandbox.
 sandbox:
   enabled: true
   image_name: "paradigm-sandbox:latest"
-  network_mode: "bridge"
+  network_mode: "none"
   cpu_limit: 2.0
   memory_limit: "2g"
-  execution_timeout: 300
+  execution_timeout: 120
   max_output_size: 10485760
 
-# Literature search configuration
 literature:
   arxiv_rate_limit: 3.0
-  max_results_per_search: 50
+  max_results_per_search: 20
   enable_pdf_fetch: true
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
-  follow_budget_per_round: 3
-  cited_by_budget_per_round: 2
-  read_budget_per_round: 5
-  max_read_chars: 8000
-  max_citation_results: 10
-  max_reference_results: 20
+  follow_budget_per_round: 1
+  cited_by_budget_per_round: 1
+  read_budget_per_round: 2
+  max_read_chars: 6000
+  max_citation_results: 5
+  max_reference_results: 10
 
-# Storage configuration
+# Isolated data dir so validation never pollutes the real corpus/DB.
 storage:
-  data_dir: "./data"
+  data_dir: "./data_validate"
 
-# Orchestrator configuration
 orchestrator:
-  max_rounds_per_phase: 10
+  max_rounds_per_phase: 2
   enable_checkpointing: true
   checkpoint_interval: 5
   enable_writing: true
-  max_review_iterations: 5
+  max_review_iterations: 2
   enable_peer_review: true
   num_reviewers: 2
-  max_revision_rounds: 4
+  max_revision_rounds: 1
   enable_experimentation: true
-  # max_experiment_rounds: null  # Default: 2 × max_rounds_per_phase
-  max_searches_per_round: 5
-  enable_debates: true
-  max_debate_exchanges: 3
-  max_debates_per_phase: 2
-  enable_execution_sprints: true
-  num_execution_sprints: 3
-  sprint_review_roles:
-    - theorist
-    - analyst
-    - skeptic
+  max_searches_per_round: 2
+  enable_debates: false
+  enable_execution_sprints: false
+  num_execution_sprints: 1
+  # --- Phase 1 flags ---
+  enable_verification: true
+  verification_tolerance: 1.0e-6
+  verification_seed: 12345
+  verification_reexec_budget: 5
+  abort_on_verification_failure: true
+  enable_best_first_nodes: true
+  enable_step_restart: true
+  debug_buggy_node_prob: 0.3
+  human_gate_mode: "advisory"
+  human_gate_points:
+    - problem_selection
+    - pre_registration
+    - final_verification
 
-# Scientific skills configuration
 skills:
   skills_dir: "vendor/claude-scientific-skills/scientific-skills"
   default_mode: "default"
-  max_skill_chars: null  # No truncation by default
+  max_skill_chars: null
 
-# Agent episodic memory
+# Lean: skip episodic memory to reduce moving parts during validation.
 memory:
-  enabled: true
+  enabled: false
   max_memories_per_prompt: 5
   recency_half_life_days: 30.0
   collection_name: "agent_memories"
   max_memory_chars: 2000
 
-# Knowledge architecture (world model, evidence graph, tournaments)
 knowledge:
   enable_world_model: true
   world_model_max_context_chars: 3000
-  enable_evidence_graph: true
+  enable_evidence_graph: false
   enable_hypothesis_tournament: true
-  tournament_population_size: 8
+  tournament_population_size: 4
   tournament_winners: 2
   tournament_k_factor: 32.0
+  # --- Phase 1A flags ---
+  enable_preregistration: true
+  prereg_require_refutation: true
+  prereg_on_empty: "advisory"
 
-# Citation grounding and novelty checking
+# Skip citation grounding / seed discovery to keep the run fast and cheap.
 citation:
-  enable_citation_grounding: true
-  perplexity_api_key_env: "PERPLEXITY_API_KEY"
-  citation_sections:
-    - "introduction"
-    - "methods"
-  max_retries_per_paragraph: 2
-  perplexity_timeout: 120.0
+  enable_citation_grounding: false
   enable_novelty_check: false
-  novelty_mode: "semantic_scholar"
-  futurehouse_api_key_env: "FUTURE_HOUSE_API_KEY"
-  novelty_max_iterations: 5
-  enable_seed_discovery: true
-  seed_discovery_max_papers: 10
+  enable_seed_discovery: false

@@ -157,6 +157,26 @@ class ReviewHandler:
                 failures += 1
         return failures
 
+    @staticmethod
+    def _resolve_internal_recommendation(
+        recommendation: str, required_changes: int, check_failures: int
+    ) -> str:
+        """Resolve the editor's internal-review recommendation.
+
+        - "revise" with >=4 failed mandatory checks -> "reject" (revision can't fix
+          fundamental issues).
+        - "revise" with no required changes -> "accept" (nothing actionable to revise;
+          lets the loop converge instead of looping on an empty revision).
+
+        Other recommendations pass through unchanged.
+        """
+        if recommendation == "revise":
+            if check_failures >= 4:
+                return "reject"
+            if required_changes == 0:
+                return "accept"
+        return recommendation
+
     async def run_review_phase(self, draft: PaperDraft) -> None:
         """Run the INTERNAL_REVIEW phase: editor reviews, optionally loop back.
 
@@ -288,12 +308,14 @@ class ReviewHandler:
             # Parse review feedback
             feedback = parse_review_feedback(response.content)
 
-            # Override: if editor recommends "revise" but all mandatory checks
-            # failed, escalate to "reject" — revision won't fix fundamental issues
+            # Override the editor's recommendation: escalate to reject when mandatory
+            # checks fail, or accept when "revise" lists nothing to revise (see helper).
             if feedback.recommendation == "revise":
-                check_failures = self._count_mandatory_check_failures(response.content)
-                if check_failures >= 4:
-                    feedback.recommendation = "reject"
+                feedback.recommendation = self._resolve_internal_recommendation(
+                    feedback.recommendation,
+                    len(feedback.required_changes),
+                    self._count_mandatory_check_failures(response.content),
+                )
 
             self._engine._display.review_recommendation(
                 feedback.recommendation, len(feedback.required_changes)

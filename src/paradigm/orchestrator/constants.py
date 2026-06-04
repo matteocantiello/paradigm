@@ -1599,5 +1599,10 @@ _PREREGISTRATION_PROMPT = (
     "'outside' provide BOTH low and high; for 'greater' provide low; for 'less' provide high. "
     "Every hypothesis MUST have a non-empty refutation_condition — if you cannot state one, "
     "the hypothesis is not falsifiable and should be dropped (omit it).\n\n"
+    "Example (for a hypothesis 'the sample-mean standard error follows the 1/sqrt(n) law'):\n"
+    '[{{"hypothesis_index": 0, "metric_name": "loglog_slope", "metric_stdout_key": '
+    '"loglog_slope", "direction": "inside", "low": -0.55, "high": -0.45, '
+    '"significance_max_p": null, "refutation_condition": "a fitted log-log slope outside '
+    '[-0.55, -0.45] would refute the 1/sqrt(n) scaling"}}]\n\n'
     "Output ONLY valid JSON (no markdown fences, no extra text)."
 )

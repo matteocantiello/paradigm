@@ -3513,3 +3513,28 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 (Where "1" = the offered "push the branch + open a PR for the Phase-1 series" option.)
 
 **Action:** Push `phase1-correctness-kernel` to `origin` and open a PR (via `gh` if available, else the GitHub compare URL with prepared title/body). Then validate the kernel live — enable the default-off flags and run a real cycle + `paradigm eval --live`.
+
+**Done:** PR #12 opened (`phase1-correctness-kernel` → `main`, comprehensive); PR #11 closed as superseded. Created `configs/validate.yaml` (lean, isolated `data_validate`, all Phase-1 flags on, `--network=none`). User started Docker + built `paradigm-sandbox:latest`. Launched live validation cycle (`--testing`, self-contained 1/√n prompt) in background.
+
+---
+
+### Prompt 74 — Keep Testing/Refining, Then Continue the Development Plan
+
+> Keep testing and refining if needed. After that continue with the development plan
+
+**Action:** Complete the live validation (inspect run artifacts: prereg freeze/verdict, verification ledger, provenance, fetch-by-id); fix any integration bugs surfaced; re-run if needed. Then proceed to **Phase 2 — Output quality & credibility** (journal-ready LaTeX + compile-repair, figure-aware multimodal review, resolve-or-drop citation finalize).
+
+**Refine — model choice:** First run exposed that `testing_overrides` used `deepseek-ai/DeepSeek-V3.1` (no longer serverless on Together → 400s for analyst/synthesizer/skeptic/editor). User specified the models to use instead: **`deepseek-ai/DeepSeek-V4-Pro`, `moonshotai/Kimi-K2.6`, `zai-org/GLM-5.1`**. Updated `configs/validate.yaml` overrides — makers (theorist/experimentalist)→DeepSeek-V4-Pro, analyst/synthesizer/editor→Kimi-K2.6, writer/skeptic→GLM-5.1 (skeptic on a different family = cross-model adversarial diversity). Will mirror into `configs/default.yaml` testing_overrides once validated.
+
+**LIVE VALIDATION RESULT (✅ kernel works end-to-end).** Full `--testing` cycle on the 1/√n prompt (thread-1dd581744a51, paper-a2f64ebeb18f; 853K tokens, ~1h41m):
+- **1B verification kernel ✓✓** — re-executed all 3 experiments in a fresh `--network=none` sandbox and reproduced **13 `RESULT[]` metrics with max rel error 0.00e+00**; `final_verification` gate "3/3 reproduced"; `reproduction_pass_rate=1.0` persisted + read by eval.
+- **1E gates + provenance ✓** — all 3 advisory gates fired; provenance persisted (`verified_by=kernel`, `verification_summary={accepted:3,total:3}`, gate decisions recorded).
+- **Console-as-data-bus ✓** (experimentalist emitted `RESULT[...]`); **1D eval ✓** (read persisted records, scored 65/100).
+- **1A ran but froze 0 rules** — the reject gate correctly dropped 2 non-falsifiable tournament hypotheses; the theorist didn't emit well-formed `PredictionRule` JSON → no prereg.
+- **Only blocker to publication:** editor recommended "revise (0 required changes)" twice → `revision_exhausted` (no accept).
+
+**Refines applied (full suite 1349 passed, ruff clean):**
+1. `orchestrator/review.py` — extracted `_resolve_internal_recommendation`: "revise" with **0 required changes → accept** (lets the loop converge); "revise" + ≥4 failed checks → reject (unchanged). +6 unit tests.
+2. `orchestrator/constants.py` — added a concrete worked example to `_PREREGISTRATION_PROMPT` to elicit well-formed rules (addresses 1A's 0-rules outcome).
+3. `configs/default.yaml` — fixed `testing_overrides` (dead DeepSeek-V3.1 → DeepSeek-V4-Pro/Kimi-K2.6/GLM-5.1); added `configs/validate.yaml`.
+- Noted (non-fatal): occasional checkpoint-JSON parse fallback; a `SyntaxWarning '\s'` in agent-written code.
