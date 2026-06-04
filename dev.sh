@@ -78,7 +78,7 @@ start_services() {
 
   # Start backend
   cd "$project_dir"
-  conda run --no-banner -n paradigm \
+  conda run --no-capture-output -n paradigm \
     uvicorn backend.api.main:app --reload --port "$BACKEND_PORT" \
     > "$PIDDIR/backend.log" 2>&1 &
   echo $! > "$PIDDIR/backend.pid"

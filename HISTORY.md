@@ -3589,3 +3589,11 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 - **GUI controls (end-to-end):** backend `settings.py` models gained the new fields (Orchestrator: verification/best-first/step-restart/human-gate/multimodal; Knowledge: pre-registration; new Journal section; Citation: drop-unresolved) + the `journal` section registered in the route dispatch — GET/PUT `/api/v1/settings` now expose+update them (verified by a Config round-trip). Frontend `client.ts` interfaces mirrored; `SettingsPage.tsx` gained the controls in the Orchestrator/Knowledge/Citation sections + a new **Journal** tab, reusing Toggle/Select/Number fields + auto-save. Fixed a pre-existing `PaperViewer.tsx` TS2604 + removed dead `shallowEqual` so `tsc -b` is green. (One pre-existing eslint `set-state-in-effect` in the untouched `useSectionForm` hook left as-is.)
 - **Docs:** `configs/default.yaml` now inline-documents all new flags (correct names/defaults) under `orchestrator`/`knowledge`/`citation` + a new `journal` section; README gained the 2 kernel phases in the loop diagram, a Correctness-Kernel + Output-Quality feature group, and `paradigm eval` in the CLI table; ARCHITECTURE gained a "Correctness Kernel (optional sub-phases)" section; docs/MANUAL gained section 22 "Correctness Kernel & Output Formats" (flag tables + `paradigm eval`) + TOC entry. Corrected the explore agents' invented details (no `--calibrate-judges` CLI, no `enable_fetch_by_id` flag, no fake top-level YAML sections).
 - Verified: settings GET/PUT round-trip; `tsc -b` exit 0; `test_config.py` + ruff(src,backend) green. Each part committed separately on `docs-and-ui-controls`.
+
+---
+
+### Prompt 79 — Run a local instance for manual testing
+
+> I want to test the platform and GUI works. Can you run an instance so I can test?
+
+**Action:** Launch the platform via `./dev.sh` (backend uvicorn :8000 + frontend vite :3000; auth disabled in dev — no `PARADIGM_API_KEY`) on the `docs-and-ui-controls` branch (has the new GUI controls). Verify both services are up and hand the user the URLs.
