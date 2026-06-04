@@ -3551,3 +3551,16 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 > Let's pause. I would like to make a summary of all the changes we implemented. The rationale/motivation and the technical solution
 
 **Artifact:** `docs/correctness-kernel-implementation.md` — comprehensive summary of everything built across Phase 1 + live validation + refines + Phase-2 P2-cite: per-feature motivation + technical solution, a new-files/models/phases reference, a config-flag table, and branch/PR state.
+
+---
+
+### Prompt 76 — Phase 2: P2-LaTeX (toggleable LaTeX/PDF output)
+
+> Let's continue with Phase 2. The latex/pdf output should be something one can toggle on/off
+
+**Key decisions:**
+- New `journal/latex.py`: deterministic markdown→LaTeX (no LLM, no external Python deps; math-preserving escaping) + journal presets + best-effort PDF compile (shells out to tectonic/xelatex/pdflatex only if installed).
+- Explicit on/off toggles per user: `journal.enable_latex_output` (emit `.tex`) and `journal.compile_pdf` (also build PDF). Default off; hooked into `WritingHandler.save_paper_file` (non-fatal). Tests in `test_latex_output.py`.
+- On the `phase2-output-quality` branch.
+
+**P2-LaTeX COMPLETE & verified** (full suite 1374 passed, ruff clean). `journal/latex.py`: `markdown_to_latex` (deterministic, math-preserving escaping, headings/abstract/figures/lists/bold-italic/references), `JOURNAL_PRESETS` (none/arxiv/neurips, base-TeX-only packages), `find_latex_engine`/`compile_pdf` (best-effort: tectonic/xelatex/pdflatex; graceful no-engine path), `write_paper_latex` orchestrator; `JournalConfig` (`enable_latex_output`/`latex_journal`/`compile_pdf`, default off); writing hook. Tests `test_latex_output.py` (19, incl. a real xelatex compile). **Demonstrated live:** the 23 KB validation paper rendered to `.tex` and compiled to a 312 KB PDF via xelatex. Refine from the demo: dropped `authblk` from the arxiv preset (not in minimal TeX installs) → base-package-only presets.

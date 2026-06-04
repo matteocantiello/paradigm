@@ -211,6 +211,15 @@ class KnowledgeConfig(BaseModel):
     prereg_on_empty: str = "advisory"  # "advisory" (warn + continue) or "blocking" (abort)
 
 
+class JournalConfig(BaseModel):
+    """Configuration for paper output formats (Phase 2)."""
+
+    # Toggle journal-ready LaTeX output (writes papers/<id>/<id>.tex). Off by default.
+    enable_latex_output: bool = False
+    latex_journal: str = "none"  # preset: none | arxiv | neurips
+    compile_pdf: bool = False  # also build a PDF (requires a LaTeX engine on PATH)
+
+
 class ProviderConfigEntry(BaseModel):
     """Configuration for a single LLM provider in the registry."""
 
@@ -232,6 +241,7 @@ class Config(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     citation: CitationConfig = Field(default_factory=CitationConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
+    journal: JournalConfig = Field(default_factory=JournalConfig)
     domain: str = "science"
     providers: dict[str, ProviderConfigEntry] = Field(default_factory=dict)
     testing_overrides: dict[str, AgentOverrideConfig] = Field(default_factory=dict)

@@ -1213,6 +1213,26 @@ class WritingHandler:
         if self._engine.state.execution_figures:
             self.copy_figures_to_paper_dir(paper_id)
 
+        # Optional journal-ready LaTeX/PDF output (Phase 2, default-off toggle).
+        journal_cfg = self._engine._config.journal
+        if journal_cfg.enable_latex_output:
+            try:
+                from paradigm.journal.latex import write_paper_latex
+
+                result = write_paper_latex(
+                    paper_dir,
+                    paper_id,
+                    body,
+                    journal=journal_cfg.latex_journal,
+                    compile_to_pdf=journal_cfg.compile_pdf,
+                )
+                msg = f"LaTeX output written: {result.get('tex_path')}"
+                if journal_cfg.compile_pdf:
+                    msg += f" | PDF: {result.get('pdf_message')}"
+                self._engine._display.info(msg)
+            except Exception as e:  # noqa: BLE001 — an output format must never break the cycle
+                self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+
     def copy_figures_to_paper_dir(self, paper_id: str) -> None:
         """Copy execution output figures to the paper's figures/ directory.
 
