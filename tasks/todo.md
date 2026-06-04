@@ -68,5 +68,19 @@ All default-off / backward-compatible. Full suite **1343 passed**, ruff clean. S
 
 ---
 
+## LIVE VALIDATION (Prompt 73–74) ✅
+Full `--testing` cycle (V4-Pro/Kimi/GLM) confirmed the kernel end-to-end: **1B re-executed 3 experiments under `--network=none` and reproduced 13 RESULT[] metrics @ 0.00 rel error**; gates + provenance persisted; eval read it back. Refines applied: review "revise+0-changes→accept"; prereg prompt example; fixed dead testing models.
+
+## PHASE 2 — Output quality & credibility
+- [x] **P2-cite** — resolve-or-drop citation finalize: `bibliography.py` `drop_unresolved_references` + `remap_citation_markers`; wired in `citation_handler.py`; `citation.drop_unresolved_citations` flag (default off); `test_citation_drop.py` (6). Full suite 1355.
+- [x] **P2-LaTeX** — toggleable journal-ready LaTeX + best-effort PDF compile: `journal/latex.py` (`markdown_to_latex` math-preserving converter, `JOURNAL_PRESETS`, `compile_pdf`, `write_paper_latex`); `JournalConfig` toggles (`enable_latex_output`/`compile_pdf`, default off); writing hook; `test_latex_output.py` (19, incl. real xelatex compile). Demonstrated: validation paper → .tex → 312 KB PDF. Full suite 1374.
+- [x] **P2-VLM** — figure-aware multimodal review: `build_image_message` on both providers (vision), `encode_figures_for_review`, `_run_figure_review` (sends real figures to the editor's model, injects findings into the review; graceful fallback); `enable_multimodal_review` flag (default off); `test_multimodal_review.py` (14). Full suite 1386.
+  - Follow-up (deferred): LaTeX LLM compile-repair loop (`.log`→fix→recompile) + journal-specific classes (revtex/aastex); current compile is best-effort + base-TeX presets.
+
+## ✅ PHASE 2 COMPLETE — Output quality & credibility (3/3)
+P2-cite (resolve-or-drop citations) · P2-LaTeX (toggleable LaTeX/PDF) · P2-VLM (figure-aware review). All default-off; full suite **1386 passed**, ruff clean; branch `phase2-output-quality`.
+
+---
+
 ## Progress log
-- (in progress) Housekeeping: roadmap doc + todo seeded. Starting 1A.
+- Phase 1 complete (6/6) + live-validated + refined. Phase 2 started; P2-cite done. Next: P2-LaTeX or P2-VLM.

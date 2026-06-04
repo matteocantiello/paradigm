@@ -161,6 +161,52 @@ class BibliographyBuilder:
             )
 
     @staticmethod
+    def drop_unresolved_references(
+        references: list[Reference],
+    ) -> tuple[list[Reference], dict[int, int | None]]:
+        """Drop references whose metadata didn't resolve (no title) and renumber.
+
+        Resolve-or-drop discipline (Phase 2): an unresolved reference renders as a
+        bare URL, which the editor rejects. Drop those and renumber the survivors.
+
+        Args:
+            references: References from :meth:`build_references`.
+
+        Returns:
+            ``(kept, remap)`` where ``kept`` is the resolved references renumbered
+            from 1, and ``remap`` maps each original ``index`` to its new index, or
+            ``None`` if the reference was dropped (so in-text [N] markers can be
+            rewritten and dangling citations removed).
+        """
+        remap: dict[int, int | None] = {}
+        kept: list[Reference] = []
+        for ref in references:
+            if ref.title:
+                new_index = len(kept) + 1
+                remap[ref.index] = new_index
+                ref.index = new_index
+                kept.append(ref)
+            else:
+                remap[ref.index] = None
+        return kept, remap
+
+    @staticmethod
+    def remap_citation_markers(text: str, remap: dict[int, int | None]) -> str:
+        """Rewrite in-text ``[N]`` markers per ``remap``; markers mapped to None are removed.
+
+        Markers not present in ``remap`` are left unchanged (defensive).
+        """
+
+        def _replace(match: re.Match) -> str:
+            old = int(match.group(1))
+            if old not in remap:
+                return match.group(0)
+            new = remap[old]
+            return f"[{new}]" if new is not None else ""
+
+        return re.sub(r"\[(\d+)\]", _replace, text)
+
+    @staticmethod
     def format_bibliography_markdown(references: list[Reference]) -> str:
         """Format references as a markdown bibliography section.
 

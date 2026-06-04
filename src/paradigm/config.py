@@ -147,6 +147,10 @@ class OrchestratorConfig(BaseModel):
     verification_seed: int = 12345  # deterministic seed injected before re-execution
     verification_reexec_budget: int = 20  # cap on re-runs per cycle (cost control)
     abort_on_verification_failure: bool = True  # abort before WRITING if nothing reproduces
+    # Figure-aware multimodal review (Phase 2 P2-VLM). Off by default.
+    enable_multimodal_review: bool = False  # show the editor the actual figure images
+    multimodal_review_role: str = "editor"  # role whose provider/model does the figure review
+    max_review_figures: int = 6  # cap images sent to the vision model
     # Hybrid human-gate (Phase 1E). Autonomous by default; gates are opt-in.
     human_gate_mode: str = "off"  # off | advisory | blocking
     human_gate_points: list[str] = Field(
@@ -182,6 +186,7 @@ class CitationConfig(BaseModel):
     """Configuration for citation grounding and novelty checking."""
 
     enable_citation_grounding: bool = False
+    drop_unresolved_citations: bool = False  # drop refs that don't resolve (vs bare-URL)
     perplexity_api_key_env: str = "PERPLEXITY_API_KEY"
     citation_sections: list[str] = Field(default_factory=lambda: ["introduction", "methods"])
     max_retries_per_paragraph: int = 2
@@ -210,6 +215,15 @@ class KnowledgeConfig(BaseModel):
     prereg_on_empty: str = "advisory"  # "advisory" (warn + continue) or "blocking" (abort)
 
 
+class JournalConfig(BaseModel):
+    """Configuration for paper output formats (Phase 2)."""
+
+    # Toggle journal-ready LaTeX output (writes papers/<id>/<id>.tex). Off by default.
+    enable_latex_output: bool = False
+    latex_journal: str = "none"  # preset: none | arxiv | neurips
+    compile_pdf: bool = False  # also build a PDF (requires a LaTeX engine on PATH)
+
+
 class ProviderConfigEntry(BaseModel):
     """Configuration for a single LLM provider in the registry."""
 
@@ -231,6 +245,7 @@ class Config(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     citation: CitationConfig = Field(default_factory=CitationConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
+    journal: JournalConfig = Field(default_factory=JournalConfig)
     domain: str = "science"
     providers: dict[str, ProviderConfigEntry] = Field(default_factory=dict)
     testing_overrides: dict[str, AgentOverrideConfig] = Field(default_factory=dict)

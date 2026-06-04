@@ -130,6 +130,12 @@ class CitationHandler:
             event_logger=self._engine._logger,
         )
         references = await bib_builder.build_references(global_url_list)
+        # Resolve-or-drop (Phase 2): optionally drop references that didn't resolve to
+        # real metadata (would render as bare URLs the editor rejects) and rewrite the
+        # in-text [N] markers so no citation dangles.
+        if self._engine._config.citation.drop_unresolved_citations:
+            references, remap = BibliographyBuilder.drop_unresolved_references(references)
+            updated_body = BibliographyBuilder.remap_citation_markers(updated_body, remap)
         bibliography = BibliographyBuilder.format_bibliography_markdown(references)
 
         # Append references section to body

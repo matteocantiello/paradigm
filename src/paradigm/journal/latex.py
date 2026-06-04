@@ -1,0 +1,339 @@
+"""Markdown -> LaTeX conversion + optional PDF compile (Phase 2 P2-LaTeX).
+
+Toggleable, default-off output format. The conversion is deterministic plain
+Python (no LLM, no external Python deps) and preserves ``$...$`` math. PDF
+compilation is best-effort: it shells out to a LaTeX engine (tectonic / xelatex /
+pdflatex) only if one is installed; otherwise the ``.tex`` is still written.
+
+Markdown paper bodies are produced by the writing phase (headings, ``$math$``,
+``![alt](figures/..)`` images, ``[N]`` citation markers + a ``## References``
+section). This module renders them into a compilable ``article``-style document.
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from dataclasses import dataclass, field
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Journal presets
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LatexPreset:
+    """A LaTeX output style: document class + preamble packages."""
+
+    name: str
+    documentclass: str = r"\documentclass[11pt]{article}"
+    packages: tuple[str, ...] = (
+        r"\usepackage[utf8]{inputenc}",
+        r"\usepackage{amsmath,amssymb}",
+        r"\usepackage{graphicx}",
+        r"\usepackage[margin=1in]{geometry}",
+        r"\usepackage{hyperref}",
+    )
+
+
+# Article-compatible presets. Journal-specific classes (revtex/aastex) that need
+# bundled .cls files and different title/abstract macros are a follow-up.
+JOURNAL_PRESETS: dict[str, LatexPreset] = {
+    "none": LatexPreset(name="none"),
+    "arxiv": LatexPreset(
+        name="arxiv",
+        documentclass=r"\documentclass[11pt]{article}",
+        # Base-only packages so it compiles on a minimal TeX install (no authblk etc.).
+    ),
+    "neurips": LatexPreset(
+        name="neurips",
+        documentclass=r"\documentclass[10pt]{article}",
+    ),
+}
+
+
+def get_preset(journal: str) -> LatexPreset:
+    """Return the preset for a journal key (case-insensitive), defaulting to 'none'."""
+    return JOURNAL_PRESETS.get((journal or "none").lower(), JOURNAL_PRESETS["none"])
+
+
+# ---------------------------------------------------------------------------
+# Markdown -> LaTeX conversion (deterministic, math-preserving)
+# ---------------------------------------------------------------------------
+
+_HEADING_RE = re.compile(r"^(#{1,4})\s+(.*)$")
+_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
+_MATH_RE = re.compile(r"\$\$.+?\$\$|\$[^$]+?\$", re.DOTALL)
+# LaTeX special characters that must be escaped in prose (backslash handled first).
+_SPECIAL = {
+    "&": r"\&",
+    "%": r"\%",
+    "#": r"\#",
+    "_": r"\_",
+    "{": r"\{",
+    "}": r"\}",
+    "~": r"\textasciitilde{}",
+    "^": r"\textasciicircum{}",
+}
+
+
+def _escape_latex(text: str) -> str:
+    """Escape LaTeX special characters in plain prose (not math, not generated TeX)."""
+    text = text.replace("\\", r"\textbackslash{}")
+    for ch, rep in _SPECIAL.items():
+        text = text.replace(ch, rep)
+    return text
+
+
+def _convert_inline(text: str) -> str:
+    """Convert inline markdown to LaTeX, preserving ``$...$`` math spans verbatim."""
+    # Protect math spans with placeholders so escaping doesn't touch them.
+    math_spans: list[str] = []
+
+    def _stash(m: re.Match) -> str:
+        math_spans.append(m.group(0))
+        return f"\x00MATH{len(math_spans) - 1}\x00"
+
+    protected = _MATH_RE.sub(_stash, text)
+    protected = _escape_latex(protected)
+    # Markdown emphasis -> LaTeX (operates on escaped, math-free text).
+    protected = _BOLD_RE.sub(lambda m: rf"\textbf{{{m.group(1)}}}", protected)
+    protected = _ITALIC_RE.sub(lambda m: rf"\textit{{{m.group(1)}}}", protected)
+    # Restore math verbatim.
+    for i, span in enumerate(math_spans):
+        protected = protected.replace(f"\x00MATH{i}\x00", span)
+    return protected
+
+
+def _heading_command(level: int, title: str) -> str:
+    cmd = {1: "section", 2: "section", 3: "subsection", 4: "subsubsection"}.get(level, "subsection")
+    return rf"\{cmd}{{{_convert_inline(title)}}}"
+
+
+def _convert_body_block(lines: list[str]) -> str:
+    """Convert a block of non-heading markdown lines (paragraphs, lists, figures)."""
+    out: list[str] = []
+    in_itemize = False
+    in_enumerate = False
+
+    def _close_lists() -> None:
+        nonlocal in_itemize, in_enumerate
+        if in_itemize:
+            out.append(r"\end{itemize}")
+            in_itemize = False
+        if in_enumerate:
+            out.append(r"\end{enumerate}")
+            in_enumerate = False
+
+    for raw in lines:
+        line = raw.rstrip()
+        stripped = line.strip()
+
+        img = _IMAGE_RE.search(stripped)
+        if img:
+            _close_lists()
+            alt, path = img.group(1), img.group(2).split()[0].strip('"')
+            out.append(r"\begin{figure}[ht]")
+            out.append(r"\centering")
+            out.append(rf"\includegraphics[width=0.8\linewidth]{{{path}}}")
+            if alt:
+                out.append(rf"\caption{{{_convert_inline(alt)}}}")
+            out.append(r"\end{figure}")
+            continue
+
+        bullet = re.match(r"^[-*+]\s+(.*)$", stripped)
+        number = re.match(r"^\d+[.)]\s+(.*)$", stripped)
+        if bullet:
+            if not in_itemize:
+                _close_lists()
+                out.append(r"\begin{itemize}")
+                in_itemize = True
+            out.append(rf"\item {_convert_inline(bullet.group(1))}")
+            continue
+        if number:
+            if not in_enumerate:
+                _close_lists()
+                out.append(r"\begin{enumerate}")
+                in_enumerate = True
+            out.append(rf"\item {_convert_inline(number.group(1))}")
+            continue
+
+        if not stripped:
+            _close_lists()
+            out.append("")
+            continue
+
+        _close_lists()
+        out.append(_convert_inline(stripped))
+
+    _close_lists()
+    return "\n".join(out)
+
+
+@dataclass
+class _Section:
+    title: str
+    level: int
+    lines: list[str] = field(default_factory=list)
+
+
+def _split_sections(body: str) -> tuple[str, list[_Section]]:
+    """Split a markdown body into a leading title (first '# ') and sections."""
+    title = ""
+    sections: list[_Section] = []
+    current: _Section | None = None
+    for raw in body.splitlines():
+        m = _HEADING_RE.match(raw)
+        if m:
+            level = len(m.group(1))
+            heading = m.group(2).strip()
+            if level == 1 and not title and current is None:
+                title = heading
+                continue
+            current = _Section(title=heading, level=level)
+            sections.append(current)
+        elif current is not None:
+            current.lines.append(raw)
+        elif raw.strip():
+            # Preamble prose before any section -> an untitled lead section.
+            current = _Section(title="", level=2)
+            sections.append(current)
+            current.lines.append(raw)
+    return title, sections
+
+
+def markdown_to_latex(body: str, preset: LatexPreset, title: str | None = None) -> str:
+    """Convert a markdown paper body into a compilable LaTeX document.
+
+    Args:
+        body: Paper markdown (headings, ``$math$``, ``![](figures/..)``, ``[N]`` + References).
+        preset: Journal/style preset (document class + packages).
+        title: Optional explicit title; otherwise the body's first ``# Title`` is used.
+
+    Returns:
+        A full ``\\documentclass ... \\end{document}`` LaTeX string.
+    """
+    parsed_title, sections = _split_sections(body)
+    doc_title = title or parsed_title or "Untitled"
+
+    parts: list[str] = [preset.documentclass, *preset.packages, ""]
+    parts.append(rf"\title{{{_convert_inline(doc_title)}}}")
+    parts.append(r"\author{Paradigm}")
+    parts.append(r"\date{}")
+    parts.append(r"\begin{document}")
+    parts.append(r"\maketitle")
+
+    for sec in sections:
+        key = sec.title.strip().lower()
+        if key == "abstract":
+            parts.append(r"\begin{abstract}")
+            parts.append(_convert_body_block(sec.lines))
+            parts.append(r"\end{abstract}")
+        elif key in ("references", "bibliography", "works cited"):
+            parts.append(r"\section*{References}")
+            parts.append(r"\begingroup")
+            parts.append(r"\small")
+            # Keep each reference line as its own paragraph (preserves [N] numbering).
+            for raw in sec.lines:
+                if raw.strip():
+                    parts.append(_convert_inline(raw.strip()) + r"\par")
+            parts.append(r"\endgroup")
+        else:
+            if sec.title:
+                parts.append(_heading_command(sec.level, sec.title))
+            parts.append(_convert_body_block(sec.lines))
+
+    parts.append(r"\end{document}")
+    return "\n".join(p for p in parts if p is not None)
+
+
+# ---------------------------------------------------------------------------
+# Optional PDF compilation (best-effort)
+# ---------------------------------------------------------------------------
+
+_ENGINES = ("tectonic", "xelatex", "pdflatex")
+
+
+def find_latex_engine() -> str | None:
+    """Return the first available LaTeX engine on PATH, or None."""
+    for engine in _ENGINES:
+        if shutil.which(engine):
+            return engine
+    return None
+
+
+def compile_pdf(tex_path: Path, timeout: int = 120) -> tuple[bool, str]:
+    """Best-effort compile ``tex_path`` to PDF in its directory.
+
+    Returns ``(produced, message)``. If no LaTeX engine is installed, returns
+    ``(False, "no LaTeX engine ...")`` without raising — the .tex is unaffected.
+    """
+    engine = find_latex_engine()
+    if engine is None:
+        return False, f"no LaTeX engine found (looked for: {', '.join(_ENGINES)})"
+
+    workdir = tex_path.parent
+    pdf_path = tex_path.with_suffix(".pdf")
+    if engine == "tectonic":
+        cmd = [engine, str(tex_path.name)]
+        passes = 1
+    else:
+        cmd = [engine, "-interaction=nonstopmode", "-halt-on-error", str(tex_path.name)]
+        passes = 2  # resolve refs
+
+    last_output = ""
+    for _ in range(passes):
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(workdir),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+            last_output = (proc.stdout or "") + (proc.stderr or "")
+        except (subprocess.TimeoutExpired, OSError) as e:
+            return False, f"{engine} failed: {e}"
+
+    if pdf_path.exists():
+        return True, f"compiled with {engine}"
+    return False, _extract_tex_errors(last_output)
+
+
+def _extract_tex_errors(log: str) -> str:
+    """Pull the most useful error lines from a LaTeX log for diagnostics."""
+    errors = [ln for ln in log.splitlines() if ln.startswith("!") or "Error" in ln]
+    tail = "\n".join(errors[-8:]) if errors else log[-500:]
+    return f"PDF not produced. {tail}".strip()
+
+
+def write_paper_latex(
+    paper_dir: Path,
+    paper_id: str,
+    body: str,
+    *,
+    journal: str = "none",
+    title: str | None = None,
+    compile_to_pdf: bool = False,
+) -> dict[str, object]:
+    """Render ``body`` to ``paper_dir/paper_id.tex`` (+ optional PDF). Best-effort.
+
+    Returns a dict with the tex path and, when requested, the PDF status.
+    """
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    tex = markdown_to_latex(body, get_preset(journal), title=title)
+    tex_path = paper_dir / f"{paper_id}.tex"
+    tex_path.write_text(tex)
+    result: dict[str, object] = {"tex_path": str(tex_path)}
+    if compile_to_pdf:
+        produced, message = compile_pdf(tex_path)
+        result["pdf"] = produced
+        result["pdf_message"] = message
+        if produced:
+            result["pdf_path"] = str(tex_path.with_suffix(".pdf"))
+    return result

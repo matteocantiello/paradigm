@@ -1,11 +1,54 @@
 """Peer review models, parsing, and decision synthesis."""
 
 import re
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 # Score categories for peer review
 SCORE_CATEGORIES = ["novelty", "rigor", "clarity", "significance"]
+
+# Image types a vision model can ingest (PDFs/SVGs are excluded).
+_REVIEW_IMAGE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+def encode_figures_for_review(
+    figures: list[tuple[str, Path]],
+    max_figures: int = 6,
+    max_bytes: int = 5_000_000,
+) -> list[tuple[str, str, bytes]]:
+    """Read figure files for multimodal review (Phase 2 P2-VLM).
+
+    Args:
+        figures: ``(name, path)`` pairs (e.g. ``state.execution_figures``).
+        max_figures: Cap on how many images to include.
+        max_bytes: Skip any single image larger than this.
+
+    Returns:
+        ``(name, media_type, raw_bytes)`` for each supported, existing, in-budget image.
+    """
+    out: list[tuple[str, str, bytes]] = []
+    for name, path in figures:
+        if len(out) >= max_figures:
+            break
+        p = Path(path)
+        media_type = _REVIEW_IMAGE_MEDIA_TYPES.get(p.suffix.lower())
+        if media_type is None or not p.exists():
+            continue
+        try:
+            data = p.read_bytes()
+        except OSError:
+            continue
+        if not data or len(data) > max_bytes:
+            continue
+        out.append((name, media_type, data))
+    return out
 
 
 def score_categories_from_criteria(criteria: list) -> list[str]:

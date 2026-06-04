@@ -3538,3 +3538,41 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 2. `orchestrator/constants.py` — added a concrete worked example to `_PREREGISTRATION_PROMPT` to elicit well-formed rules (addresses 1A's 0-rules outcome).
 3. `configs/default.yaml` — fixed `testing_overrides` (dead DeepSeek-V3.1 → DeepSeek-V4-Pro/Kimi-K2.6/GLM-5.1); added `configs/validate.yaml`.
 - Noted (non-fatal): occasional checkpoint-JSON parse fallback; a `SyntaxWarning '\s'` in agent-written code.
+
+**PHASE 2 STARTED — Output quality & credibility.** Tasks: P2-LaTeX (journal-ready LaTeX + compile-repair), P2-VLM (figure-aware multimodal review, D8), P2-cite (resolve-or-drop citations).
+- **P2-cite COMPLETE & verified** (full suite 1355 passed, ruff clean). Default-off (`citation.drop_unresolved_citations`). `literature/bibliography.py`: `drop_unresolved_references` (drop refs with no resolved metadata + renumber, return index remap) + `remap_citation_markers` (rewrite/remove in-text `[N]` so dropped citations don't dangle); wired into `orchestrator/citation_handler.py`; `config.py` flag; tests `test_citation_drop.py` (6). Completes 1B's resolve-or-drop discipline at the bibliography stage (attacks the bare-URL references that drove `writing_failed`).
+
+**Branch split (user chose "New Phase-2 branch/PR"):** `phase1-correctness-kernel` (= origin, PR #12) reset to the validation-refines commit (Phase 1 + validation only); new `phase2-output-quality` branch (pushed) carries P2-cite onward; Phase-2 PR deferred until the phase is further along.
+
+---
+
+### Prompt 75 — Implementation Summary (Rationale + Technical Solution)
+
+> Let's pause. I would like to make a summary of all the changes we implemented. The rationale/motivation and the technical solution
+
+**Artifact:** `docs/correctness-kernel-implementation.md` — comprehensive summary of everything built across Phase 1 + live validation + refines + Phase-2 P2-cite: per-feature motivation + technical solution, a new-files/models/phases reference, a config-flag table, and branch/PR state.
+
+---
+
+### Prompt 76 — Phase 2: P2-LaTeX (toggleable LaTeX/PDF output)
+
+> Let's continue with Phase 2. The latex/pdf output should be something one can toggle on/off
+
+**Key decisions:**
+- New `journal/latex.py`: deterministic markdown→LaTeX (no LLM, no external Python deps; math-preserving escaping) + journal presets + best-effort PDF compile (shells out to tectonic/xelatex/pdflatex only if installed).
+- Explicit on/off toggles per user: `journal.enable_latex_output` (emit `.tex`) and `journal.compile_pdf` (also build PDF). Default off; hooked into `WritingHandler.save_paper_file` (non-fatal). Tests in `test_latex_output.py`.
+- On the `phase2-output-quality` branch.
+
+**P2-LaTeX COMPLETE & verified** (full suite 1374 passed, ruff clean). `journal/latex.py`: `markdown_to_latex` (deterministic, math-preserving escaping, headings/abstract/figures/lists/bold-italic/references), `JOURNAL_PRESETS` (none/arxiv/neurips, base-TeX-only packages), `find_latex_engine`/`compile_pdf` (best-effort: tectonic/xelatex/pdflatex; graceful no-engine path), `write_paper_latex` orchestrator; `JournalConfig` (`enable_latex_output`/`latex_journal`/`compile_pdf`, default off); writing hook. Tests `test_latex_output.py` (19, incl. a real xelatex compile). **Demonstrated live:** the 23 KB validation paper rendered to `.tex` and compiled to a 312 KB PDF via xelatex. Refine from the demo: dropped `authblk` from the arxiv preset (not in minimal TeX installs) → base-package-only presets.
+
+**P2-VLM COMPLETE & verified** (full suite 1386 passed, ruff clean). Default-off (`orchestrator.enable_multimodal_review`). `agents/providers.py`: `build_image_message` on both providers (Anthropic image blocks / OpenAI `image_url` data-URLs) + Protocol method. `journal/review.py`: `encode_figures_for_review` (read PNG/JPG/GIF/WEBP figures → bytes, cap count/size, skip PDFs/missing). `orchestrator/review.py`: `_run_figure_review` (resolves the editor's provider, sends the actual figure images via `build_image_message`+`complete`, returns concrete findings; graceful "" on disable/no-figures/non-vision-model/error) — findings injected into the editor's review prompt. `constants.py` `_FIGURE_REVIEW_PROMPT`; `config.py` flags (`enable_multimodal_review`/`multimodal_review_role`/`max_review_figures`). Tests `test_multimodal_review.py` (14). 
+
+> **✅ PHASE 2 COMPLETE (3/3):** P2-cite · P2-LaTeX · P2-VLM. All default-off / backward-compatible; full suite 1386 passed, ruff clean. Branch `phase2-output-quality`.
+
+---
+
+### Prompt 77 — Open Phase-2 PR + mark Phase 2 done in docs
+
+> yes
+
+**Action:** Updated `docs/correctness-kernel-implementation.md` to mark Phase 2 complete (P2-LaTeX/P2-VLM technical solutions + new flags in the table + status). Opened the Phase-2 PR **stacked on `phase1-correctness-kernel`** (base = the Phase-1 branch) so it shows only the 4 Phase-2 commits and PR #12 stays focused; can retarget to `main` once #12 merges.
