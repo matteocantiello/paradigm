@@ -435,3 +435,17 @@ These are tracked but not scheduled:
 - **Human-in-the-loop mode**: Real scientists collaborate with agent teams
 - **Replication challenge**: Limit literature to pre-2020, see if agents re-derive recent results
 - **Continuous prompt tuning**: Systematic evaluation and improvement of agent prompts
+
+---
+
+## Phase 12: Frontier-Informed Correctness Kernel (2026-06)
+
+Driven by a literature review (15 external AI-for-science sources) + a Denario architecture comparison. Full plan: **`literature/2026-06_Unified-Roadmap.md`** (analyses: `2026-06_Research-Synthesis_and_Development-Directions.md`, `2026-06_Denario-vs-Paradigm-Architecture-Analysis.md`).
+
+Several "Future Phases" above are now scheduled and concretized here: **Pre-registration** → 1A, **Human-in-the-loop mode** → 1E, **Continuous prompt tuning** → Phase 4 (gated skill-evolution).
+
+- **Phase 1 — Correctness Kernel** (current): 1A pre-registration/falsifiability · 1B verification kernel (re-execution as ground truth) · 1C tree-search/step-restart · 1E hybrid human-gate + provenance · 1D eval-harness extension (selection gate) · fetch-by-ID literature lookup. All default-off, test-gated.
+- **Phase 2 — Output quality**: journal-ready LaTeX + compile-repair; figure-aware multimodal review; resolve-or-drop citations.
+- **Phase 3 — Smarter selection**: taste judge in the tournament; diversity step; cross-model adversarial review.
+- **Phase 4 — Self-improvement**: gated skill-evolution; anti-repetition graveyard; real reputation; safe overnight runs.
+- **Phase 5 — Interop** (optional): consume external lit MCP/agents; paper→repo reproduction.

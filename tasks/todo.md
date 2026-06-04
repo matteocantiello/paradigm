@@ -1,63 +1,60 @@
-# Task: Fix the 24 `writing_failed` runs (Prompt 67, step 1)
+# Task: Phase 1 — Correctness Kernel (Prompt 72)
 
-## Diagnosis (evidence-based)
-All 24 `writing_failed` papers have substantial bodies (10k–65k chars) — none are crashes.
-Every one was killed by the **internal editor at INTERNAL_REVIEW**, before peer review.
-- **Bucket A** (~half): editor *correctly* rejected papers built on failed/synthetic experiments,
-  forbidden claims, non-existent figures, bare-URL references. Root cause is upstream — a full
-  ~1M-token cycle is wasted writing a doomed paper.
-- **Bucket B** (~half): revise-loop ran all 5 iterations as "Revise", never "Accept" → fell
-  through to `writing_failed` (review.py:330). Recurring blocker: "math notation violations".
-- **2 live code bugs** feeding the above:
-  - `tournament_handler.py:150,211` call `provider.complete(system_prompt=, user_prompt=)` —
-    wrong signature → TypeError → tournament silently broken (188 errors).
-  - `SourceResult.id: str` but S2/biorxiv/pubmed/nasa_ads can return None → 144 validation
-    errors → lost lit → bare-URL citations (which the editor then rejects for).
+Approved roadmap: `literature/2026-06_Unified-Roadmap.md` (source plan `~/.claude/plans/squishy-crafting-dahl.md`).
+Build order **1A → 1C → 1B → 1E → 1D** + interop slice. Every feature default-off, plain-Python, test-gated.
 
-## Plan (all 5, in order)
+> The completed Prompt-67 reliability + eval-harness todo is preserved in git history and HISTORY.md (Prompt 67).
 
-- [x] **1. Tournament `complete()` signature** — FIXED tournament_handler.py:150,211 to
-      `system=`/`messages=[{role:user,...}]`. Root cause of the test miss: the test mocks at
-      tests/test_hypothesis_tournament.py:301,382 had encoded the *buggy* signature
-      (`system_prompt, user_prompt`); updated both to the real Protocol signature so they now
-      guard the regression. 50 tournament/provider tests pass.
-- [x] **2. `SourceResult.id` None-handling** — FIXED with a `model_validator(mode="before")`
-      on SourceResult (domains/base.py) that synthesizes a stable `src-<sha1>` id from url/title
-      when the upstream id is falsy. Covers all providers at one point. 4 new tests pass.
-- [x] **3. Post-EXECUTION go/no-go gate** — DONE. Added `abort_on_execution_failure: bool=True`
-      (config.py); engine.py aborts after EXECUTION with status `execution_failed` when
-      `successful_code` is empty (verified trustworthy: vacuous runs are reclassified to FAILURE
-      upstream). New display method `execution_failed_abort` in manager/fallback/ws_display.
-      2 new orchestrator tests (fires + can-be-disabled); isolated test_empty_paper_guard to the
-      writing guard. 102 orchestrator tests pass.
-- [x] **4. Revise-loop convergence** — DONE.
-      (4a) `run_revision` now re-applies `sanitize_unicode_math` (review.py) so revisions can't
-      reintroduce Unicode math — the recurring "mathematical notation violations" blocker that
-      kept papers stuck on "Revise" for all 5 rounds.
-      (4b) Stall early-exit: if the editor's required-change count fails to decrease for
-      `_REVIEW_STALL_LIMIT=2` consecutive iterations, the loop breaks early instead of burning
-      the remaining rounds. New test proves it stops at 3 of 5.
-- [x] **5. Split misleading `writing_failed`** into distinct, honest statuses — DONE:
-      `writing_incomplete` (empty/too-short paper, writing.py), `review_rejected` (editor reject,
-      review.py), `revision_exhausted` (never accepted / stalled, review.py). `execution_failed`
-      added in #3. Updated engine post-review detection, display methods (manager/fallback/ws,
-      now take a `status` arg), terminal color map (components.py, keeps legacy `writing_failed`),
-      and frontend StatusBadge (red/amber/orange styles + underscore→space labels). Tests updated.
+## 1A — Falsifiability / Pre-registration  *(D11 + hybrid gate)*  ✅ DONE (full suite green: 1265 passed)
+- [x] `knowledge/models.py`: added `PredictionDirection`, `PredictionVerdict`, `PredictionRule` (`is_well_formed`/`holds`); extended `Hypothesis` (`prediction_rule_id`, `verdict`).
+- [x] `orchestrator/preregistration.py`: `PreRegistrationHandler.run_freeze()` (theorist authors, well-formedness reject gate) + `.evaluate(experiment_metadata)` (deterministic verdict from frozen `metric_stdout_key`).
+- [x] `phases.py`: added `PRE_REGISTRATION`; transitions PLANNING→PRE_REGISTRATION→EXECUTION (legacy PLANNING→EXECUTION kept) + description + display icon.
+- [x] `state.py`: `selected_hypotheses`, `registered_rules`, `prereg_verdicts`.
+- [x] `config.py` (`KnowledgeConfig`): `enable_preregistration=False`, `prereg_require_refutation=True`, `prereg_on_empty="advisory"`.
+- [x] `engine.py`: capture tournament winners → `selected_hypotheses`; PRE_REGISTRATION block (+ blocking-abort `prereg_failed`); post-EXECUTION `evaluate`; inject rules into EXECUTION propose prompt.
+- [x] `constants.py`: `_PREREGISTRATION_PROMPT`; `experimentation.py` injects rule tokens + `_format_rule_bound`.
+- [x] `writing.py`: prereg verdicts in Execution Fact Sheet + refuted→FORBIDDEN-CLAIMS.
+- [x] `tests/test_preregistration.py` (24 tests) + `test_phases.py` updated.
+- [ ] DEFERRED to 1D: persist `prereg`/`prereg_verdicts` to SQLite (only consumed by the eval extension). Skeptic adversarial re-check of rules also deferred (well-formedness gate covers the core).
 
-## Verification
-- `ruff check src backend` → clean. Full `pytest` → **1226 passed** (+7 new regression tests).
-- Frontend `tsc --noEmit` → exit 0.
+## 1C — Tree-search / step-restart  *(D2 / Denario restart_at_step)*
+- [ ] `constants.py`: extend `CodeBlock` (`restart_at_step`, `is_buggy`); parse `# RESTART_AT: <k>`; `_best_first_order(...)`.
+- [ ] `experimentation.py`: per-step artifacts `workspace/<exp>/step_<k>/`; resume in `_execute_with_retry`; optional best-first (deterministic RNG by thread_id).
+- [ ] `config.py`: `enable_step_restart`, `enable_best_first_nodes`, `debug_buggy_node_prob`, `max_step_restarts_per_experiment`.
+- [ ] extend `tests/test_experimentation.py`.
 
-## Review
-All 5 fixes landed in order. Key reframing from the diagnosis: the 24 `writing_failed` runs were
-NOT crashes — they were the internal editor (correctly) blocking papers built on failed
-experiments + the revise loop never converging. So the fixes target (a) two real upstream code
-bugs that degraded research quality (tournament signature, SourceResult.id), (b) catching doomed
-cycles *before* the expensive WRITING phase (#3), (c) removing the dominant non-converging blocker
-and capping wasted revision rounds (#4), and (d) honest, queryable end-state reporting (#5).
+## 1B — Verification Kernel  *(D1 / console-as-data-bus / resolve-or-drop)*
+- [ ] `orchestrator/verification.py`: `verify_experiments()` (fresh-workspace re-exec + tolerance compare), checker battery, `resolve_or_drop_claims()`.
+- [ ] `knowledge/models.py`: `VerificationRecord`; `state.py`: `verification_records`, `dropped_claims`.
+- [ ] `phases.py`: add `VERIFICATION` (EXECUTION/POST_EXECUTION → VERIFICATION → WRITING).
+- [ ] `engine.py`: VERIFICATION block + gate (demote non-accepted; abort `verification_failed` if none).
+- [ ] `constants.py`: strengthen EXECUTION prompt (`RESULT[label]=value`); `_VERIFICATION_CHECKER_PROMPT`.
+- [ ] `writing.py`: Verification Ledger; resolve-or-drop numeric claims (reuse `_extract_numerical_claims`) + unresolved citations.
+- [ ] `config.py` + `storage/database.py` (`verification` column on papers).
+- [ ] `tests/test_verification.py`.
 
-Files touched: src/paradigm/{knowledge/tournament_handler, domains/base, config,
-orchestrator/engine, orchestrator/review, orchestrator/writing, display/manager, display/fallback,
-display/components}.py; backend/api/services/ws_display.py; frontend StatusBadge.tsx; +tests.
+## 1E — Hybrid human-gate + provenance  *(Nature/Imas / Operon)*
+- [ ] `engine.py`: `_human_gate(point)` (off/advisory/blocking + no-hook deadlock guard) at `problem_selection`/`pre_registration`/`final_verification`.
+- [ ] `knowledge/models.py`: `ProvenanceRecord`; persist to `papers.provenance`; engine-written `framed_by`/`verified_by`.
+- [ ] `config.py`: `human_gate_mode`, `human_gate_points`; CLI hook renders gate payload (`main.py`).
+- [ ] `tests/test_human_gate.py`.
 
-Next: step 2 (evaluation harness) then step 3 (orchestration efficiency).
+## 1D — Eval extension (selection gate)  *(D3)*
+- [ ] `eval/seeds.py`: `SeedPrompt` + `split_seeds` (hash-fixed train/selection/test).
+- [ ] `eval/models.py`/`metrics.py`: `reproduction_pass_rate`, `prereg_verdict`, `claims_dropped`; `OUTCOME_SCORES` for `verification_failed`/`prereg_failed`.
+- [ ] `eval/calibration.py`: balanced-accuracy threshold vs real published/rejected; persist `data/eval/calibration.json`.
+- [ ] `main.py`/`harness.py`: shared `build_engine`; wire `paradigm eval --live N --split selection`.
+- [ ] extend `tests/test_eval.py`.
+
+## Interop slice — fetch-by-ID lookup  *(D10)*
+- [ ] `orchestrator/literature.py` `process_search_requests()`: detect `id:<arxiv-id>` → fetch-by-ID provider (behind `provider_factory.py`), not keyword search.
+- [ ] optional FutureHouse PaperQA novelty provider.
+- [ ] verify quality-neutral via `paradigm eval`.
+
+## Verification gate
+- `ruff check` clean; full `pytest` green (~1235 tests + new); `paradigm eval` offline unchanged (new metrics default None/0); `paradigm eval --live N --split selection --judge` reports reproduction-pass-rate. Selection-split mean quality ≥ 61/100 baseline.
+
+---
+
+## Progress log
+- (in progress) Housekeeping: roadmap doc + todo seeded. Starting 1A.

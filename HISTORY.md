@@ -3450,3 +3450,44 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 > yes push and open a PR
 
 **Action:** Pushed `prompt67-reliability-eval` to `origin`. The `gh` CLI is not installed in this environment, so the PR is opened via the GitHub compare URL (title/body prepared by Claude) rather than programmatically.
+
+---
+
+### Prompt 71 — Analyze Denario Architecture, Compare to Paradigm, then Roadmap
+
+> Before moving to plan mode, I would like to have a look at the architecture of another platform -- Denarion (in /Users/mcantiello/astro/Denario ). Do a thorough analysis of its inner working and compare to Paradigm. We want to learn as much as possible in terms of different choices adopted there and what we could use to improve paradimg. After that we can create a roadmap including all the learnings we gathered so far from the readings and this new exercise
+
+**Key decisions:**
+- Two-step request: (1) deep architectural analysis of Denario (`/Users/mcantiello/astro/Denario`) + Paradigm comparison → write findings to a literature/analysis doc; (2) THEN build a roadmap folding in both the Prompt-68 external-source synthesis and the Denario learnings.
+- Denario = open-source multi-agent research platform (AstroPilot-AI / Flatiron), AG2/LangGraph + cmbagent backend — Paradigm's most direct competitor per the Competitive Landscape doc.
+
+**Artifacts produced:**
+- `literature/2026-06_Denario-vs-Paradigm-Architecture-Analysis.md` — code-level analysis of Denario (read `denario.py` + 3 read-only sub-analyses of `langgraph_agents/`, `paper_agents/`, cmbagent stages) + head-to-head comparison + ranked adopt-list (5 leaf-level wins + strategic build-vs-buy) + convergence map to D1–D12.
+
+**Key findings:**
+- Denario = ~5k LOC thin layer over **LangGraph + AG2/cmbagent** + FutureHouse PaperQA + Perplexity; **human-driven stepwise** (edit Markdown artifacts between stages); ships **journal-ready LaTeX** and has **published papers** (AI-authors conf, LSST DESC; cmbagent won NeurIPS Fair Universe).
+- Paradigm is ahead on: autonomy loop, hypothesis tournaments/debate, real editor+2-reviewer+decision journal, episodic memory, reputation, git threads, sandbox safety, token budgets. (Verified: Paradigm already does per-role model heterogeneity + per-thread/agent budgets — those are NOT gaps.)
+- **Adopt from Denario (leaf-level, philosophy-compatible):** (1) journal-ready LaTeX + LLM compile-repair loop; (2) **multimodal/figure-aware reviewer** (= D8, confirmed in production); (3) **`restart_at_step`** experiment resume (= granular D2); (4) **resolve-or-drop citation grounding** (= D1 anti-fabrication); (5) **console-as-data-bus** engineer→researcher contract. Plus effort/mode toggle, controlled-vocab keywords.
+- **Strategic (decide, not default):** optionally consume FutureHouse PaperQA (D10); do NOT adopt cmbagent as executor (conflicts with own-sandbox/no-AutoGen) — borrow its ideas instead.
+- Biggest gap is **output polish + validation**, not capability: closing the 5 adopt-items + producing one real validated paper flips Paradigm's position.
+
+**Next step (per user):** create a unified roadmap fusing the Prompt-68 external synthesis (D1–D12) + these Denario learnings — to be done in plan mode.
+
+---
+
+### Prompt 72 — Approve Unified Roadmap & Begin Phase-1 Implementation
+
+> Yes please → (plan mode) → retry → **plan approved**
+
+**Flow:** Entered plan mode; explored current state (confirmed Prompt-67 reliability + eval harness already done; everything else greenfield with pinned hook points); asked 3 scoping questions → answers: **(1) first focus = Harden correctness, (2) posture = Hybrid + provenance, (3) interop = Consume external agents**. Drafted the unified roadmap, pressure-tested Phase-1 with a Plan agent, presented via ExitPlanMode. A remote Ultraplan refinement attempt failed (`error_during_execution`); on retry the user approved the local plan directly.
+
+**Plan approved** (`~/.claude/plans/squishy-crafting-dahl.md`). Phase 1 = **Correctness Kernel**, build order **1A→1C→1B→1E→1D** + a fetch-by-ID interop slice. Each feature default-off, test-gated, plain-Python.
+
+**Artifacts produced:**
+- `literature/2026-06_Unified-Roadmap.md` — the approved roadmap (copied into the repo).
+- `tasks/todo.md` — seeded with Phase-1 checkable items (overwrites the completed Prompt-67 todo, which is preserved in git history + HISTORY Prompt 67).
+- Implementation in progress (working tree, branch `prompt67-reliability-eval`; new branch/commits held for user's go-ahead).
+
+**1A — Falsifiability / Pre-registration: COMPLETE & verified** (full suite 1265 passed, ruff clean). Default-off (`knowledge.enable_preregistration`). Files: `knowledge/models.py` (PredictionRule/PredictionVerdict/PredictionDirection + Hypothesis fields), `orchestrator/preregistration.py` (new handler), `phases.py` (PRE_REGISTRATION sub-phase), `state.py`, `config.py`, `engine.py` (freeze + evaluate wiring), `experimentation.py` (rule injection), `writing.py` (verdicts → Fact Sheet/FORBIDDEN), `display/theme.py`, `constants.py`; tests `test_preregistration.py` (24) + `test_phases.py`. DB persistence of verdicts deferred to 1D.
+
+> On user instruction ("commit first, then 1C"): created branch **`phase1-correctness-kernel`** off `prompt67-reliability-eval` (keeps the reliability/eval PR clean); committed docs/roadmap then the 1A implementation as two logical commits. Proceeding to 1C next.
