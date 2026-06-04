@@ -12,6 +12,8 @@ from backend.api.models.settings import (
     AllSettings,
     CitationSettings,
     CitationSettingsUpdate,
+    JournalSettings,
+    JournalSettingsUpdate,
     KnowledgeSettings,
     KnowledgeSettingsUpdate,
     LiteratureSettings,
@@ -34,6 +36,7 @@ _SECTION_DISPATCH: dict[str, tuple[str, type[BaseModel], type[BaseModel]]] = {
     "knowledge": ("knowledge", KnowledgeSettings, KnowledgeSettingsUpdate),
     "memory": ("memory", MemorySettings, MemorySettingsUpdate),
     "citation": ("citation", CitationSettings, CitationSettingsUpdate),
+    "journal": ("journal", JournalSettings, JournalSettingsUpdate),
 }
 
 

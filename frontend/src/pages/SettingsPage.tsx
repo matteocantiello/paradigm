@@ -6,6 +6,7 @@ import {
   Brain,
   Database,
   Quote,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
@@ -36,18 +37,12 @@ const TABS: TabDef[] = [
   { id: "knowledge", label: "Knowledge", icon: Brain, description: "World model and evidence" },
   { id: "memory", label: "Memory", icon: Database, description: "Agent episodic memory" },
   { id: "citation", label: "Citation", icon: Quote, description: "Grounding and novelty" },
+  { id: "journal", label: "Journal", icon: FileText, description: "Paper output formats" },
 ];
 
 // --- Helpers ---
 
 type SectionState = Record<string, unknown>;
-
-function shallowEqual(a: SectionState, b: SectionState): boolean {
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  if (ka.length !== kb.length) return false;
-  return ka.every((k) => a[k] === b[k]);
-}
 
 // --- Hooks for per-section form state with auto-save ---
 
@@ -147,6 +142,11 @@ export function SettingsPage() {
   const citation = useSectionForm(
     "citation",
     data?.citation as unknown as SectionState | undefined,
+    handleSave,
+  );
+  const journal = useSectionForm(
+    "journal",
+    data?.journal as unknown as SectionState | undefined,
     handleSave,
   );
 
@@ -301,6 +301,64 @@ export function SettingsPage() {
               min={1}
               max={10}
             />
+            <ToggleField
+              label="Enable verification kernel"
+              description="Re-execute results in a fresh sandbox; accept only what reproduces"
+              value={orchestrator.local.enable_verification as boolean}
+              onChange={(v) => orchestrator.set("enable_verification", v)}
+            />
+            <NumberField
+              label="Verification tolerance"
+              description="Relative tolerance for reproducing RESULT[...] metrics"
+              value={orchestrator.local.verification_tolerance as number}
+              onChange={(v) => orchestrator.set("verification_tolerance", v)}
+              min={0}
+              max={1}
+              step={0.000001}
+            />
+            <ToggleField
+              label="Abort on verification failure"
+              description="Stop before writing if no experiment reproduces"
+              value={orchestrator.local.abort_on_verification_failure as boolean}
+              onChange={(v) => orchestrator.set("abort_on_verification_failure", v)}
+            />
+            <ToggleField
+              label="Best-first experiment ordering"
+              description="Prefer non-buggy experiments within a round"
+              value={orchestrator.local.enable_best_first_nodes as boolean}
+              onChange={(v) => orchestrator.set("enable_best_first_nodes", v)}
+            />
+            <ToggleField
+              label="Step restart"
+              description="Resume failed multi-step experiments from prior artifacts"
+              value={orchestrator.local.enable_step_restart as boolean}
+              onChange={(v) => orchestrator.set("enable_step_restart", v)}
+            />
+            <SelectField
+              label="Human gate mode"
+              description="Human checkpoints at problem-selection / pre-registration / verification"
+              value={orchestrator.local.human_gate_mode as string}
+              onChange={(v) => orchestrator.set("human_gate_mode", v)}
+              options={[
+                { value: "off", label: "Off (autonomous)" },
+                { value: "advisory", label: "Advisory (surface, don't block)" },
+                { value: "blocking", label: "Blocking (require approval)" },
+              ]}
+            />
+            <ToggleField
+              label="Figure-aware review"
+              description="Editor visually inspects the actual figures during review"
+              value={orchestrator.local.enable_multimodal_review as boolean}
+              onChange={(v) => orchestrator.set("enable_multimodal_review", v)}
+            />
+            <NumberField
+              label="Max review figures"
+              description="Cap on figures sent to the vision model"
+              value={orchestrator.local.max_review_figures as number}
+              onChange={(v) => orchestrator.set("max_review_figures", v)}
+              min={1}
+              max={20}
+            />
           </SettingsSection>
 
           {/* Sandbox */}
@@ -445,6 +503,28 @@ export function SettingsPage() {
               value={knowledge.local.enable_hypothesis_tournament as boolean}
               onChange={(v) => knowledge.set("enable_hypothesis_tournament", v)}
             />
+            <ToggleField
+              label="Enable pre-registration"
+              description="Freeze falsifiable predictions before execution"
+              value={knowledge.local.enable_preregistration as boolean}
+              onChange={(v) => knowledge.set("enable_preregistration", v)}
+            />
+            <ToggleField
+              label="Require refutation condition"
+              description="Drop hypotheses that lack a falsifiable refutation rule"
+              value={knowledge.local.prereg_require_refutation as boolean}
+              onChange={(v) => knowledge.set("prereg_require_refutation", v)}
+            />
+            <SelectField
+              label="If no rules can be frozen"
+              description="Behavior when no falsifiable prediction survives"
+              value={knowledge.local.prereg_on_empty as string}
+              onChange={(v) => knowledge.set("prereg_on_empty", v)}
+              options={[
+                { value: "advisory", label: "Advisory (warn and continue)" },
+                { value: "blocking", label: "Blocking (abort the cycle)" },
+              ]}
+            />
           </SettingsSection>
 
           {/* Memory */}
@@ -502,6 +582,48 @@ export function SettingsPage() {
               description="Discover seed papers to bootstrap literature search"
               value={citation.local.enable_seed_discovery as boolean}
               onChange={(v) => citation.set("enable_seed_discovery", v)}
+            />
+            <ToggleField
+              label="Drop unresolved citations"
+              description="Drop references that don't resolve to real metadata (vs. bare URLs)"
+              value={citation.local.drop_unresolved_citations as boolean}
+              onChange={(v) => citation.set("drop_unresolved_citations", v)}
+            />
+          </SettingsSection>
+
+          {/* Journal */}
+          <SettingsSection
+            ref={(el) => { sectionRefs.current.journal = el; }}
+            id="journal"
+            icon={FileText}
+            title="Journal"
+            description="Paper output formats (markdown is always written)"
+            saving={savingSection === "journal"}
+            error={savingSection === "journal" ? saveError : null}
+            onReset={journal.reset}
+          >
+            <ToggleField
+              label="Enable LaTeX output"
+              description="Also write a journal-ready .tex alongside the markdown paper"
+              value={journal.local.enable_latex_output as boolean}
+              onChange={(v) => journal.set("enable_latex_output", v)}
+            />
+            <SelectField
+              label="LaTeX journal preset"
+              description="Document class / style for the .tex output"
+              value={journal.local.latex_journal as string}
+              onChange={(v) => journal.set("latex_journal", v)}
+              options={[
+                { value: "none", label: "Plain article" },
+                { value: "arxiv", label: "arXiv" },
+                { value: "neurips", label: "NeurIPS" },
+              ]}
+            />
+            <ToggleField
+              label="Compile PDF"
+              description="Also compile the .tex to PDF (requires a LaTeX engine on the server)"
+              value={journal.local.compile_pdf as boolean}
+              onChange={(v) => journal.set("compile_pdf", v)}
             />
           </SettingsSection>
         </div>

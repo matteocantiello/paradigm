@@ -21,6 +21,15 @@ class OrchestratorSettings(BaseModel):
     convergence_confidence_threshold: float = 0.70
     enable_execution_sprints: bool = False
     num_execution_sprints: int = 3
+    # Correctness kernel (Phase 1) + output quality (Phase 2) toggles
+    enable_verification: bool = False
+    verification_tolerance: float = 1e-6
+    abort_on_verification_failure: bool = True
+    enable_best_first_nodes: bool = False
+    enable_step_restart: bool = False
+    human_gate_mode: str = "off"  # off | advisory | blocking
+    enable_multimodal_review: bool = False
+    max_review_figures: int = 6
 
 
 class SandboxSettings(BaseModel):
@@ -44,6 +53,17 @@ class KnowledgeSettings(BaseModel):
     enable_world_model: bool = True
     enable_evidence_graph: bool = False
     enable_hypothesis_tournament: bool = False
+    # Pre-registration / falsifiability (Phase 1A)
+    enable_preregistration: bool = False
+    prereg_require_refutation: bool = True
+    prereg_on_empty: str = "advisory"  # advisory | blocking
+
+
+class JournalSettings(BaseModel):
+    # Toggleable journal-ready LaTeX/PDF output (Phase 2 P2-LaTeX)
+    enable_latex_output: bool = False
+    latex_journal: str = "none"  # none | arxiv | neurips
+    compile_pdf: bool = False
 
 
 class MemorySettings(BaseModel):
@@ -55,6 +75,7 @@ class CitationSettings(BaseModel):
     enable_citation_grounding: bool = False
     enable_novelty_check: bool = False
     enable_seed_discovery: bool = False
+    drop_unresolved_citations: bool = False  # resolve-or-drop (Phase 2 P2-cite)
 
 
 # --- Update models (all fields Optional for partial updates) ---
@@ -74,6 +95,14 @@ class OrchestratorSettingsUpdate(BaseModel):
     convergence_confidence_threshold: float | None = None
     enable_execution_sprints: bool | None = None
     num_execution_sprints: int | None = None
+    enable_verification: bool | None = None
+    verification_tolerance: float | None = None
+    abort_on_verification_failure: bool | None = None
+    enable_best_first_nodes: bool | None = None
+    enable_step_restart: bool | None = None
+    human_gate_mode: str | None = None
+    enable_multimodal_review: bool | None = None
+    max_review_figures: int | None = None
 
 
 class SandboxSettingsUpdate(BaseModel):
@@ -97,6 +126,15 @@ class KnowledgeSettingsUpdate(BaseModel):
     enable_world_model: bool | None = None
     enable_evidence_graph: bool | None = None
     enable_hypothesis_tournament: bool | None = None
+    enable_preregistration: bool | None = None
+    prereg_require_refutation: bool | None = None
+    prereg_on_empty: str | None = None
+
+
+class JournalSettingsUpdate(BaseModel):
+    enable_latex_output: bool | None = None
+    latex_journal: str | None = None
+    compile_pdf: bool | None = None
 
 
 class MemorySettingsUpdate(BaseModel):
@@ -108,6 +146,7 @@ class CitationSettingsUpdate(BaseModel):
     enable_citation_grounding: bool | None = None
     enable_novelty_check: bool | None = None
     enable_seed_discovery: bool | None = None
+    drop_unresolved_citations: bool | None = None
 
 
 # --- Container ---
@@ -120,3 +159,4 @@ class AllSettings(BaseModel):
     knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     citation: CitationSettings = Field(default_factory=CitationSettings)
+    journal: JournalSettings = Field(default_factory=JournalSettings)

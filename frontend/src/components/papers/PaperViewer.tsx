@@ -14,7 +14,7 @@ function toSlug(text: string): string {
 }
 
 function headingWithId(level: number) {
-  const Tag = `h${level}` as const;
+  const Tag = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
   return function HeadingComponent({ children }: { children?: ReactNode }) {
     const text = typeof children === "string" ? children : String(children ?? "");
     return <Tag id={toSlug(text)}>{children}</Tag>;

@@ -248,6 +248,15 @@ export interface OrchestratorSettings {
   convergence_confidence_threshold: number;
   enable_execution_sprints: boolean;
   num_execution_sprints: number;
+  // Correctness kernel (Phase 1) + output quality (Phase 2)
+  enable_verification: boolean;
+  verification_tolerance: number;
+  abort_on_verification_failure: boolean;
+  enable_best_first_nodes: boolean;
+  enable_step_restart: boolean;
+  human_gate_mode: string; // off | advisory | blocking
+  enable_multimodal_review: boolean;
+  max_review_figures: number;
 }
 
 export interface SandboxSettings {
@@ -271,6 +280,15 @@ export interface KnowledgeSettings {
   enable_world_model: boolean;
   enable_evidence_graph: boolean;
   enable_hypothesis_tournament: boolean;
+  enable_preregistration: boolean;
+  prereg_require_refutation: boolean;
+  prereg_on_empty: string; // advisory | blocking
+}
+
+export interface JournalSettings {
+  enable_latex_output: boolean;
+  latex_journal: string; // none | arxiv | neurips
+  compile_pdf: boolean;
 }
 
 export interface MemorySettings {
@@ -282,6 +300,7 @@ export interface CitationSettings {
   enable_citation_grounding: boolean;
   enable_novelty_check: boolean;
   enable_seed_discovery: boolean;
+  drop_unresolved_citations: boolean;
 }
 
 export interface AllSettings {
@@ -291,6 +310,7 @@ export interface AllSettings {
   knowledge: KnowledgeSettings;
   memory: MemorySettings;
   citation: CitationSettings;
+  journal: JournalSettings;
 }
 
 export function getSettings() {
