@@ -388,6 +388,33 @@ class DisplayManager:
         else:
             self._fallback.source_degraded(source)
 
+    def draft_section(
+        self, section: str, title: str, content: str, author: str, status: str
+    ) -> None:
+        """Live draft section (GUI artifact). CLI logs only the completed section."""
+        if status == "drafted":
+            self._state.add_event("search", f"§ {title or section} drafted ({len(content)} chars)")
+            if self._use_rich:
+                self._refresh()
+            else:
+                self._fallback.draft_section(section, title, content, author, status)
+
+    def experiment_update(
+        self,
+        experiment_id: str,
+        name: str,
+        agent_id: str,
+        status: str,
+        *,
+        code: str = "",
+        stdout: str = "",
+        results: dict[str, float] | None = None,
+        has_figures: bool = False,
+    ) -> None:
+        """Live experiment artifact (GUI). No-op on CLI — experiment_running/
+        experiment_result already cover the terminal display."""
+        return None
+
     def search_stale(self, agent_id: str, count: int = 2) -> None:
         self._state.add_event("warning", f"{agent_id}: stale searches")
         if self._use_rich:

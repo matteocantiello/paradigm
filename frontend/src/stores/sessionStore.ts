@@ -83,6 +83,32 @@ export type LiveLiterature = {
   totalSearches: number;
 };
 
+export type DraftSection = {
+  section: string;
+  title: string;
+  content: string;
+  author: string;
+  status: string; // drafting | drafted
+  charCount: number;
+};
+
+export type LiveDraft = {
+  sections: DraftSection[]; // in arrival/writing order
+};
+
+export type ExperimentRun = {
+  id: string;
+  name: string;
+  agentId: string;
+  code: string;
+  stdout: string;
+  status: string; // running | success | failure | timeout | error
+  results: Record<string, number>;
+  hasFigures: boolean;
+};
+
+const EMPTY_DRAFT: LiveDraft = { sections: [] };
+
 const EMPTY_LITERATURE: LiveLiterature = {
   searches: [],
   uniquePapers: [],
@@ -140,6 +166,12 @@ interface SessionStoreState {
   // Knowledge architecture
   knowledge: KnowledgeState;
 
+  // Live paper draft (Phase C)
+  draft: LiveDraft;
+
+  // Live experiments (Phase C)
+  experiments: ExperimentRun[];
+
   // Approval
   pendingApproval: ApprovalRequestMsg | null;
 
@@ -187,6 +219,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   activityEvents: [],
   literature: { ...EMPTY_LITERATURE },
   knowledge: { ...EMPTY_KNOWLEDGE },
+  draft: { ...EMPTY_DRAFT },
+  experiments: [],
   pendingApproval: null,
 
   connect: (sessionId: string) => {
@@ -218,6 +252,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       activityEvents: [],
       literature: { ...EMPTY_LITERATURE },
       knowledge: { ...EMPTY_KNOWLEDGE },
+      draft: { ...EMPTY_DRAFT },
+      experiments: [],
       pendingApproval: null,
     });
     ws.connect(sessionId);
@@ -488,6 +524,50 @@ function handleServerMessage(
           previousElo,
         },
       });
+      break;
+    }
+
+    case "draft_update": {
+      const d = msg;
+      const sections = [...get().draft.sections];
+      const idx = sections.findIndex((s) => s.section === d.section);
+      const entry: DraftSection = {
+        section: d.section,
+        title: d.title,
+        content: d.content,
+        author: d.author,
+        status: d.status,
+        charCount: d.char_count,
+      };
+      if (idx >= 0) {
+        // Don't let a stray "drafting" clobber already-drafted content.
+        entry.content = d.status === "drafted" ? d.content : sections[idx].content || d.content;
+        sections[idx] = { ...sections[idx], ...entry };
+      } else {
+        sections.push(entry);
+      }
+      set({ draft: { sections } });
+      break;
+    }
+
+    case "experiment_update": {
+      const e = msg;
+      const items = [...get().experiments];
+      const idx = items.findIndex((x) => x.id === e.experiment_id);
+      const prev = idx >= 0 ? items[idx] : null;
+      const entry: ExperimentRun = {
+        id: e.experiment_id,
+        name: e.name,
+        agentId: e.agent_id,
+        code: e.code || prev?.code || "",
+        stdout: e.stdout || prev?.stdout || "",
+        status: e.status,
+        results: Object.keys(e.results).length ? e.results : (prev?.results ?? {}),
+        hasFigures: e.has_figures || prev?.hasFigures || false,
+      };
+      if (idx >= 0) items[idx] = entry;
+      else items.push(entry);
+      set({ experiments: items });
       break;
     }
   }

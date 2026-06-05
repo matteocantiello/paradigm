@@ -226,6 +226,32 @@ export interface KnowledgeUpdateMsg {
   timestamp: string;
 }
 
+export interface DraftUpdateMsg {
+  type: "draft_update";
+  section: string;
+  title: string;
+  content: string;
+  author: string;
+  status: string; // drafting | drafted
+  char_count: number;
+  phase: string;
+  timestamp: string;
+}
+
+export interface ExperimentUpdateMsg {
+  type: "experiment_update";
+  experiment_id: string;
+  name: string;
+  agent_id: string;
+  code: string;
+  stdout: string;
+  status: string; // running | success | failure | timeout | error
+  results: Record<string, number>;
+  has_figures: boolean;
+  phase: string;
+  timestamp: string;
+}
+
 export type ServerMessage =
   | AgentOutputStreamMsg
   | AgentStepCompleteMsg
@@ -237,7 +263,9 @@ export type ServerMessage =
   | ErrorMsg
   | NotificationMsg
   | KnowledgeUpdateMsg
-  | LiteratureUpdateMsg;
+  | LiteratureUpdateMsg
+  | DraftUpdateMsg
+  | ExperimentUpdateMsg;
 
 // --- Client → Server ---
 

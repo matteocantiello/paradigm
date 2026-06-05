@@ -22,6 +22,8 @@ export function useResearchSession(sessionId: string | undefined) {
   const activityEvents = useSessionStore((s) => s.activityEvents);
   const literature = useSessionStore((s) => s.literature);
   const knowledge = useSessionStore((s) => s.knowledge);
+  const draft = useSessionStore((s) => s.draft);
+  const experiments = useSessionStore((s) => s.experiments);
   const pendingApproval = useSessionStore((s) => s.pendingApproval);
 
   useEffect(() => {
@@ -50,6 +52,8 @@ export function useResearchSession(sessionId: string | undefined) {
     activityEvents,
     literature,
     knowledge,
+    draft,
+    experiments,
     pendingApproval,
   };
 }

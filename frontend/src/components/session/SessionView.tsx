@@ -17,6 +17,8 @@ import type {
   Notification,
   KnowledgeState,
   LiveLiterature,
+  LiveDraft,
+  ExperimentRun,
 } from "@/stores/sessionStore";
 import type { ApprovalRequestMsg } from "@/api/ws-types";
 
@@ -39,6 +41,8 @@ interface SessionViewProps {
   activityEvents: ActivityEvent[];
   literature: LiveLiterature;
   knowledge: KnowledgeState;
+  draft: LiveDraft;
+  experiments: ExperimentRun[];
   pendingApproval: ApprovalRequestMsg | null;
   paperId?: string;
 }
@@ -99,6 +103,8 @@ export function SessionView(props: SessionViewProps) {
             activityEvents={props.activityEvents}
             notifications={props.notifications}
             knowledge={props.knowledge}
+            draft={props.draft}
+            experiments={props.experiments}
           />
         </div>
       </div>

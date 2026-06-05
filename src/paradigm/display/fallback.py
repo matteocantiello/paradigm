@@ -112,6 +112,26 @@ class PlainTextFallback:
     def source_degraded(self, source: str) -> None:
         click.echo(f"    [i] {source} rate-limited — using cached corpus + other sources")
 
+    def draft_section(
+        self, section: str, title: str, content: str, author: str, status: str
+    ) -> None:
+        if status == "drafted":
+            click.echo(f"    [§] {title or section} drafted ({len(content)} chars)")
+
+    def experiment_update(
+        self,
+        experiment_id: str,
+        name: str,
+        agent_id: str,
+        status: str,
+        *,
+        code: str = "",
+        stdout: str = "",
+        results: dict[str, float] | None = None,
+        has_figures: bool = False,
+    ) -> None:
+        return None
+
     def search_stale(self, agent_id: str, count: int = 2) -> None:
         click.echo(f"    [!] {agent_id}: {count} consecutive stale searches, stopping keywords")
 

@@ -1,13 +1,15 @@
 import { create } from "zustand";
 
+export type RightPanelTab = "events" | "knowledge" | "draft" | "experiments";
+
 interface UiState {
   sidebarOpen: boolean;
   theme: "dark" | "light";
-  rightPanelTab: "events" | "knowledge";
+  rightPanelTab: RightPanelTab;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleTheme: () => void;
-  setRightPanelTab: (tab: "events" | "knowledge") => void;
+  setRightPanelTab: (tab: RightPanelTab) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({

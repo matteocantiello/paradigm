@@ -17,6 +17,8 @@ from backend.api.models.messages import (
     ActivityEventMsg,
     AgentOutputStreamMsg,
     AgentStepCompleteMsg,
+    DraftUpdateMsg,
+    ExperimentUpdateMsg,
     KnowledgeUpdateMsg,
     LiteraturePaperMsg,
     LiteratureSearchMsg,
@@ -514,6 +516,59 @@ class WebSocketDisplayAdapter:
             f"{source} rate-limited — using cached corpus + other sources",
             category="search",
             level="warning",
+        )
+
+    # ------------------------------------------------------------------
+    # Phase C live artifacts — draft + experiments
+    # ------------------------------------------------------------------
+
+    def draft_section(
+        self, section: str, title: str, content: str, author: str, status: str
+    ) -> None:
+        """Stream a paper section as it's drafted (draft-as-it-writes)."""
+        self._schedule(
+            self._manager.broadcast_message(
+                self._session_id,
+                DraftUpdateMsg(
+                    section=section,
+                    title=title,
+                    content=content,
+                    author=author,
+                    status=status,
+                    char_count=len(content),
+                    phase=self._current_phase(),
+                ),
+            )
+        )
+
+    def experiment_update(
+        self,
+        experiment_id: str,
+        name: str,
+        agent_id: str,
+        status: str,
+        *,
+        code: str = "",
+        stdout: str = "",
+        results: dict[str, float] | None = None,
+        has_figures: bool = False,
+    ) -> None:
+        """Stream a sandbox experiment's code/stdout/RESULT values live."""
+        self._schedule(
+            self._manager.broadcast_message(
+                self._session_id,
+                ExperimentUpdateMsg(
+                    experiment_id=experiment_id,
+                    name=name,
+                    agent_id=agent_id,
+                    code=code,
+                    stdout=stdout,
+                    status=status,
+                    results=results or {},
+                    has_figures=has_figures,
+                    phase=self._current_phase(),
+                ),
+            )
         )
 
     def search_stale(self, agent_id: str, count: int = 2) -> None:

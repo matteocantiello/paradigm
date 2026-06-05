@@ -738,6 +738,17 @@ class WritingHandler:
             if self._engine.state.post_execution_summary:
                 prompt += "\n\n" + self._engine.state.post_execution_summary
 
+            # Phase C: announce the sections this agent is about to draft so the
+            # live paper shows them as "writing…" placeholders before text lands.
+            for section_name in assigned:
+                self._engine._display.draft_section(
+                    section_name,
+                    section_name.replace("_", " ").title(),
+                    "",
+                    agent_id,
+                    "drafting",
+                )
+
             try:
                 response = await agent.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             except Exception as e:
@@ -757,6 +768,13 @@ class WritingHandler:
                 if content:
                     draft.add_section(
                         SectionDraft(section=section_name, content=content, author=agent_id)
+                    )
+                    self._engine._display.draft_section(
+                        section_name,
+                        section_name.replace("_", " ").title(),
+                        content,
+                        agent_id,
+                        "drafted",
                     )
 
             self._engine._log_agent_response(

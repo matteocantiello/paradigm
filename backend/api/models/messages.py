@@ -30,6 +30,8 @@ class ServerMessageType(str, Enum):
     NOTIFICATION = "notification"
     KNOWLEDGE_UPDATE = "knowledge_update"
     LITERATURE_UPDATE = "literature_update"
+    DRAFT_UPDATE = "draft_update"
+    EXPERIMENT_UPDATE = "experiment_update"
 
 
 class AgentOutputStreamMsg(BaseModel):
@@ -216,6 +218,44 @@ class KnowledgeUpdateMsg(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
+class DraftUpdateMsg(BaseModel):
+    """A paper section being drafted live (Phase C — draft-as-it-writes).
+
+    Emitted twice per section: once with status="drafting" (empty content) when
+    the author starts, then status="drafted" with the section markdown.
+    """
+
+    type: Literal["draft_update"] = "draft_update"
+    section: str  # canonical name, e.g. "methods"
+    title: str = ""  # display title, e.g. "Methods"
+    content: str = ""  # section markdown (empty while drafting)
+    author: str = ""  # agent_id
+    status: str = "drafting"  # drafting | drafted
+    char_count: int = 0
+    phase: str = ""
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ExperimentUpdateMsg(BaseModel):
+    """A sandbox experiment running live (Phase C — experiment panel).
+
+    Emitted on start (status="running", code only) and on finish (status from
+    the execution result, with stdout + parsed RESULT[...] values).
+    """
+
+    type: Literal["experiment_update"] = "experiment_update"
+    experiment_id: str  # stable id for this experiment run
+    name: str = ""
+    agent_id: str = ""
+    code: str = ""
+    stdout: str = ""
+    status: str = "running"  # running | success | failure | timeout | error
+    results: dict[str, float] = Field(default_factory=dict)  # parsed RESULT[label]=value
+    has_figures: bool = False
+    phase: str = ""
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
 # Discriminated union of all server messages
 ServerMessage = Annotated[
     AgentOutputStreamMsg
@@ -228,7 +268,9 @@ ServerMessage = Annotated[
     | ErrorMsg
     | NotificationMsg
     | KnowledgeUpdateMsg
-    | LiteratureUpdateMsg,
+    | LiteratureUpdateMsg
+    | DraftUpdateMsg
+    | ExperimentUpdateMsg,
     Field(discriminator="type"),
 ]
 
