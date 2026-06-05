@@ -27,6 +27,11 @@ export type AgentOutput = {
   phase: string;
   timestamp: string;
   isFinal: boolean;
+  // Live-streaming metadata (Phase A). streamId groups chunks into one bubble.
+  streamId: string;
+  streaming: boolean;
+  startedAt: number; // ms epoch when the turn opened
+  firstChunkAt: number | null; // ms epoch of first token (null = still "thinking")
 };
 
 export type Notification = {
@@ -250,43 +255,65 @@ function handleServerMessage(
 
     case "agent_output_stream": {
       const m = msg;
-      const output: AgentOutput = {
-        id: nextOutputId(),
-        agentId: m.agent_id,
-        role: m.role,
-        content: m.content,
-        model: m.model,
-        tokens: m.tokens,
-        phase: m.phase,
-        timestamp: m.timestamp,
-        isFinal: m.is_final,
-      };
-      set((s) => ({
-        agentOutputs: [...s.agentOutputs.slice(-199), output],
-        activeAgents: { ...s.activeAgents, [m.agent_id]: m.role || "active" },
-      }));
+      const now = Date.now();
+      set((s) => {
+        const outputs = s.agentOutputs;
+        const idx = m.stream_id
+          ? outputs.findIndex((o) => o.streamId === m.stream_id)
+          : -1;
+        const activeAgents = { ...s.activeAgents, [m.agent_id]: m.role || "active" };
+
+        if (idx === -1) {
+          // New bubble: a "start" event (empty content), a legacy chunk with no
+          // stream_id, or a lone final on reconnect (carries full content).
+          const output: AgentOutput = {
+            id: nextOutputId(),
+            agentId: m.agent_id,
+            role: m.role,
+            content: m.content,
+            model: m.model,
+            tokens: m.tokens,
+            phase: m.phase,
+            timestamp: m.timestamp,
+            isFinal: m.is_final,
+            streamId: m.stream_id,
+            streaming: !m.is_final,
+            startedAt: now,
+            firstChunkAt: m.content ? now : null,
+          };
+          return { agentOutputs: [...outputs.slice(-199), output], activeAgents };
+        }
+
+        // Accumulate into the existing bubble (in place — chunk volume no longer
+        // grows the array, so the 200-cap counts turns).
+        const existing = outputs[idx];
+        const updated: AgentOutput = m.is_final
+          ? {
+              ...existing,
+              // Final carries the full content (used verbatim on reconnect).
+              content: m.content.length >= existing.content.length ? m.content : existing.content,
+              tokens: m.tokens || existing.tokens,
+              model: m.model || existing.model,
+              isFinal: true,
+              streaming: false,
+            }
+          : {
+              ...existing,
+              content: existing.content + m.content,
+              firstChunkAt: existing.firstChunkAt ?? (m.content ? now : null),
+            };
+        const next = outputs.slice();
+        next[idx] = updated;
+        return { agentOutputs: next, activeAgents };
+      });
       break;
     }
 
-    case "agent_step_complete": {
-      const m = msg;
-      const output: AgentOutput = {
-        id: nextOutputId(),
-        agentId: m.agent_id,
-        role: m.role,
-        content: m.summary,
-        model: "",
-        tokens: m.tokens,
-        phase: m.phase,
-        timestamp: m.timestamp,
-        isFinal: true,
-      };
-      set((s) => ({
-        agentOutputs: [...s.agentOutputs.slice(-199), output],
-        totalTokens: s.totalTokens + m.tokens,
-      }));
+    case "agent_step_complete":
+      // Structured step marker for the Phase B activity timeline. The chat bubble
+      // + token total are already handled by agent_output_stream/session_state,
+      // so this intentionally does NOT add a bubble or re-count tokens.
       break;
-    }
 
     case "phase_transition":
       set((s) => ({
@@ -338,6 +365,10 @@ function handleServerMessage(
         phase: get().currentPhase ?? "",
         timestamp: msg.timestamp,
         isFinal: true,
+        streamId: "",
+        streaming: false,
+        startedAt: Date.now(),
+        firstChunkAt: Date.now(),
       };
       set((s) => ({
         notifications: [...s.notifications.slice(-99), notif],

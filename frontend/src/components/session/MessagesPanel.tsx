@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentOutput } from "@/stores/sessionStore";
 import { AGENT_THEMES, getAgentRole } from "@/lib/constants";
-import { cn, truncate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { User } from "lucide-react";
 
 interface MessagesPanelProps {
@@ -12,17 +12,30 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const recentOutputs = outputs.slice(-50);
+  const anyStreaming = recentOutputs.some((o) => o.streaming);
+
+  // Tick while anything is streaming so the "thinking" timer + cursor update.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!anyStreaming) return;
+    const id = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [anyStreaming]);
+
+  // Auto-scroll on new bubbles AND as streaming content grows.
+  const streamingChars = recentOutputs.reduce(
+    (n, o) => n + (o.streaming ? o.content.length : 0),
+    0
+  );
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    // Auto-scroll if user is near bottom
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (isNearBottom) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [outputs.length]);
-
-  const recentOutputs = outputs.slice(-50);
+  }, [outputs.length, streamingChars]);
 
   return (
     <div ref={containerRef} className="flex flex-col gap-1.5 overflow-y-auto p-2 h-full">
@@ -39,6 +52,8 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
         const borderColor = theme?.color
           ? theme.color.replace("text-", "border-")
           : "border-muted-foreground/30";
+        const thinking = out.streaming && out.firstChunkAt === null;
+        const thinkingSecs = Math.max(0, Math.round((now - out.startedAt) / 1000));
         return (
           <div
             key={out.id}
@@ -53,9 +68,17 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
               {out.model && (
                 <span className="text-muted-foreground/60 font-mono text-[10px]">({out.model})</span>
               )}
+              {thinking && (
+                <span className="ml-auto text-[10px] text-muted-foreground/70 animate-pulse">
+                  thinking… {thinkingSecs}s
+                </span>
+              )}
             </div>
-            <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
-              {truncate(out.content, 500)}
+            <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">
+              {out.content}
+              {out.streaming && !thinking && (
+                <span className="inline-block w-1.5 animate-pulse text-foreground">▍</span>
+              )}
             </p>
           </div>
         );
