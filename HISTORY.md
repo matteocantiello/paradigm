@@ -3712,3 +3712,13 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 **Investigating:** prime suspect is the new interactive-profile blocking approval gate (cycle waiting for GUI approval), or a stall. Checking config, backend health, pending approvals, session status, and recent events/log.
 
 **Diagnosis + fix:** Not a crash — the cycle was blocked at the interactive profile's blocking human-gate, which fired at `problem_selection` *immediately* after seeding (before any visible work), with confusing "problem_selection → problem_selection" wording. Backend was healthy (deadlock fix holds); confirmed a pending `ApprovalRequestMsg`. Fixed `configs/interactive.yaml` → `human_gate_points: []` so blocking mode now gates only at the 4 meaningful PHASE transitions (ideation→planning, …), never immediately. Restarted on fast.yaml (hands-off) to clear the stuck cycle; the running backend baked the old config so a restart was required to load the fix.
+
+---
+
+### Prompt 90 — "Is it stuck again? Can you check?"
+
+> Is it stuck again? Can you check?
+
+**Investigating:** on fast.yaml now (no gates), so a different cause if stuck. Checking health responsiveness, running session progress (event growth over a window), pending approvals, and recent activity/log.
+
+**Root cause + fix:** Not a gate — the cycle was CRAWLING on arXiv. arXiv is hard-throttling this IP (429/timeouts, from heavy session testing; live `curl` → HTTP 000 after 8s). The Prompt-84 retry/backoff was too patient — each literature call took 1–2 min before degrading, so the cycle inched forward (~2 min/event). Added a **circuit breaker** to `arxiv.py`: after 2 fully-failed calls the circuit opens for 120s and subsequent calls fail INSTANTLY (no network/retry/backoff) → the cycle proceeds fast on cached corpus + other sources; a success closes it. Also snappier detection (timeout 30s→15s, per-call retries 3→2). +2 tests; full suite 1449 green.

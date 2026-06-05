@@ -8,7 +8,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from paradigm.literature.arxiv import ArxivClient, _arxiv_rate_gate
+from paradigm.literature.arxiv import (
+    ArxivClient,
+    ArxivUnavailable,
+    _arxiv_circuit_is_open,
+    _arxiv_rate_gate,
+    _reset_arxiv_circuit,
+)
+
+
+@pytest.fixture(autouse=True)
+def _clean_circuit():
+    """Reset the process-global arXiv circuit breaker around every test."""
+    _reset_arxiv_circuit()
+    yield
+    _reset_arxiv_circuit()
 
 _FEED = """<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom"
@@ -90,3 +104,37 @@ async def test_rate_gate_is_process_global():
     gate_a = _arxiv_rate_gate()
     gate_b = _arxiv_rate_gate()
     assert gate_a is gate_b
+
+
+@patch("paradigm.literature.arxiv.asyncio.sleep", new_callable=AsyncMock)
+async def test_circuit_breaker_opens_then_fails_fast(mock_sleep):
+    """After repeated failures the breaker opens, so the next call fails INSTANTLY
+    (no network) — preventing a hard-down arXiv from making cycles crawl."""
+    # Two fully-failed calls (each exhausts retries) → breaker opens at threshold 2.
+    c1 = _client_with_gets(*([httpx.ReadTimeout("down")] * 5))
+    with pytest.raises(httpx.ReadTimeout):
+        await c1._rate_limited_get("https://x")
+    c2 = _client_with_gets(*([httpx.ReadTimeout("down")] * 5))
+    with pytest.raises(httpx.ReadTimeout):
+        await c2._rate_limited_get("https://x")
+
+    assert _arxiv_circuit_is_open()
+
+    # Next call must fast-fail WITHOUT hitting the network.
+    c3 = _client_with_gets(_resp(200))  # would succeed if it tried
+    with pytest.raises(ArxivUnavailable):
+        await c3._rate_limited_get("https://x")
+    c3._client.get.assert_not_called()
+
+
+@patch("paradigm.literature.arxiv.asyncio.sleep", new_callable=AsyncMock)
+async def test_circuit_breaker_resets_on_success(mock_sleep):
+    """A single failure must NOT open the breaker, and a success keeps it closed."""
+    c1 = _client_with_gets(*([httpx.ReadTimeout("blip")] * 5))
+    with pytest.raises(httpx.ReadTimeout):
+        await c1._rate_limited_get("https://x")
+    assert not _arxiv_circuit_is_open()  # 1 failure < threshold
+
+    c2 = _client_with_gets(_resp(200))
+    assert (await c2._rate_limited_get("https://x")).status_code == 200
+    assert not _arxiv_circuit_is_open()  # success reset the counter

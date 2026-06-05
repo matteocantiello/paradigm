@@ -58,6 +58,46 @@ def _arxiv_rate_gate() -> asyncio.Lock:
     return _global_rate_lock
 
 
+# Circuit breaker. When arXiv is hard-down for this IP (persistent 429 / timeouts
+# — common after heavy use, since arXiv throttles per-IP), patiently retrying
+# every call makes a research cycle CRAWL (1–2 min per literature lookup). After
+# a couple of fully-failed calls the circuit OPENS: subsequent calls fail
+# instantly (no network, no retry, no backoff) for a cooldown, so the cycle
+# proceeds fast on cached corpus + other sources. A success closes it.
+_CB_FAIL_THRESHOLD = 2
+_CB_COOLDOWN_SECONDS = 120.0
+_cb_consecutive_failures = 0
+_cb_open_until = 0.0
+
+
+class ArxivUnavailable(httpx.HTTPError):
+    """Fast-fail raised while the arXiv circuit breaker is open."""
+
+
+def _arxiv_circuit_is_open() -> bool:
+    return time.monotonic() < _cb_open_until
+
+
+def _note_arxiv_failure() -> None:
+    global _cb_consecutive_failures, _cb_open_until
+    _cb_consecutive_failures += 1
+    if _cb_consecutive_failures >= _CB_FAIL_THRESHOLD:
+        _cb_open_until = time.monotonic() + _CB_COOLDOWN_SECONDS
+
+
+def _note_arxiv_success() -> None:
+    global _cb_consecutive_failures, _cb_open_until
+    _cb_consecutive_failures = 0
+    _cb_open_until = 0.0
+
+
+def _reset_arxiv_circuit() -> None:
+    """Reset breaker state (used by tests)."""
+    global _cb_consecutive_failures, _cb_open_until
+    _cb_consecutive_failures = 0
+    _cb_open_until = 0.0
+
+
 def extract_key_sections(full_text: str, max_chars: int = 8000) -> str:
     """Extract abstract + introduction + conclusion from paper text.
 
@@ -176,7 +216,7 @@ class ArxivClient:
         self,
         rate_limit: float = 3.0,
         logger: EventLogger | None = None,
-        timeout: float = 30.0,
+        timeout: float = 15.0,
     ) -> None:
         """Initialize arXiv client.
 
@@ -359,7 +399,7 @@ class ArxivClient:
         self,
         url: str,
         params: dict[str, Any] | None = None,
-        max_retries: int = 3,
+        max_retries: int = 2,
     ) -> httpx.Response:
         """Make a globally rate-limited GET with retry on 429 + transient errors.
 
@@ -383,6 +423,12 @@ class ArxivClient:
         """
         global _global_last_request
 
+        # Circuit open → fail fast (don't touch the network). Classified as a
+        # transient source error upstream, so it degrades to the calm
+        # "using cached corpus + other sources" notice.
+        if _arxiv_circuit_is_open():
+            raise ArxivUnavailable("arXiv unavailable — circuit breaker open (rate-limited)")
+
         last_response: httpx.Response | None = None
         last_transient: Exception | None = None
         for attempt in range(max_retries + 1):
@@ -405,16 +451,23 @@ class ArxivClient:
                 if attempt < max_retries:
                     await asyncio.sleep(self._transient_backoff(attempt))
                     continue
+                _note_arxiv_failure()
                 raise last_transient  # type: ignore[misc]  # set in the except above
 
             if last_response.status_code != 429:
-                last_response.raise_for_status()
+                try:
+                    last_response.raise_for_status()
+                except httpx.HTTPStatusError:
+                    _note_arxiv_failure()
+                    raise
+                _note_arxiv_success()
                 return last_response
 
             # Rate-limited: honor Retry-After when given, else exponential backoff.
             if attempt < max_retries:
                 await asyncio.sleep(self._rate_limit_backoff(last_response, attempt))
 
+        _note_arxiv_failure()
         last_response.raise_for_status()
         return last_response
 
