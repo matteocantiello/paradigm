@@ -224,6 +224,15 @@ class JournalConfig(BaseModel):
     compile_pdf: bool = False  # also build a PDF (requires a LaTeX engine on PATH)
 
 
+class NarrationConfig(BaseModel):
+    """Plain-language event narration (Phase B)."""
+
+    enabled: bool = True
+    mode: str = "templated"  # "templated" (free) | "llm" (cheap model, opt-in)
+    llm_model: str = "claude-haiku-4-5"  # used only when mode == "llm"
+    llm_max_tokens: int = 60
+
+
 class DisplayConfig(BaseModel):
     """Live-display / responsiveness options (Phase A+). Off by default."""
 
@@ -234,6 +243,8 @@ class DisplayConfig(BaseModel):
     # characters buffered (0 = forward every provider delta). Tames chatty
     # providers / WebSocket back-pressure.
     stream_chunk_min_chars: int = 0
+    # Pedagogical "why is this happening" narration on activity-timeline events.
+    narration: NarrationConfig = Field(default_factory=NarrationConfig)
 
 
 class ProviderConfigEntry(BaseModel):
