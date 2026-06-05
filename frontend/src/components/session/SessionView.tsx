@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PhaseTracker } from "./PhaseTracker";
+import { NowPlaying } from "./NowPlaying";
 import { StatsBar } from "./StatsBar";
 import { AgentPanel } from "./AgentPanel";
 import { MessagesPanel } from "./MessagesPanel";
@@ -31,6 +32,8 @@ interface SessionViewProps {
   totalSearches: number;
   papersFound: number;
   elapsedSeconds: number;
+  avgStepMs: number;
+  phaseElapsedSeconds: number;
   agentOutputs: AgentOutput[];
   notifications: Notification[];
   activityEvents: ActivityEvent[];
@@ -60,6 +63,17 @@ export function SessionView(props: SessionViewProps) {
           completedPhases={props.completedPhases}
         />
       </div>
+
+      {/* Now playing: current phase · active agent · live elapsed · rough ETA.
+          Keyed by phase so the in-phase timer resets on each transition. */}
+      <NowPlaying
+        key={props.currentPhase ?? "none"}
+        currentPhase={props.currentPhase}
+        activeAgents={props.activeAgents}
+        roundNum={props.roundNum}
+        maxRounds={props.maxRounds}
+        avgStepMs={props.avgStepMs}
+      />
 
       {/* Stats bar */}
       <StatsBar

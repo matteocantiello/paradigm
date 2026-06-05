@@ -67,6 +67,8 @@ export interface SessionStateMsg {
   papers_found: number;
   elapsed_seconds: number;
   completed_phases: string[];
+  avg_step_ms?: number;
+  phase_elapsed_seconds?: number;
   protocol_version: string;
   timestamp: string;
 }

@@ -122,6 +122,8 @@ interface SessionStoreState {
   papersFound: number;
   elapsedSeconds: number;
   completedPhases: string[];
+  avgStepMs: number;
+  phaseElapsedSeconds: number;
 
   // Rolling buffers
   agentOutputs: AgentOutput[];
@@ -174,6 +176,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   papersFound: 0,
   elapsedSeconds: 0,
   completedPhases: [],
+  avgStepMs: 0,
+  phaseElapsedSeconds: 0,
   agentOutputs: [],
   notifications: [],
   activityEvents: [],
@@ -203,6 +207,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       papersFound: 0,
       elapsedSeconds: 0,
       completedPhases: [],
+      avgStepMs: 0,
+      phaseElapsedSeconds: 0,
       agentOutputs: [],
       notifications: [],
       activityEvents: [],
@@ -270,6 +276,8 @@ function handleServerMessage(
         papersFound: msg.papers_found,
         elapsedSeconds: msg.elapsed_seconds,
         completedPhases: msg.completed_phases,
+        avgStepMs: msg.avg_step_ms ?? 0,
+        phaseElapsedSeconds: msg.phase_elapsed_seconds ?? 0,
       });
       break;
 

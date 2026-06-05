@@ -111,6 +111,10 @@ class SessionStateMsg(BaseModel):
     papers_found: int = 0
     elapsed_seconds: float = 0.0
     completed_phases: list[str] = Field(default_factory=list)
+    # Live pacing (Phase B): rolling-average per-turn duration + time in the
+    # current phase, so the client can render a "now playing" header + rough ETA.
+    avg_step_ms: float = 0.0
+    phase_elapsed_seconds: float = 0.0
     protocol_version: str = PROTOCOL_VERSION
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 

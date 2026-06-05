@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from backend.api.models.messages import (
@@ -64,6 +65,10 @@ class WebSocketDisplayAdapter:
         # registry of start times so paired events can report a duration.
         self._activity_seq = 0
         self._timers: dict[str, float] = {}
+        # Pacing: rolling per-turn durations + when the current phase started.
+        self._turn_starts: dict[str, float] = {}
+        self._step_durations: deque[float] = deque(maxlen=20)
+        self._phase_started_at: float | None = None
 
     def _activity(
         self,
@@ -162,6 +167,16 @@ class WebSocketDisplayAdapter:
         state = self._manager.get_state(self._session_id)
         if state is None:
             return
+        avg_step_ms = (
+            sum(self._step_durations) / len(self._step_durations) * 1000.0
+            if self._step_durations
+            else 0.0
+        )
+        phase_elapsed = (
+            time.monotonic() - self._phase_started_at
+            if self._phase_started_at is not None
+            else 0.0
+        )
         _fire_and_forget(
             self._manager.broadcast_message(
                 self._session_id,
@@ -177,6 +192,8 @@ class WebSocketDisplayAdapter:
                     total_searches=state.total_searches,
                     papers_found=state.papers_found,
                     elapsed_seconds=state.elapsed_seconds,
+                    avg_step_ms=avg_step_ms,
+                    phase_elapsed_seconds=phase_elapsed,
                 ),
             )
         )
@@ -243,6 +260,7 @@ class WebSocketDisplayAdapter:
         # Timeline event, annotated with how long the phase we just left took.
         prev_ms = self._elapsed_ms("phase")
         self._timers["phase"] = time.monotonic()
+        self._phase_started_at = time.monotonic()
         self._activity(
             "phase_transition",
             f"Phase: {phase_str.replace('_', ' ')}",
@@ -311,6 +329,8 @@ class WebSocketDisplayAdapter:
         self, agent_id: str, stream_id: str, *, role: str = "", phase: str = ""
     ) -> None:
         """A turn began — open an (empty) live bubble so the UI shows 'thinking'."""
+        if stream_id:
+            self._turn_starts[stream_id] = time.monotonic()
         self._schedule(
             self._manager.broadcast_message(
                 self._session_id,
@@ -353,6 +373,11 @@ class WebSocketDisplayAdapter:
         content: str = "",
         stream_id: str = "",
     ) -> None:
+        # Record the turn duration for rolling-average pacing/ETA.
+        start = self._turn_starts.pop(stream_id, None) if stream_id else None
+        if start is not None:
+            self._step_durations.append(time.monotonic() - start)
+
         state = self._manager.get_state(self._session_id)
         if state is not None:
             new_total = state.total_tokens + total_tokens
