@@ -3910,3 +3910,21 @@ Wrote the plan to .planning/WEB-DEPLOYMENT.md. Starting Phase 1 (make-it-deploya
 Multi-part: (1) production.yaml → Claude + OpenAI/Gemini (drop Together/Llama), speed-optimized per-agent models; verify keys. (2) Hide the InteractionBar for the demo. (3) Thorough GUI polish.
 
 **Outcome — demo prep.** (1) Models: verified GEMINI key works live (gemini-2.5-flash ~1.0s, gemini-2.5-flash-lite ~0.37s; 2.0-flash is 404/removed). production.yaml now Claude + Gemini (Together/Llama dropped): bulk roles (theorist/analyst/experimentalist/skeptic) on gemini-2.5-flash-lite, synthesizer/editor on gemini-2.5-flash, writer on claude-haiku-4-5 (paper quality). Set max_rounds_per_phase 2→1 for speed; noted experiments as the main remaining time/risk lever. (2) Hid the InteractionBar in SessionView behind SHOW_INTERACTION_BAR=false (reversible) — foregrounds the autonomous flow for the demo. (3) GUI: session header now shows the research topic (truncated, via cycle.seed_prompt through SessionPage→SessionView). Chrome (Header/Sidebar/Observatory system) is already cohesive — left it, inviting the user to point at specific rough surfaces rather than sweeping a good design blind. tsc + vite build clean; suite 1502.
+
+---
+
+### Prompt 111 — "yes please restart"
+
+> yes please restart
+
+Restarting the local backend+frontend onto configs/production.yaml (fast Claude+Gemini, 1 round, hidden bar). Verifying keys load + health, no run kicked off.
+
+---
+
+### Prompt 112 — irrelevant papers in literature results
+
+> a lot of the papers returned are not relevant for the research project. Can we look into why is the case?
+
+Diagnosing literature relevance: which providers get queried (domain router), whether results are relevance-filtered/ranked at all, and the empirical papers from recent runs. Suspect: off-topic providers (pubmed/biorxiv on an astro topic) and/or no per-result relevance threshold.
+
+**Diagnosis + fix — irrelevant literature.** Root cause: the domain router ranks/skips PROVIDERS by topic (pubmed/biorxiv correctly skipped for astro), but there was NO per-RESULT relevance filtering — each provider's top-N (esp. broad google_scholar/semantic_scholar keyword matches) was aggregated and injected into agent context as-is, query ordering trusted. Fix: `Corpus._rerank_by_relevance` semantically re-ranks the aggregated pool by cosine similarity of each result's title+summary to the query (Chroma default MiniLM embedder, lazy+cached) and drops results below `literature.relevance_threshold` (default 0.25), with `relevance_min_keep` (default 3) as a starve-guard; fails open if embeddings unavailable. Wired into `_search_via_providers`; logs `candidates`/`relevance_dropped`. Validated empirically: relevant titles 0.58–0.74 cosine, loosely-related <0.10, off-topic ≤0.05 — clean separation at 0.25. Domain-agnostic. +3 tests; full suite 1505; ruff clean. Backend auto-reloaded → applies to the next run.

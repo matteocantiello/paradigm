@@ -103,6 +103,12 @@ class LiteratureConfig(BaseModel):
     max_read_chars: int = 8000
     max_citation_results: int = 10
     max_reference_results: int = 20
+    # Semantic relevance filter on aggregated search results. Each result's
+    # title+summary is scored (cosine) against the query; results below the
+    # threshold are dropped so broad providers don't inject off-topic papers.
+    # 0.0 disables filtering (pure re-rank). ~0.25 is a conservative cut.
+    relevance_threshold: float = 0.25
+    relevance_min_keep: int = 3  # never drop below this many (avoid starving)
     pubmed_rate_limit: float = 0.34  # ~3 req/sec (NCBI default without API key)
     biorxiv_rate_limit: float = 1.0  # 1 req/sec
     ads_rate_limit: float = 1.0  # 1 req/sec (~5000 req/day)

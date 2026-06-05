@@ -82,6 +82,7 @@ class Corpus:
             api_key=os.getenv("SEMANTIC_SCHOLAR_API_KEY"),
             logger=logger,
         )
+        self._embed_fn = None  # lazy sentence-embedder for relevance re-ranking
 
         # When providers are supplied, extract underlying clients for
         # operations that still need direct access (ingestion, close).
@@ -251,7 +252,10 @@ class Corpus:
             except Exception:
                 pass  # Non-critical providers can fail silently
 
-        results = all_results[:max_results]
+        # Relevance gate: re-rank the aggregated pool by semantic similarity to
+        # the query and drop weakly-related results, so broad providers don't
+        # inject off-topic papers into agent context.
+        results = self._rerank_by_relevance(query, all_results, max_results)
 
         if self._logger:
             self._logger.log(
@@ -259,6 +263,8 @@ class Corpus:
                 content={
                     "query": query,
                     "total_results": len(results),
+                    "candidates": len(all_results),
+                    "relevance_dropped": len(all_results) - len(results),
                     "providers_queried": providers_queried,
                     "providers_skipped": providers_skipped,
                     "allocation": allocation,
@@ -270,6 +276,53 @@ class Corpus:
             )
 
         return results
+
+    def _get_embed_fn(self):
+        """Lazily build a sentence embedder (Chroma's default MiniLM) for
+        re-ranking. Cached; returns None if unavailable (caller fails open)."""
+        if self._embed_fn is not None:
+            return self._embed_fn
+        try:
+            from chromadb.utils import embedding_functions
+
+            self._embed_fn = embedding_functions.DefaultEmbeddingFunction()
+        except Exception:  # noqa: BLE001 — fail open, skip re-ranking
+            self._embed_fn = None
+        return self._embed_fn
+
+    def _rerank_by_relevance(
+        self, query: str, results: list[SourceResult], max_results: int
+    ) -> list[SourceResult]:
+        """Sort aggregated results by semantic similarity to the query and drop
+        weakly-related ones, so broad providers don't inject off-topic papers.
+
+        Domain-agnostic (embedding cosine, no hardcoded topic). Fails open
+        (returns the original top-N) whenever embeddings can't be computed.
+        """
+        if len(results) <= 1 or not query.strip():
+            return results[:max_results]
+        ef = self._get_embed_fn()
+        if ef is None:
+            return results[:max_results]
+        try:
+            import numpy as np
+
+            texts = [f"{r.title}. {(r.summary or '')[:600]}".strip() for r in results]
+            arr = np.asarray(ef([query] + texts), dtype=float)
+            unit = arr / (np.linalg.norm(arr, axis=1, keepdims=True) + 1e-9)
+            sims = (unit[1:] @ unit[0]).tolist()
+        except Exception as e:  # noqa: BLE001 — never break search on a rerank hiccup
+            if self._logger:
+                self._logger.log_error(e, metadata_key="relevance_rerank")
+            return results[:max_results]
+
+        ranked = sorted(zip(results, sims, strict=False), key=lambda rs: rs[1], reverse=True)
+        threshold = self._config.relevance_threshold
+        kept = [r for r, s in ranked if s >= threshold]
+        min_keep = max(1, self._config.relevance_min_keep)
+        if len(kept) < min_keep:
+            kept = [r for r, _ in ranked[:min_keep]]
+        return kept[:max_results]
 
     async def _search_legacy(
         self,
