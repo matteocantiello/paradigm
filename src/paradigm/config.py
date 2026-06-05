@@ -49,6 +49,29 @@ class SandboxConfig(BaseModel):
     max_output_size: int = 10_485_760  # 10 MB
 
 
+class MCPLiteratureConfig(BaseModel):
+    """Optional MCP literature provider (e.g. alphaXiv).
+
+    Off by default and strictly *additive* — the platform stays offline-runnable
+    on the in-house providers without it. When enabled, the orchestrator connects
+    to a remote MCP server (streamable HTTP), discovers its tools, and exposes
+    them behind the SourceProvider abstraction. alphaXiv's get_paper_content
+    returns a pre-digested structured breakdown (cheap to inject) instead of raw
+    PDF text. alphaXiv requires an API key — set it in the ``auth_token_env`` var.
+    """
+
+    enabled: bool = False
+    name: str = "alphaxiv"
+    server_url: str = "https://api.alphaxiv.org/mcp/v1"
+    transport: str = "http"  # streamable HTTP (sse/stdio reserved for later)
+    auth_token_env: str = "ALPHAXIV_API_KEY"
+    search_tool: str | None = None  # override; otherwise auto-discovered
+    content_tool: str | None = None
+    timeout: float = 30.0
+    max_results: int = 10
+    source_type: str = "alphaxiv"
+
+
 class LiteratureConfig(BaseModel):
     """Configuration for literature search and retrieval."""
 
@@ -65,6 +88,7 @@ class LiteratureConfig(BaseModel):
     pubmed_rate_limit: float = 0.34  # ~3 req/sec (NCBI default without API key)
     biorxiv_rate_limit: float = 1.0  # 1 req/sec
     ads_rate_limit: float = 1.0  # 1 req/sec (~5000 req/day)
+    mcp: MCPLiteratureConfig = Field(default_factory=MCPLiteratureConfig)
 
 
 class StorageConfig(BaseModel):

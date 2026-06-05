@@ -126,4 +126,29 @@ def create_source_providers(
         else:
             _logger.warning("Unknown source provider: %s — skipping", name)
 
+    # Optional, additive: an external literature MCP server (e.g. alphaXiv) as a
+    # provider behind the same abstraction. Off unless explicitly enabled, so the
+    # platform stays offline-runnable on the in-house providers.
+    mcp_cfg = literature_config.mcp
+    if mcp_cfg.enabled:
+        from paradigm.literature.mcp_provider import MCPSourceProvider
+
+        token = os.getenv(mcp_cfg.auth_token_env)
+        if not token:
+            _logger.warning(
+                "MCP literature provider %r enabled but %s is not set — "
+                "it will fail to authenticate and be skipped at runtime.",
+                mcp_cfg.name,
+                mcp_cfg.auth_token_env,
+            )
+        providers[mcp_cfg.name] = MCPSourceProvider(
+            server_url=mcp_cfg.server_url,
+            auth_token=token,
+            name=mcp_cfg.name,
+            search_tool=mcp_cfg.search_tool,
+            content_tool=mcp_cfg.content_tool,
+            timeout=mcp_cfg.timeout,
+            source_type=mcp_cfg.source_type,
+        )
+
     return providers

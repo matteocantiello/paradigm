@@ -3722,3 +3722,29 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 **Investigating:** on fast.yaml now (no gates), so a different cause if stuck. Checking health responsiveness, running session progress (event growth over a window), pending approvals, and recent activity/log.
 
 **Root cause + fix:** Not a gate — the cycle was CRAWLING on arXiv. arXiv is hard-throttling this IP (429/timeouts, from heavy session testing; live `curl` → HTTP 000 after 8s). The Prompt-84 retry/backoff was too patient — each literature call took 1–2 min before degrading, so the cycle inched forward (~2 min/event). Added a **circuit breaker** to `arxiv.py`: after 2 fully-failed calls the circuit opens for 120s and subsequent calls fail INSTANTLY (no network/retry/backoff) → the cycle proceeds fast on cached corpus + other sources; a success closes it. Also snappier detection (timeout 30s→15s, per-call retries 3→2). +2 tests; full suite 1449 green.
+
+---
+
+### Prompt 91 — Plan: alternative literature-injection methods (MCP server, less PDF)
+
+> We also need to think about different ways to inject literature. For example via a MCP server. We did a bit of reading about this in the past, wondering if we have something in our literature survey. Anyway, we should do some planning about this as it could help speeding up and reducing tokens (downloading and reading PDFs is clunky)
+
+**Task:** Planning (no impl yet). Survey what we already have (literature synthesis + MCP paper-lookup notes), audit the current PDF-heavy literature flow, and propose token/speed-efficient literature-injection options (MCP literature server, structured-API/abstract/TLDR-first, summarize+cache, fetch-by-id) with tradeoffs + a recommended plan.
+
+---
+
+### Prompt 92 — Explore available literature MCP servers (D10 groundwork)
+
+> Let's do 2. Let's first explore what MCP servers for literature are available
+
+**Task:** Web-research the current landscape of literature/research-paper MCP servers (arXiv, Semantic Scholar, PubMed, alphaXiv, Paperclip, PaperQA/FutureHouse, etc.) — transport (stdio vs hosted HTTP), coverage, content shape (raw PDF vs pre-digested), auth, license/offline-ability — and assess fit for the orchestrator-as-MCP-client SourceProvider (offline-additive). No code yet.
+
+---
+
+### Prompt 93 — Prototype alphaXiv as an MCP-client SourceProvider
+
+> Let's start with alphaXiv (and keep nanyang12138/Academic-MCP-Server as a future option) and prototype as an MCP-client SourceProvider
+
+**Plan:** Build `literature/mcp_provider.py` — orchestrator-as-MCP-client (deterministic), wrapping the alphaXiv hosted MCP server as a `SourceProvider` behind the existing abstraction (offline-additive, flag-gated). search()→alphaXiv search tool; fetch()→get_paper_content (structured breakdown, not raw PDF). Config block in LiteratureConfig + provider_factory wiring. Deterministic unit tests with a fake MCP ClientSession. Keep Academic-MCP-Server (PubMed/bioRxiv/etc.) as a future provider. First confirm alphaXiv connection (URL/transport/auth/tool names) + `mcp` SDK availability.
+
+**Done — MCP-client SourceProvider prototype.** New `literature/mcp_provider.py` (`MCPSourceProvider`): orchestrator-as-MCP-client over streamable HTTP, **discovers tools at runtime** (`list_tools()`) and matches them by heuristic (search vs embedding vs get_paper_content) with config overrides, parses results defensively (structuredContent → text-JSON), normalizes to `SourceResult`/`SourceDocument` (prefers alphaXiv's pre-digested breakdown/tldr over raw abstract). Optional/additive: `LiteratureConfig.mcp` (default OFF; alphaXiv `https://api.alphaxiv.org/mcp/v1`, `ALPHAXIV_API_KEY` Bearer); wired in `provider_factory` only when enabled; `mcp` is an optional pyproject extra (lazy-imported). **Finding:** alphaXiv MCP requires auth (bare connect → 401), so live use needs an alphaXiv API key. Deterministic offline tests (+10, fake ClientSession); full suite 1459 green; ruff clean. Next: set ALPHAXIV_API_KEY + enable to smoke-test live, then tune the normalizer against real alphaXiv responses. Academic-MCP-Server (PubMed/bioRxiv) kept as a future provider behind the same class.
