@@ -3970,3 +3970,11 @@ Caddy is running on its DEFAULT config (welcome page), not the Paradigm Caddyfil
 > Ok. I need to start paradigm. How do I do that?
 
 Found a critical DEPLOY.md bug: install said ".[mcp]" but the backend's fastapi/uvicorn are the `api` extra and Gemini needs `openai` → fixed to ".[api,mcp,openai]". Gave: correct install, a manual foreground uvicorn run to see errors, then systemd enable --now for permanence.
+
+---
+
+### Prompt 118 — "API offline" in the deployed GUI
+
+> the platform shows up. I am trying to run a cycle but it says API offline
+
+The frontend health-checks /health (root), but the Caddyfile only proxied /api/* → /health hit the static server → "API offline". Fixed deploy/Caddyfile matcher to `@api path /api/* /health`. (Actual /api/v1 calls were already proxied.)

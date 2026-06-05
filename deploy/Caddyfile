@@ -22,8 +22,11 @@ paradigm.example.com {
 		alice $2a$14$REPLACE_WITH_HASH
 	}
 
-	# API + WebSockets -> backend (Caddy upgrades WS automatically).
-	@api path /api/*
+	# API + WebSockets + the root /health probe -> backend (Caddy upgrades WS
+	# automatically). /health is at the root, not under /api, so list it too —
+	# otherwise the frontend's health check hits the static file server and the
+	# UI shows "API offline".
+	@api path /api/* /health
 	handle @api {
 		reverse_proxy 127.0.0.1:8000
 	}
