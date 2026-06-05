@@ -3928,3 +3928,13 @@ Restarting the local backend+frontend onto configs/production.yaml (fast Claude+
 Diagnosing literature relevance: which providers get queried (domain router), whether results are relevance-filtered/ranked at all, and the empirical papers from recent runs. Suspect: off-topic providers (pubmed/biorxiv on an astro topic) and/or no per-result relevance threshold.
 
 **Diagnosis + fix — irrelevant literature.** Root cause: the domain router ranks/skips PROVIDERS by topic (pubmed/biorxiv correctly skipped for astro), but there was NO per-RESULT relevance filtering — each provider's top-N (esp. broad google_scholar/semantic_scholar keyword matches) was aggregated and injected into agent context as-is, query ordering trusted. Fix: `Corpus._rerank_by_relevance` semantically re-ranks the aggregated pool by cosine similarity of each result's title+summary to the query (Chroma default MiniLM embedder, lazy+cached) and drops results below `literature.relevance_threshold` (default 0.25), with `relevance_min_keep` (default 3) as a starve-guard; fails open if embeddings unavailable. Wired into `_search_via_providers`; logs `candidates`/`relevance_dropped`. Validated empirically: relevant titles 0.58–0.74 cosine, loosely-related <0.10, off-topic ≤0.05 — clean separation at 0.25. Domain-agnostic. +3 tests; full suite 1505; ruff clean. Backend auto-reloaded → applies to the next run.
+
+---
+
+### Prompt 113 — agent icons in the agents/token area + Theorist = lightbulb
+
+> In the agents area (where token usage is shown) ... have the icons showing which agent is what. Overall the icons should be always used next to the text/thing an agent is doing. The Theorist Icon should be the light bulb, not the telescope.
+
+GUI: ensure per-agent icons (from AGENT_THEMES) appear in the agents/token panel + everywhere an agent is referenced; change theorist icon telescope→Lightbulb.
+
+**Outcome — agent icons.** Theorist icon Telescope→Lightbulb in AGENT_THEMES (flows to every agent reference). Session "Agents" panel now shows each agent's cumulative token usage (Coins icon + formatTokens, summed per agentId from agentOutputs) next to its role icon. Added role icons where agents were referenced as bare text: NowPlaying (active-agent label), DraftPanel (section author), and per-message token counts in MessagesPanel (next to the model). tsc + vite build clean.

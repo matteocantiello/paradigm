@@ -3,6 +3,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { LiveDraft, DraftSection } from "@/stores/sessionStore";
+import { User } from "lucide-react";
+import { AGENT_THEMES, getAgentRole } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 interface DraftPanelProps {
@@ -39,9 +41,17 @@ function SectionCard({ section }: { section: DraftSection }) {
       >
         <StatusDot status={section.status} />
         <span className="text-[12px] font-medium text-foreground/90">{section.title}</span>
-        {section.author && (
-          <span className="text-[9px] text-muted-foreground/70 font-mono">{section.author}</span>
-        )}
+        {section.author &&
+          (() => {
+            const theme = AGENT_THEMES[getAgentRole(section.author)];
+            const Icon = theme?.icon ?? User;
+            return (
+              <span className="flex items-center gap-1 text-[9px] text-muted-foreground/70">
+                <Icon className={cn("h-2.5 w-2.5", theme?.color ?? "text-muted-foreground")} />
+                <span className="font-mono">{theme?.label ?? section.author}</span>
+              </span>
+            );
+          })()}
         <span className="ml-auto flex items-center gap-1.5">
           {drafting ? (
             <span className="text-[9px] text-amber-400 uppercase tracking-wide">writing…</span>

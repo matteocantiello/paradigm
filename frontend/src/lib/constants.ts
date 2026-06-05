@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Telescope,
+  Lightbulb,
   BarChart3,
   FlaskConical,
   Link,
@@ -19,7 +19,7 @@ export interface AgentTheme {
 
 export const AGENT_THEMES: Record<string, AgentTheme> = {
   theorist: {
-    icon: Telescope,
+    icon: Lightbulb,
     color: "text-blue-400",
     label: "Theorist",
   },

@@ -1,12 +1,19 @@
 import { AGENT_THEMES, getAgentRole } from "@/lib/constants";
-import { cn } from "@/lib/utils";
-import { User } from "lucide-react";
+import { cn, formatTokens } from "@/lib/utils";
+import { useSessionStore } from "@/stores/sessionStore";
+import { Coins, User } from "lucide-react";
 
 interface AgentPanelProps {
   activeAgents: Record<string, string>;
 }
 
 export function AgentPanel({ activeAgents }: AgentPanelProps) {
+  // Per-agent cumulative token usage, summed from each agent's messages.
+  const agentOutputs = useSessionStore((s) => s.agentOutputs);
+  const tokensByAgent: Record<string, number> = {};
+  for (const o of agentOutputs) {
+    tokensByAgent[o.agentId] = (tokensByAgent[o.agentId] ?? 0) + (o.tokens || 0);
+  }
   const entries = Object.entries(activeAgents);
 
   return (
@@ -38,8 +45,17 @@ export function AgentPanel({ activeAgents }: AgentPanelProps) {
               <Icon className={cn("h-4 w-4 shrink-0", theme?.color ?? "text-muted-foreground")} />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold truncate">
-                {theme?.label ?? role}
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-semibold truncate">{theme?.label ?? role}</span>
+                {tokensByAgent[agentId] > 0 && (
+                  <span
+                    className="flex items-center gap-0.5 shrink-0 text-[9px] tabular-nums text-muted-foreground/70"
+                    title={`${tokensByAgent[agentId].toLocaleString()} tokens used`}
+                  >
+                    <Coins className="h-2.5 w-2.5" />
+                    {formatTokens(tokensByAgent[agentId])}
+                  </span>
+                )}
               </div>
               <div className="text-[10px] text-muted-foreground truncate">
                 {activity}

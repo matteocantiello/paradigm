@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { User } from "lucide-react";
 import { AGENT_THEMES, getAgentRole, PHASE_LABELS } from "@/lib/constants";
 import { useSystemState } from "@/hooks/useSystemState";
 import { cn } from "@/lib/utils";
@@ -73,8 +74,22 @@ export function NowPlaying({
       </span>
       <span className="font-semibold text-foreground">{phaseLabel}</span>
       <span className="text-muted-foreground/50">·</span>
-      <span className={cn("truncate", agentRoles.length ? "text-foreground/80" : "text-muted-foreground/50")}>
-        {agentLabel}
+      <span
+        className={cn(
+          "flex items-center gap-1 truncate",
+          agentRoles.length ? "text-foreground/80" : "text-muted-foreground/50"
+        )}
+      >
+        {agentRoles.map((r) => {
+          const Ic = AGENT_THEMES[r]?.icon ?? User;
+          return (
+            <Ic
+              key={r}
+              className={cn("h-3 w-3 shrink-0", AGENT_THEMES[r]?.color ?? "text-muted-foreground")}
+            />
+          );
+        })}
+        <span className="truncate">{agentLabel}</span>
       </span>
       <span className="ml-auto flex items-center gap-3 tabular-nums text-muted-foreground/70 shrink-0">
         <span>{fmtDuration(elapsed)} in phase</span>

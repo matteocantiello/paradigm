@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentOutput } from "@/stores/sessionStore";
 import { AGENT_THEMES, getAgentRole } from "@/lib/constants";
-import { cn } from "@/lib/utils";
+import { cn, formatTokens } from "@/lib/utils";
 import { Markdown } from "@/components/shared/Markdown";
 import { User } from "lucide-react";
 
@@ -68,6 +68,11 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
               <span className="text-xs font-semibold text-foreground">{theme?.label ?? role}</span>
               {out.model && (
                 <span className="text-muted-foreground/60 font-mono text-[10px]">({out.model})</span>
+              )}
+              {out.tokens > 0 && (
+                <span className="text-muted-foreground/45 text-[10px] tabular-nums">
+                  · {formatTokens(out.tokens)} tok
+                </span>
               )}
               {thinking && (
                 <span className="ml-auto text-[10px] text-muted-foreground/70 animate-pulse">
