@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import asyncio
+import uuid
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from paradigm.agents.providers import LLMProvider
+
+# Streaming side-channel. The sink (if attached) is invoked from a worker thread
+# (generation runs in ``asyncio.to_thread``), so any implementation MUST be
+# thread-safe. Args: (agent_id, stream_id, chunk, event, usage).
+StreamEvent = Literal["start", "chunk", "final"]
+StreamSink = Callable[[str, str, str, StreamEvent, "TokenUsage | None"], None]
 
 
 class Message(BaseModel):
@@ -39,6 +48,9 @@ class AgentResponse(BaseModel):
     content: str
     usage: TokenUsage
     model: str
+    # Correlates the streamed chunks (if any) with this final response so the
+    # display layer can finalize the right bubble. Empty when streaming is off.
+    stream_id: str = ""
 
 
 class Agent:
@@ -80,9 +92,17 @@ class Agent:
         self._provider = provider
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        # Optional streaming side-channel (set by the orchestrator). When present
+        # we stream every turn so the UI animates live; otherwise behavior is
+        # byte-identical to before.
+        self._stream_sink: StreamSink | None = None
 
     # Threshold above which we use streaming to avoid Anthropic's 10-minute timeout
     _STREAMING_THRESHOLD = 8192
+
+    def set_stream_sink(self, sink: StreamSink | None) -> None:
+        """Attach (or clear) a streaming side-channel. See ``StreamSink``."""
+        self._stream_sink = sink
 
     async def generate(
         self,
@@ -113,13 +133,24 @@ class Agent:
         messages.append({"role": "user", "content": prompt})
 
         effective_max_tokens = max_tokens or self.max_tokens
+        stream_id = uuid.uuid4().hex[:12]
 
-        if effective_max_tokens >= self._STREAMING_THRESHOLD:
-            return self._generate_streaming(messages, effective_max_tokens)
-        else:
-            return self._generate_sync(messages, effective_max_tokens)
+        # Run the blocking provider call off the event loop so the loop stays
+        # free to service the WebSocket (pings, live broadcasts). When a stream
+        # sink is attached we always stream so even short turns animate live;
+        # otherwise the size threshold decides (large calls stream to dodge
+        # Anthropic's 10-minute timeout).
+        if self._stream_sink is not None or effective_max_tokens >= self._STREAMING_THRESHOLD:
+            return await asyncio.to_thread(
+                self._generate_streaming, messages, effective_max_tokens, stream_id
+            )
+        return await asyncio.to_thread(
+            self._generate_sync, messages, effective_max_tokens, stream_id
+        )
 
-    def _generate_sync(self, messages: list[dict[str, str]], max_tokens: int) -> AgentResponse:
+    def _generate_sync(
+        self, messages: list[dict[str, str]], max_tokens: int, stream_id: str = ""
+    ) -> AgentResponse:
         """Non-streaming API call for small responses."""
         content, input_tokens, output_tokens = self._provider.complete(
             model=self.model,
@@ -139,13 +170,23 @@ class Agent:
         self.total_input_tokens += usage.input_tokens
         self.total_output_tokens += usage.output_tokens
 
-        return AgentResponse(content=content, usage=usage, model=self.model)
+        return AgentResponse(content=content, usage=usage, model=self.model, stream_id=stream_id)
 
-    def _generate_streaming(self, messages: list[dict[str, str]], max_tokens: int) -> AgentResponse:
-        """Streaming API call for large responses (avoids 10-min timeout)."""
+    def _generate_streaming(
+        self, messages: list[dict[str, str]], max_tokens: int, stream_id: str = ""
+    ) -> AgentResponse:
+        """Streaming API call (avoids 10-min timeout; feeds the live stream sink).
+
+        Chunks are always buffered into the returned ``AgentResponse`` (so every
+        caller is unaffected) and, if a sink is attached, also forwarded live.
+        """
         content_parts: list[str] = []
         input_tokens = 0
         output_tokens = 0
+        sink = self._stream_sink
+
+        if sink is not None:
+            sink(self.agent_id, stream_id, "", "start", None)
 
         for chunk, in_tok, out_tok in self._provider.complete_streaming(
             model=self.model,
@@ -157,6 +198,8 @@ class Agent:
         ):
             if chunk:
                 content_parts.append(chunk)
+                if sink is not None:
+                    sink(self.agent_id, stream_id, chunk, "chunk", None)
             if in_tok or out_tok:
                 input_tokens = in_tok
                 output_tokens = out_tok
@@ -171,7 +214,10 @@ class Agent:
         self.total_input_tokens += usage.input_tokens
         self.total_output_tokens += usage.output_tokens
 
-        return AgentResponse(content=content, usage=usage, model=self.model)
+        if sink is not None:
+            sink(self.agent_id, stream_id, "", "final", usage)
+
+        return AgentResponse(content=content, usage=usage, model=self.model, stream_id=stream_id)
 
     def get_total_usage(self) -> TokenUsage:
         """Get total token usage for this agent.
