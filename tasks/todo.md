@@ -5,16 +5,17 @@ Every new behavior behind a default-safe flag; Rich `DisplayManager` gets no-op 
 
 > Prior completed todos (Prompt 67 reliability/eval, Phase 1 Correctness Kernel, Phase 2 output quality) are preserved in git history + HISTORY.md.
 
-## Phase A — Liveness (token streaming + unblock the loop)
+## Phase A — Liveness (token streaming + unblock the loop)  ✅ DONE (live-verified: 28 chunks + final)
 - [x] A1+A2 agent infra: non-blocking `generate` via `asyncio.to_thread`, `AgentResponse.stream_id`, per-agent stream sink (`set_stream_sink`) + tests
-- [ ] `DisplayConfig` (`stream_tokens`, `stream_chunk_min_chars`) in config.py + register on Config; `configs/fast.yaml` enables it
-- [ ] Engine attaches the stream sink to agents when `display.stream_tokens` (routes to `display.agent_stream_start/chunk`)
-- [ ] ws_display: thread-safe `_schedule` (run_coroutine_threadsafe) + `agent_stream_start/chunk`; Rich `DisplayManager` no-op mirrors
-- [ ] ws_display `agent_response`: drop 500-char truncation; final carries `stream_id` + full content
-- [ ] session_manager `_broadcast`: don't buffer non-final stream chunks in replay deque
-- [ ] `agent_step_complete` emitted from `_log_agent_response` choke point (Rich no-op + WS); fix frontend double-count
-- [ ] frontend: accumulate `agent_output_stream` by `stream_id`; live bubble + cursor + thinking/elapsed
-- [ ] (optional) vitest + sessionStore reducer test
+- [x] `DisplayConfig` (`stream_tokens`, `stream_chunk_min_chars`) in config.py + register on Config; `configs/fast.yaml` enables it
+- [x] Engine attaches the stream sink to agents when `display.stream_tokens` (routes to `display.agent_stream_start/chunk`); sink is phase-safe + non-fatal
+- [x] ws_display: thread-safe `_schedule` (run_coroutine_threadsafe) + `agent_stream_start/chunk`; Rich `DisplayManager` no-op mirrors
+- [x] ws_display `agent_response`: drop 500-char truncation; final carries `stream_id` + full content
+- [x] session_manager `_broadcast`: don't buffer non-final stream chunks in replay deque
+- [x] `agent_step_complete` emitted from `_log_agent_response` choke point (Rich no-op + WS); frontend double-count fixed
+- [x] frontend: accumulate `agent_output_stream` by `stream_id`; live bubble + cursor + thinking/elapsed
+- [ ] (optional) vitest + sessionStore reducer test — deferred
+- [ ] FOLLOW-UP (found during A): other sync calls still block the loop — embeddings `encode()`, and direct `provider.complete()` in engine/preregistration/review/memory. Offload via `to_thread` for full responsiveness.
 
 ## Phase B — Education (timeline + narration + progress/ETA)
 - [ ] `display/narration.py` (templated) + `NarrationConfig` (LLM stub)
