@@ -48,7 +48,10 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
       const cycle = await createCycle.mutateAsync({
         seed_prompt: prompt.trim(),
         mode,
-        team_roles: roles.length === ALL_ROLES.length ? null : roles,
+        // null = use the default team. Send null for "all selected" AND for
+        // "none selected" — an empty list would otherwise run with ZERO agents.
+        team_roles:
+          roles.length === 0 || roles.length === ALL_ROLES.length ? null : roles,
       });
       const session = await startSession.mutateAsync(cycle.cycle_id);
       navigate(`/session/${session.session_id}`);

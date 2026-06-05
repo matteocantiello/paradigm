@@ -3864,3 +3864,21 @@ Persist research cycles to the DB (survive restart), add list/reconstruct, and o
 Resume an interrupted/terminal cycle from its last checkpoint, continuing from that phase, with optional steering. Investigating engine phase sequence to find the resume hook, then wiring engine resume param + POST /resume endpoint + Resume button.
 
 **Outcome — Phase 3 (resume + steering) done.** Decided AGAINST mid-phase engine re-entry (phases have hard state deps: world_model, selected_hypotheses, draft — unsafe with summary-level checkpoints). Instead resume reuses the Phase-99 guidance inbox: `POST /api/v1/research/{cycle_id}/resume` (optional `comment`) builds a continuation note from the prior thread's checkpoint (hypothesis/findings/open-questions/next-steps/summary) + the operator's steering, creates a fresh linked continuation cycle (`resumed_from` — new DB column + model + store passthrough), starts it, and queues the note as first-round guidance so the team continues the established direction. Works for interrupted/failed/aborted AND completed ("extend further"); falls back to a bare continuation when no checkpoint/thread_id. Frontend: `resumeCycle()` client; TerminalScreen Resume button + inline steering textarea (navigates to the new run); CycleCard quick-Resume for resumable statuses + "continues an earlier run" lineage; cycleId threaded SessionPage→SessionView→TerminalScreen. +5 tests; full suite 1497; ruff + tsc + vite build clean. Resume route live in OpenAPI. Checkpoint-granularity (re-derives forward with prior context), not exact mid-experiment replay — set with user up front.
+
+---
+
+### Prompt 106 — start a new run
+
+> let's start a new run
+
+Platform already running (no restart). Checking auth + interactive gate config to decide how to kick off + what to expect.
+
+---
+
+### Prompt 107 — "Clearly something went wrong"
+
+> Clearly something went wrong
+
+Investigating read-only: backend.log tail + recent events for errors/tracebacks after a run start.
+
+**Diagnosis + fix — empty team = zero agents.** The new run (cycle-87df0bcf, seed = an LRD review prompt) finished in 3.6s with 0 tokens because it ran with `team_roles: []` → `create_team([])` → ZERO agents → every phase produced nothing → writing died with ValueError "insufficient content (0 chars < 10000)". Two bugs: (1) engine `run_research_cycle` only defaulted the team on `team_roles is None`, so an empty list bypassed the fallback — fixed to `if not team_roles:` (empty OR None → default/profile roles). (2) SetupWizard sent `[]` when ALL roles were deselected (`roles.length === ALL_ROLES.length ? null : roles`) — fixed to also send null when `roles.length === 0`. +2 regression tests (team=[] and None → non-empty team). Full suite 1499; ruff + tsc clean.

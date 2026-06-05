@@ -218,7 +218,12 @@ class OrchestrationEngine:
             Thread ID of the completed cycle.
         """
         self.state = ResearchState(seed_prompt=seed_prompt, mode=mode)
-        if team_roles is None:
+        # Treat an empty list the same as None — otherwise a caller passing
+        # team_roles=[] (e.g. the GUI with no roles selected) yields a team of
+        # ZERO agents: every phase races through producing nothing and the run
+        # dies at writing with "insufficient content". Always fall back to the
+        # profile/default roles when no roles are given.
+        if not team_roles:
             if self._profile is not None and self._profile.default_roles:
                 # Use domain profile for team composition
                 default_fallback = list(next(iter(self._profile.default_roles.values()), []))
