@@ -1,0 +1,207 @@
+# Paradigm INTERACTIVE Configuration
+#
+# Human-in-the-loop profile for driving the platform live from the GUI.
+# Built on the FAST profile (responsive Haiku + Llama models, lean rounds) and
+# adds the two interactivity levers:
+#   - display.stream_tokens: true  -> agent output animates token-by-token.
+#   - orchestrator.human_gate_mode: "blocking"  -> the GUI gates at each phase
+#     transition (Approve / Pause / Abort) AND at the configured human-gate
+#     points, so you can steer the trajectory and intervene as it runs.
+#     (In the default/fast profiles this gate is OFF, so unattended runs flow
+#     freely; here it is ON for hands-on sessions.)
+#
+# Use it:
+#   PARADIGM_CONFIG=configs/interactive.yaml ./dev.sh restart
+#
+# API keys are loaded from .env (ANTHROPIC_API_KEY, TOGETHER_API_KEY).
+
+# LLM provider registry
+providers:
+  anthropic:
+    type: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+    default_model: claude-haiku-4-5
+  together:
+    type: openai_compatible
+    api_key_env: TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+
+# Agent configuration (fast, responsive models — same as FAST)
+agent:
+  default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+  opus_model: "claude-haiku-4-5"
+  max_tokens: 8192
+  temperature: 1.0
+  token_budget_per_thread: 1000000
+  token_budget_per_agent: 100000
+  default_provider: together
+  overrides:
+    theorist:
+      provider: anthropic
+      model: claude-haiku-4-5
+    experimentalist:
+      provider: anthropic
+      model: claude-haiku-4-5
+    analyst:
+      provider: anthropic
+      model: claude-haiku-4-5
+    synthesizer:
+      provider: anthropic
+      model: claude-haiku-4-5
+    writer:
+      provider: anthropic
+      model: claude-haiku-4-5
+      max_tokens: 16384
+    skeptic:
+      provider: together
+      model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+    editor:
+      provider: together
+      model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+
+testing_overrides:
+  theorist:
+    provider: anthropic
+    model: claude-haiku-4-5
+  experimentalist:
+    provider: anthropic
+    model: claude-haiku-4-5
+  analyst:
+    provider: anthropic
+    model: claude-haiku-4-5
+  synthesizer:
+    provider: anthropic
+    model: claude-haiku-4-5
+  writer:
+    provider: anthropic
+    model: claude-haiku-4-5
+  skeptic:
+    provider: together
+    model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  editor:
+    provider: together
+    model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+
+# Sandbox configuration
+sandbox:
+  enabled: true
+  image_name: "paradigm-sandbox:latest"
+  # SPEC hard constraint: network-isolated sandbox.
+  network_mode: "none"
+  cpu_limit: 2.0
+  memory_limit: "2g"
+  execution_timeout: 300
+  max_output_size: 10485760
+
+# Literature search — trimmed budgets for faster rounds
+literature:
+  arxiv_rate_limit: 3.0
+  max_results_per_search: 30
+  enable_pdf_fetch: true
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  follow_budget_per_round: 1
+  cited_by_budget_per_round: 1
+  read_budget_per_round: 3
+  max_read_chars: 8000
+  max_citation_results: 10
+  max_reference_results: 20
+
+# Storage configuration
+storage:
+  data_dir: "./data"
+
+# Live display / responsiveness — stream tokens + narration ON for engagement.
+display:
+  stream_tokens: true
+  stream_chunk_min_chars: 12   # light coalescing for smooth-but-calm streaming
+
+# Orchestrator configuration — interactive (lean rounds, blocking GUI gate)
+orchestrator:
+  max_rounds_per_phase: 2
+  enable_checkpointing: true
+  checkpoint_interval: 5
+  enable_writing: true
+  max_review_iterations: 2
+  enable_peer_review: true
+  num_reviewers: 1
+  max_revision_rounds: 1
+  enable_experimentation: true
+  max_searches_per_round: 3
+  enable_debates: false
+  max_debate_exchanges: 3
+  max_debates_per_phase: 2
+  enable_execution_sprints: false
+  num_execution_sprints: 3
+  sprint_review_roles:
+    - theorist
+    - analyst
+    - skeptic
+  enable_verification: false
+  verification_tolerance: 1.0e-6
+  verification_seed: 12345
+  verification_reexec_budget: 20
+  abort_on_verification_failure: true
+  enable_best_first_nodes: false
+  enable_step_restart: false
+  debug_buggy_node_prob: 0.3
+  max_step_restarts_per_experiment: 2
+  # --- INTERACTIVE: the GUI gates at phase transitions + human-gate points ---
+  human_gate_mode: "blocking"
+  human_gate_points:
+    - problem_selection
+    - pre_registration
+    - final_verification
+  enable_multimodal_review: false
+  multimodal_review_role: "editor"
+  max_review_figures: 6
+
+# Scientific skills configuration
+skills:
+  skills_dir: "vendor/claude-scientific-skills/scientific-skills"
+  default_mode: "default"
+  max_skill_chars: null
+
+# Agent episodic memory
+memory:
+  enabled: true
+  max_memories_per_prompt: 5
+  recency_half_life_days: 30.0
+  collection_name: "agent_memories"
+  max_memory_chars: 2000
+
+# Knowledge architecture — smaller tournament for speed
+knowledge:
+  enable_world_model: true
+  world_model_max_context_chars: 3000
+  enable_evidence_graph: true
+  enable_hypothesis_tournament: true
+  tournament_population_size: 4
+  tournament_winners: 1
+  tournament_k_factor: 32.0
+  enable_preregistration: false
+  prereg_require_refutation: true
+  prereg_on_empty: "advisory"
+
+# Paper output formats — markdown only
+journal:
+  enable_latex_output: false
+  latex_journal: "none"
+  compile_pdf: false
+
+# Citation grounding and novelty — Perplexity I/O OFF (slow)
+citation:
+  enable_citation_grounding: false
+  perplexity_api_key_env: "PERPLEXITY_API_KEY"
+  citation_sections:
+    - "introduction"
+    - "methods"
+  max_retries_per_paragraph: 2
+  perplexity_timeout: 120.0
+  enable_novelty_check: false
+  novelty_mode: "semantic_scholar"
+  futurehouse_api_key_env: "FUTURE_HOUSE_API_KEY"
+  novelty_max_iterations: 5
+  enable_seed_discovery: false
+  seed_discovery_max_papers: 10
+  drop_unresolved_citations: false

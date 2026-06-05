@@ -149,7 +149,15 @@ class SessionManager:
             display = WebSocketDisplayAdapter(session_id, self)
 
             # Create the intervention hook that bridges to WebSocket
-            intervention_hook = self._make_intervention_hook(session_id)
+            # Only wire the blocking phase-transition approval gate for
+            # interactive sessions (human_gate_mode == "blocking"). Otherwise an
+            # unattended run would stall up to 5 min per transition waiting for
+            # an approval that never comes.
+            intervention_hook = (
+                self._make_intervention_hook(session_id)
+                if self._config.orchestrator.human_gate_mode == "blocking"
+                else None
+            )
 
             # Build the corpus with a session-specific ChromaDB collection
             # to isolate literature embeddings across research cycles.
