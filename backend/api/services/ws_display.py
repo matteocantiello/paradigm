@@ -32,14 +32,36 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Strong references to in-flight broadcast tasks so they aren't garbage-collected
+# mid-send (per the asyncio.create_task docs); discarded when each task finishes.
+_pending_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _on_broadcast_done(task: asyncio.Task[Any]) -> None:
+    _pending_tasks.discard(task)
+    if not task.cancelled():
+        exc = task.exception()
+        if exc is not None:
+            # Routine during client disconnects — retrieve it so it isn't an
+            # "exception was never retrieved" warning, and record at debug.
+            logger.debug("WS broadcast task failed: %s", exc)
+
 
 def _fire_and_forget(coro):
-    """Schedule a coroutine from sync context without awaiting it."""
+    """Schedule a coroutine from sync context without awaiting it.
+
+    Tracks the task (so it isn't GC'd in flight) and logs any failure instead of
+    leaving it unretrieved. If no event loop runs in the current thread, the
+    coroutine is closed cleanly to avoid a "never awaited" warning.
+    """
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(coro)
     except RuntimeError:
-        pass
+        coro.close()
+        return
+    task = loop.create_task(coro)
+    _pending_tasks.add(task)
+    task.add_done_callback(_on_broadcast_done)
 
 
 class WebSocketDisplayAdapter:
@@ -184,6 +206,10 @@ class WebSocketDisplayAdapter:
                     session_id=self._session_id,
                     status=state.status.value,
                     current_phase=state.current_phase,
+                    # Must echo completed_phases: the frontend store overwrites its
+                    # phase tracker from every state sync, so omitting this wipes the
+                    # completed-phase list between transitions in the real engine path.
+                    completed_phases=state.completed_phases,
                     round_num=state.round_num,
                     max_rounds=state.max_rounds,
                     thread_id=state.thread_id,
@@ -477,6 +503,18 @@ class WebSocketDisplayAdapter:
 
     def search_error(self, query: str, error: str | Exception) -> None:
         self._notify(f"Search failed: {query[:40]}", category="search", level="error")
+
+    def source_degraded(self, source: str) -> None:
+        """Calm, deduped notice that an external literature source is throttled.
+
+        Sent once per source per cycle instead of a red error per failed
+        request — the run proceeds on cached corpus + the other sources.
+        """
+        self._notify(
+            f"{source} rate-limited — using cached corpus + other sources",
+            category="search",
+            level="warning",
+        )
 
     def search_stale(self, agent_id: str, count: int = 2) -> None:
         self._notify(f"{agent_id}: stale searches", category="search", level="warning")

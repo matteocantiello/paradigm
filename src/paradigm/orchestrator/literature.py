@@ -7,6 +7,8 @@ import os
 import re
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 from paradigm.domains.base import arxiv_paper_to_source_result
 from paradigm.literature.bibliography import extract_arxiv_id_from_url
 from paradigm.literature.citation_chains import follow_citation_chain
@@ -60,6 +62,24 @@ _ARXIV_ID_QUERY_RE = re.compile(
 )
 
 
+def _is_transient_source_error(error: BaseException) -> bool:
+    """True if ``error`` is an expected, recoverable external-source failure.
+
+    Rate-limits (HTTP 429), timeouts, and dropped connections are routine when
+    hitting public APIs (arXiv, Semantic Scholar) — the research proceeds on
+    cached corpus + other sources, so they warrant a calm notice rather than a
+    red error. Anything else (e.g. a code regression) is treated as a genuine
+    fault and surfaced loudly.
+    """
+    if isinstance(error, httpx.HTTPError):
+        # Covers timeouts, connect/protocol errors, and HTTPStatusError (429/5xx/4xx):
+        # all of these mean "this lookup didn't work", not a platform bug.
+        return True
+    # Some clients (e.g. Semantic Scholar) raise a bare Exception("... 429 ...").
+    text = str(error).lower()
+    return "429" in text or "rate exceeded" in text or "timeout" in text or "timed out" in text
+
+
 def _extract_arxiv_id_query(query: str) -> str | None:
     """Return the bare arXiv id if a search query is really an id lookup, else None.
 
@@ -105,6 +125,11 @@ class LiteratureHandler:
         self.resolved_data_urls: set[str] = set()  # Cross-round dedup for [DATA:] requests
         self.data_count_this_round: int = 0
 
+        # External-source degradation: track which literature sources have already
+        # emitted a calm "rate-limited / unavailable" notice this cycle, so a flaky
+        # arXiv/S2 surfaces ONE informative row instead of a red error per request.
+        self.degraded_sources: set[str] = set()
+
     # ------------------------------------------------------------------
     # Reset helpers
     # ------------------------------------------------------------------
@@ -137,6 +162,27 @@ class LiteratureHandler:
         self.read_paper_ids = set()
         self.followed_paper_ids = set()
         self.cited_by_paper_ids = set()
+        self.degraded_sources = set()
+
+    def _handle_source_failure(self, source: str, agent_id: str, error: Exception) -> bool:
+        """Record a literature-source failure; return True if handled calmly.
+
+        Always logs the error to the structured event log (forensics). For an
+        expected, recoverable failure (rate-limit / timeout / dropped connection)
+        it surfaces ONE calm, deduped notice per source per cycle and returns
+        True, so the caller skips the red per-action error. For an unexpected
+        error it returns False, letting the caller surface it loudly — real
+        regressions stay visible.
+        """
+        self._engine._logger.log_error(
+            error, agent_id=agent_id, thread_id=self._engine.state.thread_id
+        )
+        if not _is_transient_source_error(error):
+            return False
+        if source not in self.degraded_sources:
+            self.degraded_sources.add(source)
+            self._engine._display.source_degraded(source)
+        return True
         self.resolved_data_urls = set()
 
     # ------------------------------------------------------------------
@@ -344,10 +390,8 @@ class LiteratureHandler:
                     provider=provider,
                 )
             except Exception as e:
-                self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
-                )
-                self._engine._display.search_error(query, e)
+                if not self._handle_source_failure("arXiv", agent_id, e):
+                    self._engine._display.search_error(query, e)
                 continue
 
             # Filter irrelevant papers by keyword overlap with query
@@ -499,10 +543,8 @@ class LiteratureHandler:
                 arxiv_id, max_chars=lit_config.max_read_chars
             )
         except Exception as e:
-            self._engine._logger.log_error(
-                e, agent_id=agent_id, thread_id=self._engine.state.thread_id
-            )
-            self._engine._display.read_error(arxiv_id, e)
+            if not self._handle_source_failure("arXiv", agent_id, e):
+                self._engine._display.read_error(arxiv_id, e)
             return
 
         found = result is not None
@@ -567,10 +609,8 @@ class LiteratureHandler:
                     arxiv_id, max_results=lit_config.max_reference_results
                 )
             except Exception as e:
-                self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
-                )
-                self._engine._display.follow_error(arxiv_id, e)
+                if not self._handle_source_failure("arXiv", agent_id, e):
+                    self._engine._display.follow_error(arxiv_id, e)
                 continue
 
             # Track discovered paper IDs
@@ -633,10 +673,8 @@ class LiteratureHandler:
                     arxiv_id, max_results=lit_config.max_citation_results
                 )
             except Exception as e:
-                self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
-                )
-                self._engine._display.cited_by_error(arxiv_id, e)
+                if not self._handle_source_failure("arXiv", agent_id, e):
+                    self._engine._display.cited_by_error(arxiv_id, e)
                 continue
 
             # Track discovered paper IDs
@@ -699,10 +737,8 @@ class LiteratureHandler:
                     arxiv_id, max_chars=lit_config.max_read_chars
                 )
             except Exception as e:
-                self._engine._logger.log_error(
-                    e, agent_id=agent_id, thread_id=self._engine.state.thread_id
-                )
-                self._engine._display.read_error(arxiv_id, e)
+                if not self._handle_source_failure("arXiv", agent_id, e):
+                    self._engine._display.read_error(arxiv_id, e)
                 continue
 
             if result is None:

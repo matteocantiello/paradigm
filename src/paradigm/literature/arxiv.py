@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import random
 import re
 import subprocess
 import time
@@ -18,10 +19,43 @@ from pydantic import BaseModel, Field
 from paradigm.logging.events import EventLogger, EventType
 
 # arXiv API constants
-ARXIV_API_BASE = "http://export.arxiv.org/api/query"
+ARXIV_API_BASE = "https://export.arxiv.org/api/query"
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 OPENSEARCH_NS = "{http://a9.com/-/spec/opensearch/1.1/}"
+
+# Transient httpx failures worth retrying (network blips, slow responses,
+# dropped connections) — distinct from a 429 rate-limit, which we back off on
+# separately while honoring any Retry-After header.
+_TRANSIENT_HTTP_ERRORS = (
+    httpx.TimeoutException,
+    httpx.ConnectError,
+    httpx.RemoteProtocolError,
+    httpx.PoolTimeout,
+)
+
+# Process-global arXiv rate-limit state. arXiv throttles per-IP, so every
+# ArxivClient instance (the corpus builds one, the provider factory builds
+# another) must share a single request cadence — otherwise N clients each
+# pace themselves to 1 req / rate_limit and together exceed arXiv's limit,
+# tripping the persistent 429 "Rate exceeded" penalty.
+_global_rate_lock: asyncio.Lock | None = None
+_global_rate_loop: asyncio.AbstractEventLoop | None = None
+_global_last_request: float = 0.0
+
+
+def _arxiv_rate_gate() -> asyncio.Lock:
+    """Return the process-global arXiv rate-limit lock for the running loop.
+
+    The lock is rebuilt whenever the running event loop changes (e.g. across
+    pytest cases), so it is never bound to a closed loop.
+    """
+    global _global_rate_lock, _global_rate_loop
+    loop = asyncio.get_running_loop()
+    if _global_rate_lock is None or _global_rate_loop is not loop:
+        _global_rate_lock = asyncio.Lock()
+        _global_rate_loop = loop
+    return _global_rate_lock
 
 
 def extract_key_sections(full_text: str, max_chars: int = 8000) -> str:
@@ -160,8 +194,6 @@ class ArxivClient:
                 "User-Agent": "Paradigm/1.0 (scientific research; +https://github.com/matteocantiello/paradigm)",
             },
         )
-        self._last_request_time: float = 0.0
-        self._lock = asyncio.Lock()
 
     async def search(
         self,
@@ -329,39 +361,80 @@ class ArxivClient:
         params: dict[str, Any] | None = None,
         max_retries: int = 3,
     ) -> httpx.Response:
-        """Make a rate-limited GET request with retry on 429.
+        """Make a globally rate-limited GET with retry on 429 + transient errors.
+
+        All arXiv traffic (across every ``ArxivClient`` instance) is serialized
+        through one process-global cadence so we respect arXiv's per-IP limit.
+        On a 429 we back off, honoring the ``Retry-After`` header when present;
+        on a transient network error (timeout, dropped connection) we retry with
+        jittered exponential backoff.
 
         Args:
             url: Request URL.
             params: Optional query parameters.
-            max_retries: Maximum retries on 429 rate-limit responses.
+            max_retries: Maximum retries (applies to both 429 and transient errors).
 
         Returns:
             HTTP response.
 
         Raises:
-            httpx.HTTPStatusError: On non-2xx responses (after retries exhausted for 429).
+            httpx.HTTPStatusError: On non-2xx responses (after 429 retries exhausted).
+            httpx.HTTPError: On transient network errors (after retries exhausted).
         """
+        global _global_last_request
+
+        last_response: httpx.Response | None = None
+        last_transient: Exception | None = None
         for attempt in range(max_retries + 1):
-            async with self._lock:
-                elapsed = time.monotonic() - self._last_request_time
+            last_response = None
+            # Global rate gate: at most one in-flight arXiv request, spaced by
+            # at least `_rate_limit` seconds, across the whole process.
+            async with _arxiv_rate_gate():
+                elapsed = time.monotonic() - _global_last_request
                 if elapsed < self._rate_limit:
                     await asyncio.sleep(self._rate_limit - elapsed)
+                try:
+                    last_response = await self._client.get(url, params=params)
+                except _TRANSIENT_HTTP_ERRORS as exc:
+                    last_transient = exc
+                finally:
+                    _global_last_request = time.monotonic()
 
-                response = await self._client.get(url, params=params)
-                self._last_request_time = time.monotonic()
+            # Transient network failure: back off and retry, else re-raise.
+            if last_response is None:
+                if attempt < max_retries:
+                    await asyncio.sleep(self._transient_backoff(attempt))
+                    continue
+                raise last_transient  # type: ignore[misc]  # set in the except above
 
-            if response.status_code != 429:
-                response.raise_for_status()
-                return response
+            if last_response.status_code != 429:
+                last_response.raise_for_status()
+                return last_response
 
-            # Exponential backoff on 429: 10s, 20s, 40s
+            # Rate-limited: honor Retry-After when given, else exponential backoff.
             if attempt < max_retries:
-                backoff = 10.0 * 2**attempt
-                await asyncio.sleep(backoff)
+                await asyncio.sleep(self._rate_limit_backoff(last_response, attempt))
 
-        response.raise_for_status()
-        return response
+        last_response.raise_for_status()
+        return last_response
+
+    @staticmethod
+    def _transient_backoff(attempt: int) -> float:
+        """Jittered exponential backoff for transient network errors (~2s, 4s, 8s)."""
+        base = 2.0 * 2**attempt
+        return base + random.uniform(0.0, base * 0.25)
+
+    @staticmethod
+    def _rate_limit_backoff(response: httpx.Response, attempt: int) -> float:
+        """Seconds to wait after a 429, honoring Retry-After when present."""
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(float(retry_after), 60.0)
+            except ValueError:
+                pass  # Non-numeric (HTTP-date) Retry-After — fall back to backoff.
+        base = 10.0 * 2**attempt  # 10s, 20s, 40s
+        return base + random.uniform(0.0, base * 0.1)
 
     def _build_query(self, query: str, categories: list[str] | None = None) -> str:
         """Build an arXiv API search query string.

@@ -373,6 +373,21 @@ class DisplayManager:
         else:
             self._fallback.search_error(query, error)
 
+    def source_degraded(self, source: str) -> None:
+        """Calm, deduped notice that an external literature source is throttled.
+
+        Emitted once per source per cycle (by the literature handler) instead of
+        a red error per failed request — the run proceeds on cached corpus and
+        the other sources.
+        """
+        self._state.add_event(
+            "warning", f"{source} rate-limited — using cached corpus + other sources"
+        )
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.source_degraded(source)
+
     def search_stale(self, agent_id: str, count: int = 2) -> None:
         self._state.add_event("warning", f"{agent_id}: stale searches")
         if self._use_rich:

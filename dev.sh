@@ -11,6 +11,11 @@ FRONTEND_PORT=3000
 PIDDIR="$HOME/.paradigm"
 mkdir -p "$PIDDIR"
 
+# Active Paradigm config. Override for fast iteration:
+#   PARADIGM_CONFIG=configs/fast.yaml ./dev.sh restart
+PARADIGM_CONFIG="${PARADIGM_CONFIG:-configs/default.yaml}"
+export PARADIGM_CONFIG
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
@@ -74,6 +79,7 @@ start_services() {
   log "Starting Paradigm..."
   log "${DIM}Backend  → http://localhost:${BACKEND_PORT}${RESET}"
   log "${DIM}Frontend → http://localhost:${FRONTEND_PORT}${RESET}"
+  log "${DIM}Config   → ${PARADIGM_CONFIG}${RESET}"
   echo ""
 
   # Start backend

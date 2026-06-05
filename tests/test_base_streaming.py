@@ -91,6 +91,24 @@ async def test_no_sink_is_byte_identical_and_no_streaming_for_small_calls():
 
 
 @pytest.mark.asyncio
+async def test_min_chars_coalesces_chunks():
+    provider = _FakeStreamingProvider(["a", "b", "c", "d", "e"])
+    agent = _make_agent(provider)
+    chunks: list[str] = []
+
+    def sink(agent_id, stream_id, chunk, event, usage):
+        if event == "chunk":
+            chunks.append(chunk)
+
+    agent.set_stream_sink(sink, min_chars=3)
+    resp = await agent.generate("prompt")
+
+    # 5 single-char deltas, flush at >=3 chars => "abc", then remainder "de".
+    assert chunks == ["abc", "de"]
+    assert resp.content == "abcde"  # full content preserved regardless of coalescing
+
+
+@pytest.mark.asyncio
 async def test_generate_does_not_block_event_loop():
     """A concurrent ticking task must interleave while generate() runs."""
 

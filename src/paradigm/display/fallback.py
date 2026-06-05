@@ -109,6 +109,9 @@ class PlainTextFallback:
     def search_error(self, query: str, error: str | Exception) -> None:
         click.echo(f"    [!] Search failed for '{query[:60]}': {error}")
 
+    def source_degraded(self, source: str) -> None:
+        click.echo(f"    [i] {source} rate-limited — using cached corpus + other sources")
+
     def search_stale(self, agent_id: str, count: int = 2) -> None:
         click.echo(f"    [!] {agent_id}: {count} consecutive stale searches, stopping keywords")
 

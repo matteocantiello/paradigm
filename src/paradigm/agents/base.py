@@ -96,13 +96,22 @@ class Agent:
         # we stream every turn so the UI animates live; otherwise behavior is
         # byte-identical to before.
         self._stream_sink: StreamSink | None = None
+        # Coalesce raw deltas until at least this many chars are buffered before
+        # firing a "chunk" event (0 = forward every delta). Tames back-pressure.
+        self._stream_min_chars: int = 0
 
     # Threshold above which we use streaming to avoid Anthropic's 10-minute timeout
     _STREAMING_THRESHOLD = 8192
 
-    def set_stream_sink(self, sink: StreamSink | None) -> None:
-        """Attach (or clear) a streaming side-channel. See ``StreamSink``."""
+    def set_stream_sink(self, sink: StreamSink | None, *, min_chars: int = 0) -> None:
+        """Attach (or clear) a streaming side-channel. See ``StreamSink``.
+
+        Args:
+            sink: Callback invoked with start/chunk/final events, or ``None``.
+            min_chars: Coalesce deltas until this many chars buffer (0 = every delta).
+        """
         self._stream_sink = sink
+        self._stream_min_chars = max(0, min_chars)
 
     async def generate(
         self,
@@ -184,6 +193,16 @@ class Agent:
         input_tokens = 0
         output_tokens = 0
         sink = self._stream_sink
+        min_chars = self._stream_min_chars
+        pending: list[str] = []
+        pending_len = 0
+
+        def _flush() -> None:
+            nonlocal pending, pending_len
+            if pending and sink is not None:
+                sink(self.agent_id, stream_id, "".join(pending), "chunk", None)
+            pending = []
+            pending_len = 0
 
         if sink is not None:
             sink(self.agent_id, stream_id, "", "start", None)
@@ -199,11 +218,15 @@ class Agent:
             if chunk:
                 content_parts.append(chunk)
                 if sink is not None:
-                    sink(self.agent_id, stream_id, chunk, "chunk", None)
+                    pending.append(chunk)
+                    pending_len += len(chunk)
+                    if pending_len >= min_chars:
+                        _flush()
             if in_tok or out_tok:
                 input_tokens = in_tok
                 output_tokens = out_tok
 
+        _flush()  # emit any buffered remainder before the final event
         content = "".join(content_parts)
         usage = TokenUsage(
             input_tokens=input_tokens,
