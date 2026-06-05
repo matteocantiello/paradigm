@@ -260,6 +260,15 @@ class SessionManager:
             )
 
         finally:
+            # Push the TERMINAL status (completed / aborted / failed) so the live
+            # UI flips off "running" — otherwise a finished cycle looks stuck on
+            # its last message (StatusPill: running -> stalled). This is a
+            # structural message, so it's buffered and reconnecting clients see
+            # the terminal state too. Without it, completion was silent.
+            try:
+                await self._broadcast_status(session_id)
+            except Exception:
+                logger.exception("Failed to broadcast terminal status for %s", session_id)
             # Always release the cycle's network clients (httpx pools, wrapped
             # API clients) — otherwise each cycle leaks a connection pool.
             if corpus is not None:

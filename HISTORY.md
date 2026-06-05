@@ -3822,3 +3822,13 @@ Bumping `STALL_MS` 35s → 120s in `useSystemState.ts` (thinking band widens to 
 Agents emit markdown (+ LaTeX math per SPEC). Investigating current MessagesPanel rendering → add proper markdown + math rendering with readable typography/role-coloring.
 
 **Outcome — messages now render as rich markdown.** Root cause: live `MessagesPanel` rendered raw `out.content` in a `<p>` (whitespace-pre-wrap), so markdown showed as literal `**`/`##`/`$…$`. (Deps react-markdown/remark-gfm/remark-math/rehype-katex/katex were already installed + KaTeX CSS imported, just unused in the message stream; no @tailwindcss/typography, so `prose` is a no-op.) Added `components/shared/Markdown.tsx` — reusable, memoized (re-parses only when source changes → streaming stays cheap), remark-gfm + remark-math + rehype-katex (`throwOnError:false` for partial-stream safety), with an explicit Observatory-themed element map (serif H1, sized headings, bulleted/numbered lists, inline + fenced code, blockquotes, tables, cyan links, KaTeX math). Wired into MessagesPanel (body 12.5px, brighter `foreground/85`). tsc + vite build clean.
+
+---
+
+### Prompt 102 — loop stuck silently during review
+
+> Somehow the research loop got stuck during review silently. Can you check what happened?
+
+Investigating read-only (NO restart — live session must not be killed): backend.log + events.jsonl tail, focus on review/peer-review phase, look for swallowed exceptions / awaited gate.
+
+**Diagnosis — it wasn't stuck; it completed silently.** events.jsonl: writing → assembly → `internal` (editor review → writer revision → editor review) → `state_change cycle_complete` (elapsed 1334s, 237k tokens) at 17:49:46. A paper (paper-56ec183fd171) was produced and is viewable. Root cause of the "stuck during review" perception: `_run_cycle`'s terminal branches set `state.status` (COMPLETED/ABORTED/FAILED) and sent only a NotificationMsg — they never broadcast a `SessionStateMsg`, so the frontend `status` never left "running"; with the new StatusPill that reads as Working → (120s) Stalled, sitting on the last review message = looks like a silent hang. Fix: broadcast the terminal status from the `finally` block (covers all 3 terminal states; structural msg → buffered, so reconnects see it too). +4 regression tests; full suite 1482 pass; ruff clean. (Secondary, not yet fixed: a long *non-streamed* review generation emits nothing until done, so a >120s turn can briefly show "Stalled" — would need a backend "agent working" heartbeat.)
