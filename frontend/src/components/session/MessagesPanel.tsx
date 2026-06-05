@@ -76,9 +76,7 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
             </div>
             <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">
               {out.content}
-              {out.streaming && !thinking && (
-                <span className="inline-block w-1.5 animate-pulse text-foreground">▍</span>
-              )}
+              {out.streaming && !thinking && <span className="stream-caret text-primary" />}
             </p>
           </div>
         );

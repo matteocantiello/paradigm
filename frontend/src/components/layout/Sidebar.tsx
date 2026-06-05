@@ -19,15 +19,21 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-56 flex-col border-r border-sidebar-border bg-gradient-to-b from-sidebar to-[oklch(0.09_0.02_260)] dark:to-[oklch(0.09_0.02_260)]">
       <div className="flex items-center gap-3 px-4 py-4 border-b border-sidebar-border">
-        {/* Observatory logo mark */}
-        <div className="relative h-8 w-8 flex items-center justify-center">
-          <div className="absolute inset-0 rounded-full border-2 border-primary/60" />
+        {/* Observatory logo mark — aperture rings + a small orbiting star */}
+        <div className="relative h-8 w-8 flex items-center justify-center shrink-0">
+          <div className="absolute inset-0 rounded-full border-2 border-primary/60 glow-sm" />
           <div className="absolute inset-1.5 rounded-full border border-primary/40" />
           <div className="h-2 w-2 rounded-full bg-primary" />
+          <div className="absolute h-1 w-1 rounded-full bg-accent-cyan top-0 right-0.5 animate-breathe" />
         </div>
-        <span className="text-sm font-semibold text-sidebar-foreground tracking-[0.15em] uppercase">
-          Paradigm
-        </span>
+        <div className="flex flex-col leading-none">
+          <span className="font-display text-[19px] font-semibold tracking-tight text-sidebar-foreground">
+            Paradigm
+          </span>
+          <span className="text-[9px] font-mono uppercase tracking-[0.28em] text-muted-foreground/60 mt-1">
+            Observatory
+          </span>
+        </div>
       </div>
       <nav className="flex-1 px-2 py-3 space-y-0.5">
         {NAV_ITEMS.map(({ to, icon: Icon, label }) => (

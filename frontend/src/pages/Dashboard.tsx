@@ -17,10 +17,12 @@ export function Dashboard() {
     <div className="max-w-5xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent dark:from-primary dark:to-foreground">
+          <h1 className="font-display text-[30px] leading-none font-semibold tracking-tight bg-gradient-to-br from-foreground via-foreground to-primary/70 bg-clip-text text-transparent">
             Mission Control
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Overview of your research activity</p>
+          <p className="text-[11px] text-muted-foreground/80 mt-2 font-mono uppercase tracking-[0.2em]">
+            your research observatory
+          </p>
         </div>
         <button
           onClick={() => navigate("/research?new=1")}
