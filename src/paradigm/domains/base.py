@@ -84,6 +84,21 @@ class SourceProvider(ABC):
         """Get documents that cite this document (optional)."""
         return []
 
+    async def close(self) -> None:
+        """Release any held network client (httpx pool / wrapped API client).
+
+        Default implementation closes ``self._client`` if it exposes
+        ``aclose()`` (httpx) or ``close()`` (wrapped clients). Providers with no
+        network client (e.g. the internal corpus) are no-ops. Safe to call once
+        per provider at teardown.
+        """
+        client = getattr(self, "_client", None)
+        if client is None:
+            return
+        closer = getattr(client, "aclose", None) or getattr(client, "close", None)
+        if closer is not None:
+            await closer()
+
 
 # ---------------------------------------------------------------------------
 # Document template models

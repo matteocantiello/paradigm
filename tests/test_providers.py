@@ -64,6 +64,48 @@ class TestAnthropicProvider:
                 messages=[{"role": "user", "content": "Hi"}],
             )
 
+    def test_complete_forwards_extra_body(self):
+        """complete() forwards per-role extra_body to the SDK (was silently dropped)."""
+        with patch("anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_response = MagicMock()
+            mock_response.content = [MagicMock(text="ok")]
+            mock_response.usage.input_tokens = 1
+            mock_response.usage.output_tokens = 1
+            mock_client.messages.create.return_value = mock_response
+            mock_cls.return_value = mock_client
+
+            provider = AnthropicProvider(api_key="fake-key")
+            provider.complete(
+                model="claude-sonnet-4-5-20250929",
+                system="s",
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=100,
+                extra_body={"thinking": {"type": "enabled", "budget_tokens": 1024}},
+            )
+
+            _, kwargs = mock_client.messages.create.call_args
+            assert kwargs["extra_body"] == {
+                "thinking": {"type": "enabled", "budget_tokens": 1024}
+            }
+
+    def test_complete_omits_extra_body_when_absent(self):
+        """No extra_body kwarg is sent when none is supplied (keeps SDK call clean)."""
+        with patch("anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_response = MagicMock()
+            mock_response.content = [MagicMock(text="ok")]
+            mock_response.usage.input_tokens = 1
+            mock_response.usage.output_tokens = 1
+            mock_client.messages.create.return_value = mock_response
+            mock_cls.return_value = mock_client
+
+            AnthropicProvider(api_key="fake-key").complete(
+                model="m", system="s", messages=[{"role": "user", "content": "Hi"}], max_tokens=10
+            )
+            _, kwargs = mock_client.messages.create.call_args
+            assert "extra_body" not in kwargs
+
     def test_complete_streaming(self):
         """complete_streaming() yields chunks then final usage."""
         with patch("anthropic.Anthropic") as mock_cls:

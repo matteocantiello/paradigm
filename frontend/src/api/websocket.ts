@@ -100,7 +100,11 @@ export class ParadigmWebSocket {
     this.ws.onclose = (event) => {
       this.ws = null;
       this._stopHeartbeat();
-      if (this.intentionalClose || event.code === 4004) {
+      // Terminal close codes must NOT trigger reconnects:
+      //   1000 normal/idle-timeout, 4001 unauthorized (would 403-loop forever),
+      //   4004 session not found. Only abnormal closes (e.g. 1006) reconnect.
+      const TERMINAL_CLOSE_CODES = [1000, 4001, 4004];
+      if (this.intentionalClose || TERMINAL_CLOSE_CODES.includes(event.code)) {
         this.callbacks.onStatusChange("disconnected");
         return;
       }

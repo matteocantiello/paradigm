@@ -91,10 +91,12 @@ async def delete_research_cycle(cycle_id: str, request: Request) -> None:
     if cycle is None:
         raise HTTPException(status_code=404, detail="Research cycle not found")
 
-    # Abort any running sessions for this cycle
+    # Abort any running sessions for this cycle, then free their resources
+    # (network clients, buffers, vector collection) — deletion means gone.
     manager = request.app.state.session_manager
     for session in manager.list_sessions(cycle_id=cycle_id):
         if session.status in ("starting", "running"):
             await manager.abort_session(session.session_id)
+        await manager.cleanup_session(session.session_id)
 
     del _cycles[cycle_id]

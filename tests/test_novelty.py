@@ -42,13 +42,15 @@ class TestNoveltySemanticScholar:
         )
 
         mock_provider = MagicMock()
-        # First call: keyword extraction
-        extract_response = MagicMock()
-        extract_response.content = "stellar convection overshooting\nmixing length theory"
-        # Second call: novelty assessment
-        assess_response = MagicMock()
-        assess_response.content = "NOVEL: yes\nCONFIDENCE: 0.8\nREASONING: Idea is unique."
-        mock_provider.generate = AsyncMock(side_effect=[extract_response, assess_response])
+        # provider.complete is sync (offloaded via asyncio.to_thread) and returns
+        # (text, input_tokens, output_tokens). First call = keyword extraction,
+        # second = novelty assessment.
+        mock_provider.complete = MagicMock(
+            side_effect=[
+                ("stellar convection overshooting\nmixing length theory", 10, 20),
+                ("NOVEL: yes\nCONFIDENCE: 0.8\nREASONING: Idea is unique.", 10, 20),
+            ]
+        )
 
         result = await check_novelty_semantic_scholar(
             "A new theory of stellar convection.",
@@ -75,11 +77,12 @@ class TestNoveltySemanticScholar:
         )
 
         mock_provider = MagicMock()
-        extract_response = MagicMock()
-        extract_response.content = "matching query"
-        assess_response = MagicMock()
-        assess_response.content = "NOVEL: no\nCONFIDENCE: 0.9\nREASONING: Already done."
-        mock_provider.generate = AsyncMock(side_effect=[extract_response, assess_response])
+        mock_provider.complete = MagicMock(
+            side_effect=[
+                ("matching query", 10, 20),
+                ("NOVEL: no\nCONFIDENCE: 0.9\nREASONING: Already done.", 10, 20),
+            ]
+        )
 
         result = await check_novelty_semantic_scholar(
             "An idea that was already done.",
@@ -98,9 +101,7 @@ class TestNoveltySemanticScholar:
         s2_client.search = AsyncMock(return_value=[])
 
         mock_provider = MagicMock()
-        extract_response = MagicMock()
-        extract_response.content = "obscure query"
-        mock_provider.generate = AsyncMock(return_value=extract_response)
+        mock_provider.complete = MagicMock(return_value=("obscure query", 10, 20))
 
         result = await check_novelty_semantic_scholar(
             "A very obscure idea.",

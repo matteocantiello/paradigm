@@ -7,6 +7,7 @@ import json
 import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
 from backend.api.middleware.auth import verify_api_key_sync
 from backend.api.models.messages import (
@@ -87,38 +88,59 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
                 await websocket.send_text(json.dumps({"type": "pong"}))
                 continue
 
-            if msg_type == "approval_response":
-                msg = ApprovalResponseMsg(**data)
-                await manager.respond_to_approval(msg.request_id, msg.decision)
+            # A malformed-but-JSON payload (missing/typed-wrong field) or a
+            # handler error must NOT tear down the whole socket — reply with an
+            # error frame and keep the connection alive.
+            try:
+                if msg_type == "approval_response":
+                    msg = ApprovalResponseMsg(**data)
+                    await manager.respond_to_approval(msg.request_id, msg.decision)
 
-            elif msg_type == "session_control":
-                msg = SessionControlMsg(**data)
-                await _handle_session_control(manager, session_id, msg)
+                elif msg_type == "session_control":
+                    msg = SessionControlMsg(**data)
+                    await _handle_session_control(manager, session_id, msg)
 
-            elif msg_type == "user_intervention":
-                msg = UserInterventionMsg(**data)
-                logger.info(
-                    "User intervention for session %s: %s -> %s",
-                    session_id,
-                    msg.target_agent,
-                    msg.action,
-                )
-                # TODO: Route to agent via agent_router service
+                elif msg_type == "user_intervention":
+                    msg = UserInterventionMsg(**data)
+                    logger.info(
+                        "User intervention for session %s: %s -> %s",
+                        session_id,
+                        msg.target_agent,
+                        msg.action,
+                    )
+                    # TODO: Route to agent via agent_router service
 
-            elif msg_type == "user_message":
-                msg = UserMessageMsg(**data)
-                logger.info(
-                    "User message for session %s -> %s",
-                    session_id,
-                    msg.target_agent or "orchestrator",
-                )
-                # TODO: Inject into agent conversation
+                elif msg_type == "user_message":
+                    msg = UserMessageMsg(**data)
+                    logger.info(
+                        "User message for session %s -> %s",
+                        session_id,
+                        msg.target_agent or "orchestrator",
+                    )
+                    # TODO: Inject into agent conversation
 
-            else:
+                else:
+                    await websocket.send_text(
+                        ErrorMsg(
+                            code="unknown_message_type",
+                            message=f"Unknown message type: {msg_type}",
+                        ).model_dump_json()
+                    )
+            except ValidationError as e:
                 await websocket.send_text(
                     ErrorMsg(
-                        code="unknown_message_type",
-                        message=f"Unknown message type: {msg_type}",
+                        code="invalid_message",
+                        message=f"Invalid {msg_type} payload: {e.error_count()} error(s)",
+                    ).model_dump_json()
+                )
+            except Exception:
+                logger.exception(
+                    "Error handling %s message for session %s", msg_type, session_id
+                )
+                await websocket.send_text(
+                    ErrorMsg(
+                        code="message_handler_error",
+                        message=f"Failed to handle {msg_type} message",
                     ).model_dump_json()
                 )
 

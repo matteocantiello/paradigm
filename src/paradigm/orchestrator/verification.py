@@ -85,27 +85,34 @@ class VerificationKernel:
             for m in engine.state.experiment_metadata
         }
 
-        if executor is None:
+        # Only tear down an executor we created here — an injected one (tests)
+        # is owned by the caller.
+        built_here = executor is None
+        if built_here:
             executor = self._build_executor()
 
         seed = config.verification_seed
         budget = config.verification_reexec_budget
         records: list[VerificationRecord] = []
 
-        for name, code in successful[:budget]:
-            record = await self._verify_one(
-                executor,
-                name,
-                code,
-                original_stdout.get(name, ""),
-                seed,
-                config.verification_tolerance,
-            )
-            records.append(record)
-            engine._display.info(f"Verification [{record.status}]: {name} — {record.detail}")
+        try:
+            for name, code in successful[:budget]:
+                record = await self._verify_one(
+                    executor,
+                    name,
+                    code,
+                    original_stdout.get(name, ""),
+                    seed,
+                    config.verification_tolerance,
+                )
+                records.append(record)
+                engine._display.info(f"Verification [{record.status}]: {name} — {record.detail}")
 
-        engine.state.verification_records = records
-        return records
+            engine.state.verification_records = records
+            return records
+        finally:
+            if built_here:
+                await executor.cleanup()
 
     def _build_executor(self) -> CodeExecutor:
         """Build an executor with a fresh, isolated verification workspace."""

@@ -3596,4 +3596,87 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 
 > I want to test the platform and GUI works. Can you run an instance so I can test?
 
-**Action:** Launch the platform via `./dev.sh` (backend uvicorn :8000 + frontend vite :3000; auth disabled in dev — no `PARADIGM_API_KEY`) on the `docs-and-ui-controls` branch (has the new GUI controls). Verify both services are up and hand the user the URLs.
+**Action:** Launch the platform via `./dev.sh` (backend uvicorn :8000 + frontend vite :3000; auth disabled in dev — no `PARADIGM_API_KEY`) on the `docs-and-ui-controls` branch (has the new GUI controls). Verify both services are up and hand the user the URLs. (Fixed a `dev.sh` bug: `conda run --no-banner` → `--no-capture-output`.)
+
+---
+
+### Prompt 80 — Phase 3 scope ("what do we have in phase 3?")
+
+> Let's move to the next phase. What do we have in phase 3?
+
+**Action:** Summarized Phase 3 (Smarter selection & adversarial review) from the roadmap — taste judge, Elo tiered-debate + stabilization stopping, diversity/proximity step, cross-model adversarial review + /kill-argument — with motivation, code hook points (extends existing `hypothesis_tournament`/`tournament_handler`/`debate`/`review`), dependencies (1D selection gate), and a proposed build order.
+
+---
+
+### Prompt 81 — Diagnose "extremely slow" GUI test run
+
+> So I am running the test, but everything is moving extremely slowly. What is the bottleneck?
+
+**Diagnosis (from `data/events.jsonl` + `~/.paradigm/backend.log`):** Not $ cost — **wall-clock latency of the big open-weight testing models**. The GUI ran in testing mode, whose `testing_overrides` point at DeepSeek-V4-Pro / Kimi-K2.6 / GLM-5.1 (huge MoE models, cheap but very slow + verbose on Together). Measured per-call: **one Kimi-K2.6 call took ~11.5 min**, DeepSeek-V4-Pro ~2 min. Multiplied by 7 agents × `max_rounds_per_phase` (default **10**) × many phases → hours; the run was still stuck in IDEATION after ~15 min. Levers: switch to a fast model (Llama-3.3-70B-Turbo / Haiku), drop max_rounds_per_phase to 1–2, disable Perplexity extras (citation grounding, seed discovery) + debates/sprints/verification for a smoke test.
+
+---
+
+### Prompt 82 — Add a FAST mode config
+
+> YEs, let's come up with a FAST mode where we use claude-haiku-4-5 and meta-llama/Llama-3.3-70B-Instruct-Turbo, 2 max_rounds_per_phase, and turn off slow extras
+
+**Action:** Created `configs/fast.yaml` — a self-contained fast-iteration config. Models: `claude-haiku-4-5` for the core science roles (theorist/experimentalist/analyst/synthesizer/writer) and `meta-llama/Llama-3.3-70B-Instruct-Turbo` for skeptic/editor + default/utility calls (cross-model diversity, both fast). `max_rounds_per_phase: 2`. Slow extras off: debates, execution sprints, Perplexity citation grounding + seed discovery; review loop trimmed (1 reviewer, 1 revision round, 2 review iterations); smaller tournament. Correctness-kernel + multimodal + LaTeX features left off (default). Relaunched the dev instance with `PARADIGM_CONFIG=configs/fast.yaml`.
+
+---
+
+### Prompt 83 — Brainstorm: responsiveness & richer intermediate progress
+
+> In general the platform is very unresponsive. It would be helpful for it to be more responsive and provide more intermediate milestones about the progress, or at least provide more information about what's going on. This would be important for a number of reasons. First as an educational tool: user will learn something as it looks at the research progress and intermediate steps. It also exposes more the trajectory, allowing to make more interventions if needed. Moreover it will make the platform more interactive and fun to use. Can we brainstorm a bit about this and come up with an improvement plan?
+
+**Action:** Brainstorm + improvement plan (no code yet). Grounded the discussion by auditing the progress pipeline (orchestrator → DisplayManager → WebSocketDisplayAdapter → WS → frontend) and whether agent calls stream.
+
+---
+
+## 2026-06-05
+
+### Prompt 84 — Testing: "a bunch of 'search failed' messages"
+
+> Sounds good — pausing here so you can test. [...] I am testing and seeing a bunch of 'search failed' messages
+
+**Diagnosis (from `data/events.jsonl` + live `curl`):** The live cycle's failures are **arXiv IP rate-limiting (`429 "Rate exceeded"`) + `ReadTimeout`**, surfaced to the GUI as red `Search failed:` / `Read failed:` / `Follow failed:` / `Cited-by failed:` events. A fresh single `curl` to `export.arxiv.org` returns 429 immediately → the machine has tripped arXiv's persistent IP throttle. Contributing root causes: (1) **two+ independent `ArxivClient` instances** (one in `provider_factory.py`, one in `corpus.py`) each with its own 3s rate-limit clock → effective rate > 1 req / 3s; (2) `ReadTimeout` / transient network errors are **never retried**; (3) 429 backoff ignores the `Retry-After` header; (4) expected, recoverable external-source failures render as loud red `error` events instead of a calm, deduped notice. (The `system_prompt` TypeErrors + `SourceResult` ValidationErrors in older threads are stale, not from this cycle.)
+
+**Fix (branch `responsive-live-progress`) — user chose "Robust + calm UI":**
+- **`literature/arxiv.py`** — root-cause robustness: a **process-global rate limiter** (`_arxiv_rate_gate()` + module-level last-request clock) so *all* `ArxivClient` instances (corpus + provider factory) share ONE cadence instead of each pacing itself (the double-client bug that tripped the 429). `_rate_limited_get` now **retries transient errors** (timeouts, connect/protocol drops) with jittered backoff and **honors `Retry-After`** on 429 (capped 60s). Base URL switched `http`→`https` to drop the 301 redirect round-trip.
+- **`orchestrator/literature.py`** — `_is_transient_source_error()` classifier + `_handle_source_failure()`: best-effort source failures (rate-limit/timeout) now log to the structured stream for forensics but surface **ONE calm, deduped notice per source per cycle** (`degraded_sources`) instead of a red error per request; genuine/unexpected errors still surface loudly. Wired into all 5 search/read/follow/cited_by except blocks.
+- **Display (`manager.py` / `fallback.py` / `ws_display.py`)** — new `source_degraded(source)` rendering a calm `warning`-level "{source} rate-limited — using cached corpus + other sources" (replaces the red `error` spam).
+- **Tests:** +25 (`test_arxiv_resilience.py`, `test_literature_degradation.py`) covering 429/transient retry, Retry-After (+cap), global-gate sharing, classifier, dedup, reset, display parity. **Full suite 1441 passed**, ruff clean. Live timing test: 6 requests across two independent clients paced at exactly 0.5s globally (was interleaved before).
+- **Note:** arXiv was still IP-throttling this machine at fix time (fresh `curl` → 429 then 12s timeout) — a persistent server-side penalty that clears on its own. The fix makes the platform *resilient + quiet* under it, not immune; changes are live via uvicorn `--reload` on the fast.yaml instance.
+
+---
+
+### Prompt 85 — Thorough platform audit + refactor + bug-fix pass
+
+> I want you to do a very thorough audit of the platform. Take all the time you need. Once you have done with that, proceed with any necessary/useful refactoring, and fix any bugs or issues you have identified. Stop only when you think the platform is in great shape from a development perspective, since there's a lot of development ahead and I want things to be ready.
+
+**Plan:** Multi-dimensional audit (architecture, correctness/bugs, async/concurrency, error handling, provider interfaces, data models, tests, backend API, dead code, type safety) using parallel read-only subagents, then synthesize → prioritize → refactor + fix → verify (full suite + ruff). Investigate the real runtime error signatures seen during Prompt 84 (e.g. `OpenAICompatibleProvider.complete() got unexpected kwarg 'system_prompt'` ×182, `ResearchState has no attribute 'current_phase'`, `SourceResult.id` ValidationError ×94).
+
+**Audit method:** 4 parallel read-only subagents (orchestrator core; agents/providers/literature; backend API + frontend; storage/logging/sandbox/config/tests). Findings synthesized + each verified against the code before fixing.
+
+**Verdict on historical runtime errors (all STALE / already-fixed — confirmed):** `OpenAICompatibleProvider.complete() ... 'system_prompt'` (fixed by multi-provider abstraction; all callers use `system=`), `SourceResult.id` ValidationError (fixed by the `_ensure_id` validator), `ResearchState.current_phase` (fixed: stream sink now reads `phase_manager.current_phase`).
+
+**Bugs fixed (live):**
+1. **`literature/novelty.py`** called `provider.generate()` — which `LLMProvider` doesn't have → `AttributeError` every call, swallowed → the Semantic-Scholar novelty check was a **silent no-op** (always `is_novel=True`). Switched to `await asyncio.to_thread(provider.complete, ...)`, fixed result unpacking; updated 3 tests.
+2. **`agents/providers.py`** — `AnthropicProvider.complete()/complete_streaming()` silently **dropped `extra_body`** (per-role overrides, e.g. extended thinking). Now forwarded, mirroring the OpenAI path. +2 tests.
+3. **Security:** `configs/default.yaml` + `fast.yaml` set sandbox `network_mode: "bridge"`, overriding the safe `"none"` default → agent code ran **with network** and the safety scanner's network guard was disabled (SPEC `--network=none` violation). Set both to `"none"`.
+4. **`ws_display._broadcast_state`** omitted `completed_phases` → the frontend phase tracker was **wiped on every event** in the real engine path. Now echoes `state.completed_phases`.
+5. **Resource leaks:** generic `SourceProvider.close()` added (closes httpx `aclose()` / wrapped `close()`); `Corpus.close()` now tears down all providers; `session_manager._run_cycle` closes the corpus in `finally` (was leaking a connection pool per cycle); `verification.py` re-execution executor now cleaned up in `finally` (Docker container leak); `cleanup_session()` added + wired into the delete-cycle route (frees state + drops the per-cycle ChromaDB collection). +4 tests.
+6. **WS robustness:** malformed client messages now reply with an error frame instead of tearing down the socket; `_fire_and_forget` tracks tasks + logs failures (no more lost/unretrieved broadcasts); frontend stops the reconnect storm on terminal close codes (1000/4001/4004).
+7. **Noise/robustness:** convergence-check now brace-extracts JSON from prose and logs unparsed replies as `STATE_CHANGE` not `ERROR` (the ~21× `JSONDecodeError`-shaped ERROR source); `engine.py` convergence `except` now logs instead of silent `pass`.
+8. **Config/DB hardening:** `checkpoint_interval`/`max_rounds_per_phase` now `Field(gt=0)` (the div-by-zero guard); SQLite opens with `journal_mode=WAL` + `busy_timeout=5000` (concurrent-session safety).
+
+**Verification:** full suite **1447 passed** (+6 net new tests), `ruff check src/ backend/ tests/` clean, frontend `tsc -b` + `npm run build` green.
+
+**Deferred (documented for focused follow-ups — higher-risk refactors / lower-value cleanups, not done to avoid destabilizing):** extract `engine.py` (2082 lines) into `artifacts.py` + `prompt_builder.py` + a shared fence-tolerant `_json_llm_call`; per-session SQLite connections + wrap the 32 sync DB writes in `to_thread`; **real pause/resume** (currently cosmetic — the engine never consults session status; tie into Phase C GUI intervention); `extra="forbid"` on config models (blocked on `finance.yaml`'s top-level `mode` key); `executions/` dir TTL pruning (disk growth); dead code (`reflection_model`, the unused `events` table + indices, `safety._get_call_name`, `ExecutionResult.started_at`); `datetime.utcnow()` → `datetime.now(UTC)`; rename `literature/providers.py` to avoid the collision with `agents/providers.py`.
+
+---
+
+### Prompt 86 — Commit
+
+> commit
+
+**Action:** Commit the uncommitted work on `responsive-live-progress` as logical commits (Prompt 84 arXiv resilience; Prompt 85 audit fixes/hardening), excluding scratch artifacts (PROMPT-*.md, data_validate/, paper-*.pdf).

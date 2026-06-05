@@ -102,9 +102,9 @@ class StorageConfig(BaseModel):
 class OrchestratorConfig(BaseModel):
     """Configuration for orchestrator behavior."""
 
-    max_rounds_per_phase: int = 10
+    max_rounds_per_phase: int = Field(default=10, gt=0)
     enable_checkpointing: bool = True
-    checkpoint_interval: int = 5  # rounds
+    checkpoint_interval: int = Field(default=5, gt=0)  # rounds (must be >0: used in modulo)
     enable_writing: bool = True
     max_review_iterations: int = 5
     enable_peer_review: bool = True

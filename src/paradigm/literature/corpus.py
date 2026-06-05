@@ -724,9 +724,17 @@ class Corpus:
             return None
 
     async def close(self) -> None:
-        """Close the arXiv and Semantic Scholar clients."""
+        """Close the arXiv/Semantic Scholar clients and all source providers."""
         await self._arxiv.close()
         await self._s2.close()
+        # Source providers hold their own network clients (httpx pools / wrapped
+        # API clients) that would otherwise leak a connection pool per cycle.
+        for provider in (self._providers or {}).values():
+            try:
+                await provider.close()
+            except Exception as e:  # best-effort teardown; never block shutdown
+                if self._logger:
+                    self._logger.log_error(e, metadata_key="provider_close")
 
     async def __aenter__(self) -> Corpus:
         """Context manager entry."""

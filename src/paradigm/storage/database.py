@@ -31,6 +31,15 @@ class Database:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        # The backend shares one connection across concurrent async sessions.
+        # WAL allows concurrent readers alongside a writer, and busy_timeout makes
+        # a contended write wait (up to 5s) instead of immediately raising
+        # "database is locked". Harmless for the single-threaded CLI path.
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA busy_timeout=5000")
+        except sqlite3.Error:  # e.g. :memory: or a filesystem that can't WAL
+            pass
         self._create_schema()
 
     @staticmethod

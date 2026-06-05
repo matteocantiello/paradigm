@@ -95,13 +95,18 @@ class AnthropicProvider:
         temperature: float = 0.7,
         extra_body: dict[str, Any] | None = None,
     ) -> tuple[str, int, int]:
-        response = self._client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system,
-            messages=messages,
-        )
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "system": system,
+            "messages": messages,
+        }
+        if extra_body:
+            # Per-role overrides (e.g. extended thinking) from config — forward
+            # them as request body params, matching the OpenAI-compatible path.
+            kwargs["extra_body"] = extra_body
+        response = self._client.messages.create(**kwargs)
         content = ""
         for block in response.content:
             if hasattr(block, "text"):
@@ -137,13 +142,16 @@ class AnthropicProvider:
         temperature: float = 0.7,
         extra_body: dict[str, Any] | None = None,
     ) -> Iterator[tuple[str, int, int]]:
-        with self._client.messages.stream(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system,
-            messages=messages,
-        ) as stream:
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "system": system,
+            "messages": messages,
+        }
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        with self._client.messages.stream(**kwargs) as stream:
             for text in stream.text_stream:
                 yield text, 0, 0
             final = stream.get_final_message()

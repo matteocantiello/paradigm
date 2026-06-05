@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 from paradigm.config import LiteratureConfig, StorageConfig
 from paradigm.domains.base import (
     SourceDocument,
+    SourceProvider,
     SourceProviderConfig,
     SourceResult,
     arxiv_paper_to_source_result,
@@ -474,3 +476,52 @@ class TestCreateSourceProviders:
     def test_empty_config_returns_empty(self, lit_config, storage_config, db):
         providers = create_source_providers([], lit_config, storage_config, db)
         assert providers == {}
+
+
+# ---------------------------------------------------------------------------
+# SourceProvider.close() — generic network-client teardown (leak fix)
+# ---------------------------------------------------------------------------
+
+
+class _AcloseProvider(SourceProvider):
+    """Provider holding an httpx-style client (aclose())."""
+
+    name = "acloser"
+
+    def __init__(self, client):
+        self._client = client
+
+    async def search(self, query, max_results=10):
+        return []
+
+    async def fetch(self, source_id):
+        return None
+
+
+class _NoClientProvider(SourceProvider):
+    name = "noclient"
+
+    async def search(self, query, max_results=10):
+        return []
+
+    async def fetch(self, source_id):
+        return None
+
+
+class TestSourceProviderClose:
+    async def test_close_calls_aclose_on_httpx_client(self):
+        client = SimpleNamespace(aclose=AsyncMock())
+        await _AcloseProvider(client).close()
+        client.aclose.assert_awaited_once()
+
+    async def test_close_calls_close_on_wrapped_client(self):
+        client = SimpleNamespace(close=AsyncMock())  # no aclose -> falls back to close()
+        await _AcloseProvider(client).close()
+        client.close.assert_awaited_once()
+
+    async def test_close_noop_when_client_none(self):
+        # Must not raise when _client is None (e.g. GoogleScholar with no key).
+        await _AcloseProvider(None).close()
+
+    async def test_close_noop_when_no_client_attr(self):
+        await _NoClientProvider().close()

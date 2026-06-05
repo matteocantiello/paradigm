@@ -778,8 +778,10 @@ class OrchestrationEngine:
                         if consensus:
                             self.state.consensus_summary += consensus + "\n\n"
                         break
-                except Exception:
-                    pass  # Non-fatal — continue with remaining rounds
+                except Exception as e:
+                    # Non-fatal — continue with remaining rounds, but record it
+                    # so a systematically broken convergence check is visible.
+                    self._logger.log_error(e, thread_id=self.state.thread_id)
 
             # Checkpoint at intervals
             should_checkpoint = (
@@ -1593,16 +1595,31 @@ class OrchestrationEngine:
             cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
             cleaned = re.sub(r"\s*```$", "", cleaned)
 
+        result = None
         try:
             result = json.loads(cleaned)
         except json.JSONDecodeError:
+            # Weaker open-weight models often wrap the JSON in prose — fall back
+            # to extracting the first {...} object before giving up.
+            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if match:
+                try:
+                    result = json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    result = None
+
+        if not isinstance(result, dict):
+            # Not an ERROR: a non-JSON reply just means "not converged, keep
+            # going". Log as a STATE_CHANGE so it stays visible without polluting
+            # the error stream.
             self._logger.log(
-                EventType.ERROR,
+                EventType.STATE_CHANGE,
                 content={
-                    "event": "convergence_check_parse_error",
+                    "event": "convergence_check_unparsed",
                     "phase": str(phase),
                     "round": round_num,
                     "raw_response": cleaned[:500],
+                    "interpretation": "Convergence reply was not valid JSON — treating as not converged.",
                 },
                 thread_id=self.state.thread_id,
                 phase=str(phase),

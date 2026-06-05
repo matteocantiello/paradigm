@@ -5,6 +5,7 @@ Verifies idea originality before committing to a full research cycle.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -63,14 +64,17 @@ async def check_novelty_semantic_scholar(
     )
 
     try:
-        response = await provider.generate(
-            messages=[{"role": "user", "content": extract_prompt}],
+        # provider.complete is a blocking SDK call — offload off the event loop.
+        text, _in, _out = await asyncio.to_thread(
+            provider.complete,
             model=model,
+            system="",
+            messages=[{"role": "user", "content": extract_prompt}],
             max_tokens=500,
         )
         queries = [
             q.strip().lstrip("- ").lstrip("0123456789.)")
-            for q in response.content.strip().split("\n")
+            for q in text.strip().split("\n")
             if q.strip() and len(q.strip()) > 5
         ]
     except Exception as e:
@@ -124,12 +128,14 @@ async def check_novelty_semantic_scholar(
     )
 
     try:
-        response = await provider.generate(
-            messages=[{"role": "user", "content": assess_prompt}],
+        raw, _in, _out = await asyncio.to_thread(
+            provider.complete,
             model=model,
+            system="",
+            messages=[{"role": "user", "content": assess_prompt}],
             max_tokens=300,
         )
-        text = response.content.strip()
+        text = raw.strip()
 
         is_novel = "NOVEL: yes" in text.lower() or "novel: yes" in text.lower()
         confidence = 0.5

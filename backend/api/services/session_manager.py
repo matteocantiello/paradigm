@@ -134,6 +134,7 @@ class SessionManager:
             await run_demo_cycle(session_id, self)
             return
 
+        corpus = None
         try:
             # Import here to avoid startup dependency
             # Create the WebSocket display adapter
@@ -217,6 +218,19 @@ class SessionManager:
                     recoverable=False,
                 ),
             )
+
+        finally:
+            # Always release the cycle's network clients (httpx pools, wrapped
+            # API clients) — otherwise each cycle leaks a connection pool.
+            if corpus is not None:
+                try:
+                    await corpus.close()
+                except Exception:
+                    logger.exception("Failed to close corpus for session %s", session_id)
+            # Drop the per-cycle metadata (only read once at cycle start). The
+            # SessionState, start time, and knowledge snapshot are kept for
+            # post-run status queries / reconnecting viewers.
+            self._cycle_metadata.pop(session_id, None)
 
     def _make_intervention_hook(self, session_id: str):
         """Create a synchronous intervention hook that bridges to async WS approval.
@@ -316,6 +330,40 @@ class SessionManager:
         if state is not None:
             state.status = SessionStatus.ABORTED
             state.updated_at = datetime.now(timezone.utc)
+
+    async def cleanup_session(self, session_id: str) -> None:
+        """Fully evict a session's state and drop its per-cycle vector collection.
+
+        Called when a research cycle is explicitly deleted. Frees the
+        SessionState, message buffer, knowledge snapshot, timing/metadata, WS
+        bookkeeping, and the cycle-isolated ChromaDB collection. Best-effort —
+        never raises.
+        """
+        task = self._tasks.pop(session_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+        for store in (
+            self._sessions,
+            self._message_buffers,
+            self._knowledge_snapshots,
+            self._session_start_times,
+            self._cycle_metadata,
+            self._ws_connections,
+        ):
+            store.pop(session_id, None)
+
+        # Drop the cycle-isolated ChromaDB collection (never reused across cycles).
+        if self._config is not None:
+            try:
+                import chromadb
+
+                client = chromadb.PersistentClient(
+                    path=str(self._config.storage.vector_db_path)
+                )
+                client.delete_collection(f"paradigm_papers_{session_id}")
+            except Exception:  # collection may not exist / chroma unavailable
+                logger.debug("No vector collection to drop for session %s", session_id)
 
     async def shutdown(self) -> None:
         """Cancel all running sessions (called during app shutdown)."""
