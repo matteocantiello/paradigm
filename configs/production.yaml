@@ -1,0 +1,130 @@
+# Paradigm PRODUCTION (web) Configuration
+#
+# Profile for the shared web deployment (small trusted group, public HTTPS behind
+# a shared password). Built on the interactive profile (fast Haiku + Llama models,
+# token streaming) but tuned for UNATTENDED remote runs:
+#   - orchestrator.human_gate_mode: "off"  -> no blocking phase gates (collaborators
+#     won't be there to approve each transition); steer live via the interaction
+#     bar (Pause / Abort / typed guidance). Set "blocking" if you want gated runs.
+#   - sandbox: hardening fields made explicit (network=none + cap_drop + pids_limit
+#     + no-new-privileges). Code execution stays ENABLED — see the note below.
+#
+# Use it:
+#   PARADIGM_CONFIG=configs/production.yaml  (set in the systemd unit / .env)
+# Secrets come from the environment: ANTHROPIC_API_KEY, TOGETHER_API_KEY.
+# Concurrency is bounded by PARADIGM_MAX_CONCURRENT_SESSIONS (default 4).
+
+providers:
+  anthropic:
+    type: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+    default_model: claude-haiku-4-5
+  together:
+    type: openai_compatible
+    api_key_env: TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+
+agent:
+  default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+  opus_model: "claude-haiku-4-5"
+  max_tokens: 8192
+  temperature: 1.0
+  token_budget_per_thread: 1000000
+  token_budget_per_agent: 100000
+  default_provider: together
+  overrides:
+    theorist: { provider: anthropic, model: claude-haiku-4-5 }
+    experimentalist: { provider: anthropic, model: claude-haiku-4-5 }
+    analyst: { provider: anthropic, model: claude-haiku-4-5 }
+    synthesizer: { provider: anthropic, model: claude-haiku-4-5 }
+    writer: { provider: anthropic, model: claude-haiku-4-5, max_tokens: 16384 }
+    skeptic: { provider: together, model: meta-llama/Llama-3.3-70B-Instruct-Turbo }
+    editor: { provider: together, model: meta-llama/Llama-3.3-70B-Instruct-Turbo }
+
+# Code execution sandbox.
+# NOTE: experiments run real code here. It's network-isolated (network=none) and
+# hardened (cap_drop + no-new-privileges + pids/cpu/mem/timeout caps), which is
+# strong for a TRUSTED group — but it is not a hard multi-tenant boundary. To
+# disable code execution entirely, set orchestrator.enable_experimentation: false.
+sandbox:
+  enabled: true
+  image_name: "paradigm-sandbox:latest"
+  network_mode: "none"
+  cpu_limit: 2.0
+  memory_limit: "2g"
+  execution_timeout: 300
+  max_output_size: 10485760
+  pids_limit: 256
+  drop_capabilities: true
+  no_new_privileges: true
+  read_only_rootfs: false
+
+literature:
+  arxiv_rate_limit: 3.0
+  max_results_per_search: 30
+  enable_pdf_fetch: true
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  follow_budget_per_round: 1
+  cited_by_budget_per_round: 1
+  read_budget_per_round: 3
+  max_read_chars: 8000
+  max_citation_results: 10
+  max_reference_results: 20
+  mcp:
+    enabled: true  # alphaXiv via cached OAuth token (copy ~/.paradigm/mcp/ to the VM)
+
+storage:
+  data_dir: "./data"  # overridden by PARADIGM_DATA_DIR -> a persistent, backed-up volume
+
+display:
+  stream_tokens: true
+  stream_chunk_min_chars: 12
+
+orchestrator:
+  max_rounds_per_phase: 2
+  enable_checkpointing: true
+  checkpoint_interval: 5
+  enable_writing: true
+  max_review_iterations: 2
+  enable_peer_review: true
+  num_reviewers: 1
+  max_revision_rounds: 1
+  enable_experimentation: true   # set false to disable all code execution
+  max_searches_per_round: 3
+  enable_debates: false
+  enable_execution_sprints: false
+  enable_verification: false
+  # Unattended remote runs: no blocking gates. Steer via the interaction bar.
+  human_gate_mode: "off"
+  human_gate_points: []
+
+skills:
+  skills_dir: "vendor/claude-scientific-skills/scientific-skills"
+  default_mode: "default"
+  max_skill_chars: null
+
+memory:
+  enabled: true
+  max_memories_per_prompt: 5
+  recency_half_life_days: 30.0
+  collection_name: "agent_memories"
+  max_memory_chars: 2000
+
+knowledge:
+  enable_world_model: true
+  world_model_max_context_chars: 3000
+  enable_evidence_graph: true
+  enable_hypothesis_tournament: true
+  tournament_population_size: 4
+  tournament_winners: 1
+  enable_preregistration: false
+
+journal:
+  enable_latex_output: false
+  compile_pdf: false
+
+citation:
+  enable_citation_grounding: false
+  enable_novelty_check: false
+  enable_seed_discovery: false

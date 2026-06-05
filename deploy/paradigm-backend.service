@@ -1,0 +1,35 @@
+# systemd unit for the Paradigm backend (FastAPI/uvicorn).
+#
+# Install: copy to /etc/systemd/system/paradigm-backend.service, then
+#   sudo systemctl daemon-reload && sudo systemctl enable --now paradigm-backend
+#
+# IMPORTANT:
+#   - SINGLE process (no --workers): sessions live in memory; multiple workers
+#     would each hold a separate, inconsistent session set.
+#   - The service user must be in the `docker` group (the code sandbox spawns
+#     containers via the host Docker). Running the backend ON the host (not in a
+#     container) avoids the sibling-container bind-mount path mismatch.
+#   - Adjust ExecStart for your environment (venv shown; for conda use:
+#     /opt/miniconda/bin/conda run --no-capture-output -n paradigm uvicorn ...).
+
+[Unit]
+Description=Paradigm backend (FastAPI/uvicorn)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=paradigm
+Group=paradigm
+WorkingDirectory=/opt/paradigm
+EnvironmentFile=/opt/paradigm/deploy/.env.production
+ExecStart=/opt/paradigm/.venv/bin/uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+# Light hardening for the service itself (the sandbox has its own).
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

@@ -38,6 +38,11 @@ class FakeManager:
         self.started: list[str] = []
         self._n = 0
 
+    def at_capacity(self):
+        return False
+
+    max_concurrent_sessions = 4
+
     async def create_session(self, cycle_id, seed_prompt, mode, team_roles):
         self._n += 1
         return SimpleNamespace(

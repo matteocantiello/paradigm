@@ -1,0 +1,37 @@
+# Caddy reverse proxy for the Paradigm web deployment.
+#
+# Provides, for a single VM:
+#   - automatic HTTPS (Let's Encrypt)
+#   - a shared-password gate over the whole site (incl. /api + WebSockets)
+#   - serving the built frontend (SPA) with client-side routing
+#   - proxying /api/* (and the WS upgrade) to the on-host backend
+#
+# Replace paradigm.example.com with your domain, generate password hashes with
+#   caddy hash-password
+# and point /opt/paradigm at your checkout. Then: `caddy run --config Caddyfile`
+# or run Caddy as a service. WebSocket upgrades are handled transparently.
+
+paradigm.example.com {
+	encode gzip zstd
+
+	# Shared-password gate. One credential per collaborator (revocable). The
+	# browser sends these for same-origin XHR + WebSockets after one prompt.
+	# basic_auth (Caddy v2.8+); older Caddy uses `basicauth`.
+	basic_auth {
+		# username  bcrypt-hash (from: caddy hash-password)
+		alice $2a$14$REPLACE_WITH_HASH
+	}
+
+	# API + WebSockets -> backend (Caddy upgrades WS automatically).
+	@api path /api/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	# Built SPA with client-side routing fallback.
+	handle {
+		root * /opt/paradigm/frontend/dist
+		try_files {path} /index.html
+		file_server
+	}
+}

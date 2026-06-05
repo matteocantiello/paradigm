@@ -158,6 +158,11 @@ async def resume_research_cycle(
         raise HTTPException(status_code=404, detail="Research cycle not found")
 
     manager = request.app.state.session_manager
+    if manager.at_capacity():
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"At capacity ({manager.max_concurrent_sessions} concurrent runs). Try again shortly.",
+        )
     database = getattr(request.app.state, "database", None)
     comment = (body.comment if body else None) or ""
     note = _build_continuation_note(database, prior, comment)

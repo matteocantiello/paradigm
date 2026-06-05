@@ -36,6 +36,11 @@ async def start_session(
         raise HTTPException(status_code=404, detail="Research cycle not found")
 
     manager = request.app.state.session_manager
+    if manager.at_capacity():
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"At capacity ({manager.max_concurrent_sessions} concurrent runs). Try again shortly.",
+        )
 
     # Create and start the session
     state = await manager.create_session(

@@ -3882,3 +3882,21 @@ Platform already running (no restart). Checking auth + interactive gate config t
 Investigating read-only: backend.log tail + recent events for errors/tracebacks after a run start.
 
 **Diagnosis + fix — empty team = zero agents.** The new run (cycle-87df0bcf, seed = an LRD review prompt) finished in 3.6s with 0 tokens because it ran with `team_roles: []` → `create_team([])` → ZERO agents → every phase produced nothing → writing died with ValueError "insufficient content (0 chars < 10000)". Two bugs: (1) engine `run_research_cycle` only defaulted the team on `team_roles is None`, so an empty list bypassed the fallback — fixed to `if not team_roles:` (empty OR None → default/profile roles). (2) SetupWizard sent `[]` when ALL roles were deselected (`roles.length === ALL_ROLES.length ? null : roles`) — fixed to also send null when `roles.length === 0`. +2 regression tests (team=[] and None → non-empty team). Full suite 1499; ruff + tsc clean.
+
+---
+
+### Prompt 108 — plan: make the platform accessible from the web
+
+> Before we do that, I would like to make a plan on how to make the platform accessible from the web
+
+Planning task (no code yet). Taking stock of deployment-relevant state (CORS, auth, frontend serving, Docker, secrets, sandbox), then clarifying audience/scale + security + hosting to produce a phased deployment plan.
+
+---
+
+### Prompt 109 — "let's go" (begin Phase 1 of web deployment)
+
+> let's go
+
+Wrote the plan to .planning/WEB-DEPLOYMENT.md. Starting Phase 1 (make-it-deployable) with the recommended defaults: single VM + Caddy + on-host systemd backend; production.yaml with non-blocking gates + experiments enabled (hardened sandbox); host/domain left as deploy-time placeholders. Phase-1 code: max_concurrent_sessions cap + sandbox hardening (pids_limit/cap_drop), plus Caddyfile, systemd unit, .env template, production.yaml, deploy runbook.
+
+**Outcome — Phase 1 (make-it-deployable) done.** Code: (1) concurrency cap — `SessionManager.max_concurrent_sessions` + `at_capacity()`/`active_session_count()`; both run entry points (start_session route + resume endpoint) return HTTP 429 when full; overridable via `PARADIGM_MAX_CONCURRENT_SESSIONS` (wired in main.py lifespan). (2) sandbox hardening — `SandboxConfig` gains `pids_limit`/`drop_capabilities`/`no_new_privileges`/`read_only_rootfs`, applied in `sandbox/docker.py` create (cap_drop=ALL, no-new-privileges, pids_limit). Ops artifacts: `configs/production.yaml` (non-blocking gates, streaming, mcp on, experiments-on-hardened + disable toggle), `deploy/Caddyfile` (auto-TLS + basic_auth + serve dist + proxy /api/WS), `deploy/paradigm-backend.service` (single-proc systemd, on-host to avoid the sandbox sibling-container path gotcha), `deploy/.env.production.example`, `deploy/DEPLOY.md` runbook, `.gitignore` (.env.production + .paradigm/). +3 guardrail tests; full suite 1502; ruff + tsc clean. Frontend served same-origin → no API/WS URL env needed. Phases 2 (provision/deploy) + 3 (operate) are in DEPLOY.md, executed on the VM.

@@ -85,6 +85,13 @@ async def lifespan(app: FastAPI):
         database=database,
         event_logger=event_logger,
     )
+    # Bound concurrent runs on shared/web deployments (CPU/RAM + token cost).
+    _max_sessions = os.getenv("PARADIGM_MAX_CONCURRENT_SESSIONS")
+    if _max_sessions:
+        try:
+            session_manager.max_concurrent_sessions = max(1, int(_max_sessions))
+        except ValueError:
+            logger.warning("Invalid PARADIGM_MAX_CONCURRENT_SESSIONS=%r — using default", _max_sessions)
 
     # Durable research-cycle store. Mark any cycle left mid-run by the previous
     # process as interrupted so the research tab shows it as resumable rather

@@ -56,6 +56,12 @@ Thumbs.db
 
 # Environment
 .env
+.env.production
+deploy/.env.production
+# (deploy/.env.production.example IS tracked — it's the template)
+
+# Per-machine runtime state (MCP OAuth tokens, etc.)
+.paradigm/
 
 # Ruff
 .ruff_cache/

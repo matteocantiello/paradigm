@@ -47,6 +47,12 @@ class SandboxConfig(BaseModel):
     memory_limit: str = "2g"
     execution_timeout: int = 300  # seconds
     max_output_size: int = 10_485_760  # 10 MB
+    # Extra isolation for shared/web deployments (safe defaults; the workspace
+    # bind-mount stays writable even with read_only_rootfs).
+    pids_limit: int = 256  # cap process count — fork-bomb guard
+    drop_capabilities: bool = True  # cap_drop=ALL in the sandbox container
+    no_new_privileges: bool = True  # block setuid privilege escalation
+    read_only_rootfs: bool = False  # rootfs read-only (workspace stays rw)
 
 
 class MCPLiteratureConfig(BaseModel):

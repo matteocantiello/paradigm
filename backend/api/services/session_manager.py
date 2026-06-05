@@ -70,6 +70,10 @@ class SessionManager:
         # Durable cycle store, injected at app startup (None in unit tests / when
         # core is unavailable). Used to persist the terminal cycle status.
         self.cycle_store: Any | None = None
+        # Cap on simultaneously-running cycles — each run + its sandbox competes
+        # for CPU/RAM and spends tokens, so a shared/web deployment must bound it.
+        # Overridable via PARADIGM_MAX_CONCURRENT_SESSIONS at startup.
+        self.max_concurrent_sessions: int = 4
         self._message_buffer_size = 200
 
     # ------------------------------------------------------------------
@@ -106,6 +110,18 @@ class SessionManager:
         }
 
         return state
+
+    def active_session_count(self) -> int:
+        """Number of sessions currently starting or running."""
+        return sum(
+            1
+            for s in self._sessions.values()
+            if s.status in (SessionStatus.STARTING, SessionStatus.RUNNING)
+        )
+
+    def at_capacity(self) -> bool:
+        """True when no more concurrent runs should be started right now."""
+        return self.active_session_count() >= self.max_concurrent_sessions
 
     async def start_session(self, session_id: str) -> None:
         """Launch the research cycle as a background task."""
