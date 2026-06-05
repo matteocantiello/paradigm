@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from backend.api.models.messages import (
+    AgentOutputStreamMsg,
     ApprovalRequestMsg,
     ErrorMsg,
     KnowledgeUpdateMsg,
@@ -410,9 +411,13 @@ class SessionManager:
         dead: list[WebSocket] = []
         data = msg.model_dump_json()
 
-        # Buffer for replay on reconnect
+        # Buffer for replay on reconnect — but NOT mid-stream token chunks, which
+        # would flood the bounded deque (evicting phase/knowledge history) and
+        # replay a half-typed bubble. Only the final (full-content) stream
+        # message is buffered; live chunks stay ephemeral.
+        is_stream_chunk = isinstance(msg, AgentOutputStreamMsg) and not msg.is_final
         buf = self._message_buffers.get(session_id)
-        if buf is not None:
+        if buf is not None and not is_stream_chunk:
             buf.append(data)
 
         for ws in conns:

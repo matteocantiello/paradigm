@@ -51,6 +51,28 @@ class WebSocketDisplayAdapter:
         # Live literature accumulator
         self._search_log: list[LiteratureSearchMsg] = []
         self._unique_papers: dict[str, LiteraturePaperMsg] = {}  # keyed by arxiv_id
+        # Capture the running loop so token-stream chunks (which arrive from a
+        # worker thread via asyncio.to_thread) can be scheduled back safely.
+        try:
+            self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
+    def _schedule(self, coro: Any) -> None:
+        """Schedule a broadcast coroutine on the captured loop, thread-safely.
+
+        Works whether called from the loop thread or a worker thread (unlike
+        ``_fire_and_forget``, which silently drops when no loop is running in
+        the *current* thread).
+        """
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            _fire_and_forget(coro)  # best effort if we never captured a loop
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError:
+            pass
 
     def _notify(
         self,
@@ -198,6 +220,42 @@ class WebSocketDisplayAdapter:
     # Agent activity
     # ------------------------------------------------------------------
 
+    def agent_stream_start(
+        self, agent_id: str, stream_id: str, *, role: str = "", phase: str = ""
+    ) -> None:
+        """A turn began — open an (empty) live bubble so the UI shows 'thinking'."""
+        self._schedule(
+            self._manager.broadcast_message(
+                self._session_id,
+                AgentOutputStreamMsg(
+                    agent_id=agent_id,
+                    role=role,
+                    content="",
+                    phase=phase,
+                    stream_id=stream_id,
+                    is_final=False,
+                ),
+            )
+        )
+
+    def agent_stream_chunk(
+        self, agent_id: str, stream_id: str, chunk: str, *, role: str = "", phase: str = ""
+    ) -> None:
+        """A token delta — append to the live bubble keyed by stream_id."""
+        self._schedule(
+            self._manager.broadcast_message(
+                self._session_id,
+                AgentOutputStreamMsg(
+                    agent_id=agent_id,
+                    role=role,
+                    content=chunk,
+                    phase=phase,
+                    stream_id=stream_id,
+                    is_final=False,
+                ),
+            )
+        )
+
     def agent_response(
         self,
         agent_id: str,
@@ -206,6 +264,7 @@ class WebSocketDisplayAdapter:
         role: str = "",
         model: str = "",
         content: str = "",
+        stream_id: str = "",
     ) -> None:
         state = self._manager.get_state(self._session_id)
         if state is not None:
@@ -216,15 +275,19 @@ class WebSocketDisplayAdapter:
                 self._session_id, total_tokens=new_total, active_agents=active
             )
 
-        _fire_and_forget(
+        # Final message carries the FULL content (no truncation) + stream_id so
+        # the client finalizes the accumulated bubble (or reconstructs it on
+        # reconnect, since only finals are buffered for replay).
+        self._schedule(
             self._manager.broadcast_message(
                 self._session_id,
                 AgentOutputStreamMsg(
                     agent_id=agent_id,
                     role=role,
-                    content=content[:500] if content else "",
+                    content=content or "",
                     tokens=total_tokens,
                     model=model,
+                    stream_id=stream_id,
                     is_final=True,
                 ),
             )

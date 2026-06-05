@@ -228,6 +228,15 @@ class OrchestrationEngine:
         agents = self._factory.create_team(team_roles, skill_mode="default")
         self.state.agents = {a.agent_id: a for a in agents}
 
+        # Live token streaming (opt-in): wire each agent's stream side-channel to
+        # the display so the GUI animates output token-by-token. No-op for the CLI.
+        if self._config.display.stream_tokens:
+            _min_chars = self._config.display.stream_chunk_min_chars
+            for agent in agents:
+                agent.set_stream_sink(
+                    self._make_stream_sink(agent.skill_profile), min_chars=_min_chars
+                )
+
         # Phase 1: SEEDING
         self._display.phase_transition(ResearchPhase.SEEDING)
         self.state.thread_id = await self._run_seeding_phase(seed_prompt, mode)
@@ -863,6 +872,7 @@ class OrchestrationEngine:
                 role=agent.skill_profile,
                 model=response.model,
                 content=response.content,
+                stream_id=getattr(response, "stream_id", ""),
             )
 
             # Log message and token usage
@@ -1646,6 +1656,25 @@ class OrchestrationEngine:
                 return agent
         return None
 
+    def _make_stream_sink(self, role: str):
+        """Build a thread-safe streaming sink for an agent of the given role.
+
+        The agent calls this from a worker thread (generation runs in
+        ``asyncio.to_thread``); the display adapter is responsible for scheduling
+        the actual broadcast back onto the event loop safely.
+        """
+        display = self._display
+
+        def sink(agent_id: str, stream_id: str, chunk: str, event: str, usage: Any) -> None:
+            phase = str(self.state.current_phase) if self.state else ""
+            if event == "start":
+                display.agent_stream_start(agent_id, stream_id, role=role, phase=phase)
+            elif event == "chunk":
+                display.agent_stream_chunk(agent_id, stream_id, chunk, role=role, phase=phase)
+            # "final" is rendered by agent_response() below (carries token totals).
+
+        return sink
+
     def _log_agent_response(
         self,
         agent_id: str,
@@ -1669,6 +1698,7 @@ class OrchestrationEngine:
             role=agent.skill_profile if agent else "",
             model=response.model,
             content=response.content,
+            stream_id=getattr(response, "stream_id", ""),
         )
 
         self._logger.log_agent_message(

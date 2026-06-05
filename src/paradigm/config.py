@@ -224,6 +224,18 @@ class JournalConfig(BaseModel):
     compile_pdf: bool = False  # also build a PDF (requires a LaTeX engine on PATH)
 
 
+class DisplayConfig(BaseModel):
+    """Live-display / responsiveness options (Phase A+). Off by default."""
+
+    # Stream agent tokens live to the GUI (token-by-token bubbles). The CLI/Rich
+    # path is unaffected. Off by default; enable in the interactive profile.
+    stream_tokens: bool = False
+    # Optional coalescing: only flush a chunk once it has at least this many
+    # characters buffered (0 = forward every provider delta). Tames chatty
+    # providers / WebSocket back-pressure.
+    stream_chunk_min_chars: int = 0
+
+
 class ProviderConfigEntry(BaseModel):
     """Configuration for a single LLM provider in the registry."""
 
@@ -246,6 +258,7 @@ class Config(BaseModel):
     citation: CitationConfig = Field(default_factory=CitationConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
+    display: DisplayConfig = Field(default_factory=DisplayConfig)
     domain: str = "science"
     providers: dict[str, ProviderConfigEntry] = Field(default_factory=dict)
     testing_overrides: dict[str, AgentOverrideConfig] = Field(default_factory=dict)

@@ -282,6 +282,7 @@ class DisplayManager:
         role: str = "",
         model: str = "",
         content: str = "",
+        stream_id: str = "",
     ) -> None:
         self._state.total_tokens += total_tokens
         self._state.active_agents[agent_id] = f"{total_tokens} tokens"
@@ -292,6 +293,16 @@ class DisplayManager:
             self._refresh()
         else:
             self._fallback.agent_response(agent_id, total_tokens)
+
+    def agent_stream_start(
+        self, agent_id: str, stream_id: str, *, role: str = "", phase: str = ""
+    ) -> None:
+        """Live-streaming start hook. No-op for the Rich/CLI display."""
+
+    def agent_stream_chunk(
+        self, agent_id: str, stream_id: str, chunk: str, *, role: str = "", phase: str = ""
+    ) -> None:
+        """Live-streaming chunk hook. No-op for the Rich/CLI display."""
 
     def agent_error(self, agent_id: str, error: str | Exception) -> None:
         self._state.add_event("error", f"{agent_id} failed: {error}")

@@ -1,0 +1,211 @@
+# Paradigm FAST Configuration
+#
+# Fast-iteration profile for interactive GUI testing and smoke tests.
+# Optimised for WALL-CLOCK speed, not for cost or maximum quality:
+#   - Fast models only (Haiku-4.5 + Llama-3.3-70B-Turbo). NO big MoE models
+#     (Kimi/DeepSeek-V4/GLM) — those take minutes per call.
+#   - max_rounds_per_phase: 2 (vs. 10 in default.yaml).
+#   - Slow extras OFF: debates, execution sprints, Perplexity citation
+#     grounding + seed discovery; review loop trimmed.
+#
+# Use it by pointing the loader at this file:
+#   PARADIGM_CONFIG=configs/fast.yaml ./dev.sh restart
+#   paradigm run --prompt "..."   (with PARADIGM_CONFIG set)
+#
+# API keys are loaded from .env (ANTHROPIC_API_KEY, TOGETHER_API_KEY).
+
+# LLM provider registry
+providers:
+  anthropic:
+    type: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+    default_model: claude-haiku-4-5
+  together:
+    type: openai_compatible
+    api_key_env: TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+
+# Agent configuration
+#   default (utility calls: checkpoint summaries, etc.) -> fast Llama on Together
+#   core science roles -> Haiku-4.5 (fast + strong)
+#   skeptic/editor -> Llama-3.3-70B-Turbo (fast, and cross-model diversity vs. Haiku)
+agent:
+  default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+  opus_model: "claude-haiku-4-5"
+  max_tokens: 8192
+  temperature: 1.0
+  token_budget_per_thread: 1000000
+  token_budget_per_agent: 100000
+  default_provider: together
+  overrides:
+    theorist:
+      provider: anthropic
+      model: claude-haiku-4-5
+    experimentalist:
+      provider: anthropic
+      model: claude-haiku-4-5
+    analyst:
+      provider: anthropic
+      model: claude-haiku-4-5
+    synthesizer:
+      provider: anthropic
+      model: claude-haiku-4-5
+    writer:
+      provider: anthropic
+      model: claude-haiku-4-5
+      max_tokens: 16384
+    skeptic:
+      provider: together
+      model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+    editor:
+      provider: together
+      model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+
+# Testing-mode toggle keeps FAST mode fast in either GUI mode (same fast models).
+testing_overrides:
+  theorist:
+    provider: anthropic
+    model: claude-haiku-4-5
+  experimentalist:
+    provider: anthropic
+    model: claude-haiku-4-5
+  analyst:
+    provider: anthropic
+    model: claude-haiku-4-5
+  synthesizer:
+    provider: anthropic
+    model: claude-haiku-4-5
+  writer:
+    provider: anthropic
+    model: claude-haiku-4-5
+  skeptic:
+    provider: together
+    model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  editor:
+    provider: together
+    model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+
+# Sandbox configuration (experimentation still runs; not the bottleneck)
+sandbox:
+  enabled: true
+  image_name: "paradigm-sandbox:latest"
+  network_mode: "bridge"
+  cpu_limit: 2.0
+  memory_limit: "2g"
+  execution_timeout: 300
+  max_output_size: 10485760
+
+# Literature search — trimmed budgets for faster rounds
+literature:
+  arxiv_rate_limit: 3.0
+  max_results_per_search: 30
+  enable_pdf_fetch: true
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  follow_budget_per_round: 1
+  cited_by_budget_per_round: 1
+  read_budget_per_round: 3
+  max_read_chars: 8000
+  max_citation_results: 10
+  max_reference_results: 20
+
+# Storage configuration
+storage:
+  data_dir: "./data"
+
+# Live display / responsiveness (Phase A). Stream agent tokens to the GUI so
+# output animates token-by-token instead of appearing all at once at turn end.
+display:
+  stream_tokens: true
+  stream_chunk_min_chars: 0   # 0 = forward every delta; raise to coalesce
+
+# Orchestrator configuration — FAST
+orchestrator:
+  max_rounds_per_phase: 2          # was 10
+  enable_checkpointing: true
+  checkpoint_interval: 5
+  enable_writing: true
+  max_review_iterations: 2         # was 5
+  enable_peer_review: true         # core to the platform — kept on, but lean
+  num_reviewers: 1                 # was 2
+  max_revision_rounds: 1           # was 4
+  enable_experimentation: true
+  max_searches_per_round: 3        # was 5
+  # --- slow extras OFF ---
+  enable_debates: false            # multi-turn debate exchanges
+  max_debate_exchanges: 3
+  max_debates_per_phase: 2
+  enable_execution_sprints: false  # 3 sprints × review roles
+  num_execution_sprints: 3
+  sprint_review_roles:
+    - theorist
+    - analyst
+    - skeptic
+  # --- Correctness kernel (Phase 1) + output quality (Phase 2): all OFF for speed ---
+  enable_verification: false       # re-executes everything — very slow; keep off in fast mode
+  verification_tolerance: 1.0e-6
+  verification_seed: 12345
+  verification_reexec_budget: 20
+  abort_on_verification_failure: true
+  enable_best_first_nodes: false
+  enable_step_restart: false
+  debug_buggy_node_prob: 0.3
+  max_step_restarts_per_experiment: 2
+  human_gate_mode: "off"
+  human_gate_points:
+    - problem_selection
+    - pre_registration
+    - final_verification
+  enable_multimodal_review: false
+  multimodal_review_role: "editor"
+  max_review_figures: 6
+
+# Scientific skills configuration
+skills:
+  skills_dir: "vendor/claude-scientific-skills/scientific-skills"
+  default_mode: "default"
+  max_skill_chars: null
+
+# Agent episodic memory
+memory:
+  enabled: true
+  max_memories_per_prompt: 5
+  recency_half_life_days: 30.0
+  collection_name: "agent_memories"
+  max_memory_chars: 2000
+
+# Knowledge architecture — smaller tournament for speed
+knowledge:
+  enable_world_model: true
+  world_model_max_context_chars: 3000
+  enable_evidence_graph: true
+  enable_hypothesis_tournament: true
+  tournament_population_size: 4    # was 8
+  tournament_winners: 1            # was 2
+  tournament_k_factor: 32.0
+  enable_preregistration: false
+  prereg_require_refutation: true
+  prereg_on_empty: "advisory"
+
+# Paper output formats — markdown only in fast mode
+journal:
+  enable_latex_output: false
+  latex_journal: "none"
+  compile_pdf: false
+
+# Citation grounding and novelty — Perplexity I/O OFF (slow)
+citation:
+  enable_citation_grounding: false  # was true (Perplexity, slow)
+  perplexity_api_key_env: "PERPLEXITY_API_KEY"
+  citation_sections:
+    - "introduction"
+    - "methods"
+  max_retries_per_paragraph: 2
+  perplexity_timeout: 120.0
+  enable_novelty_check: false
+  novelty_mode: "semantic_scholar"
+  futurehouse_api_key_env: "FUTURE_HOUSE_API_KEY"
+  novelty_max_iterations: 5
+  enable_seed_discovery: false      # was true (Perplexity at start, slow)
+  seed_discovery_max_papers: 10
+  drop_unresolved_citations: false
