@@ -3954,3 +3954,11 @@ Consolidating the work branch into main before deployment. Assessing branch/comm
 > I got the Hetzner service and deployed there. How do I get the platform started? Do I need to add something to the crontab?
 
 Answer: no crontab — use systemd (paradigm-backend.service: enable --now = start now + on boot; Restart=always = auto-restart) + Caddy as a service. crontab only useful for the optional nightly data-dir backup. Provided start + verify commands + the common gotchas (docker group, conda-vs-venv ExecStart, .env.production, prereq build steps).
+
+---
+
+### Prompt 116 — Caddy default "congrats" page; make Paradigm serve
+
+> If I go to paradigm.stellarphysics.org there's a caddy congrats page. So the web server is working. Just need to have paradigm work there
+
+Caddy is running on its DEFAULT config (welcome page), not the Paradigm Caddyfile. Need: backend up on :8000 + frontend/dist built, then install the Paradigm Caddyfile (domain paradigm.stellarphysics.org, basic_auth, serve dist, proxy /api) at /etc/caddy/Caddyfile + reload. Provided concrete filled-in Caddyfile + prereq checks + troubleshooting (502=backend down, blank=dist missing).
