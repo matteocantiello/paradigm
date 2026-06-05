@@ -874,6 +874,13 @@ class OrchestrationEngine:
                 content=response.content,
                 stream_id=getattr(response, "stream_id", ""),
             )
+            self._display.agent_step_complete(
+                agent_id,
+                role=agent.skill_profile,
+                summary=" ".join(response.content.split())[:140],
+                phase=str(phase),
+                tokens=total_tokens,
+            )
 
             # Log message and token usage
             self._logger.log_agent_message(
@@ -1692,13 +1699,20 @@ class OrchestrationEngine:
         """
         total_tokens = response.usage.input_tokens + response.usage.output_tokens
         agent = self.state.agents.get(agent_id)
+        role = agent.skill_profile if agent else ""
         self._display.agent_response(
             agent_id,
             total_tokens,
-            role=agent.skill_profile if agent else "",
+            role=role,
             model=response.model,
             content=response.content,
             stream_id=getattr(response, "stream_id", ""),
+        )
+        # Structured step marker for the activity timeline (Phase B). Harmless to
+        # the chat view (final content is rendered by agent_response above).
+        summary = " ".join(response.content.split())[:140]
+        self._display.agent_step_complete(
+            agent_id, role=role, summary=summary, phase=str(phase), tokens=total_tokens
         )
 
         self._logger.log_agent_message(

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from backend.api.models.messages import (
     AgentOutputStreamMsg,
+    AgentStepCompleteMsg,
     KnowledgeUpdateMsg,
     LiteraturePaperMsg,
     LiteratureSearchMsg,
@@ -293,6 +294,31 @@ class WebSocketDisplayAdapter:
             )
         )
         self._broadcast_state()
+
+    def agent_step_complete(
+        self,
+        agent_id: str,
+        *,
+        role: str = "",
+        summary: str = "",
+        phase: str = "",
+        tokens: int = 0,
+        next_agent: str | None = None,
+    ) -> None:
+        """A turn finished — a structured step marker for the activity timeline."""
+        self._schedule(
+            self._manager.broadcast_message(
+                self._session_id,
+                AgentStepCompleteMsg(
+                    agent_id=agent_id,
+                    role=role,
+                    summary=summary,
+                    phase=phase,
+                    tokens=tokens,
+                    next_agent=next_agent,
+                ),
+            )
+        )
 
     def agent_error(self, agent_id: str, error: str | Exception) -> None:
         self._notify(f"{agent_id} failed: {error}", level="error", category="agent")

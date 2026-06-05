@@ -304,6 +304,18 @@ class DisplayManager:
     ) -> None:
         """Live-streaming chunk hook. No-op for the Rich/CLI display."""
 
+    def agent_step_complete(
+        self,
+        agent_id: str,
+        *,
+        role: str = "",
+        summary: str = "",
+        phase: str = "",
+        tokens: int = 0,
+        next_agent: str | None = None,
+    ) -> None:
+        """Step-complete marker for the activity timeline. No-op for the CLI."""
+
     def agent_error(self, agent_id: str, error: str | Exception) -> None:
         self._state.add_event("error", f"{agent_id} failed: {error}")
         if self._use_rich:
