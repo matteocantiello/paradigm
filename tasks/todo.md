@@ -15,13 +15,13 @@ Every new behavior behind a default-safe flag; Rich `DisplayManager` gets no-op 
 - [x] `agent_step_complete` emitted from `_log_agent_response` choke point (Rich no-op + WS); frontend double-count fixed
 - [x] frontend: accumulate `agent_output_stream` by `stream_id`; live bubble + cursor + thinking/elapsed
 - [ ] (optional) vitest + sessionStore reducer test — deferred
-- [ ] FOLLOW-UP (found during A): other sync calls still block the loop — embeddings `encode()`, and direct `provider.complete()` in engine/preregistration/review/memory. Offload via `to_thread` for full responsiveness.
+- [x] LOOP FIX: offloaded non-generate `provider.complete()` (convergence, checkpoint, tournament x2, memory, prereg, figure review) via `to_thread`; Docker already wrapped. Residual: ChromaDB/embeddings (CPU-bound, deferred).
 
-## Phase B — Education (timeline + narration + progress/ETA)
-- [ ] `display/narration.py` (templated) + `NarrationConfig` (LLM stub)
-- [ ] `ActivityEventMsg` + `_activity` helper + duration timers; promote high-value events
-- [ ] frontend phase-grouped activity timeline (EventLog upgrade)
-- [ ] per-phase progress + rolling-avg ETA + now-playing header
+## Phase B — Education (timeline + narration + progress/ETA)  ✅ DONE (live-verified: 3 activity events w/ narration + pacing)
+- [x] `display/narration.py` (templated) + `NarrationConfig` (LLM stub)
+- [x] `ActivityEventMsg` + `_activity` helper + duration timers; promoted high-value events
+- [x] frontend phase-grouped activity timeline (EventLog upgrade: title + why-narration + duration + severity)
+- [x] rolling-avg ETA + now-playing header (avg_step_ms + phase_elapsed_seconds)
 
 ## Phase C — Depth (live artifacts + GUI intervention)
 - [ ] hypothesis board + tournament bracket (frontend on existing KnowledgeUpdateMsg)
