@@ -3946,3 +3946,11 @@ GUI: ensure per-agent icons (from AGENT_THEMES) appear in the agents/token panel
 > Can we push all the new changes to the main branch of paradigm? ... before we set it as a cloud service
 
 Consolidating the work branch into main before deployment. Assessing branch/commits/remote + handling pre-existing uncommitted changes and the user's local artifacts (PROMPT-*, data_validate/, pdf) which must NOT be committed.
+
+---
+
+### Prompt 115 — how to start the platform on Hetzner; crontab?
+
+> I got the Hetzner service and deployed there. How do I get the platform started? Do I need to add something to the crontab?
+
+Answer: no crontab — use systemd (paradigm-backend.service: enable --now = start now + on boot; Restart=always = auto-restart) + Caddy as a service. crontab only useful for the optional nightly data-dir backup. Provided start + verify commands + the common gotchas (docker group, conda-vs-venv ExecStart, .env.production, prereq build steps).
