@@ -1,91 +1,209 @@
 # Deploying Paradigm to the web
 
-Single-VM deployment for a small trusted group behind a shared password.
-Architecture + rationale: [`../.planning/WEB-DEPLOYMENT.md`](../.planning/WEB-DEPLOYMENT.md).
+Battle-tested single-VM deployment (first run: Hetzner CPX31, Ubuntu 24.04, root,
+behind Caddy with a shared password). Architecture rationale:
+[`../.planning/WEB-DEPLOYMENT.md`](../.planning/WEB-DEPLOYMENT.md). Every step
+below is what actually worked, with the gotchas we hit folded in.
 
 ```
-https ─▶ Caddy (:443, TLS + basic-auth) ─▶ uvicorn backend (:8000, 1 proc)
-          serves frontend/dist            SQLite+ChromaDB on /var/lib/paradigm
-          proxies /api + /ws              spawns Docker sandbox (--network=none)
+https ─▶ Caddy (:443, TLS + basic-auth)
+          • serves the built SPA  (frontend/dist)
+          • proxies /api/* AND /health  ──▶  uvicorn backend (127.0.0.1:8000, 1 proc, systemd)
+            (WebSocket /api/v1/sessions/*/ws rides on /api/*)        │
+                                                                     ▼
+                                              SQLite + ChromaDB on /var/lib/paradigm/data
+                                              Docker sandbox (--network=none) for code execution
 ```
 
-## 1. Provision the VM
-- A Linux VM with **Docker** (recommend Hetzner CPX31 — 4 vCPU/8 GB — or a DO 8 GB droplet).
-- Point a DNS **A record** (e.g. `paradigm.example.com`) at the VM's IP.
-- Install: Docker, Caddy, and Python 3.12 (or Miniconda). Create a `paradigm` user
-  and add it to the `docker` group: `sudo usermod -aG docker paradigm`.
+**Key facts that drive everything below**
+- The frontend is **static** — Caddy serves `frontend/dist`; there is no second web server.
+- Backend is a **single** uvicorn process (sessions are in-memory → no `--workers`).
+- Caddy must proxy **both `/api/*` and the root `/health`** (the UI health-checks `/health`).
+- The WebSocket is same-origin under `/api/*` (no separate port).
+- Cycles persist + resume, so a backend restart is survivable; a *live* run is not.
 
-## 2. Get the code + build
+---
+
+## 0. Prerequisites
+- A VM with **Docker** (we used Hetzner CPX31, 4 vCPU / 8 GB, Ubuntu 24.04).
+- A domain/subdomain with an **A record → the VM IP** (e.g. `paradigm.stellarphysics.org`).
+- Firewall: **22, 80, 443** open. Verify DNS from your laptop: `dig +short <domain>` → the IP.
+- API keys ready: **`ANTHROPIC_API_KEY`**, **`GEMINI_API_KEY`** (production.yaml uses both).
+
+## 1. System packages
 ```bash
-sudo mkdir -p /opt/paradigm && sudo chown paradigm:paradigm /opt/paradigm
-git clone <repo> /opt/paradigm && cd /opt/paradigm
+apt update && apt upgrade -y          # if a new kernel installs: reboot, reconnect
 
-# Backend env (venv shown; conda also fine). Extras: api = FastAPI/uvicorn
-# (the web server), openai = the Gemini provider (OpenAI-compatible),
-# mcp = alphaXiv literature. anthropic + chromadb are core deps.
-python3.12 -m venv .venv && . .venv/bin/activate
+# Python venv module — Ubuntu ships python3.12 but NOT the venv package:
+apt install -y python3.12-venv        # (skipping this => "ensurepip is not available")
+
+# Node — needed for the frontend build; NOT installed by default:
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt install -y nodejs
+
+# Docker — the code-execution sandbox:
+curl -fsSL https://get.docker.com | sh && docker run --rm hello-world
+
+# Caddy — reverse proxy + automatic TLS:
+apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+apt update && apt install -y caddy
+```
+
+## 2. Get the code (at /opt/paradigm)
+```bash
+git clone git@github.com:matteocantiello/paradigm.git /opt/paradigm
+cd /opt/paradigm
+```
+Use **`/opt/paradigm`** — the systemd unit and Caddyfile reference that path. (If you
+clone elsewhere, edit the paths in `deploy/paradigm-backend.service` + the Caddyfile.)
+
+## 3. Python backend env + install
+```bash
+python3 -m venv .venv && . .venv/bin/activate     # prompt shows (.venv)
 pip install -e ".[api,mcp,openai]"
+```
+The **extras matter**: `api` = FastAPI/uvicorn (the web server), `openai` = the Gemini
+provider (OpenAI-compatible), `mcp` = alphaXiv literature. `anthropic` + `chromadb`
+are core deps. (Installing just `.[mcp]` leaves you with **no uvicorn**.)
 
-# Code-execution sandbox image
+## 4. Build the sandbox image (code execution)
+```bash
 docker build -f docker/Dockerfile.sandbox -t paradigm-sandbox:latest .
-
-# Frontend (served statically by Caddy; same-origin so no API URL needed)
-cd frontend && npm ci && npm run build && cd ..
-
-# Persistent data dir (survives restarts; back this up)
-sudo mkdir -p /var/lib/paradigm/data && sudo chown paradigm:paradigm /var/lib/paradigm/data
 ```
 
-## 3. Secrets + config
+## 5. Build the frontend (Caddy serves this folder)
 ```bash
+cd /opt/paradigm/frontend && npm ci && npm run build && cd ..
+ls frontend/dist/index.html           # must exist
+```
+Run `npm` from **`frontend/`**, not the repo root (else `ENOENT … package.json`).
+
+## 6. Data dir + secrets
+```bash
+mkdir -p /var/lib/paradigm/data
 cp deploy/.env.production.example deploy/.env.production
-$EDITOR deploy/.env.production         # fill keys, domain, data dir, concurrency
+nano deploy/.env.production
 chmod 600 deploy/.env.production
 ```
-alphaXiv literature (optional but recommended): run `paradigm mcp-login` **once on a
-machine with a browser**, then copy the cached token to the VM:
-```bash
-scp -r ~/.paradigm/mcp/ paradigm@<vm>:~/.paradigm/      # token auto-refreshes after
+Fill `deploy/.env.production`:
 ```
-
-## 4. Run the backend (systemd)
-```bash
-sudo cp deploy/paradigm-backend.service /etc/systemd/system/
-# adjust ExecStart if using conda; confirm User= and paths
-sudo systemctl daemon-reload && sudo systemctl enable --now paradigm-backend
-systemctl status paradigm-backend          # should be active; check `journalctl -u paradigm-backend`
-curl -s localhost:8000/health              # {"status":"ok",...}
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+PARADIGM_CONFIG=configs/production.yaml
+PARADIGM_DATA_DIR=/var/lib/paradigm/data
+PARADIGM_CORS_ORIGINS=https://paradigm.stellarphysics.org
+PARADIGM_MAX_CONCURRENT_SESSIONS=3
 ```
+**This file must exist** — without it the backend boots with no keys and the wrong
+config (a run would fail on auth). Optional alphaXiv literature: from a machine where
+you ran `paradigm mcp-login`, `scp -r ~/.paradigm/mcp/ root@<vm>:/root/.paradigm/`.
 
-## 5. Run Caddy (TLS + password gate)
+## 7. Run the backend with systemd
 ```bash
-cp deploy/Caddyfile /etc/caddy/Caddyfile
-$EDITOR /etc/caddy/Caddyfile                # set your domain + dist path
-caddy hash-password                         # paste the bcrypt hash per collaborator
-sudo systemctl reload caddy                 # Caddy fetches the TLS cert automatically
+nano deploy/paradigm-backend.service   # set User=root and Group=root for now (harden later)
+cp deploy/paradigm-backend.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now paradigm-backend
+sleep 5                                 # give uvicorn time to import + bind
+systemctl status paradigm-backend       # Active: active (running), uptime NOT resetting
+curl -sS localhost:8000/health          # {"status":"ok","service":"paradigm-api"}
 ```
+`enable --now` = start now + on every boot; `Restart=always` = auto-restart on crash.
+If `status` shows `failed` or a resetting uptime: `journalctl -u paradigm-backend -n 50 --no-pager`.
 
-## 6. Smoke test
-Open `https://paradigm.example.com`, authenticate, start a short run, and confirm:
-live panels stream, the terminal screen appears at the end, and Resume works.
+## 8. Point Caddy at Paradigm (replaces the default "congrats" page)
+```bash
+caddy hash-password                     # type a password → COPY the $2a$... hash
+```
+Write `/etc/caddy/Caddyfile` (overwrite the default welcome config entirely):
+```
+paradigm.stellarphysics.org {
+	encode gzip zstd
+
+	# Shared-password gate (one line per person).
+	basic_auth {
+		science $2a$14$PASTE_YOUR_HASH
+	}
+
+	# API + WebSockets + the root /health probe -> backend.
+	# /health is at the ROOT, not under /api — list it too, or the UI shows "API offline".
+	@api path /api/* /health
+	handle @api {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	# Built SPA + client-side routing.
+	handle {
+		root * /opt/paradigm/frontend/dist
+		try_files {path} /index.html
+		file_server
+	}
+}
+```
+```bash
+caddy validate --config /etc/caddy/Caddyfile      # expect "Valid configuration"
+systemctl reload caddy
+journalctl -u caddy -n 20 --no-pager              # watch it obtain the TLS cert
+```
+(Caddy ≥ 2.8 uses `basic_auth`; older uses `basicauth` — `validate` will tell you.)
+
+## 9. Verify end-to-end
+```bash
+curl -sS -u science:YOURPASSWORD https://<domain>/health   # {"status":"ok",...}
+```
+Open **https://<domain>** → password prompt → Paradigm → header shows **API Online** →
+start a run → it streams live and reaches a paper.
+
+---
+
+## Gotchas we actually hit (symptom → fix)
+| Symptom | Cause | Fix |
+|---|---|---|
+| `ensurepip is not available` | venv pkg missing | `apt install -y python3.12-venv`, recreate the venv |
+| `pip: command not found` | venv not activated | the venv didn't create; fix the line above, then `. .venv/bin/activate` |
+| `No module named uvicorn` / no web server | installed only `.[mcp]` | `pip install -e ".[api,mcp,openai]"` |
+| `npm error … ENOENT … package.json` | ran from repo root | `cd /opt/paradigm/frontend` first |
+| systemd service `failed` / `User=paradigm` doesn't exist | unit expects a `paradigm` user | set `User=root`/`Group=root` for now (or create the user) |
+| `curl -s` prints nothing | `-s` hides connection errors; backend still starting | use `curl -sS` / `-v`; `sleep 5` after `enable --now` |
+| Caddy "congratulations" page | Caddy on its default config | replace `/etc/caddy/Caddyfile` (step 8) + reload |
+| **"API offline"** in the UI | Caddy only proxied `/api/*`, not `/health` | matcher must be `@api path /api/* /health` |
+| Run stuck **"connecting"** / no streaming | old build hardcoded `:8000` in the WS URL | `git pull` + rebuild frontend (step 5); WS now uses the same origin |
+| Run errors with an auth message | wrong/missing key | fix `deploy/.env.production` → `systemctl restart paradigm-backend` |
+| `502 Bad Gateway` | backend not on `:8000` | `systemctl status paradigm-backend` / journal |
+| Fresh clone won't build (`utils.ts` missing) | a `lib/` gitignore rule once hid `frontend/src/lib` | already fixed in repo; `git pull` if on an old clone |
 
 ---
 
 ## Operating it
-- **Update**: `git pull` → rebuild frontend (`npm run build`) → `sudo systemctl restart
-  paradigm-backend` → `sudo systemctl reload caddy`. (A restart drops any *live* run,
-  but cycles persist and show as **Interrupted** → Resume them.)
-- **Backups**: nightly copy/snapshot of `/var/lib/paradigm/data` (SQLite + `chroma`).
-  Restore = stop service, replace dir, start.
-- **Rotate a password**: edit the Caddyfile `basic_auth` block → `systemctl reload caddy`.
-- **Concurrency / cost**: `PARADIGM_MAX_CONCURRENT_SESSIONS` caps simultaneous runs;
-  per-thread token budgets are in `configs/production.yaml`. Watch usage in the DB/events.
-- **Disable code execution**: set `orchestrator.enable_experimentation: false` in
-  `configs/production.yaml` and restart.
+- **Update:**
+  ```bash
+  cd /opt/paradigm && git pull
+  . .venv/bin/activate && pip install -e ".[api,mcp,openai]"   # if deps changed
+  cd frontend && npm ci && npm run build && cd ..               # if frontend changed
+  systemctl restart paradigm-backend                            # if backend changed
+  systemctl reload caddy                                        # if the Caddyfile changed
+  ```
+  A backend restart drops any *live* run, but cycles persist and reappear as
+  **Interrupted** in the research tab → hit **Resume**.
+- **Logs:** `journalctl -u paradigm-backend -f` (backend) · `journalctl -u caddy -f` (proxy).
+- **Backup** (the only sensible cron job) — nightly snapshot of the data dir:
+  ```bash
+  crontab -e
+  0 3 * * * tar czf /root/paradigm-backup-$(date +\%F).tgz /var/lib/paradigm/data
+  ```
+  Restore: stop the service, replace `/var/lib/paradigm/data`, start it.
+- **Concurrency / cost:** `PARADIGM_MAX_CONCURRENT_SESSIONS` caps simultaneous runs;
+  per-thread token budgets live in `configs/production.yaml`.
+- **Disable code execution:** set `orchestrator.enable_experimentation: false` in
+  `configs/production.yaml` → `systemctl restart paradigm-backend`.
 
-## Security notes (read before exposing)
-- Code runs in the sandbox (`--network=none`, `cap_drop=ALL`, `no-new-privileges`,
-  pids/cpu/mem/timeout caps). Strong for a TRUSTED group; **not** a hard multi-tenant
-  boundary — don't open to the public on this profile.
-- The shared password is the only gate; prefer per-collaborator credentials and rotate.
-- Keep the VM patched; restrict SSH; only 80/443 (+ SSH) should be open.
+## Hardening (do AFTER it's working — not mid-build)
+- Create a non-root user, add to the `docker` group, `chown -R` the dirs, and set the
+  service `User=`/`Group=` to it (least-privilege for the sandbox).
+- Use a **strong** basic-auth password (the URL is public and spends real LLM money).
+  Rotate via `caddy hash-password` → edit the Caddyfile → `systemctl reload caddy`.
+- Disable root SSH (`PermitRootLogin no`), key-only auth, and enable `ufw` (22/80/443).
+- The sandbox is `--network=none` + `cap_drop=ALL` + `no-new-privileges` + pids/cpu/mem/
+  timeout caps — strong for a *trusted* group, but not a hard multi-tenant boundary.
+  Don't open this profile to the anonymous public.

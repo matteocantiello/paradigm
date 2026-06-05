@@ -3986,3 +3986,11 @@ The frontend health-checks /health (root), but the Caddyfile only proxied /api/*
 > API still offline
 
 Two deploy bugs found: (1) frontend WS URL hardcoded :8000 in its fallback (`window.location.hostname}:8000`) → unreachable behind the proxy; fixed to same-origin `window.location.host` (|| so empty env falls through). Dev still uses VITE_WS_BASE_URL override. (2) The "API offline" indicator = /health proxy — gave curl diagnostic to isolate Caddy reload vs browser cache. WS fix needs a frontend rebuild on the VM.
+
+---
+
+### Prompt 120 — detailed deployment guide
+
+> Can you make a detailed md file with the deployment instructions? So that we can easily redo it ... and/or fix issues
+
+Deployment succeeded (Hetzner/Ubuntu 24.04 + Caddy + systemd). Rewrote deploy/DEPLOY.md as the battle-tested guide: full ordered steps + a "gotchas we actually hit" table (python3.12-venv, .[api,mcp,openai] extras, .env.production, User=root, Caddy /api/* AND /health, the WS :8000→same-origin rebuild, npm from frontend/, the lib gitignore fix) + operating/backup/hardening sections.
