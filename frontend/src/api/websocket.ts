@@ -66,9 +66,12 @@ export class ParadigmWebSocket {
   private _connect() {
     if (!this.sessionId) return;
 
+    // Default to the SAME origin (no hardcoded :8000) so it works behind a
+    // reverse proxy in production — Caddy proxies /api/* incl. the WS. Dev
+    // overrides this with VITE_WS_BASE_URL=ws://localhost:8000 (.env.development).
     const wsBase =
-      import.meta.env.VITE_WS_BASE_URL ??
-      `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:8000`;
+      import.meta.env.VITE_WS_BASE_URL ||
+      `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
     // Include API key as query param for WebSocket auth
     const apiKey = localStorage.getItem("paradigm_api_key");
     const authQuery = apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : "";

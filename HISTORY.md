@@ -3978,3 +3978,11 @@ Found a critical DEPLOY.md bug: install said ".[mcp]" but the backend's fastapi/
 > the platform shows up. I am trying to run a cycle but it says API offline
 
 The frontend health-checks /health (root), but the Caddyfile only proxied /api/* → /health hit the static server → "API offline". Fixed deploy/Caddyfile matcher to `@api path /api/* /health`. (Actual /api/v1 calls were already proxied.)
+
+---
+
+### Prompt 119 — deployed GUI still "API offline"
+
+> API still offline
+
+Two deploy bugs found: (1) frontend WS URL hardcoded :8000 in its fallback (`window.location.hostname}:8000`) → unreachable behind the proxy; fixed to same-origin `window.location.host` (|| so empty env falls through). Dev still uses VITE_WS_BASE_URL override. (2) The "API offline" indicator = /health proxy — gave curl diagnostic to isolate Caddy reload vs browser cache. WS fix needs a frontend rebuild on the VM.
