@@ -148,6 +148,7 @@ def create_source_providers(
             name=mcp_cfg.name,
             search_tool=mcp_cfg.search_tool,
             content_tool=mcp_cfg.content_tool,
+            search_difficulty=mcp_cfg.search_difficulty,
             timeout=mcp_cfg.timeout,
             source_type=mcp_cfg.source_type,
         )

@@ -3758,3 +3758,21 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 **Task:** Read alphaXiv's MCP doc page; determine the real auth mechanism (likely OAuth 2.1 browser flow, not a manually-created static API key) and how a deterministic Python MCP client should obtain/use the token.
 
 **Done — alphaXiv OAuth wired.** Probed the 401: alphaXiv MCP is **Clerk OAuth 2.1, no static API key** (`authorization_uri=clerk.alphaxiv.org`, scope `email profile`); Clerk advertises a `registration_endpoint` (dynamic client registration works) + `refresh_token`/`offline_access`. New `literature/mcp_auth.py`: `FileTokenStorage` (caches token+client-reg under `~/.paradigm/mcp/<name>/`, 0600), `build_oauth_provider` (headless = never opens a browser → degrades; interactive = browser + one-shot localhost callback server), `interactive_login`. `MCPSourceProvider` gains `auth_mode` (oauth|bearer|none); oauth builds the OAuthClientProvider with the cached token (headless auto-refresh). Config: `MCPLiteratureConfig.auth_mode` + `oauth_scope="openid profile email offline_access"` (offline_access → refresh token for headless). New CLI: **`paradigm mcp-login`** (one-time browser login). +6 tests; ruff + full suite **1465** green. User runs `paradigm mcp-login` once → headless thereafter.
+
+---
+
+### Prompt 95 — "not to have to log in for every session?"
+
+> Is there a way to not to have to log in for every session?
+
+**Answer:** Already one-time — not per session. `mcp-login` caches the token + refresh token + client registration to `~/.paradigm/mcp/<name>/` (0600); the orchestrator loads it on every connect and the MCP OAuthClientProvider auto-refreshes via the refresh token (offline_access scope) with no browser, across cycles and process restarts. Re-login only if the refresh token expires/is revoked or the cache is deleted. alphaXiv/Clerk supports only authorization_code + refresh_token (no client_credentials machine-token), so the single interactive bootstrap is unavoidable — but for a headless server you can log in once on any machine and copy `~/.paradigm/mcp/alphaxiv/` over. (No code change needed.)
+
+---
+
+### Prompt 96 — "Done. Can we try if it works?"
+
+> Done. Can we try if it works?
+
+User completed `paradigm mcp-login` (after activating the conda env). Running a live smoke test of `MCPSourceProvider` against alphaXiv: list_tools → search → fetch, capturing real response shapes to tune `_to_source_result`/`_to_source_document`.
+
+**Outcome — alphaXiv MCP live & tuned.** Login worked (token cached, `0600`). Live probe revealed the real API: search tool is `discover_papers` (required args `keywords: array`, `question: string`, `difficulty: number 1-10`) returning a **plain-text** numbered listing (`N. [ID=<arxiv_id>] **title**. Published <date> [by <affils>]: <abstract>`), and `get_paper_content` takes a `url`. Tuned `MCPSourceProvider` (still generic): (1) schema-driven search-arg builder (`_build_search_args` fills args by role+type — keywords/question/difficulty/limit), (2) numbered-listing text parser (`_parse_text_listing`) as a third fallback after structuredContent/JSON, (3) url-aware id coercion in `fetch` (bare arXiv id → abs URL), plus control-char scrubbing and the "by" clause kept as **affiliations** (not mislabeled as authors). Added `search_difficulty` config (default 3). Verified end-to-end live: `search()`→4 clean `SourceResult`s (incl. old-style `astro-ph/…` ids), `fetch()`→46 KB document. +9 tests; full suite **1474 passed**, ruff clean.

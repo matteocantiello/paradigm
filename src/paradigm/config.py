@@ -56,8 +56,9 @@ class MCPLiteratureConfig(BaseModel):
     on the in-house providers without it. When enabled, the orchestrator connects
     to a remote MCP server (streamable HTTP), discovers its tools, and exposes
     them behind the SourceProvider abstraction. alphaXiv's get_paper_content
-    returns a pre-digested structured breakdown (cheap to inject) instead of raw
-    PDF text. alphaXiv requires an API key — set it in the ``auth_token_env`` var.
+    returns an LLM-optimized report (cheap to inject) instead of raw PDF text.
+    alphaXiv is OAuth-gated (Clerk) — run ``paradigm mcp-login`` once; there is
+    no static API key.
     """
 
     enabled: bool = False
@@ -75,6 +76,9 @@ class MCPLiteratureConfig(BaseModel):
     auth_token_env: str = "ALPHAXIV_API_KEY"  # used only when auth_mode == "bearer"
     search_tool: str | None = None  # override; otherwise auto-discovered
     content_tool: str | None = None
+    # Effort for servers with a "difficulty"-style search arg (e.g. alphaXiv's
+    # discover_papers, 1-10): higher = more retrieval rounds but slower.
+    search_difficulty: int = 3
     timeout: float = 30.0
     max_results: int = 10
     source_type: str = "alphaxiv"

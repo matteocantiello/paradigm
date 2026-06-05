@@ -14,6 +14,7 @@ from paradigm.literature.mcp_provider import (
     _authors,
     _extract_items,
     _first,
+    _parse_text_listing,
 )
 
 
@@ -156,3 +157,104 @@ async def test_fetch_none_when_no_content():
 async def test_close_is_safe_when_unconnected():
     p = MCPSourceProvider(server_url="http://x")
     await p.close()  # must not raise (never connected)
+
+
+# --- alphaXiv text listing (discover_papers returns plain text, not JSON) ---
+_ALPHAXIV_LISTING = (
+    "1. [ID=2502.17438] **The Legacy of Henrietta Leavitt: A Re-analysis**. "
+    "Published 2025-02-24 by Space Telescope Science Institute, Johns Hopkins "
+    "University: Henrietta Swan Leavitt's discovery revolutionized astronomy...\n"
+    "2. [ID=astro-ph/9907236] **OGLE Cepheids in the Magellanic Clouds**. "
+    "Published 1999-07-16: We present Period-Luminosity relations for 1280 Cepheids."
+)
+
+
+def test_parse_text_listing_alphaxiv():
+    items = _parse_text_listing(_ALPHAXIV_LISTING)
+    assert len(items) == 2
+    a, b = items
+    assert a["id"] == "2502.17438"
+    assert a["title"] == "The Legacy of Henrietta Leavitt: A Re-analysis"
+    assert a["url"] == "https://arxiv.org/abs/2502.17438"
+    assert a["summary"].startswith("Henrietta Swan Leavitt")
+    # The "by …" clause is affiliations — never mislabeled as authors.
+    assert a["affiliations"] == ["Space Telescope Science Institute", "Johns Hopkins University"]
+    assert "authors" not in a
+    assert a["published"] == "2025-02-24"
+    # Old-style arXiv id → abs URL; no "by" clause → no affiliations.
+    assert b["id"] == "astro-ph/9907236"
+    assert b["url"] == "https://arxiv.org/abs/astro-ph/9907236"
+    assert "affiliations" not in b
+
+
+def test_parse_text_listing_strips_control_chars():
+    items = _parse_text_listing("1. [ID=1.1] **A\x08B Title**. Published 2020-01-01: ok")
+    # Control char → space (safe: never merges words across a mangled separator).
+    assert items[0]["title"] == "A B Title"
+
+
+def test_parse_text_listing_ignores_non_listing_text():
+    # Free-form paper body text must never be parsed as a listing.
+    assert _parse_text_listing("arXiv:1103.0275v1 [astro-ph.SR]\nABSTRACT\n1. Introduction") == []
+
+
+async def test_search_parses_text_listing_results():
+    tools = [
+        _tool("discover_papers", {"keywords": {"type": "array"}, "question": {"type": "string"},
+                                  "difficulty": {"type": "number", "minimum": 1, "maximum": 10}}),
+        _tool("get_paper_content", {"url": {"type": "string", "format": "uri"}}),
+    ]
+    p = _provider(tools, _result(content=[_text(_ALPHAXIV_LISTING)]))
+    out = await p.search("period-luminosity relation Cepheids", max_results=5)
+    assert [r.id for r in out] == ["2502.17438", "astro-ph/9907236"]
+    assert out[0].url == "https://arxiv.org/abs/2502.17438"
+    assert out[0].authors == []  # affiliations are not authors
+    assert out[0].summary.startswith("Henrietta Swan Leavitt")
+
+
+def test_build_search_args_discover_shape():
+    tools = [_tool("discover_papers", {
+        "keywords": {"type": "array"},
+        "question": {"type": "string"},
+        "difficulty": {"type": "number", "minimum": 1, "maximum": 10},
+    })]
+    p = _provider(tools, _result(), search_difficulty=2)
+    args = p._build_search_args("discover_papers", "period-luminosity relation for Cepheids", 5)
+    assert isinstance(args["keywords"], list) and args["keywords"]  # array of terms
+    assert "for" not in args["keywords"]  # stopword dropped
+    assert args["question"] == "period-luminosity relation for Cepheids"
+    assert args["difficulty"] == 2  # configured, within [1, 10]
+
+
+def test_build_search_args_clamps_difficulty_to_schema():
+    tools = [_tool("discover_papers", {
+        "keywords": {"type": "array"}, "question": {"type": "string"},
+        "difficulty": {"type": "number", "minimum": 1, "maximum": 3},
+    })]
+    p = _provider(tools, _result(), search_difficulty=9)
+    args = p._build_search_args("discover_papers", "q", 5)
+    assert args["difficulty"] == 3  # clamped to schema maximum
+
+
+def test_pick_tool_matches_discover_papers():
+    from paradigm.literature.mcp_provider import _EMBED_HINTS, _SEARCH_HINTS
+
+    p = _provider([_tool("discover_papers"), _tool("get_paper_content")], _result())
+    assert p._pick_tool(None, _SEARCH_HINTS, avoid=_EMBED_HINTS) == "discover_papers"
+
+
+async def test_fetch_coerces_bare_id_to_url_arg():
+    tools = [_tool("get_paper_content", {"url": {"type": "string", "format": "uri"}})]
+    result = _result(content=[_text("Full paper text body ...")])
+    p = _provider(tools, result)
+    doc = await p.fetch("1103.0275")
+    assert doc is not None and doc.full_text.startswith("Full paper text")
+    # Bare arXiv id was promoted to a URL for the url-typed arg.
+    assert p._session.calls == [("get_paper_content", {"url": "https://arxiv.org/abs/1103.0275"})]
+
+
+async def test_fetch_passes_url_through_when_already_url():
+    tools = [_tool("get_paper_content", {"url": {"type": "string", "format": "uri"}})]
+    p = _provider(tools, _result(content=[_text("body")]))
+    await p.fetch("https://alphaxiv.org/overview/2307.12307")
+    assert p._session.calls[0][1] == {"url": "https://alphaxiv.org/overview/2307.12307"}
