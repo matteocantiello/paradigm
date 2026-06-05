@@ -1673,12 +1673,18 @@ class OrchestrationEngine:
         display = self._display
 
         def sink(agent_id: str, stream_id: str, chunk: str, event: str, usage: Any) -> None:
-            phase = str(self.state.current_phase) if self.state else ""
-            if event == "start":
-                display.agent_stream_start(agent_id, stream_id, role=role, phase=phase)
-            elif event == "chunk":
-                display.agent_stream_chunk(agent_id, stream_id, chunk, role=role, phase=phase)
-            # "final" is rendered by agent_response() below (carries token totals).
+            # The streaming side-channel must NEVER break an agent turn — swallow
+            # any display/broadcast error (it only affects live UI, not results).
+            try:
+                pm = self.state.phase_manager if self.state else None
+                phase = str(pm.current_phase) if pm else ""
+                if event == "start":
+                    display.agent_stream_start(agent_id, stream_id, role=role, phase=phase)
+                elif event == "chunk":
+                    display.agent_stream_chunk(agent_id, stream_id, chunk, role=role, phase=phase)
+                # "final" is rendered by agent_response() below (carries token totals).
+            except Exception:  # noqa: BLE001 - side-channel must not propagate
+                pass
 
         return sink
 
