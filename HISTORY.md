@@ -3938,3 +3938,11 @@ Diagnosing literature relevance: which providers get queried (domain router), wh
 GUI: ensure per-agent icons (from AGENT_THEMES) appear in the agents/token panel + everywhere an agent is referenced; change theorist icon telescope→Lightbulb.
 
 **Outcome — agent icons.** Theorist icon Telescope→Lightbulb in AGENT_THEMES (flows to every agent reference). Session "Agents" panel now shows each agent's cumulative token usage (Coins icon + formatTokens, summed per agentId from agentOutputs) next to its role icon. Added role icons where agents were referenced as bare text: NowPlaying (active-agent label), DraftPanel (section author), and per-message token counts in MessagesPanel (next to the model). tsc + vite build clean.
+
+---
+
+### Prompt 114 — push all new changes to main
+
+> Can we push all the new changes to the main branch of paradigm? ... before we set it as a cloud service
+
+Consolidating the work branch into main before deployment. Assessing branch/commits/remote + handling pre-existing uncommitted changes and the user's local artifacts (PROMPT-*, data_validate/, pdf) which must NOT be committed.
