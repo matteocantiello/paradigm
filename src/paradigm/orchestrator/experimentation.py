@@ -30,6 +30,7 @@ from paradigm.orchestrator.constants import (
     _topological_sort,
 )
 from paradigm.orchestrator.phases import ResearchPhase
+from paradigm.orchestrator.verification import _extract_result_tokens
 from paradigm.sandbox.executor import CodeExecutor
 from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, ExecutionStatus
 
@@ -615,6 +616,15 @@ class ExperimentationHandler:
                                 )
 
                         engine._display.experiment_running(block.name)
+                        # Phase C: stream the experiment to the live panel (code now,
+                        # stdout + parsed RESULT[...] once it finishes below).
+                        engine._display.experiment_update(
+                            experiment_id=block.name,
+                            name=block.name,
+                            agent_id=experimenter.agent_id if experimenter else "",
+                            status="running",
+                            code=current_code,
+                        )
                         result, final_code = await self._execute_with_retry(
                             executor,
                             experimenter,
@@ -697,6 +707,17 @@ class ExperimentationHandler:
                         stdout_full = (result.stdout or "")[:2000]
                         has_figures = any(
                             f.filename.endswith((".png", ".pdf")) for f in result.output_files
+                        )
+                        # Phase C: final experiment state to the live panel.
+                        engine._display.experiment_update(
+                            experiment_id=block.name,
+                            name=block.name,
+                            agent_id=experimenter.agent_id if experimenter else "",
+                            status=status_str,
+                            code=final_code,
+                            stdout=stdout_full,
+                            results=_extract_result_tokens(result.stdout or ""),
+                            has_figures=has_figures,
                         )
                         failure_reason = ""
                         if result.status != ExecutionStatus.SUCCESS:
