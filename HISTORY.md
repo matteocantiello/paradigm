@@ -3962,3 +3962,11 @@ Answer: no crontab — use systemd (paradigm-backend.service: enable --now = sta
 > If I go to paradigm.stellarphysics.org there's a caddy congrats page. So the web server is working. Just need to have paradigm work there
 
 Caddy is running on its DEFAULT config (welcome page), not the Paradigm Caddyfile. Need: backend up on :8000 + frontend/dist built, then install the Paradigm Caddyfile (domain paradigm.stellarphysics.org, basic_auth, serve dist, proxy /api) at /etc/caddy/Caddyfile + reload. Provided concrete filled-in Caddyfile + prereq checks + troubleshooting (502=backend down, blank=dist missing).
+
+---
+
+### Prompt 117 — how do I start paradigm (on the VM)
+
+> Ok. I need to start paradigm. How do I do that?
+
+Found a critical DEPLOY.md bug: install said ".[mcp]" but the backend's fastapi/uvicorn are the `api` extra and Gemini needs `openai` → fixed to ".[api,mcp,openai]". Gave: correct install, a manual foreground uvicorn run to see errors, then systemd enable --now for permanence.

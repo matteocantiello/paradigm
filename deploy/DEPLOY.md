@@ -20,9 +20,11 @@ https ─▶ Caddy (:443, TLS + basic-auth) ─▶ uvicorn backend (:8000, 1 pro
 sudo mkdir -p /opt/paradigm && sudo chown paradigm:paradigm /opt/paradigm
 git clone <repo> /opt/paradigm && cd /opt/paradigm
 
-# Backend env (venv shown; conda also fine)
+# Backend env (venv shown; conda also fine). Extras: api = FastAPI/uvicorn
+# (the web server), openai = the Gemini provider (OpenAI-compatible),
+# mcp = alphaXiv literature. anthropic + chromadb are core deps.
 python3.12 -m venv .venv && . .venv/bin/activate
-pip install -e ".[mcp]"
+pip install -e ".[api,mcp,openai]"
 
 # Code-execution sandbox image
 docker build -f docker/Dockerfile.sandbox -t paradigm-sandbox:latest .
