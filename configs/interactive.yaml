@@ -146,12 +146,13 @@ orchestrator:
   enable_step_restart: false
   debug_buggy_node_prob: 0.3
   max_step_restarts_per_experiment: 2
-  # --- INTERACTIVE: the GUI gates at phase transitions + human-gate points ---
+  # --- INTERACTIVE: the GUI gates (Approve / Pause / Abort) at each PHASE
+  # transition only — meaningful, mid-run decision points after you've seen the
+  # work (ideation -> planning -> execution -> writing -> submit). The earlier
+  # fine-grained human-gate points are left OFF so a fresh cycle never blocks
+  # before any research is visible. Want a fully hands-off run? Use fast.yaml. ---
   human_gate_mode: "blocking"
-  human_gate_points:
-    - problem_selection
-    - pre_registration
-    - final_verification
+  human_gate_points: []
   enable_multimodal_review: false
   multimodal_review_role: "editor"
   max_review_figures: 6

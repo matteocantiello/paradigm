@@ -3702,3 +3702,13 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 ### Prompt 88 (cont.) — GUI polish via /frontend-design
 
 **Done — "Observatory" design system.** Elevated the GUI to a distinctive, prime-time look: a nocturnal scientific-instrument identity. Deep indigo-ink void with a faint nebula glow + film grain; a warm **starlight-gold** signature accent against a cool **cyan** "live data" accent; type system = **Fraunces** (scholarly serif, for brand/headings — it writes papers), **Hanken Grotesk** (UI), **JetBrains Mono** (live data). Reworked `index.css` design tokens (cascades to every component), `index.html` fonts, the Sidebar/Dashboard brand identity (Fraunces wordmark + "Observatory" + observatory mark with an orbiting cyan star), and a gold streaming caret. Live-verified via headless-Chrome screenshots (dashboard, session view, knowledge/tournament tab) — instrument-grade phase tracker, live streaming agent output (markdown+LaTeX), activity timeline with narration, and the Phase-C tabs all cohesive. tsc + eslint + build green.
+
+---
+
+### Prompt 89 — "running a cycle but it seems stuck"
+
+> running a cycle but it seems stuck
+
+**Investigating:** prime suspect is the new interactive-profile blocking approval gate (cycle waiting for GUI approval), or a stall. Checking config, backend health, pending approvals, session status, and recent events/log.
+
+**Diagnosis + fix:** Not a crash — the cycle was blocked at the interactive profile's blocking human-gate, which fired at `problem_selection` *immediately* after seeding (before any visible work), with confusing "problem_selection → problem_selection" wording. Backend was healthy (deadlock fix holds); confirmed a pending `ApprovalRequestMsg`. Fixed `configs/interactive.yaml` → `human_gate_points: []` so blocking mode now gates only at the 4 meaningful PHASE transitions (ideation→planning, …), never immediately. Restarted on fast.yaml (hands-off) to clear the stuck cycle; the running backend baked the old config so a restart was required to load the fix.
