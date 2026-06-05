@@ -1,15 +1,16 @@
 import { EventLog } from "./EventLog";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { useUiStore } from "@/stores/uiStore";
-import type { Notification, KnowledgeState } from "@/stores/sessionStore";
+import type { ActivityEvent, Notification, KnowledgeState } from "@/stores/sessionStore";
 import { cn } from "@/lib/utils";
 
 interface RightPanelProps {
+  activityEvents: ActivityEvent[];
   notifications: Notification[];
   knowledge: KnowledgeState;
 }
 
-export function RightPanel({ notifications, knowledge }: RightPanelProps) {
+export function RightPanel({ activityEvents, notifications, knowledge }: RightPanelProps) {
   const tab = useUiStore((s) => s.rightPanelTab);
   const setTab = useUiStore((s) => s.setRightPanelTab);
 
@@ -51,7 +52,7 @@ export function RightPanel({ notifications, knowledge }: RightPanelProps) {
       {/* Content */}
       <div className="flex-1 overflow-hidden">
         {tab === "events" ? (
-          <EventLog notifications={notifications} />
+          <EventLog activityEvents={activityEvents} notifications={notifications} />
         ) : (
           <KnowledgePanel knowledge={knowledge} />
         )}

@@ -10,7 +10,13 @@ import { ConnectionIndicator } from "./ConnectionIndicator";
 import { LiteraturePanel } from "./LiteraturePanel";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { ConnectionStatus } from "@/api/websocket";
-import type { AgentOutput, Notification, KnowledgeState, LiveLiterature } from "@/stores/sessionStore";
+import type {
+  ActivityEvent,
+  AgentOutput,
+  Notification,
+  KnowledgeState,
+  LiveLiterature,
+} from "@/stores/sessionStore";
 import type { ApprovalRequestMsg } from "@/api/ws-types";
 
 interface SessionViewProps {
@@ -27,6 +33,7 @@ interface SessionViewProps {
   elapsedSeconds: number;
   agentOutputs: AgentOutput[];
   notifications: Notification[];
+  activityEvents: ActivityEvent[];
   literature: LiveLiterature;
   knowledge: KnowledgeState;
   pendingApproval: ApprovalRequestMsg | null;
@@ -74,7 +81,11 @@ export function SessionView(props: SessionViewProps) {
           <MessagesPanel outputs={props.agentOutputs} />
         </div>
         <div className="overflow-hidden">
-          <RightPanel notifications={props.notifications} knowledge={props.knowledge} />
+          <RightPanel
+            activityEvents={props.activityEvents}
+            notifications={props.notifications}
+            knowledge={props.knowledge}
+          />
         </div>
       </div>
 

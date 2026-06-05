@@ -21,6 +21,7 @@ class ServerMessageType(str, Enum):
 
     AGENT_OUTPUT_STREAM = "agent_output_stream"
     AGENT_STEP_COMPLETE = "agent_step_complete"
+    ACTIVITY_EVENT = "activity_event"
     APPROVAL_REQUEST = "approval_request"
     SESSION_STATE = "session_state"
     PHASE_TRANSITION = "phase_transition"
@@ -57,6 +58,26 @@ class AgentStepCompleteMsg(BaseModel):
     next_agent: str | None = None
     phase: str = ""
     tokens: int = 0
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ActivityEventMsg(BaseModel):
+    """A structured, persistent timeline event (Phase B).
+
+    Distinct from NotificationMsg (ephemeral toasts): these are the meaningful
+    milestones a viewer can scroll back through to learn the trajectory.
+    """
+
+    type: Literal["activity_event"] = "activity_event"
+    event_id: str
+    category: str  # search | debate | experiment | writing | review | knowledge | phase | ...
+    phase: str = ""
+    agent_id: str = ""
+    severity: str = "info"  # info | success | warning | error
+    title: str
+    detail: str = ""
+    narration: str = ""  # pedagogical "why is this happening"
+    duration_ms: int | None = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -195,6 +216,7 @@ class KnowledgeUpdateMsg(BaseModel):
 ServerMessage = Annotated[
     AgentOutputStreamMsg
     | AgentStepCompleteMsg
+    | ActivityEventMsg
     | ApprovalRequestMsg
     | SessionStateMsg
     | PhaseTransitionMsg

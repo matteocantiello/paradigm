@@ -27,6 +27,20 @@ export interface AgentStepCompleteMsg {
   timestamp: string;
 }
 
+export interface ActivityEventMsg {
+  type: "activity_event";
+  event_id: string;
+  category: string;
+  phase: string;
+  agent_id: string;
+  severity: string;
+  title: string;
+  detail: string;
+  narration: string;
+  duration_ms?: number | null;
+  timestamp: string;
+}
+
 export interface ApprovalRequestMsg {
   type: "approval_request";
   request_id: string;
@@ -213,6 +227,7 @@ export interface KnowledgeUpdateMsg {
 export type ServerMessage =
   | AgentOutputStreamMsg
   | AgentStepCompleteMsg
+  | ActivityEventMsg
   | ApprovalRequestMsg
   | SessionStateMsg
   | PhaseTransitionMsg

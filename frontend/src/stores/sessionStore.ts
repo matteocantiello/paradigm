@@ -42,6 +42,19 @@ export type Notification = {
   timestamp: string;
 };
 
+export type ActivityEvent = {
+  id: string;
+  category: string;
+  phase: string;
+  agentId: string;
+  severity: string;
+  title: string;
+  detail: string;
+  narration: string;
+  durationMs: number | null;
+  timestamp: string;
+};
+
 export type KnowledgeState = {
   entities: KnowledgeEntity[];
   relationships: Record<string, unknown>[];
@@ -113,6 +126,7 @@ interface SessionStoreState {
   // Rolling buffers
   agentOutputs: AgentOutput[];
   notifications: Notification[];
+  activityEvents: ActivityEvent[];
 
   // Live literature (during cycle)
   literature: LiveLiterature;
@@ -134,12 +148,16 @@ interface SessionStoreState {
 
 let outputCounter = 0;
 let notifCounter = 0;
+let activityCounter = 0;
 
 function nextOutputId() {
   return `out-${++outputCounter}`;
 }
 function nextNotifId() {
   return `ntf-${++notifCounter}`;
+}
+function nextActivityId() {
+  return `act-local-${++activityCounter}`;
 }
 
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
@@ -158,6 +176,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   completedPhases: [],
   agentOutputs: [],
   notifications: [],
+  activityEvents: [],
   literature: { ...EMPTY_LITERATURE },
   knowledge: { ...EMPTY_KNOWLEDGE },
   pendingApproval: null,
@@ -186,6 +205,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       completedPhases: [],
       agentOutputs: [],
       notifications: [],
+      activityEvents: [],
       literature: { ...EMPTY_LITERATURE },
       knowledge: { ...EMPTY_KNOWLEDGE },
       pendingApproval: null,
@@ -309,11 +329,45 @@ function handleServerMessage(
       break;
     }
 
-    case "agent_step_complete":
-      // Structured step marker for the Phase B activity timeline. The chat bubble
-      // + token total are already handled by agent_output_stream/session_state,
-      // so this intentionally does NOT add a bubble or re-count tokens.
+    case "agent_step_complete": {
+      // Structured step marker. The chat bubble + token total are already handled
+      // by agent_output_stream/session_state, so this only feeds the timeline.
+      const m = msg;
+      if (m.summary) {
+        const ev: ActivityEvent = {
+          id: nextActivityId(),
+          category: "agent_step",
+          phase: m.phase,
+          agentId: m.agent_id,
+          severity: "info",
+          title: `${m.role || m.agent_id} finished a step`,
+          detail: m.summary,
+          narration: "",
+          durationMs: null,
+          timestamp: m.timestamp,
+        };
+        set((s) => ({ activityEvents: [...s.activityEvents.slice(-299), ev] }));
+      }
       break;
+    }
+
+    case "activity_event": {
+      const m = msg;
+      const ev: ActivityEvent = {
+        id: m.event_id,
+        category: m.category,
+        phase: m.phase,
+        agentId: m.agent_id,
+        severity: m.severity,
+        title: m.title,
+        detail: m.detail,
+        narration: m.narration,
+        durationMs: m.duration_ms ?? null,
+        timestamp: m.timestamp,
+      };
+      set((s) => ({ activityEvents: [...s.activityEvents.slice(-299), ev] }));
+      break;
+    }
 
     case "phase_transition":
       set((s) => ({

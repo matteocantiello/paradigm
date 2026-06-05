@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from backend.api.models.messages import (
+    ActivityEventMsg,
     AgentOutputStreamMsg,
     AgentStepCompleteMsg,
     KnowledgeUpdateMsg,
@@ -58,6 +60,65 @@ class WebSocketDisplayAdapter:
             self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
             self._loop = None
+        # Activity timeline (Phase B): monotonically increasing event ids + a
+        # registry of start times so paired events can report a duration.
+        self._activity_seq = 0
+        self._timers: dict[str, float] = {}
+
+    def _activity(
+        self,
+        category: str,
+        title: str,
+        *,
+        phase: str = "",
+        agent_id: str = "",
+        severity: str = "info",
+        detail: str = "",
+        duration_ms: int | None = None,
+        **ctx: Any,
+    ) -> None:
+        """Emit a structured, persistent timeline event (with narration)."""
+        self._activity_seq += 1
+        narration = self._narration_for(
+            category, phase=phase, agent_id=agent_id, title=title, **ctx
+        )
+        self._schedule(
+            self._manager.broadcast_message(
+                self._session_id,
+                ActivityEventMsg(
+                    event_id=f"act-{self._session_id[:8]}-{self._activity_seq}",
+                    category=category,
+                    phase=phase,
+                    agent_id=agent_id,
+                    severity=severity,
+                    title=title,
+                    detail=detail,
+                    narration=narration,
+                    duration_ms=duration_ms,
+                ),
+            )
+        )
+
+    def _narration_for(self, category: str, **ctx: Any) -> str:
+        """Templated (or, later, LLM) narration honoring the config flags."""
+        cfg = getattr(getattr(self._manager, "_config", None), "display", None)
+        ncfg = getattr(cfg, "narration", None)
+        if ncfg is not None and not ncfg.enabled:
+            return ""
+        from paradigm.display.narration import narrate
+
+        return narrate(category, **ctx)
+
+    def _elapsed_ms(self, key: str) -> int | None:
+        """Pop a previously-started timer and return its elapsed ms (or None)."""
+        start = self._timers.pop(key, None)
+        if start is None:
+            return None
+        return int((time.monotonic() - start) * 1000)
+
+    def _current_phase(self) -> str:
+        state = self._manager.get_state(self._session_id)
+        return state.current_phase if state and state.current_phase else ""
 
     def _schedule(self, coro: Any) -> None:
         """Schedule a broadcast coroutine on the captured loop, thread-safely.
@@ -179,6 +240,17 @@ class WebSocketDisplayAdapter:
                 ),
             )
         )
+        # Timeline event, annotated with how long the phase we just left took.
+        prev_ms = self._elapsed_ms("phase")
+        self._timers["phase"] = time.monotonic()
+        self._activity(
+            "phase_transition",
+            f"Phase: {phase_str.replace('_', ' ')}",
+            phase=phase_str,
+            duration_ms=prev_ms,
+            to_phase=phase_str,
+            from_phase=from_phase or "",
+        )
 
     def phase_aborted(self) -> None:
         self._notify(
@@ -205,6 +277,13 @@ class WebSocketDisplayAdapter:
             )
         )
         self._broadcast_state()
+        self._activity(
+            "round_start",
+            f"Round {round_num} of {max_rounds}",
+            phase=self._current_phase(),
+            round_num=round_num,
+            max_rounds=max_rounds,
+        )
 
     # ------------------------------------------------------------------
     # Convergence
@@ -215,6 +294,13 @@ class WebSocketDisplayAdapter:
             f"Agents converged in {phase} after round {round_num}, "
             f"skipping {max_rounds - round_num} round(s)",
             category="convergence",
+        )
+        self._activity(
+            "convergence_detected",
+            f"Converged after round {round_num}",
+            phase=phase,
+            severity="success",
+            detail=f"Skipping {max_rounds - round_num} remaining round(s).",
         )
 
     # ------------------------------------------------------------------
@@ -522,6 +608,15 @@ class WebSocketDisplayAdapter:
 
     def debate_start(self, challenger_id: str, defender_id: str, topic: str) -> None:
         self._notify(f"{challenger_id} vs {defender_id}: {topic[:60]}", category="debate")
+        self._timers["debate"] = time.monotonic()
+        self._activity(
+            "debate_start",
+            f"Debate: {challenger_id} vs {defender_id}",
+            phase=self._current_phase(),
+            detail=topic[:200],
+            challenger_id=challenger_id,
+            defender_id=defender_id,
+        )
 
     def debate_turn(self, agent_id: str, event: str) -> None:
         self._notify(event, category="debate")
@@ -537,6 +632,14 @@ class WebSocketDisplayAdapter:
 
     def debate_complete(self, resolution_type: str, num_turns: int) -> None:
         self._notify(f"Complete: {resolution_type} ({num_turns} turns)", category="debate")
+        self._activity(
+            "debate_complete",
+            f"Debate complete: {resolution_type}",
+            phase=self._current_phase(),
+            severity="success",
+            detail=f"{num_turns} turn(s).",
+            duration_ms=self._elapsed_ms("debate"),
+        )
 
     def debate_skipped(self, target_id: str, reason: str) -> None:
         self._notify(f"Debate skipped: {reason}", category="debate")
@@ -565,9 +668,26 @@ class WebSocketDisplayAdapter:
 
     def experiment_running(self, exp_name: str) -> None:
         self._notify(f"Running: {exp_name}", category="experiment")
+        self._timers[f"exp:{exp_name}"] = time.monotonic()
+        self._activity(
+            "experiment_running",
+            f"Running {exp_name}",
+            phase=self._current_phase(),
+            exp_name=exp_name,
+        )
 
     def experiment_result(self, exp_name: str, status: str) -> None:
         self._notify(f"{exp_name}: {status}", category="experiment")
+        sev = "success" if str(status).lower() in ("success", "passed", "ok") else "warning"
+        self._activity(
+            "experiment_result",
+            f"{exp_name}: {status}",
+            phase=self._current_phase(),
+            severity=sev,
+            exp_name=exp_name,
+            status=status,
+            duration_ms=self._elapsed_ms(f"exp:{exp_name}"),
+        )
 
     def experiment_retry(self, attempt: int, max_retries: int) -> None:
         self._notify(f"Retry {attempt}/{max_retries}", category="experiment")
@@ -649,6 +769,13 @@ class WebSocketDisplayAdapter:
 
     def paper_saved(self, paper_id: str, *, paper_path: str = "") -> None:
         self._notify(f"Paper saved: {paper_id}", category="writing", level="success")
+        self._activity(
+            "paper_saved",
+            "Paper draft saved",
+            phase=self._current_phase(),
+            severity="success",
+            detail=paper_id,
+        )
 
     def paper_too_short(self, length: int, minimum: int) -> None:
         self._notify(f"Paper too short ({length}/{minimum})", category="writing", level="error")
@@ -771,6 +898,14 @@ class WebSocketDisplayAdapter:
 
     def peer_review_decision(self, decision: str) -> None:
         self._notify(f"Decision: {decision}", category="review")
+        sev = "success" if "accept" in str(decision).lower() else "warning"
+        self._activity(
+            "peer_review_decision",
+            f"Peer review: {decision}",
+            phase=self._current_phase(),
+            severity=sev,
+            decision=decision,
+        )
 
     # ------------------------------------------------------------------
     # Revision
@@ -794,9 +929,22 @@ class WebSocketDisplayAdapter:
 
     def paper_published(self) -> None:
         self._notify("Paper PUBLISHED", category="publication", level="success")
+        self._activity(
+            "paper_published",
+            "Paper published",
+            phase=self._current_phase(),
+            severity="success",
+        )
 
     def paper_rejected(self) -> None:
         self._notify("Paper REJECTED", category="publication", level="error")
+        self._activity(
+            "peer_review_decision",
+            "Paper rejected",
+            phase=self._current_phase(),
+            severity="error",
+            decision="rejected",
+        )
 
     # ------------------------------------------------------------------
     # Checkpoints
@@ -885,6 +1033,12 @@ class WebSocketDisplayAdapter:
 
     def seed_discovery_complete(self, num_papers: int) -> None:
         self._notify(f"{num_papers} papers found via seed discovery", category="seed_discovery")
+        self._activity(
+            "seed_discovery",
+            f"Seeded {num_papers} foundational paper(s)",
+            phase=self._current_phase(),
+            count=num_papers,
+        )
 
     def seed_discovery_error(self, error: str | Exception) -> None:
         self._notify(f"Seed discovery failed: {error}", category="seed_discovery", level="error")
@@ -898,6 +1052,13 @@ class WebSocketDisplayAdapter:
 
     def citation_grounding_complete(self, num_citations: int) -> None:
         self._notify(f"{num_citations} citations added", category="citation")
+        self._activity(
+            "citation_grounding",
+            f"Grounded {num_citations} citation(s)",
+            phase=self._current_phase(),
+            severity="success",
+            num_citations=num_citations,
+        )
 
     def citation_grounding_error(self, error: str | Exception) -> None:
         self._notify(f"Citation grounding failed: {error}", category="citation", level="error")

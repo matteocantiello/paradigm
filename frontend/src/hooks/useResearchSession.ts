@@ -17,6 +17,7 @@ export function useResearchSession(sessionId: string | undefined) {
   const completedPhases = useSessionStore((s) => s.completedPhases);
   const agentOutputs = useSessionStore((s) => s.agentOutputs);
   const notifications = useSessionStore((s) => s.notifications);
+  const activityEvents = useSessionStore((s) => s.activityEvents);
   const literature = useSessionStore((s) => s.literature);
   const knowledge = useSessionStore((s) => s.knowledge);
   const pendingApproval = useSessionStore((s) => s.pendingApproval);
@@ -42,6 +43,7 @@ export function useResearchSession(sessionId: string | undefined) {
     completedPhases,
     agentOutputs,
     notifications,
+    activityEvents,
     literature,
     knowledge,
     pendingApproval,
