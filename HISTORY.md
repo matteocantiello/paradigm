@@ -3776,3 +3776,21 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 User completed `paradigm mcp-login` (after activating the conda env). Running a live smoke test of `MCPSourceProvider` against alphaXiv: list_tools → search → fetch, capturing real response shapes to tune `_to_source_result`/`_to_source_document`.
 
 **Outcome — alphaXiv MCP live & tuned.** Login worked (token cached, `0600`). Live probe revealed the real API: search tool is `discover_papers` (required args `keywords: array`, `question: string`, `difficulty: number 1-10`) returning a **plain-text** numbered listing (`N. [ID=<arxiv_id>] **title**. Published <date> [by <affils>]: <abstract>`), and `get_paper_content` takes a `url`. Tuned `MCPSourceProvider` (still generic): (1) schema-driven search-arg builder (`_build_search_args` fills args by role+type — keywords/question/difficulty/limit), (2) numbered-listing text parser (`_parse_text_listing`) as a third fallback after structuredContent/JSON, (3) url-aware id coercion in `fetch` (bare arXiv id → abs URL), plus control-char scrubbing and the "by" clause kept as **affiliations** (not mislabeled as authors). Added `search_difficulty` config (default 3). Verified end-to-end live: `search()`→4 clean `SourceResult`s (incl. old-style `astro-ph/…` ids), `fetch()`→46 KB document. +9 tests; full suite **1474 passed**, ruff clean.
+
+---
+
+### Prompt 97 — "enable the mcp and run the platform"
+
+> can you enable the mcp and run the platform. Then I'll try an experiment
+
+Enabling `literature.mcp.enabled: true` in the interactive config and launching the platform (backend + frontend) for a live experiment.
+
+---
+
+### Prompt 98 — "stuck, arXiv rate-limited — maybe drop arxiv?"
+
+> It seems stuck. It says arXiv rate-limited. Maybe we don't want arxiv anymore?
+
+Investigating: is the cycle actually blocked on arXiv or fast-failing via the circuit breaker? Considering routing interactive-config literature through alphaXiv MCP (which serves the same arXiv content, pre-digested) to avoid the rate-limited IP.
+
+**Root cause — NOT arXiv itself.** The backend's `Corpus` (`session_manager.py`) was built with **no `source_providers`**, so the GUI literature pipeline always hit `Corpus._search_legacy` (direct `ArxivClient`) and silently ignored every configured provider — including the alphaXiv MCP I'd just enabled. The CLI (`main.py`) wires providers via `create_source_providers`; the backend never did. So: (a) alphaXiv could never participate in the GUI, and (b) the "arXiv rate-limited" error FLOOD came from the legacy path letting `ArxivUnavailable` propagate to `orchestrator/literature.py:log_error` (the provider path swallows a failing provider at `corpus.py:251`). Fix: wire `create_source_providers(...)` into `session_manager._run_cycle` (load domain profile first; pass `source_providers` + `topic=seed_prompt`). Verified: provider build → 8 providers incl. `alphaxiv` (MCPSourceProvider); `corpus.search(provider="alphaxiv")` → 4 `[alphaxiv]` results. 249 relevant tests pass; backend restarted on interactive config. The wiring fixes BOTH symptoms (alphaXiv now feeds literature; arXiv fails fast+silent via the breaker, no flood).

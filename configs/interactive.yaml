@@ -106,6 +106,14 @@ literature:
   max_read_chars: 8000
   max_citation_results: 10
   max_reference_results: 20
+  # alphaXiv literature via MCP (OAuth — `paradigm mcp-login` already done).
+  # Additive: in-house arXiv providers still run; alphaXiv adds LLM-optimized
+  # reports (cheaper to inject than scraped PDFs). Connects headlessly via the
+  # cached token; on any connect/auth failure it yields nothing and the cycle
+  # falls back to the in-house providers.
+  mcp:
+    enabled: true
+    # search_difficulty: 3   # bump to 4–5 for deeper multi-round retrieval
 
 # Storage configuration
 storage:

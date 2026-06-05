@@ -144,6 +144,7 @@ class SessionManager:
             from backend.api.services.ws_display import WebSocketDisplayAdapter
             from paradigm.agents.factory import AgentFactory
             from paradigm.literature.corpus import Corpus
+            from paradigm.literature.provider_factory import create_source_providers
             from paradigm.orchestrator.engine import OrchestrationEngine
 
             display = WebSocketDisplayAdapter(session_id, self)
@@ -159,19 +160,35 @@ class SessionManager:
                 else None
             )
 
-            # Build the corpus with a session-specific ChromaDB collection
-            # to isolate literature embeddings across research cycles.
+            # Load the domain profile first — it declares which SourceProviders
+            # to build (arXiv, semantic_scholar, alphaXiv MCP, …).
+            domain_profile = self._config.get_domain_profile()
+
+            # Build the corpus with a session-specific ChromaDB collection to
+            # isolate literature embeddings across research cycles. Wire the
+            # configured SourceProviders (same as the CLI) so the GUI uses the
+            # domain-aware routing path — including the alphaXiv MCP provider and
+            # the circuit-breaker-protected arXiv provider — instead of the
+            # legacy direct-arXiv fallback (which ignores every provider and
+            # hammers the rate-limited arXiv API).
             collection_name = f"paradigm_papers_{session_id}"
+            source_providers = create_source_providers(
+                provider_configs=domain_profile.source_providers,
+                literature_config=self._config.literature,
+                storage_config=self._config.storage,
+                database=self._db,
+                logger=self._event_logger,
+                collection_name=collection_name,
+            )
             corpus = Corpus(
                 database=self._db,
                 literature_config=self._config.literature,
                 storage_config=self._config.storage,
                 logger=self._event_logger,
+                source_providers=source_providers or None,
+                topic=meta["seed_prompt"],
                 collection_name=collection_name,
             )
-
-            # Load domain profile (needed for prompts_dir)
-            domain_profile = self._config.get_domain_profile()
 
             # Build the agent factory with domain-specific prompts
             agent_factory = AgentFactory(
