@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentOutput } from "@/stores/sessionStore";
 import { AGENT_THEMES, getAgentRole } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { Markdown } from "@/components/shared/Markdown";
 import { User } from "lucide-react";
 
 interface MessagesPanelProps {
@@ -58,13 +59,13 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
           <div
             key={out.id}
             className={cn(
-              "rounded-lg border-l-2 bg-card/50 p-3 text-xs animate-fade-in",
+              "rounded-lg border-l-2 bg-card/50 p-3 text-[12.5px] animate-fade-in",
               borderColor
             )}
           >
             <div className="flex items-center gap-1.5 mb-1.5">
               <Icon className={cn("h-3.5 w-3.5", theme?.color ?? "text-muted-foreground")} />
-              <span className="font-semibold text-foreground">{theme?.label ?? role}</span>
+              <span className="text-xs font-semibold text-foreground">{theme?.label ?? role}</span>
               {out.model && (
                 <span className="text-muted-foreground/60 font-mono text-[10px]">({out.model})</span>
               )}
@@ -74,10 +75,10 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
                 </span>
               )}
             </div>
-            <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">
-              {out.content}
-              {out.streaming && !thinking && <span className="stream-caret text-primary" />}
-            </p>
+            {out.content && <Markdown>{out.content}</Markdown>}
+            {out.streaming && !thinking && (
+              <span className="stream-caret text-primary align-text-bottom" />
+            )}
           </div>
         );
       })}

@@ -3812,3 +3812,13 @@ Two issues: (1) an agent punted to the human (likely literature-starved — now 
 > Let's change stalled to be no activity for more than 120s
 
 Bumping `STALL_MS` 35s → 120s in `useSystemState.ts` (thinking band widens to 12–120s). Long model calls / literature searches no longer flagged as stalled.
+
+---
+
+### Prompt 101 — make agent messages readable (markdown/typography like Claude)
+
+> The formatting of the messages is really hard for a reader to parse. Is there a way to make it more intelligible / easy to digest? For example using the same strategy that claude does when providing a description of the workflow in CLI or even on the web interface (fonts, colors, formatting, even md)?
+
+Agents emit markdown (+ LaTeX math per SPEC). Investigating current MessagesPanel rendering → add proper markdown + math rendering with readable typography/role-coloring.
+
+**Outcome — messages now render as rich markdown.** Root cause: live `MessagesPanel` rendered raw `out.content` in a `<p>` (whitespace-pre-wrap), so markdown showed as literal `**`/`##`/`$…$`. (Deps react-markdown/remark-gfm/remark-math/rehype-katex/katex were already installed + KaTeX CSS imported, just unused in the message stream; no @tailwindcss/typography, so `prose` is a no-op.) Added `components/shared/Markdown.tsx` — reusable, memoized (re-parses only when source changes → streaming stays cheap), remark-gfm + remark-math + rehype-katex (`throwOnError:false` for partial-stream safety), with an explicit Observatory-themed element map (serif H1, sized headings, bulleted/numbered lists, inline + fenced code, blockquotes, tables, cyan links, KaTeX math). Wired into MessagesPanel (body 12.5px, brighter `foreground/85`). tsc + vite build clean.
