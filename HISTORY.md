@@ -3680,3 +3680,19 @@ Where (1), (2), (3) refer to the recommended next steps from the status report:
 > commit
 
 **Action:** Commit the uncommitted work on `responsive-live-progress` as logical commits (Prompt 84 arXiv resilience; Prompt 85 audit fixes/hardening), excluding scratch artifacts (PROMPT-*.md, data_validate/, paper-*.pdf).
+
+---
+
+### Prompt 87 — Continue development: start Phase C (hypothesis board + tournament bracket)
+
+> Let's continue with development. What is the next phase we had planned?
+
+**Decision:** We're on Phase C (Depth — live artifacts + GUI intervention). User chose to start with the **hypothesis board + tournament bracket** (frontend on existing `KnowledgeUpdateMsg`; lowest-risk visible win). Build order after: live draft, then experiment panel + GUI intervention (the latter also fixes the audit-flagged cosmetic pause/resume).
+
+---
+
+### Prompt 88 — Build out Phase C (#3 draft, #2 experiment, #4 intervention, #5 profile) + full test + GUI polish
+
+> Continue with phase #3 then phase #2, phase #4 and phase #5. Do intermediate commits as needed. When you are done with all that do a test and make sure all works properly. After that use /frontend-design:frontend-design to improve the GUI to make the platform as engaging and interactive as possible. Iterate as much as needed until the look and feel of the platform is ready for prime time
+
+**Plan:** Phase C remaining slices in order: (#3) live draft / PaperViewer via new DraftUpdateMsg; (#2) experiment panel via ExperimentUpdateMsg; (#4) GUI intervention + REAL pause (engine asyncio.Event gate + human-gate payload threading; fixes the audit-flagged cosmetic pause/resume); (#5) interactive profile enabling stream_tokens + human_gate_mode. Intermediate commits per slice; full test pass (pytest + ruff + tsc + build); then /frontend-design GUI polish, iterating to prime-time.

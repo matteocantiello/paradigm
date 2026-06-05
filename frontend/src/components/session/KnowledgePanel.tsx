@@ -6,6 +6,7 @@ import {
   CONFLICT_TYPE_COLORS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { TournamentBoard } from "./TournamentBoard";
 
 interface KnowledgePanelProps {
   knowledge: KnowledgeState;
@@ -98,11 +99,16 @@ export function KnowledgePanel({ knowledge }: KnowledgePanelProps) {
         ))}
       </CollapsibleSection>
 
-      {/* Hypotheses */}
+      {/* Tournament — Elo standings, rank movement, W–L, matchup feed */}
+      <div className="mb-2">
+        <TournamentBoard knowledge={knowledge} />
+      </div>
+
+      {/* Hypotheses (detailed cards; collapsed by default while the tournament ranks them) */}
       <CollapsibleSection
         title="Hypotheses"
         count={knowledge.hypotheses.length}
-        defaultOpen
+        defaultOpen={knowledge.tournamentRankings.length === 0}
       >
         {knowledge.hypotheses.map((h, i) => (
           <div key={h.id} className="text-[11px] leading-tight px-1 py-1 border-l-2 border-indigo-500/30 pl-2 mb-1">
@@ -125,31 +131,6 @@ export function KnowledgePanel({ knowledge }: KnowledgePanelProps) {
           </div>
         ))}
       </CollapsibleSection>
-
-      {/* Tournament */}
-      {knowledge.tournamentStatus && knowledge.tournamentRankings.length > 0 && (
-        <CollapsibleSection
-          title="Tournament"
-          count={knowledge.tournamentRankings.length}
-          defaultOpen={false}
-        >
-          {knowledge.tournamentSummary && (
-            <p className="text-[11px] text-muted-foreground px-1 mb-1">{knowledge.tournamentSummary}</p>
-          )}
-          {knowledge.matchupResults.map((m, i) => (
-            <div key={i} className="text-[10px] px-1 py-0.5 text-muted-foreground">
-              <span className={m.winner_id === m.hypothesis_a_id ? "text-emerald-400 font-medium" : ""}>
-                A
-              </span>
-              {" vs "}
-              <span className={m.winner_id === m.hypothesis_b_id ? "text-emerald-400 font-medium" : ""}>
-                B
-              </span>
-              {" — "}{m.judge_reasoning.slice(0, 80)}{m.judge_reasoning.length > 80 ? "..." : ""}
-            </div>
-          ))}
-        </CollapsibleSection>
-      )}
 
       {/* Conflicts */}
       <CollapsibleSection

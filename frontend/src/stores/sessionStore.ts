@@ -72,6 +72,9 @@ export type KnowledgeState = {
   evidenceLandscapeSummary: string;
   tournamentSummary: string;
   lastUpdated: string | null;
+  // Elo rating per hypothesis id from the PREVIOUS update, so the tournament
+  // board can show rank movement (▲/▼) without the backend tracking deltas.
+  previousElo: Record<string, number>;
 };
 
 export type LiveLiterature = {
@@ -103,6 +106,7 @@ const EMPTY_KNOWLEDGE: KnowledgeState = {
   evidenceLandscapeSummary: "",
   tournamentSummary: "",
   lastUpdated: null,
+  previousElo: {},
 };
 
 interface SessionStoreState {
@@ -456,6 +460,13 @@ function handleServerMessage(
       const sortedHypotheses = [...k.hypotheses].sort(
         (a, b) => (b.elo_rating ?? 0) - (a.elo_rating ?? 0)
       );
+      // Snapshot the prior Elo per hypothesis so the tournament board can show
+      // rank movement on this update.
+      const prev = get().knowledge;
+      const previousElo: Record<string, number> = {};
+      for (const h of prev.hypotheses) {
+        if (h.elo_rating != null) previousElo[h.id] = h.elo_rating;
+      }
       set({
         knowledge: {
           entities: k.entities,
@@ -474,6 +485,7 @@ function handleServerMessage(
           evidenceLandscapeSummary: k.evidence_landscape_summary,
           tournamentSummary: k.tournament_summary,
           lastUpdated: k.timestamp,
+          previousElo,
         },
       });
       break;

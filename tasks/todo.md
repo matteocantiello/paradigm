@@ -24,7 +24,7 @@ Every new behavior behind a default-safe flag; Rich `DisplayManager` gets no-op 
 - [x] rolling-avg ETA + now-playing header (avg_step_ms + phase_elapsed_seconds)
 
 ## Phase C — Depth (live artifacts + GUI intervention)
-- [ ] hypothesis board + tournament bracket (frontend on existing KnowledgeUpdateMsg)
+- [x] hypothesis board + tournament bracket — `TournamentBoard.tsx`: Elo standings (rank, ▲▼ movement via store `previousElo`, W–L from matchups), readable matchup feed with real hypothesis labels (was the uninformative "A vs B"); detailed Hypotheses cards collapse while the tournament ranks them. (tsc/eslint/build green; standings logic unit-checked)
 - [ ] `ExperimentUpdateMsg` + experiment panel (code + stdout + RESULT parsing)
 - [ ] `DraftUpdateMsg` + live PaperViewer (section-by-section)
 - [ ] human-gate payload threading + GUI-aware ApprovalDialog
