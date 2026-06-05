@@ -279,7 +279,7 @@ class OrchestrationEngine:
 
         # 1E: problem-selection human gate (default-off).
         if self._handle_gate_decision(
-            self._human_gate("problem_selection", payload=f"Problem: {seed_prompt[:200]}")
+            await self._human_gate("problem_selection", payload=f"Problem: {seed_prompt[:200]}")
         ):
             return self.state.thread_id
 
@@ -331,7 +331,7 @@ class OrchestrationEngine:
                 self._logger.log_error(e, thread_id=self.state.thread_id)
 
         # Phase 3: PLANNING (intervention check)
-        intervention = self._check_intervention("ideation", "planning")
+        intervention = await self._check_intervention("ideation", "planning")
         if intervention == "abort":
             self._db.update_thread(self.state.thread_id, status="aborted")
             self._display.phase_aborted()
@@ -373,7 +373,7 @@ class OrchestrationEngine:
             and self._find_agent_by_role("experimentalist") is not None
         )
         if should_experiment:
-            intervention = self._check_intervention("planning", "execution")
+            intervention = await self._check_intervention("planning", "execution")
             if intervention == "abort":
                 self._db.update_thread(self.state.thread_id, status="aborted")
                 self._display.phase_aborted()
@@ -400,7 +400,7 @@ class OrchestrationEngine:
                 # 1E: pre-registration human gate (default-off).
                 gate_payload = f"{len(frozen_rules)} prediction(s) frozen before execution"
                 if self._handle_gate_decision(
-                    self._human_gate("pre_registration", payload=gate_payload)
+                    await self._human_gate("pre_registration", payload=gate_payload)
                 ):
                     return self.state.thread_id
                 self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
@@ -468,7 +468,7 @@ class OrchestrationEngine:
                 # 1E: final-verification human gate (default-off).
                 accepted = sum(1 for r in records if r.status == "accepted")
                 if self._handle_gate_decision(
-                    self._human_gate(
+                    await self._human_gate(
                         "final_verification",
                         payload=f"{accepted}/{len(records)} experiment(s) reproduced",
                     )
@@ -524,7 +524,7 @@ class OrchestrationEngine:
                 from_label = "planning"
 
             # Intervention check before WRITING
-            intervention = self._check_intervention(from_label, "writing")
+            intervention = await self._check_intervention(from_label, "writing")
             if intervention == "abort":
                 self._db.update_thread(self.state.thread_id, status="aborted")
                 self._display.phase_aborted()
@@ -582,7 +582,7 @@ class OrchestrationEngine:
             # Phase 6: PEER REVIEW PIPELINE (optional)
             if self._config.orchestrator.enable_peer_review:
                 # Intervention check before SUBMITTED
-                intervention = self._check_intervention("internal", "submitted")
+                intervention = await self._check_intervention("internal", "submitted")
                 if intervention == "abort":
                     self._db.update_thread(self.state.thread_id, status="aborted")
                     self._display.phase_aborted()
@@ -1331,8 +1331,12 @@ class OrchestrationEngine:
         stripped = stripped.strip()
         return len(stripped) >= min_chars
 
-    def _check_intervention(self, from_phase: str, to_phase: str) -> str:
+    async def _check_intervention(self, from_phase: str, to_phase: str) -> str:
         """Check intervention hook before a phase transition.
+
+        The hook may BLOCK (a GUI approval waits for the user), so it is run off
+        the event loop via ``to_thread`` — calling it inline would deadlock, as
+        the backend hook waits on a coroutine that needs this same loop to run.
 
         Args:
             from_phase: Phase transitioning from.
@@ -1343,17 +1347,23 @@ class OrchestrationEngine:
         """
         if self._intervention_hook is None:
             return "continue"
-        result = self._intervention_hook(self.state.thread_id, from_phase, to_phase)
+        result = await asyncio.to_thread(
+            self._intervention_hook, self.state.thread_id, from_phase, to_phase
+        )
         if result not in ("continue", "pause", "abort"):
             return "continue"
         return result
 
-    def _human_gate(self, point: str, payload: str = "") -> str:
+    async def _human_gate(self, point: str, payload: str = "") -> str:
         """Config-driven human gate (1E) at a named point.
 
         Records the decision in ``state.gate_decisions`` (for provenance) and, in
         ``advisory`` mode, surfaces the payload without blocking. Returns
         "continue" when the gate is off/unset or no hook is registered.
+
+        In ``blocking`` mode ``decide_human_gate`` invokes the (blocking)
+        intervention hook, so it is run off the event loop via ``to_thread`` —
+        calling it inline would deadlock the loop the approval coroutine needs.
 
         Args:
             point: Gate-point name (problem_selection / pre_registration / final_verification).
@@ -1363,7 +1373,8 @@ class OrchestrationEngine:
             "continue", "pause", or "abort".
         """
         cfg = self._config.orchestrator
-        decision, reason = decide_human_gate(
+        decision, reason = await asyncio.to_thread(
+            decide_human_gate,
             cfg.human_gate_mode,
             cfg.human_gate_points,
             point,

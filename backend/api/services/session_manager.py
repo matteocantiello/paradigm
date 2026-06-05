@@ -254,25 +254,19 @@ class SessionManager:
     def _make_intervention_hook(self, session_id: str):
         """Create a synchronous intervention hook that bridges to async WS approval.
 
-        The existing engine calls intervention_hook(thread_id, from_phase, to_phase)
-        synchronously. We use an asyncio.Event to block until the frontend responds.
-        Since the engine runs in an async context, we schedule the approval request
-        and wait on the event from the same event loop.
+        The engine calls this hook off the event loop (via ``to_thread``, to avoid
+        deadlock), so we capture the running loop HERE at creation time — calling
+        ``get_running_loop()`` inside the hook would fail in the worker thread and
+        silently skip the gate. The hook schedules the approval coroutine onto the
+        captured loop and blocks the worker thread on the result.
         """
+        loop = asyncio.get_running_loop()
 
         def hook(thread_id: str, from_phase: str, to_phase: str) -> str:
-            # Get the running event loop
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                return "continue"
-
-            # Create a future to bridge sync/async
             future = asyncio.run_coroutine_threadsafe(
                 self._request_approval(session_id, thread_id, from_phase, to_phase),
                 loop,
             )
-            # Wait for the response (with timeout)
             try:
                 return future.result(timeout=300)  # 5 min timeout
             except Exception:
