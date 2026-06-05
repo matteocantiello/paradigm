@@ -43,9 +43,10 @@ export interface SystemStatus {
 
 // A live operation (model call, literature search, code run) can be silent for
 // a while. Below WORKING we're clearly active; between WORKING and STALL we're
-// presumed mid-step ("thinking"); beyond STALL it's probably stuck.
+// presumed mid-step ("thinking"); beyond STALL it's probably stuck. STALL is
+// generous (120s) because a single long agent turn or search can run that long.
 const WORKING_MS = 12_000;
-const STALL_MS = 35_000;
+const STALL_MS = 120_000;
 
 export function useSystemState(): SystemStatus {
   const connectionStatus = useSessionStore((s) => s.connectionStatus);

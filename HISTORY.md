@@ -3804,3 +3804,11 @@ Investigating: is the cycle actually blocked on arXiv or fast-failing via the ci
 Two issues: (1) an agent punted to the human (likely literature-starved — now fixed — and/or over-cautious prompt); (2) core UX gap: no clear system-state signal (working / idle / awaiting-human). Investigating current interaction model + status UI before proposing a plan. No restarts.
 
 **Outcome — responsiveness + real steering (both in one pass).** Root finding while diagnosing: free-text steering was a no-op — `ws.py` dropped `user_message`/`user_intervention` on TODOs; and the "live" dot pinged regardless of actual activity. Fix, Part B (steering): per-session guidance inbox (`SessionManager._guidance` + `queue_user_guidance` + `_make_guidance_provider`), engine `guidance_provider` drained at each round boundary (`_drain_guidance`) and injected as a top-priority "HUMAN GUIDANCE" block into agent prompts (cleared after the round), `EventType.USER_GUIDANCE` + `display.info` narration, immediate "received — applies next round" ack; no-op for the CLI. Part A (visibility): store `lastActivityAt` on every message; `useSystemState` hook derives working/thinking/awaiting/paused/stalled/done/… on a 1s heartbeat (stalled = >35s idle while running); new `StatusPill` (color+label+hint) in the session header; `NowPlaying` pings only when truly live; InteractionBar placeholder signals steering applies next round. +4 tests; full suite 1478 pass; ruff clean; frontend tsc + vite build clean. Backend auto-reloaded (uvicorn --reload), frontend HMR — no manual restart.
+
+---
+
+### Prompt 100 — raise stalled threshold to 120s
+
+> Let's change stalled to be no activity for more than 120s
+
+Bumping `STALL_MS` 35s → 120s in `useSystemState.ts` (thinking band widens to 12–120s). Long model calls / literature searches no longer flagged as stalled.
