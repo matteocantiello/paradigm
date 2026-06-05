@@ -86,11 +86,24 @@ async def lifespan(app: FastAPI):
         event_logger=event_logger,
     )
 
+    # Durable research-cycle store. Mark any cycle left mid-run by the previous
+    # process as interrupted so the research tab shows it as resumable rather
+    # than perpetually "running".
+    from backend.api.services.cycle_store import CycleStore
+
+    cycle_store = CycleStore(database)
+    n_interrupted = cycle_store.mark_interrupted_on_startup()
+    if n_interrupted:
+        logger.info("Marked %d orphaned cycle(s) as interrupted on startup", n_interrupted)
+
     # Store in app state for dependency injection
     app.state.config = config
     app.state.database = database
     app.state.event_logger = event_logger
     app.state.session_manager = session_manager
+    app.state.cycle_store = cycle_store
+    # Let the session manager update the durable cycle row at lifecycle points.
+    session_manager.cycle_store = cycle_store
 
     logger.info("Paradigm API started")
     yield

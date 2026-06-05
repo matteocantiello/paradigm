@@ -15,12 +15,16 @@ optional steering. Sequencing chosen by user: **terminal screen first**.
 - [x] Wired into `SessionView` (shown above the panels on terminal status).
 - [x] `PapersPage` deep-link `?paper=<id>` so "View paper" opens directly.
 
-## Phase 2 — Persist cycles + mark interrupted  (NEXT, foundation)
-- [ ] Persist cycles to the DB (seed_prompt, mode, status, phase, paper_id, thread_id)
-      — today `_cycles` is in-memory and wiped on restart (research tab vanishes).
-- [ ] `Database.list_threads()` / cycle reconstruction.
-- [ ] On startup, mark stale "running" cycles whose session is gone as `interrupted`
-      so unfinished runs are visible + labeled in the research tab.
+## Phase 2 — Persist cycles + mark interrupted  ✅ DONE
+- [x] DB `cycles` table + CRUD (`create/get/list/update/delete_cycle`) +
+      `mark_running_cycles_interrupted()`. team_roles JSON round-trip.
+- [x] `CycleStore` service (DB-backed; in-memory fallback shares research._cycles
+      for demo mode). Wired into the lifespan; `mark_interrupted_on_startup()`.
+- [x] Migrated research.py + sessions.py routes to the store; session_manager
+      persists the terminal cycle (status + thread_id from engine.state — survives
+      a mid-run drop — + paper_id) in the `finally`.
+- [x] `CycleStatus.INTERRUPTED`; StatusBadge amber "interrupted"; CycleCard shows
+      the phase reached. +6 tests.
 
 ## Phase 3 — Resume from checkpoint + steering
 - [ ] Engine `run_research_cycle(resume_from_thread_id=...)`: load latest checkpoint,

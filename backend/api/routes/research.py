@@ -76,7 +76,7 @@ async def create_research_cycle(
         team_roles=body.team_roles,
         created_at=now,
     )
-    _cycles[cycle_id] = cycle
+    request.app.state.cycle_store.create(cycle)
     return cycle
 
 
@@ -91,7 +91,7 @@ async def list_research_cycles(
     limit: int = 20,
 ) -> ResearchCycleList:
     """List research cycles with pagination."""
-    all_cycles = sorted(_cycles.values(), key=lambda c: c.created_at, reverse=True)
+    all_cycles = request.app.state.cycle_store.list()
     page = [_enrich_cycle(c, request) for c in all_cycles[offset : offset + limit]]
     return ResearchCycleList(
         items=page,
@@ -108,7 +108,7 @@ async def list_research_cycles(
 )
 async def get_research_cycle(cycle_id: str, request: Request) -> ResearchCycleResponse:
     """Get research cycle details."""
-    cycle = _cycles.get(cycle_id)
+    cycle = request.app.state.cycle_store.get(cycle_id)
     if cycle is None:
         raise HTTPException(status_code=404, detail="Research cycle not found")
     return _enrich_cycle(cycle, request)
@@ -121,8 +121,8 @@ async def get_research_cycle(cycle_id: str, request: Request) -> ResearchCycleRe
 )
 async def delete_research_cycle(cycle_id: str, request: Request) -> None:
     """Cancel and delete a research cycle."""
-    cycle = _cycles.get(cycle_id)
-    if cycle is None:
+    store = request.app.state.cycle_store
+    if store.get(cycle_id) is None:
         raise HTTPException(status_code=404, detail="Research cycle not found")
 
     # Abort any running sessions for this cycle, then free their resources
@@ -133,4 +133,4 @@ async def delete_research_cycle(cycle_id: str, request: Request) -> None:
             await manager.abort_session(session.session_id)
         await manager.cleanup_session(session.session_id)
 
-    del _cycles[cycle_id]
+    store.delete(cycle_id)

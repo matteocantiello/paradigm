@@ -3844,3 +3844,13 @@ Big feature. Part A: clear terminal action (view paper | failure/non-convergence
 **Plan + decision (Phase 1 first).** Confirmed gaps: no terminal/completion screen; `_cycles` is in-memory (research tab wiped on restart); engine always starts fresh (no resume anywhere); checkpoints are summary-level. Proposed 3 phases (1: terminal action/summary; 2: persist cycles + auto-mark interrupted; 3: checkpoint-resume + steering). User chose **"Terminal screen first"** — building the end-of-run screen (View Paper on success | non-convergence summary + a Resume affordance for Phase 3), deferring the resume foundation+engine.
 
 **Outcome — Phase 1 (terminal screen) done.** Backend `_enrich_cycle` backfills live status + thread_id + paper_id onto the in-memory cycle (it was only written at start → research tab showed every cycle "running" forever and never learned its paper); wired into list + get (+4 tests). New `TerminalScreen` (frontend): on terminal status shows outcome (complete / finished-no-paper / failed / stopped) + one-line summary + stats (phase reached, rounds, elapsed, tokens, papers) + actions — **View paper** (converged), **Resume** (disabled "soon" → Phase 3), **Back to research**; mounted in SessionView above the panels. `PapersPage` gains `?paper=<id>` deep-linking. Full suite 1486 pass; ruff + tsc + vite build clean. Phases 2 (persist cycles + mark interrupted) and 3 (checkpoint-resume + steering) tracked in tasks/todo.md.
+
+---
+
+### Prompt 104 — Phase 2: persist cycles + mark interrupted
+
+> Yes, let's move into phase 2
+
+Persist research cycles to the DB (survive restart), add list/reconstruct, and on startup mark orphaned running/paused cycles as `interrupted` so unfinished runs are visible + labeled in the research tab. Capture thread_id for Phase-3 resume.
+
+**Outcome — Phase 2 (persist cycles + mark interrupted) done.** New DB `cycles` table + CRUD + `mark_running_cycles_interrupted()` (flips only running/paused → interrupted, leaving pending/completed). `CycleStore` service (DB-backed; in-memory fallback shares research._cycles so demo paths keep working), wired into the lifespan which calls `mark_interrupted_on_startup()`. Migrated research.py + sessions.py to the store; session_manager now persists the terminal cycle row (status + thread_id read from `engine.state` so it survives a mid-run drop, not just clean completion, + paper_id from the thread) in the finally. `CycleStatus.INTERRUPTED` + amber StatusBadge + CycleCard shows the phase reached. Net effect: the research tab survives restart, and a cut-off run shows as **Interrupted** (resumable in Phase 3) instead of perpetually "running". +6 tests; full suite 1492; ruff + tsc + vite build clean.

@@ -36,6 +36,7 @@ export function CycleCard({ cycle, onDelete }: CycleCardProps) {
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground font-mono">
           {new Date(cycle.created_at).toLocaleDateString()}
+          {cycle.current_phase ? ` · ${cycle.current_phase.replace(/_/g, " ")}` : ""}
         </span>
         <button
           onClick={(e) => {

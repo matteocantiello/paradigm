@@ -10,6 +10,8 @@ const STATUS_STYLES: Record<string, string> = {
   aborted: "bg-red-500/15 text-red-400 border-red-500/25",
   failed: "bg-red-500/15 text-red-400 border-red-500/25",
   rejected: "bg-red-500/15 text-red-400 border-red-500/25",
+  // Cut off mid-run — resumable, so amber ("attention") not error-red.
+  interrupted: "bg-amber-500/15 text-amber-400 border-amber-500/25",
   // Distinct end states for runs that did not produce a published paper.
   writing_failed: "bg-red-500/15 text-red-400 border-red-500/25", // legacy/historical
   writing_incomplete: "bg-red-500/15 text-red-400 border-red-500/25",

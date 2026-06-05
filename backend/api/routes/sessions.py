@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.api.middleware.auth import verify_api_key
@@ -16,7 +14,6 @@ from backend.api.models.session import (
     SessionResponse,
     SessionState,
 )
-from backend.api.routes.research import _cycles
 
 router = APIRouter(tags=["sessions"])
 
@@ -33,7 +30,8 @@ async def start_session(
     request: Request = None,  # type: ignore[assignment]
 ) -> SessionResponse:
     """Start a new session for a research cycle."""
-    cycle = _cycles.get(cycle_id)
+    store = request.app.state.cycle_store
+    cycle = store.get(cycle_id)
     if cycle is None:
         raise HTTPException(status_code=404, detail="Research cycle not found")
 
@@ -48,10 +46,8 @@ async def start_session(
     )
     await manager.start_session(state.session_id)
 
-    # Update cycle status and link session
-    cycle.status = CycleStatus.RUNNING
-    cycle.session_id = state.session_id
-    cycle.updated_at = datetime.now(timezone.utc)
+    # Update cycle status and link session (persisted so it survives a restart).
+    store.update(cycle_id, status=CycleStatus.RUNNING, session_id=state.session_id)
 
     return SessionResponse(
         session_id=state.session_id,
@@ -73,7 +69,7 @@ async def list_sessions(
     request: Request,
 ) -> SessionList:
     """List sessions for a research cycle."""
-    if cycle_id not in _cycles:
+    if request.app.state.cycle_store.get(cycle_id) is None:
         raise HTTPException(status_code=404, detail="Research cycle not found")
 
     manager = request.app.state.session_manager

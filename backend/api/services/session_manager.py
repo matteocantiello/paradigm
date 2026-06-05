@@ -67,6 +67,9 @@ class SessionManager:
         # drained by the engine at the next round boundary. Each entry is a
         # ready-to-inject line (target prefix already applied).
         self._guidance: dict[str, list[str]] = {}
+        # Durable cycle store, injected at app startup (None in unit tests / when
+        # core is unavailable). Used to persist the terminal cycle status.
+        self.cycle_store: Any | None = None
         self._message_buffer_size = 200
 
     # ------------------------------------------------------------------
@@ -142,6 +145,7 @@ class SessionManager:
             return
 
         corpus = None
+        engine = None  # bound here so the finally can read engine.state.thread_id
         try:
             # Import here to avoid startup dependency
             # Create the WebSocket display adapter
@@ -269,6 +273,29 @@ class SessionManager:
                 await self._broadcast_status(session_id)
             except Exception:
                 logger.exception("Failed to broadcast terminal status for %s", session_id)
+            # Persist the terminal status + thread + produced paper onto the
+            # durable cycle row, so the research tab is correct after a restart
+            # and the run stays resumable. thread_id is read from the engine's
+            # own state (set during seeding), so it survives even a mid-run
+            # failure such as a dropped connection — not just clean completion.
+            store = getattr(self, "cycle_store", None)
+            if store is not None:
+                try:
+                    thread_id = state.thread_id or getattr(
+                        getattr(engine, "state", None), "thread_id", None
+                    )
+                    fields: dict[str, Any] = {"status": state.status.value}
+                    if thread_id:
+                        fields["thread_id"] = thread_id
+                        if self._db is not None:
+                            thread = self._db.get_thread(thread_id)
+                            if thread and thread.get("current_draft_id"):
+                                fields["paper_id"] = thread["current_draft_id"]
+                    if state.current_phase:
+                        fields["current_phase"] = state.current_phase
+                    store.update(state.cycle_id, **fields)
+                except Exception:
+                    logger.exception("Failed to persist terminal cycle for %s", session_id)
             # Always release the cycle's network clients (httpx pools, wrapped
             # API clients) — otherwise each cycle leaks a connection pool.
             if corpus is not None:

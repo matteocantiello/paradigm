@@ -119,6 +119,25 @@ class Database:
             )
         """)
 
+        # Research cycles table — the web/research-tab unit of work. Persisted so
+        # the research tab survives a restart and orphaned runs can be marked
+        # interrupted + later resumed (a cycle owns a thread + an optional paper).
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cycles (
+                cycle_id TEXT PRIMARY KEY,
+                seed_prompt TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                team_roles TEXT,
+                session_id TEXT,
+                thread_id TEXT,
+                paper_id TEXT,
+                current_phase TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Graveyard table (failed research)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS graveyard (
@@ -495,6 +514,96 @@ class Database:
             values,
         )
         self.conn.commit()
+
+    # Research cycles (web/research-tab persistence)
+
+    def create_cycle(
+        self,
+        cycle_id: str,
+        seed_prompt: str,
+        mode: str,
+        status: str,
+        team_roles: list[str] | None = None,
+        created_at: Any | None = None,
+    ) -> None:
+        """Persist a new research cycle."""
+        cursor = self.conn.cursor()
+        if created_at is not None:
+            cursor.execute(
+                """
+                INSERT INTO cycles (cycle_id, seed_prompt, mode, status, team_roles, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (cycle_id, seed_prompt, mode, status, self._serialize_json(team_roles or []),
+                 created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO cycles (cycle_id, seed_prompt, mode, status, team_roles)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (cycle_id, seed_prompt, mode, status, self._serialize_json(team_roles or [])),
+            )
+        self.conn.commit()
+
+    def _row_to_cycle(self, row: Any) -> dict[str, Any]:
+        d = dict(row)
+        raw = d.get("team_roles")
+        try:
+            d["team_roles"] = json.loads(raw) if raw else None
+        except (TypeError, ValueError):
+            d["team_roles"] = None
+        return d
+
+    def get_cycle(self, cycle_id: str) -> dict[str, Any] | None:
+        """Get a cycle by ID (team_roles deserialized to a list)."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM cycles WHERE cycle_id = ?", (cycle_id,))
+        row = cursor.fetchone()
+        return self._row_to_cycle(row) if row is not None else None
+
+    def list_cycles(self) -> list[dict[str, Any]]:
+        """List all cycles, newest first."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM cycles ORDER BY created_at DESC")
+        return [self._row_to_cycle(r) for r in cursor.fetchall()]
+
+    def update_cycle(self, cycle_id: str, **fields: Any) -> None:
+        """Update cycle fields (team_roles auto-serialized)."""
+        _validate_field_names(fields)
+        if "team_roles" in fields and fields["team_roles"] is not None:
+            fields["team_roles"] = self._serialize_json(fields["team_roles"])
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [cycle_id]
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"UPDATE cycles SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE cycle_id = ?",
+            values,
+        )
+        self.conn.commit()
+
+    def delete_cycle(self, cycle_id: str) -> None:
+        """Delete a cycle row."""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM cycles WHERE cycle_id = ?", (cycle_id,))
+        self.conn.commit()
+
+    def mark_running_cycles_interrupted(self) -> int:
+        """On startup, flag orphaned in-progress cycles as interrupted.
+
+        After a restart no session is alive, so any cycle still ``running`` or
+        ``paused`` was cut off mid-run — mark it ``interrupted`` so the research
+        tab shows it as resumable instead of perpetually "running".
+        Returns the number of rows updated.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE cycles SET status = 'interrupted', updated_at = CURRENT_TIMESTAMP "
+            "WHERE status IN ('running', 'paused')"
+        )
+        self.conn.commit()
+        return cursor.rowcount
 
     # Token tracking
 

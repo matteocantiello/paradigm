@@ -17,6 +17,9 @@ class CycleStatus(str, Enum):
     COMPLETED = "completed"
     ABORTED = "aborted"
     FAILED = "failed"
+    # Cut off mid-run (process restart / crash / dropped connection). Persisted
+    # so the research tab can show it as resumable.
+    INTERRUPTED = "interrupted"
 
 
 class ResearchCycleCreate(BaseModel):
