@@ -12,6 +12,7 @@ Plain-Python handler, mirroring ``TournamentHandler``. Default-off via
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import UTC, datetime
@@ -141,7 +142,8 @@ class PreRegistrationHandler:
             provider, model, extra_body = engine._config.get_provider_and_model_for_role(
                 "theorist"
             )
-            response_text, input_tokens, output_tokens = provider.complete(
+            response_text, input_tokens, output_tokens = await asyncio.to_thread(
+                provider.complete,
                 model=model,
                 system="You pre-register falsifiable predictions for scientific hypotheses.",
                 messages=[{"role": "user", "content": prompt}],

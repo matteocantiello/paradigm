@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -1561,7 +1562,8 @@ class OrchestrationEngine:
         )
 
         provider = self._config.get_provider()
-        text, input_tokens, output_tokens = provider.complete(
+        text, input_tokens, output_tokens = await asyncio.to_thread(
+            provider.complete,
             model=provider.default_model,
             system="You are a concise evaluator. Return only JSON.",
             messages=[{"role": "user", "content": prompt_text}],

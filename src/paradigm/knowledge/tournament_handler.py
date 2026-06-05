@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING
 
@@ -147,7 +148,8 @@ class TournamentHandler:
             provider, model, extra_body = self._engine._config.get_provider_and_model_for_role(
                 "synthesizer"
             )
-            response_text, input_tokens, output_tokens = provider.complete(
+            response_text, input_tokens, output_tokens = await asyncio.to_thread(
+                provider.complete,
                 model=model,
                 system="You extract hypotheses from research discussions.",
                 messages=[{"role": "user", "content": prompt}],
@@ -208,7 +210,8 @@ class TournamentHandler:
             provider, model, extra_body = self._engine._config.get_provider_and_model_for_role(
                 "debate_judge"
             )
-            response_text, input_tokens, output_tokens = provider.complete(
+            response_text, input_tokens, output_tokens = await asyncio.to_thread(
+                provider.complete,
                 model=model,
                 system="You are an impartial hypothesis judge.",
                 messages=[{"role": "user", "content": prompt}],

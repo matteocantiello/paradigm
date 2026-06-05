@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING
@@ -143,7 +144,8 @@ class CheckpointManager:
         )
 
         # Call LLM for compression
-        raw, input_tokens, output_tokens = self._provider.complete(
+        raw, input_tokens, output_tokens = await asyncio.to_thread(
+            self._provider.complete,
             model=self._model,
             max_tokens=2048,
             temperature=0.3,

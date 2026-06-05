@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -457,7 +458,8 @@ async def generate_reflections(
         )
 
         try:
-            text, input_tokens, output_tokens = provider.complete(
+            text, input_tokens, output_tokens = await asyncio.to_thread(
+                provider.complete,
                 model=model,
                 max_tokens=1024,
                 temperature=0.3,

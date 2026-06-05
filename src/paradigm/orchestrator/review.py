@@ -208,7 +208,8 @@ class ReviewHandler:
                 n_figures=len(encoded), figure_list=figure_list
             )
             message = provider.build_image_message(prompt, [(mt, data) for _n, mt, data in encoded])
-            text, input_tokens, output_tokens = provider.complete(
+            text, input_tokens, output_tokens = await asyncio.to_thread(
+                provider.complete,
                 model=model,
                 system="You are a meticulous scientific figure-quality reviewer.",
                 messages=[message],
