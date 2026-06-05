@@ -65,3 +65,8 @@ deploy/.env.production
 
 # Ruff
 .ruff_cache/
+
+# The Python `lib/` rule above wrongly matches the frontend source dir —
+# re-include it (constants.ts/utils.ts live here and MUST be tracked).
+!frontend/src/lib/
+!frontend/src/lib/**
