@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENT_THEMES, getAgentRole, PHASE_LABELS } from "@/lib/constants";
+import { useSystemState } from "@/hooks/useSystemState";
 import { cn } from "@/lib/utils";
 
 interface NowPlayingProps {
@@ -27,6 +28,8 @@ export function NowPlaying({
   // Live "elapsed in phase" ticker. The parent remounts this component per
   // phase (key={currentPhase}), so mount-time is the phase start — no reset
   // effect needed.
+  const { tone } = useSystemState();
+  const liveDot = tone === "live"; // only ping when work is actually flowing
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef<number>(0);
   useEffect(() => {
@@ -58,8 +61,15 @@ export function NowPlaying({
   return (
     <div className="flex items-center gap-2 px-3 py-1 text-[11px] border-b border-border bg-background/60">
       <span className="relative flex h-2 w-2 shrink-0">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+        {liveDot && (
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60" />
+        )}
+        <span
+          className={cn(
+            "relative inline-flex h-2 w-2 rounded-full",
+            liveDot ? "bg-primary" : "bg-muted-foreground/40"
+          )}
+        />
       </span>
       <span className="font-semibold text-foreground">{phaseLabel}</span>
       <span className="text-muted-foreground/50">·</span>

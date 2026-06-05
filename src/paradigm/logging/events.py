@@ -31,6 +31,7 @@ class EventType(StrEnum):
     CITATION_GROUNDING = "citation_grounding"
     NOVELTY_CHECK = "novelty_check"
     SEED_DISCOVERY = "seed_discovery"
+    USER_GUIDANCE = "user_guidance"
 
 
 class Event(BaseModel):

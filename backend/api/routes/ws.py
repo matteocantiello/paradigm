@@ -108,7 +108,11 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
                         msg.target_agent,
                         msg.action,
                     )
-                    # TODO: Route to agent via agent_router service
+                    # Carry the action so the agents know how to treat the note.
+                    text = msg.content or ""
+                    if msg.action and msg.action not in ("message", "guidance"):
+                        text = f"[{msg.action}] {text}".strip()
+                    await manager.queue_user_guidance(session_id, text, msg.target_agent)
 
                 elif msg_type == "user_message":
                     msg = UserMessageMsg(**data)
@@ -117,7 +121,9 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
                         session_id,
                         msg.target_agent or "orchestrator",
                     )
-                    # TODO: Inject into agent conversation
+                    await manager.queue_user_guidance(
+                        session_id, msg.content, msg.target_agent
+                    )
 
                 else:
                     await websocket.send_text(

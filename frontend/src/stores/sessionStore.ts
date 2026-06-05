@@ -154,6 +154,8 @@ interface SessionStoreState {
   completedPhases: string[];
   avgStepMs: number;
   phaseElapsedSeconds: number;
+  // ms-epoch of the last inbound server message — drives stalled-detection.
+  lastActivityAt: number;
 
   // Rolling buffers
   agentOutputs: AgentOutput[];
@@ -214,6 +216,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   completedPhases: [],
   avgStepMs: 0,
   phaseElapsedSeconds: 0,
+  lastActivityAt: 0,
   agentOutputs: [],
   notifications: [],
   activityEvents: [],
@@ -247,6 +250,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       completedPhases: [],
       avgStepMs: 0,
       phaseElapsedSeconds: 0,
+      lastActivityAt: Date.now(),
       agentOutputs: [],
       notifications: [],
       activityEvents: [],
@@ -302,6 +306,10 @@ function handleServerMessage(
   set: (partial: Partial<SessionStoreState> | ((s: SessionStoreState) => Partial<SessionStoreState>)) => void,
   get: () => SessionStoreState
 ) {
+  // Every inbound message counts as activity — this is what lets the UI tell
+  // "working" from "stalled" (no messages for a while).
+  set({ lastActivityAt: Date.now() });
+
   switch (msg.type) {
     case "session_state":
       set({

@@ -1,40 +1,54 @@
-# Responsiveness & Live Progress (A→B→C)
+# Responsive live progress + real steering
 
-Plan: `~/.claude/plans/squishy-crafting-dahl.md`. Branch: `responsive-live-progress`.
-Every new behavior behind a default-safe flag; Rich `DisplayManager` gets no-op mirrors of any new engine-called method.
+Goal: make it obvious (1) when something is happening, (2) when nothing is, and
+(3) when human input is needed/possible — AND make typed steering actually reach
+the running cycle (today the backend drops `user_message`/`user_intervention`).
 
-> Prior completed todos (Prompt 67 reliability/eval, Phase 1 Correctness Kernel, Phase 2 output quality) are preserved in git history + HISTORY.md.
+## Part A — Make system state obvious (frontend)
+- [ ] A1. Store (`sessionStore.ts`): track `lastActivityAt` (ms), updated for every
+      inbound server message; reset on `connect`.
+- [ ] A2. `useSystemState` hook: derive a single state with a 1s heartbeat —
+      `working | thinking | awaiting | paused | stalled | done | stopped | failed |
+      disconnected | starting`. Thresholds: working <12s since activity,
+      thinking 12–35s, stalled >35s (only while `running` and no pending approval).
+- [ ] A3. `StatusPill` component: prominent, color-coded, icon + label + one-line
+      hint (what's happening / what you can do). Mount at top of `SessionView`.
+- [ ] A4. `NowPlaying`: make the ping honest (animate only while working).
 
-## Phase A — Liveness (token streaming + unblock the loop)  ✅ DONE (live-verified: 28 chunks + final)
-- [x] A1+A2 agent infra: non-blocking `generate` via `asyncio.to_thread`, `AgentResponse.stream_id`, per-agent stream sink (`set_stream_sink`) + tests
-- [x] `DisplayConfig` (`stream_tokens`, `stream_chunk_min_chars`) in config.py + register on Config; `configs/fast.yaml` enables it
-- [x] Engine attaches the stream sink to agents when `display.stream_tokens` (routes to `display.agent_stream_start/chunk`); sink is phase-safe + non-fatal
-- [x] ws_display: thread-safe `_schedule` (run_coroutine_threadsafe) + `agent_stream_start/chunk`; Rich `DisplayManager` no-op mirrors
-- [x] ws_display `agent_response`: drop 500-char truncation; final carries `stream_id` + full content
-- [x] session_manager `_broadcast`: don't buffer non-final stream chunks in replay deque
-- [x] `agent_step_complete` emitted from `_log_agent_response` choke point (Rich no-op + WS); frontend double-count fixed
-- [x] frontend: accumulate `agent_output_stream` by `stream_id`; live bubble + cursor + thinking/elapsed
-- [ ] (optional) vitest + sessionStore reducer test — deferred
-- [x] LOOP FIX: offloaded non-generate `provider.complete()` (convergence, checkpoint, tournament x2, memory, prereg, figure review) via `to_thread`; Docker already wrapped. Residual: ChromaDB/embeddings (CPU-bound, deferred).
+## Part B — Make steering real (backend + engine + frontend)
+- [ ] B1. `EventType.USER_GUIDANCE`.
+- [ ] B2. Engine: optional `guidance_provider` (async → list[str]); drain at the
+      round boundary (after the pause gate); inject a "Human Guidance" block into
+      `_build_agent_prompt`'s `checkpoint_context`; narrate via `self._display.info`;
+      clear after the round. Zero behavior change when provider is None (CLI).
+- [ ] B3. `session_manager`: per-session guidance inbox + `queue_user_guidance()` +
+      `_make_guidance_provider()`; pass provider to the engine.
+- [ ] B4. `ws.py`: wire `user_message` + `user_intervention` → inbox; ack with a
+      NotificationMsg ("queued — reaches the agents at the next round").
+- [ ] B5. `InteractionBar`: hint that guidance applies next round; rely on the ack.
 
-## Phase B — Education (timeline + narration + progress/ETA)  ✅ DONE (live-verified: 3 activity events w/ narration + pacing)
-- [x] `display/narration.py` (templated) + `NarrationConfig` (LLM stub)
-- [x] `ActivityEventMsg` + `_activity` helper + duration timers; promoted high-value events
-- [x] frontend phase-grouped activity timeline (EventLog upgrade: title + why-narration + duration + severity)
-- [x] rolling-avg ETA + now-playing header (avg_step_ms + phase_elapsed_seconds)
-
-## Phase C — Depth (live artifacts + GUI intervention)
-- [x] live draft — DraftUpdateMsg (drafting→drafted per section) from writing.py; DraftPanel.tsx renders sections live (status + markdown).
-- [x] experiment panel — ExperimentUpdateMsg (running→final) from experimentation.py with code + stdout + parsed RESULT[...] (via verification._extract_result_tokens) + figure flag; ExperimentPanel.tsx (collapsible code/stdout, RESULT chips, status).
-- [x] GUI intervention + REAL pause — fixes the audit-flagged cosmetic pause: engine awaits an async pause_gate at round boundaries; session_manager toggles a per-session asyncio.Event on pause/resume (+ status broadcast + notification). ApprovalRequestMsg enriched with surviving-hypothesis context. (pause-gate semantics unit-verified)
-- [x] interactive profile — configs/interactive.yaml (stream_tokens + narration + human_gate_mode: blocking). Backend now wires the blocking phase-transition approval gate ONLY when human_gate_mode == "blocking" (default/fast flow freely; fixes latent unattended-stall where every GUI run gated up to 5 min/transition).
-
-**Phase C COMPLETE.** Next: full test pass, then /frontend-design GUI polish to prime-time.
-- [x] hypothesis board + tournament bracket — `TournamentBoard.tsx`: Elo standings (rank, ▲▼ movement via store `previousElo`, W–L from matchups), readable matchup feed with real hypothesis labels (was the uninformative "A vs B"); detailed Hypotheses cards collapse while the tournament ranks them. (tsc/eslint/build green; standings logic unit-checked)
-- [ ] `ExperimentUpdateMsg` + experiment panel (code + stdout + RESULT parsing)
-- [ ] `DraftUpdateMsg` + live PaperViewer (section-by-section)
-- [ ] human-gate payload threading + GUI-aware ApprovalDialog
-- [ ] interactive profile enables `stream_tokens` + `human_gate_mode`
+## Verify
+- [ ] pytest: engine guidance injection + session_manager inbox; ruff; full suite.
+- [ ] frontend: `tsc` typecheck / vite build.
+- [ ] Tell the user; restart (with warning) so they can test.
 
 ## Review
-(to be filled in as phases land)
+Done in one pass (both parts).
+
+**Part B — steering is real now.** `user_message`/`user_intervention` no longer
+hit a TODO: they queue into a per-session inbox (`SessionManager._guidance`), the
+engine drains it at each round boundary (`_drain_guidance`, right after the pause
+gate) and injects a top-priority "HUMAN GUIDANCE" block into every agent prompt
+that round, then clears it. A `USER_GUIDANCE` event + `display.info` narration
+make it visible; the operator gets an immediate "received — applies next round"
+ack. Zero behavior change when no provider is supplied (CLI). 4 new tests
+(end-to-end injection, no-op CLI path, inbox round-trip, blank-ignored).
+
+**Part A — state is obvious now.** Store tracks `lastActivityAt` (every inbound
+message); `useSystemState` derives one of working/thinking/awaiting/paused/
+stalled/done/stopped/failed/connecting/disconnected on a 1s heartbeat (stalled =
+no activity >35s while running). New `StatusPill` (color + label + hint) replaces
+the static StatusBadge in the header; `NowPlaying` pings only while truly live.
+
+Verified: full suite **1478 passed**, ruff clean, frontend `tsc` + vite build
+clean. Backend auto-reloaded healthy; frontend HMR live. Not restarted manually.

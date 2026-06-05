@@ -63,6 +63,10 @@ class SessionManager:
         # Per-session resume gate: set = running, cleared = paused. The engine
         # awaits this at round boundaries, making pause/resume actually pause.
         self._resume_events: dict[str, asyncio.Event] = {}
+        # Per-session guidance inbox: free-text steering typed into the GUI,
+        # drained by the engine at the next round boundary. Each entry is a
+        # ready-to-inject line (target prefix already applied).
+        self._guidance: dict[str, list[str]] = {}
         self._message_buffer_size = 200
 
     # ------------------------------------------------------------------
@@ -213,6 +217,7 @@ class SessionManager:
                 display=display,
                 domain_profile=domain_profile,
                 pause_gate=resume_event.wait,
+                guidance_provider=self._make_guidance_provider(session_id),
             )
 
             # Run the cycle
@@ -267,6 +272,7 @@ class SessionManager:
             # post-run status queries / reconnecting viewers.
             self._cycle_metadata.pop(session_id, None)
             self._resume_events.pop(session_id, None)
+            self._guidance.pop(session_id, None)
 
     def _make_intervention_hook(self, session_id: str):
         """Create a synchronous intervention hook that bridges to async WS approval.
@@ -410,6 +416,42 @@ class SessionManager:
             ),
         )
         await self._broadcast_status(session_id)
+
+    async def queue_user_guidance(
+        self, session_id: str, content: str, target_agent: str | None = None
+    ) -> None:
+        """Queue free-text human guidance for the running cycle.
+
+        The engine drains this at the next round boundary and injects it into the
+        agents' prompts, so typed steering actually reaches the research — unlike
+        before, where ``user_message`` was dropped on the floor. We acknowledge
+        receipt immediately so the operator knows it landed.
+        """
+        text = (content or "").strip()
+        if not text:
+            return
+        line = f"(to {target_agent}) {text}" if target_agent else text
+        self._guidance.setdefault(session_id, []).append(line)
+        await self._broadcast(
+            session_id,
+            NotificationMsg(
+                level="info",
+                category="intervention",
+                message="Guidance received — the agents will see it at the next round.",
+            ),
+        )
+
+    def _make_guidance_provider(self, session_id: str):
+        """Return an async callable the engine drains for queued guidance."""
+
+        async def _provider() -> list[str]:
+            pending = self._guidance.get(session_id)
+            if not pending:
+                return []
+            self._guidance[session_id] = []
+            return pending
+
+        return _provider
 
     async def abort_session(self, session_id: str) -> None:
         """Cancel a running session."""

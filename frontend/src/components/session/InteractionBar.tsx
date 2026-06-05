@@ -45,7 +45,7 @@ export function InteractionBar() {
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Send a message... (Ctrl+Enter)"
+        placeholder="Steer the agents — applies at the next round (Ctrl+Enter)"
         className="flex-1 rounded-lg border border-input bg-card px-4 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
       />
       <button

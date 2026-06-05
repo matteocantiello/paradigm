@@ -79,6 +79,7 @@ class OrchestrationEngine:
         display: DisplayManager | None = None,
         domain_profile: Any | None = None,
         pause_gate: Callable[[], Awaitable[None]] | None = None,
+        guidance_provider: Callable[[], Awaitable[list[str]]] | None = None,
     ) -> None:
         """Initialize the orchestration engine.
 
@@ -105,6 +106,12 @@ class OrchestrationEngine:
         # Optional async gate (supplied by the backend) that blocks while the
         # session is paused. Awaited at round boundaries. No-op for the CLI.
         self._pause_gate = pause_gate
+        # Optional async provider (supplied by the backend) that returns any
+        # human guidance typed into the GUI since the last round. Drained at
+        # round boundaries and injected into the next agent prompts. No-op for
+        # the CLI (None → free-text steering simply isn't available there).
+        self._guidance_provider = guidance_provider
+        self._pending_guidance: list[str] = []
         if display is not None:
             self._display = display
         else:
@@ -764,8 +771,14 @@ class OrchestrationEngine:
             # Real pause: block here while the session is paused (GUI-driven).
             if self._pause_gate is not None:
                 await self._pause_gate()
+            # Pull in any human guidance typed since the last round and inject it
+            # into this round's agent prompts (round-boundary steering).
+            await self._drain_guidance(phase, round_num)
             self._display.round_start(round_num, max_rounds)
             await self._run_round(phase, round_num, scheduler)
+            # Guidance applied this round is now embedded in agent responses /
+            # thread history — clear the buffer so it isn't re-injected forever.
+            self._pending_guidance.clear()
             scheduler.advance_round()
 
             # Convergence detection: skip remaining rounds if agents agree
@@ -824,6 +837,34 @@ class OrchestrationEngine:
             except Exception as e:
                 self._logger.log_error(e, thread_id=self.state.thread_id)
                 self._display.checkpoint_error(e)
+
+    async def _drain_guidance(self, phase: ResearchPhase, round_num: int) -> None:
+        """Pull human guidance from the GUI and stage it for this round's prompts.
+
+        No-op when no ``guidance_provider`` was supplied (the CLI). The provider
+        returns any messages typed since the last drain; we stage them in
+        ``_pending_guidance`` (read by :meth:`_build_agent_prompt`), narrate them,
+        and log a ``USER_GUIDANCE`` event so the activity timeline shows them.
+        """
+        if self._guidance_provider is None:
+            return
+        try:
+            messages = await self._guidance_provider()
+        except Exception as e:  # never let a steering hiccup break the cycle
+            self._logger.log_error(e, thread_id=self.state.thread_id)
+            return
+        for msg in messages or []:
+            text = (msg or "").strip()
+            if not text:
+                continue
+            self._pending_guidance.append(text)
+            self._display.info(f"[your guidance] {text}")
+            self._logger.log(
+                EventType.USER_GUIDANCE,
+                content={"guidance": text, "phase": str(phase), "round": round_num},
+                thread_id=self.state.thread_id,
+                phase=str(phase),
+            )
 
     async def _run_round(
         self,
@@ -1181,6 +1222,16 @@ class OrchestrationEngine:
             el_ctx = self._world_model.build_evidence_landscape_context()
             if el_ctx:
                 checkpoint_context = el_ctx + "\n\n" + checkpoint_context
+
+        # Human guidance typed into the GUI this round goes at the very top — it's
+        # a direct instruction from the operator and should outrank prior context.
+        if self._pending_guidance:
+            guidance_block = (
+                "## HUMAN GUIDANCE (from the operator — follow this now)\n"
+                + "\n".join(f"- {g}" for g in self._pending_guidance)
+                + "\n\n"
+            )
+            checkpoint_context = guidance_block + checkpoint_context
 
         formatted = template.format(
             seed_prompt=self.state.seed_prompt,

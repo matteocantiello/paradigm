@@ -9,7 +9,7 @@ import { InteractionBar } from "./InteractionBar";
 import { ApprovalDialog } from "./ApprovalDialog";
 import { ConnectionIndicator } from "./ConnectionIndicator";
 import { LiteraturePanel } from "./LiteraturePanel";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { StatusPill } from "./StatusPill";
 import type { ConnectionStatus } from "@/api/websocket";
 import type {
   ActivityEvent,
@@ -55,7 +55,7 @@ export function SessionView(props: SessionViewProps) {
       {/* Header bar */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
         <div className="flex items-center gap-2">
-          <StatusBadge status={props.status || "starting"} />
+          <StatusPill />
           <ConnectionIndicator status={props.connectionStatus} />
         </div>
       </div>
