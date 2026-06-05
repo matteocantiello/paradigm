@@ -21,6 +21,39 @@ router = APIRouter(prefix="/api/v1/research", tags=["research"])
 _cycles: dict[str, ResearchCycleResponse] = {}
 
 
+def _enrich_cycle(cycle: ResearchCycleResponse, request: Request) -> ResearchCycleResponse:
+    """Backfill live status / thread_id / paper_id onto an in-memory cycle.
+
+    The cycle row is only written at creation/start, so without this it shows
+    ``running`` forever and never learns its paper. We pull the real terminal
+    status from the (retained) session state and the produced paper from the
+    thread, so the research tab and the end-of-run "View Paper" action are
+    correct. Best-effort: never let enrichment break the listing.
+    """
+    try:
+        mgr = getattr(request.app.state, "session_manager", None)
+        if mgr is not None and cycle.session_id:
+            state = mgr.get_state(cycle.session_id)
+            if state is not None:
+                try:
+                    cycle.status = CycleStatus(state.status.value)
+                except ValueError:
+                    pass  # e.g. "starting" has no CycleStatus — keep prior
+                cycle.thread_id = state.thread_id or cycle.thread_id
+                cycle.current_phase = state.current_phase or cycle.current_phase
+        db = getattr(request.app.state, "database", None)
+        if db is not None and cycle.thread_id:
+            thread = db.get_thread(cycle.thread_id)
+            if thread:
+                if thread.get("current_draft_id"):
+                    cycle.paper_id = thread["current_draft_id"]
+                if not cycle.current_phase and thread.get("current_phase"):
+                    cycle.current_phase = thread["current_phase"]
+    except Exception:  # noqa: BLE001 — enrichment must never break the API
+        pass
+    return cycle
+
+
 @router.post(
     "",
     response_model=ResearchCycleResponse,
@@ -53,12 +86,13 @@ async def create_research_cycle(
     dependencies=[Depends(verify_api_key)],
 )
 async def list_research_cycles(
+    request: Request,
     offset: int = 0,
     limit: int = 20,
 ) -> ResearchCycleList:
     """List research cycles with pagination."""
     all_cycles = sorted(_cycles.values(), key=lambda c: c.created_at, reverse=True)
-    page = all_cycles[offset : offset + limit]
+    page = [_enrich_cycle(c, request) for c in all_cycles[offset : offset + limit]]
     return ResearchCycleList(
         items=page,
         total=len(all_cycles),
@@ -72,12 +106,12 @@ async def list_research_cycles(
     response_model=ResearchCycleResponse,
     dependencies=[Depends(verify_api_key)],
 )
-async def get_research_cycle(cycle_id: str) -> ResearchCycleResponse:
+async def get_research_cycle(cycle_id: str, request: Request) -> ResearchCycleResponse:
     """Get research cycle details."""
     cycle = _cycles.get(cycle_id)
     if cycle is None:
         raise HTTPException(status_code=404, detail="Research cycle not found")
-    return cycle
+    return _enrich_cycle(cycle, request)
 
 
 @router.delete(

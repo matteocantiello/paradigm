@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PaperList } from "@/components/papers/PaperList";
 import { ArtifactTabs } from "@/components/papers/ArtifactTabs";
 import { usePaper, usePaperArtifacts } from "@/hooks/usePapers";
@@ -6,7 +7,16 @@ import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { ArrowLeft } from "lucide-react";
 
 export function PapersPage() {
-  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
+  // Deep-linkable: /papers?paper=<id> opens that paper directly (used by the
+  // end-of-run "View paper" action).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedPaperId, setSelectedPaperIdState] = useState<string | null>(
+    () => searchParams.get("paper")
+  );
+  const setSelectedPaperId = (id: string | null) => {
+    setSelectedPaperIdState(id);
+    setSearchParams(id ? { paper: id } : {}, { replace: true });
+  };
   const { data: paper, isLoading: paperLoading } = usePaper(selectedPaperId ?? undefined);
   const { data: artifacts, isLoading: artifactsLoading } = usePaperArtifacts(
     selectedPaperId ?? undefined

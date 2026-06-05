@@ -10,6 +10,9 @@ import { ApprovalDialog } from "./ApprovalDialog";
 import { ConnectionIndicator } from "./ConnectionIndicator";
 import { LiteraturePanel } from "./LiteraturePanel";
 import { StatusPill } from "./StatusPill";
+import { TerminalScreen } from "./TerminalScreen";
+
+const TERMINAL_STATUSES = new Set(["completed", "failed", "aborted"]);
 import type { ConnectionStatus } from "@/api/websocket";
 import type {
   ActivityEvent,
@@ -89,6 +92,20 @@ export function SessionView(props: SessionViewProps) {
         elapsedSeconds={props.elapsedSeconds}
         onPapersClick={() => setShowLiterature(true)}
       />
+
+      {/* Terminal screen — a clear end-of-run action (View paper / summary).
+          Shown above the panels so the transcript stays available for reference. */}
+      {TERMINAL_STATUSES.has(props.status) && (
+        <TerminalScreen
+          status={props.status}
+          paperId={props.paperId}
+          currentPhase={props.currentPhase}
+          roundNum={props.roundNum}
+          totalTokens={props.totalTokens}
+          papersFound={props.papersFound}
+          elapsedSeconds={props.elapsedSeconds}
+        />
+      )}
 
       {/* 3-column layout */}
       <div className="flex-1 grid grid-cols-[180px_1fr_1fr] gap-0 overflow-hidden border-b border-border">
