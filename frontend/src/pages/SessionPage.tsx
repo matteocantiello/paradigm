@@ -17,7 +17,12 @@ export function SessionPage() {
 
   return (
     <div className="h-[calc(100vh-5rem)]">
-      <SessionView {...session} paperId={cycle?.paper_id ?? undefined} cycleId={cycle?.cycle_id} />
+      <SessionView
+        {...session}
+        paperId={cycle?.paper_id ?? undefined}
+        cycleId={cycle?.cycle_id}
+        topic={cycle?.seed_prompt}
+      />
     </div>
   );
 }

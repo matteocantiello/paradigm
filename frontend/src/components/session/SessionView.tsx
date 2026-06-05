@@ -13,6 +13,10 @@ import { StatusPill } from "./StatusPill";
 import { TerminalScreen } from "./TerminalScreen";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "aborted"]);
+
+// Demo: hide the steering/control bar to foreground the autonomous flow.
+// Flip to true to bring back live steering + pause/abort.
+const SHOW_INTERACTION_BAR = false;
 import type { ConnectionStatus } from "@/api/websocket";
 import type {
   ActivityEvent,
@@ -49,6 +53,7 @@ interface SessionViewProps {
   pendingApproval: ApprovalRequestMsg | null;
   paperId?: string;
   cycleId?: string;
+  topic?: string;
 }
 
 export function SessionView(props: SessionViewProps) {
@@ -57,11 +62,19 @@ export function SessionView(props: SessionViewProps) {
   return (
     <div className="flex h-full flex-col">
       {/* Header bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-3 px-3 py-1.5 border-b border-border">
+        <div className="flex items-center gap-2 shrink-0">
           <StatusPill />
           <ConnectionIndicator status={props.connectionStatus} />
         </div>
+        {props.topic && (
+          <p
+            className="truncate text-xs text-muted-foreground/80 max-w-[60%]"
+            title={props.topic}
+          >
+            {props.topic}
+          </p>
+        )}
       </div>
 
       {/* Phase tracker */}
@@ -128,8 +141,8 @@ export function SessionView(props: SessionViewProps) {
         </div>
       </div>
 
-      {/* Interaction bar */}
-      <InteractionBar />
+      {/* Interaction bar (hidden for the demo — see SHOW_INTERACTION_BAR) */}
+      {SHOW_INTERACTION_BAR && <InteractionBar />}
 
       {/* Approval dialog overlay */}
       {props.pendingApproval && <ApprovalDialog approval={props.pendingApproval} />}

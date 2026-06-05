@@ -11,36 +11,46 @@
 #
 # Use it:
 #   PARADIGM_CONFIG=configs/production.yaml  (set in the systemd unit / .env)
-# Secrets come from the environment: ANTHROPIC_API_KEY, TOGETHER_API_KEY.
+# Secrets come from the environment: ANTHROPIC_API_KEY, GEMINI_API_KEY.
 # Concurrency is bounded by PARADIGM_MAX_CONCURRENT_SESSIONS (default 4).
+#
+# SPEED: 1 round per phase + fast Gemini Flash/Flash-Lite models. The biggest
+# remaining time/risk variable is experiments (Docker) — set
+# enable_experimentation:false for the fastest, most reliable review-style runs.
 
+# SPEED-FIRST registry: Claude (Anthropic) + Gemini (via Google's OpenAI-compatible
+# endpoint). Together/Llama dropped. Gemini Flash-Lite is the fastest (~0.4s/turn);
+# Flash is a touch slower but stronger; Claude Haiku writes the paper.
 providers:
   anthropic:
     type: anthropic
     api_key_env: ANTHROPIC_API_KEY
     default_model: claude-haiku-4-5
-  together:
+  gemini:
     type: openai_compatible
-    api_key_env: TOGETHER_API_KEY
-    base_url: https://api.together.xyz/v1
-    default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+    api_key_env: GEMINI_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    default_model: gemini-2.5-flash
 
 agent:
-  default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+  default_model: "gemini-2.5-flash-lite"
   opus_model: "claude-haiku-4-5"
   max_tokens: 8192
   temperature: 1.0
   token_budget_per_thread: 1000000
   token_budget_per_agent: 100000
-  default_provider: together
+  default_provider: gemini
   overrides:
-    theorist: { provider: anthropic, model: claude-haiku-4-5 }
-    experimentalist: { provider: anthropic, model: claude-haiku-4-5 }
-    analyst: { provider: anthropic, model: claude-haiku-4-5 }
-    synthesizer: { provider: anthropic, model: claude-haiku-4-5 }
+    # Fast bulk roles — Gemini Flash-Lite (snappy, streams well in the live view).
+    theorist: { provider: gemini, model: gemini-2.5-flash-lite }
+    analyst: { provider: gemini, model: gemini-2.5-flash-lite }
+    experimentalist: { provider: gemini, model: gemini-2.5-flash-lite }
+    skeptic: { provider: gemini, model: gemini-2.5-flash-lite }
+    # Quality-sensitive but still fast — Gemini Flash.
+    synthesizer: { provider: gemini, model: gemini-2.5-flash }
+    editor: { provider: gemini, model: gemini-2.5-flash }
+    # The final paper — Claude Haiku (best long-form markdown/LaTeX), larger budget.
     writer: { provider: anthropic, model: claude-haiku-4-5, max_tokens: 16384 }
-    skeptic: { provider: together, model: meta-llama/Llama-3.3-70B-Instruct-Turbo }
-    editor: { provider: together, model: meta-llama/Llama-3.3-70B-Instruct-Turbo }
 
 # Code execution sandbox.
 # NOTE: experiments run real code here. It's network-isolated (network=none) and
@@ -82,7 +92,7 @@ display:
   stream_chunk_min_chars: 12
 
 orchestrator:
-  max_rounds_per_phase: 2
+  max_rounds_per_phase: 1   # speed: one proposal round per phase (bump to 2 for depth)
   enable_checkpointing: true
   checkpoint_interval: 5
   enable_writing: true
