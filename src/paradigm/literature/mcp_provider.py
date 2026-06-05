@@ -137,7 +137,9 @@ class MCPSourceProvider(SourceProvider):
         self,
         *,
         server_url: str,
-        auth_token: str | None = None,
+        auth_mode: str = "oauth",  # "oauth" | "bearer" | "none"
+        auth_token: str | None = None,  # for auth_mode="bearer"
+        oauth_scope: str = "openid profile email offline_access",
         name: str = "mcp",
         search_tool: str | None = None,
         content_tool: str | None = None,
@@ -147,7 +149,9 @@ class MCPSourceProvider(SourceProvider):
     ) -> None:
         self.name = name
         self._url = server_url
+        self._auth_mode = auth_mode
         self._auth = auth_token
+        self._oauth_scope = oauth_scope
         self._search_override = search_tool
         self._content_override = content_tool
         self._timeout = timeout
@@ -174,11 +178,23 @@ class MCPSourceProvider(SourceProvider):
                 "install it with: pip install paradigm[mcp]"
             ) from e
 
-        headers = {"Authorization": f"Bearer {self._auth}"} if self._auth else None
+        # Resolve auth. OAuth-gated servers (alphaXiv) use a cached token from a
+        # prior `paradigm mcp-login`; a static Bearer token is also supported.
+        headers = None
+        auth = None
+        if self._auth_mode == "oauth":
+            from paradigm.literature.mcp_auth import build_oauth_provider
+
+            auth, _ = build_oauth_provider(
+                server_url=self._url, name=self.name, scope=self._oauth_scope, interactive=False
+            )
+        elif self._auth_mode == "bearer" and self._auth:
+            headers = {"Authorization": f"Bearer {self._auth}"}
+
         stack = AsyncExitStack()
         try:
             transport = await stack.enter_async_context(
-                streamablehttp_client(self._url, headers=headers)
+                streamablehttp_client(self._url, headers=headers, auth=auth)
             )
             read, write = transport[0], transport[1]
             session = await stack.enter_async_context(ClientSession(read, write))

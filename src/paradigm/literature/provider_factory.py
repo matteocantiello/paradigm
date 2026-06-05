@@ -133,17 +133,18 @@ def create_source_providers(
     if mcp_cfg.enabled:
         from paradigm.literature.mcp_provider import MCPSourceProvider
 
-        token = os.getenv(mcp_cfg.auth_token_env)
-        if not token:
+        token = os.getenv(mcp_cfg.auth_token_env) if mcp_cfg.auth_mode == "bearer" else None
+        if mcp_cfg.auth_mode == "bearer" and not token:
             _logger.warning(
-                "MCP literature provider %r enabled but %s is not set — "
-                "it will fail to authenticate and be skipped at runtime.",
+                "MCP provider %r is bearer-auth but %s is not set — skipped at runtime.",
                 mcp_cfg.name,
                 mcp_cfg.auth_token_env,
             )
         providers[mcp_cfg.name] = MCPSourceProvider(
             server_url=mcp_cfg.server_url,
+            auth_mode=mcp_cfg.auth_mode,
             auth_token=token,
+            oauth_scope=mcp_cfg.oauth_scope,
             name=mcp_cfg.name,
             search_tool=mcp_cfg.search_tool,
             content_tool=mcp_cfg.content_tool,

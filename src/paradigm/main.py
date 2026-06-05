@@ -671,5 +671,44 @@ def memory_clear(config: Config, older_than: str, yes: bool) -> None:
     click.echo(f"Deleted {deleted} memories. Remaining: {store.count()}")
 
 
+@cli.command(name="mcp-login")
+@click.pass_obj
+def mcp_login(config: Config) -> None:
+    """One-time browser login to the configured literature MCP server (OAuth).
+
+    alphaXiv's MCP server is OAuth-gated (no static API key). This opens a browser
+    to authenticate, then caches the token under ~/.paradigm/mcp/<name>/ so the
+    orchestrator can use it headlessly afterward (auto-refreshed).
+    """
+    mcp = config.literature.mcp
+    if mcp.auth_mode != "oauth":
+        click.echo(
+            f"MCP provider '{mcp.name}' uses auth_mode={mcp.auth_mode!r} — no OAuth login needed."
+        )
+        return
+    try:
+        from paradigm.literature.mcp_auth import interactive_login
+    except ImportError:
+        click.echo("The 'mcp' package is required. Install: pip install paradigm[mcp]", err=True)
+        sys.exit(1)
+
+    click.echo(f"Logging in to MCP server '{mcp.name}' at {mcp.server_url} …")
+    try:
+        tools = asyncio.run(
+            interactive_login(
+                server_url=mcp.server_url, name=mcp.name, scope=mcp.oauth_scope
+            )
+        )
+    except Exception as e:
+        click.echo(f"Login failed: {e}", err=True)
+        click.echo(
+            "If the server rejects dynamic client registration, it may need a "
+            "pre-registered client id — tell me and I'll add that path.",
+            err=True,
+        )
+        sys.exit(1)
+    click.echo(f"✓ Logged in to '{mcp.name}'. Token cached. Tools: {', '.join(tools)}")
+
+
 if __name__ == "__main__":
     cli()

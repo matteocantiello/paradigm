@@ -64,7 +64,15 @@ class MCPLiteratureConfig(BaseModel):
     name: str = "alphaxiv"
     server_url: str = "https://api.alphaxiv.org/mcp/v1"
     transport: str = "http"  # streamable HTTP (sse/stdio reserved for later)
-    auth_token_env: str = "ALPHAXIV_API_KEY"
+    # alphaXiv is OAuth-gated (Clerk) — no static API key. Run `paradigm mcp-login`
+    # once; the token is cached + auto-refreshed for headless runs. Set "bearer"
+    # (with auth_token_env) only for servers that issue a static token, "none" for
+    # open servers (e.g. a local paper-search-mcp).
+    auth_mode: str = "oauth"  # oauth | bearer | none
+    # offline_access is required for a refresh token (headless auto-refresh);
+    # without it the cached token expires and you'd have to re-run mcp-login.
+    oauth_scope: str = "openid profile email offline_access"
+    auth_token_env: str = "ALPHAXIV_API_KEY"  # used only when auth_mode == "bearer"
     search_tool: str | None = None  # override; otherwise auto-discovered
     content_tool: str | None = None
     timeout: float = 30.0
