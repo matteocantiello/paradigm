@@ -40,6 +40,7 @@ export interface ResearchCycleResponse {
   thread_id?: string | null;
   paper_id?: string | null;
   current_phase?: string | null;
+  resumed_from?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
@@ -70,6 +71,14 @@ export function createCycle(body: ResearchCycleCreate) {
 
 export function deleteCycle(cycleId: string) {
   return request<void>(`/api/v1/research/${cycleId}`, { method: "DELETE" });
+}
+
+/** Continue a cycle from its checkpoint as a new run, with optional steering. */
+export function resumeCycle(cycleId: string, comment?: string) {
+  return request<ResearchCycleResponse>(`/api/v1/research/${cycleId}/resume`, {
+    method: "POST",
+    body: JSON.stringify({ comment: comment ?? null }),
+  });
 }
 
 // --- Sessions ---

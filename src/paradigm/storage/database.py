@@ -133,10 +133,13 @@ class Database:
                 thread_id TEXT,
                 paper_id TEXT,
                 current_phase TEXT,
+                resumed_from TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Added idempotently for cycles tables created before resume existed.
+        self._add_columns_if_missing(cursor, "cycles", {"resumed_from": "TEXT"})
 
         # Graveyard table (failed research)
         cursor.execute("""
@@ -525,25 +528,33 @@ class Database:
         status: str,
         team_roles: list[str] | None = None,
         created_at: Any | None = None,
+        resumed_from: str | None = None,
     ) -> None:
         """Persist a new research cycle."""
         cursor = self.conn.cursor()
-        if created_at is not None:
+        created = (
+            created_at.isoformat() if hasattr(created_at, "isoformat")
+            else str(created_at) if created_at is not None
+            else None
+        )
+        if created is not None:
             cursor.execute(
                 """
-                INSERT INTO cycles (cycle_id, seed_prompt, mode, status, team_roles, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO cycles
+                    (cycle_id, seed_prompt, mode, status, team_roles, resumed_from, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (cycle_id, seed_prompt, mode, status, self._serialize_json(team_roles or []),
-                 created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)),
+                (cycle_id, seed_prompt, mode, status,
+                 self._serialize_json(team_roles or []), resumed_from, created),
             )
         else:
             cursor.execute(
                 """
-                INSERT INTO cycles (cycle_id, seed_prompt, mode, status, team_roles)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO cycles (cycle_id, seed_prompt, mode, status, team_roles, resumed_from)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (cycle_id, seed_prompt, mode, status, self._serialize_json(team_roles or [])),
+                (cycle_id, seed_prompt, mode, status,
+                 self._serialize_json(team_roles or []), resumed_from),
             )
         self.conn.commit()
 

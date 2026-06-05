@@ -26,14 +26,25 @@ optional steering. Sequencing chosen by user: **terminal screen first**.
 - [x] `CycleStatus.INTERRUPTED`; StatusBadge amber "interrupted"; CycleCard shows
       the phase reached. +6 tests.
 
-## Phase 3 — Resume from checkpoint + steering
-- [ ] Engine `run_research_cycle(resume_from_thread_id=...)`: load latest checkpoint,
-      reconstruct minimal ResearchState, continue from the next phase (checkpoint-
-      granularity, per the architecture — not exact mid-token replay).
-- [ ] `POST /api/v1/research/{cycle_id}/resume` (+ optional steering comment → the
-      guidance inbox built in prompt 99).
-- [ ] Frontend Resume action (research tab + the TerminalScreen Resume button) with a
-      steering-comment box.
+## Phase 3 — Resume from checkpoint + steering  ✅ DONE
+- [x] No engine surgery: resume reuses the Phase-99 guidance inbox. The prior
+      thread's checkpoint (hypothesis/findings/open-questions/next-steps/summary) +
+      the operator comment are assembled into a continuation note and queued as
+      first-round guidance for a fresh linked run. (Mid-phase re-entry rejected —
+      the engine's phases have hard state deps; checkpoint-granularity per plan.)
+- [x] `POST /api/v1/research/{cycle_id}/resume` (optional `comment`) → creates a
+      continuation cycle (`resumed_from` lineage; DB column + model + store), starts
+      it, queues the note. Works for interrupted/failed/aborted AND completed
+      ("extend further").
+- [x] Frontend: `resumeCycle()`; TerminalScreen Resume button + inline steering box;
+      CycleCard quick-Resume (resumable statuses) + "continues an earlier run"
+      lineage; cycleId threaded SessionPage→SessionView→TerminalScreen. +5 tests.
+
+## Review
+All 3 phases shipped. Full suite 1497; ruff + tsc + vite build clean. Resume is
+checkpoint-granularity (re-derives forward with prior context), not exact
+mid-experiment replay — set with the user up front. Future: thread-reuse /
+draft-continuation once engine.py is refactored for phase re-entry.
 
 ## Review
 Phase 1 verified: full suite 1486 pass; ruff + frontend tsc/build clean. The

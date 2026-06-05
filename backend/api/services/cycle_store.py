@@ -45,6 +45,7 @@ class CycleStore:
             thread_id=row.get("thread_id"),
             paper_id=row.get("paper_id"),
             current_phase=row.get("current_phase"),
+            resumed_from=row.get("resumed_from"),
             created_at=row["created_at"],
             updated_at=row.get("updated_at"),
         )
@@ -58,6 +59,7 @@ class CycleStore:
                 cycle.status.value,
                 cycle.team_roles,
                 cycle.created_at,
+                cycle.resumed_from,
             )
         else:
             self._mem[cycle.cycle_id] = cycle

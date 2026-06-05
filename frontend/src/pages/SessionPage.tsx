@@ -8,16 +8,16 @@ export function SessionPage() {
   const { id } = useParams<{ id: string }>();
   const session = useResearchSession(id);
 
-  // Fetch cycles to find paper_id for this session
+  // Fetch cycles to find the paper_id + cycle_id for this session.
   const { data: cycles } = useQuery({
     queryKey: ["cycles"],
     queryFn: () => listCycles(0, 100),
   });
-  const paperId = cycles?.items.find((c) => c.session_id === id)?.paper_id ?? undefined;
+  const cycle = cycles?.items.find((c) => c.session_id === id);
 
   return (
     <div className="h-[calc(100vh-5rem)]">
-      <SessionView {...session} paperId={paperId} />
+      <SessionView {...session} paperId={cycle?.paper_id ?? undefined} cycleId={cycle?.cycle_id} />
     </div>
   );
 }

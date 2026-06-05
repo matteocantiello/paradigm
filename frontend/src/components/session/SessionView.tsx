@@ -48,6 +48,7 @@ interface SessionViewProps {
   experiments: ExperimentRun[];
   pendingApproval: ApprovalRequestMsg | null;
   paperId?: string;
+  cycleId?: string;
 }
 
 export function SessionView(props: SessionViewProps) {
@@ -98,6 +99,7 @@ export function SessionView(props: SessionViewProps) {
       {TERMINAL_STATUSES.has(props.status) && (
         <TerminalScreen
           status={props.status}
+          cycleId={props.cycleId}
           paperId={props.paperId}
           currentPhase={props.currentPhase}
           roundNum={props.roundNum}

@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2, AlertTriangle, OctagonX, FileText, RotateCcw, ArrowRight } from "lucide-react";
 import { PHASE_LABELS } from "@/lib/constants";
+import { resumeCycle } from "@/api/client";
 import { cn } from "@/lib/utils";
 
 interface TerminalScreenProps {
   status: string; // "completed" | "failed" | "aborted"
+  cycleId?: string;
   paperId?: string;
   currentPhase: string | null;
   roundNum: number;
@@ -36,6 +39,7 @@ const TONES = {
 
 export function TerminalScreen({
   status,
+  cycleId,
   paperId,
   currentPhase,
   roundNum,
@@ -44,6 +48,25 @@ export function TerminalScreen({
   elapsedSeconds,
 }: TerminalScreenProps) {
   const navigate = useNavigate();
+  const [resuming, setResuming] = useState(false);
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function doResume() {
+    if (!cycleId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const cont = await resumeCycle(cycleId, comment.trim() || undefined);
+      if (cont.session_id) navigate(`/session/${cont.session_id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to resume");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const phaseLabel = currentPhase
     ? (PHASE_LABELS[currentPhase] ?? currentPhase.replace(/_/g, " "))
     : "—";
@@ -105,15 +128,19 @@ export function TerminalScreen({
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           )}
-          {!converged && (
+          {cycleId && (
             <button
-              disabled
-              title="Resume from the last checkpoint — coming in the next update"
-              className="flex cursor-not-allowed items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground/60"
+              onClick={() => setResuming((v) => !v)}
+              className={cn(
+                "flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                resuming
+                  ? "border-primary/50 bg-primary/10 text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+              )}
+              title="Continue this research from its last checkpoint"
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              Resume
-              <span className="rounded bg-muted/60 px-1 py-px text-[9px] uppercase tracking-wide">soon</span>
+              {converged ? "Continue research" : "Resume"}
             </button>
           )}
           <button
@@ -124,6 +151,38 @@ export function TerminalScreen({
           </button>
         </div>
       </div>
+
+      {resuming && (
+        <div className="mt-3 rounded-lg border border-border/70 bg-background/40 p-3">
+          <p className="mb-1.5 text-xs text-muted-foreground">
+            Continues from the last checkpoint as a new run. Add optional steering for the team:
+          </p>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            rows={2}
+            placeholder="e.g. focus on the LMC sample; the X-ray nondetection is the key tension to address…"
+            className="w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-xs placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              onClick={doResume}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-all hover:shadow-md hover:shadow-primary/20 disabled:opacity-50"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {busy ? "Starting…" : "Continue research"}
+            </button>
+            <button
+              onClick={() => setResuming(false)}
+              className="rounded-lg px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

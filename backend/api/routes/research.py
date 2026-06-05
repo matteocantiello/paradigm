@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -13,12 +15,62 @@ from backend.api.models.research import (
     ResearchCycleCreate,
     ResearchCycleList,
     ResearchCycleResponse,
+    ResumeRequest,
 )
 
 router = APIRouter(prefix="/api/v1/research", tags=["research"])
 
-# In-memory store for research cycles (replaced by DB in production)
+# In-memory store for research cycles (demo / core-unavailable fallback; the
+# CycleStore shares this dict when there's no DB).
 _cycles: dict[str, ResearchCycleResponse] = {}
+
+
+def _json_list(raw: Any) -> list[str]:
+    """Coerce a thread's JSON-encoded list field (or a real list) to list[str]."""
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    if isinstance(raw, str) and raw.strip():
+        try:
+            v = json.loads(raw)
+            return [str(x) for x in v] if isinstance(v, list) else []
+        except (ValueError, TypeError):
+            return []
+    return []
+
+
+def _build_continuation_note(
+    database: Any, prior: ResearchCycleResponse, comment: str
+) -> str:
+    """Assemble the continuation context delivered to the resumed run as guidance.
+
+    Built from the prior thread's checkpoint (hypothesis / findings / open
+    questions / next steps / summary) plus the operator's steering comment, so
+    the team picks up the established direction rather than starting cold.
+    """
+    phase = (prior.current_phase or "an earlier phase").replace("_", " ")
+    parts = [
+        f"You are CONTINUING prior research that stopped during the {phase} phase. "
+        "Build on the established work below — do not restart from scratch."
+    ]
+    if database is not None and prior.thread_id:
+        thread = database.get_thread(prior.thread_id)
+        if thread:
+            if thread.get("hypothesis"):
+                parts.append(f"Established hypothesis: {thread['hypothesis']}")
+            for label, key in (
+                ("Key findings so far", "key_findings"),
+                ("Open questions", "open_questions"),
+                ("Planned next steps", "next_steps"),
+            ):
+                vals = _json_list(thread.get(key))
+                if vals:
+                    parts.append(f"{label}:\n" + "\n".join(f"- {v}" for v in vals[:8]))
+            if thread.get("checkpoint_summary"):
+                parts.append(f"Progress summary: {thread['checkpoint_summary']}")
+    if comment.strip():
+        parts.append(f"Operator steering for this continuation: {comment.strip()}")
+    parts.append("Continue from here toward a complete, well-supported paper.")
+    return "\n\n".join(parts)
 
 
 def _enrich_cycle(cycle: ResearchCycleResponse, request: Request) -> ResearchCycleResponse:
@@ -78,6 +130,63 @@ async def create_research_cycle(
     )
     request.app.state.cycle_store.create(cycle)
     return cycle
+
+
+@router.post(
+    "/{cycle_id}/resume",
+    response_model=ResearchCycleResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(verify_api_key)],
+)
+async def resume_research_cycle(
+    cycle_id: str,
+    request: Request,
+    body: ResumeRequest | None = None,
+) -> ResearchCycleResponse:
+    """Continue a cycle from its last checkpoint as a new run, with optional steering.
+
+    Resume is *checkpoint-granularity*: the prior cycle's checkpoint plus the
+    operator's comment are delivered to a fresh continuation run as first-round
+    guidance (reusing the steering inbox), so the team builds on the established
+    direction. A new cycle is created (linked via ``resumed_from``); the original
+    is left untouched. Works for interrupted/failed/aborted *and* completed
+    cycles (the latter = "extend this further").
+    """
+    store = request.app.state.cycle_store
+    prior = store.get(cycle_id)
+    if prior is None:
+        raise HTTPException(status_code=404, detail="Research cycle not found")
+
+    manager = request.app.state.session_manager
+    database = getattr(request.app.state, "database", None)
+    comment = (body.comment if body else None) or ""
+    note = _build_continuation_note(database, prior, comment)
+
+    new_id = f"cycle-{secrets.token_hex(16)}"
+    new_cycle = ResearchCycleResponse(
+        cycle_id=new_id,
+        seed_prompt=prior.seed_prompt,
+        mode=prior.mode,
+        status=CycleStatus.PENDING,
+        team_roles=prior.team_roles,
+        resumed_from=cycle_id,
+        created_at=datetime.now(timezone.utc),
+    )
+    store.create(new_cycle)
+
+    state = await manager.create_session(
+        cycle_id=new_id,
+        seed_prompt=prior.seed_prompt,
+        mode=prior.mode,
+        team_roles=prior.team_roles,
+    )
+    # Queue the continuation context + steering BEFORE the engine starts, so it's
+    # drained into the first agent round.
+    await manager.queue_user_guidance(state.session_id, note)
+    await manager.start_session(state.session_id)
+    store.update(new_id, status=CycleStatus.RUNNING, session_id=state.session_id)
+
+    return _enrich_cycle(store.get(new_id), request)
 
 
 @router.get(

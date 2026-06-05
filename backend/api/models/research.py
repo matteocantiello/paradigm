@@ -31,6 +31,12 @@ class ResearchCycleCreate(BaseModel):
     config_overrides: dict[str, object] | None = None
 
 
+class ResumeRequest(BaseModel):
+    """Request body for resuming/continuing a cycle (optional steering note)."""
+
+    comment: str | None = Field(default=None, max_length=10000)
+
+
 class ResearchCycleResponse(BaseModel):
     """Response body for a research cycle."""
 
@@ -43,6 +49,8 @@ class ResearchCycleResponse(BaseModel):
     thread_id: str | None = None
     paper_id: str | None = None
     current_phase: str | None = None
+    # Set when this cycle continues an earlier one (resume).
+    resumed_from: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
