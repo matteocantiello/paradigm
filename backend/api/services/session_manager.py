@@ -60,6 +60,9 @@ class SessionManager:
 
         # Message replay buffer: last N messages per session for reconnect catch-up
         self._message_buffers: dict[str, deque[str]] = {}
+        # Per-session resume gate: set = running, cleared = paused. The engine
+        # awaits this at round boundaries, making pause/resume actually pause.
+        self._resume_events: dict[str, asyncio.Event] = {}
         self._message_buffer_size = 200
 
     # ------------------------------------------------------------------
@@ -168,6 +171,12 @@ class SessionManager:
                 prompts_dir=domain_profile.prompts_dir,
             )
 
+            # Real pause gate: an Event the engine awaits at round boundaries.
+            # Set = running; pause_session() clears it so the engine blocks.
+            resume_event = asyncio.Event()
+            resume_event.set()
+            self._resume_events[session_id] = resume_event
+
             # Create engine with our WS-backed display and intervention hook
             engine = OrchestrationEngine(
                 config=self._config,
@@ -178,6 +187,7 @@ class SessionManager:
                 intervention_hook=intervention_hook,
                 display=display,
                 domain_profile=domain_profile,
+                pause_gate=resume_event.wait,
             )
 
             # Run the cycle
@@ -231,6 +241,7 @@ class SessionManager:
             # SessionState, start time, and knowledge snapshot are kept for
             # post-run status queries / reconnecting viewers.
             self._cycle_metadata.pop(session_id, None)
+            self._resume_events.pop(session_id, None)
 
     def _make_intervention_hook(self, session_id: str):
         """Create a synchronous intervention hook that bridges to async WS approval.
@@ -273,13 +284,27 @@ class SessionManager:
         event = asyncio.Event()
         self._intervention_events[request_id] = event
 
+        # Enrich the prompt with live context (surviving hypotheses) so the
+        # reviewer can make an informed call rather than a blind approve.
+        description = (
+            f"The team finished {from_phase} and wants to move to {to_phase}."
+        )
+        snapshot = self.get_knowledge_snapshot(session_id)
+        if snapshot is not None and snapshot.hypotheses:
+            alive = [h for h in snapshot.hypotheses if h.get("status") != "rejected"]
+            if alive:
+                top = max(alive, key=lambda h: h.get("elo_rating") or 0)
+                stmt = str(top.get("statement", "")).strip()
+                lead = f" Leading: “{stmt[:120]}”." if stmt else ""
+                description += f" {len(alive)} hypotheses still in play.{lead}"
+
         # Broadcast approval request
         await self._broadcast(
             session_id,
             ApprovalRequestMsg(
                 request_id=request_id,
-                title=f"Phase transition: {from_phase} -> {to_phase}",
-                description=f"Thread {thread_id} wants to transition from {from_phase} to {to_phase}.",
+                title=f"Approve transition: {from_phase} → {to_phase}",
+                description=description,
                 from_phase=from_phase,
                 to_phase=to_phase,
             ),
@@ -304,21 +329,68 @@ class SessionManager:
         if event is not None:
             event.set()
 
+    async def _broadcast_status(self, session_id: str) -> None:
+        """Push a fresh SessionStateMsg so the UI badge reflects a status change
+        (pause/resume) even while the engine is blocked and emitting nothing."""
+        state = self.get_state(session_id)
+        if state is None:
+            return
+        await self._broadcast(
+            session_id,
+            SessionStateMsg(
+                session_id=session_id,
+                status=state.status.value,
+                current_phase=state.current_phase,
+                completed_phases=state.completed_phases,
+                round_num=state.round_num,
+                max_rounds=state.max_rounds,
+                thread_id=state.thread_id,
+                active_agents=state.active_agents,
+                total_tokens=state.total_tokens,
+                total_searches=state.total_searches,
+                papers_found=state.papers_found,
+                elapsed_seconds=state.elapsed_seconds,
+            ),
+        )
+
     async def pause_session(self, session_id: str) -> None:
-        """Pause a running session."""
+        """Pause a running session — the engine blocks at the next round boundary."""
         state = self._sessions.get(session_id)
         if state is None:
             raise ValueError(f"Session not found: {session_id}")
         state.status = SessionStatus.PAUSED
         state.updated_at = datetime.now(timezone.utc)
+        # Clear the gate so the engine awaits before its next round.
+        event = self._resume_events.get(session_id)
+        if event is not None:
+            event.clear()
+        await self._broadcast(
+            session_id,
+            NotificationMsg(
+                level="warning",
+                category="lifecycle",
+                message="Paused — research will halt at the next round boundary.",
+            ),
+        )
+        await self._broadcast_status(session_id)
 
     async def resume_session(self, session_id: str) -> None:
-        """Resume a paused session."""
+        """Resume a paused session — release the engine's round-boundary gate."""
         state = self._sessions.get(session_id)
         if state is None:
             raise ValueError(f"Session not found: {session_id}")
         state.status = SessionStatus.RUNNING
         state.updated_at = datetime.now(timezone.utc)
+        event = self._resume_events.get(session_id)
+        if event is not None:
+            event.set()
+        await self._broadcast(
+            session_id,
+            NotificationMsg(
+                level="success", category="lifecycle", message="Resumed."
+            ),
+        )
+        await self._broadcast_status(session_id)
 
     async def abort_session(self, session_id: str) -> None:
         """Cancel a running session."""
@@ -350,6 +422,7 @@ class SessionManager:
             self._session_start_times,
             self._cycle_metadata,
             self._ws_connections,
+            self._resume_events,
         ):
             store.pop(session_id, None)
 

@@ -26,6 +26,7 @@ Every new behavior behind a default-safe flag; Rich `DisplayManager` gets no-op 
 ## Phase C — Depth (live artifacts + GUI intervention)
 - [x] live draft — DraftUpdateMsg (drafting→drafted per section) from writing.py; DraftPanel.tsx renders sections live (status + markdown).
 - [x] experiment panel — ExperimentUpdateMsg (running→final) from experimentation.py with code + stdout + parsed RESULT[...] (via verification._extract_result_tokens) + figure flag; ExperimentPanel.tsx (collapsible code/stdout, RESULT chips, status).
+- [x] GUI intervention + REAL pause — fixes the audit-flagged cosmetic pause: engine awaits an async pause_gate at round boundaries; session_manager toggles a per-session asyncio.Event on pause/resume (+ status broadcast + notification). ApprovalRequestMsg enriched with surviving-hypothesis context. (pause-gate semantics unit-verified)
 - [x] hypothesis board + tournament bracket — `TournamentBoard.tsx`: Elo standings (rank, ▲▼ movement via store `previousElo`, W–L from matchups), readable matchup feed with real hypothesis labels (was the uninformative "A vs B"); detailed Hypotheses cards collapse while the tournament ranks them. (tsc/eslint/build green; standings logic unit-checked)
 - [ ] `ExperimentUpdateMsg` + experiment panel (code + stdout + RESULT parsing)
 - [ ] `DraftUpdateMsg` + live PaperViewer (section-by-section)

@@ -7,6 +7,7 @@ import json
 import re
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from paradigm.agents.base import Agent
@@ -77,6 +78,7 @@ class OrchestrationEngine:
         memory_store: Any | None = None,
         display: DisplayManager | None = None,
         domain_profile: Any | None = None,
+        pause_gate: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Initialize the orchestration engine.
 
@@ -100,6 +102,9 @@ class OrchestrationEngine:
         self._intervention_hook = intervention_hook
         self._memory_store = memory_store
         self._profile = domain_profile
+        # Optional async gate (supplied by the backend) that blocks while the
+        # session is paused. Awaited at round boundaries. No-op for the CLI.
+        self._pause_gate = pause_gate
         if display is not None:
             self._display = display
         else:
@@ -756,6 +761,9 @@ class OrchestrationEngine:
             active_count = len(self.state.agents)
 
         for round_num in range(1, max_rounds + 1):
+            # Real pause: block here while the session is paused (GUI-driven).
+            if self._pause_gate is not None:
+                await self._pause_gate()
             self._display.round_start(round_num, max_rounds)
             await self._run_round(phase, round_num, scheduler)
             scheduler.advance_round()
