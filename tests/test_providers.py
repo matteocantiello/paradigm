@@ -85,9 +85,7 @@ class TestAnthropicProvider:
             )
 
             _, kwargs = mock_client.messages.create.call_args
-            assert kwargs["extra_body"] == {
-                "thinking": {"type": "enabled", "budget_tokens": 1024}
-            }
+            assert kwargs["extra_body"] == {"thinking": {"type": "enabled", "budget_tokens": 1024}}
 
     def test_complete_omits_extra_body_when_absent(self):
         """No extra_body kwarg is sent when none is supplied (keeps SDK call clean)."""

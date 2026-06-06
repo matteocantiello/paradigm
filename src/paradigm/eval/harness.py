@@ -137,9 +137,7 @@ def run_offline_eval(
     """Score papers already in the database. Excludes ingested (external) papers."""
     papers = database.list_papers(limit=None)
     selected = [
-        p
-        for p in papers
-        if include_external or p.get("status") not in _NON_GENERATED_STATUSES
+        p for p in papers if include_external or p.get("status") not in _NON_GENERATED_STATUSES
     ]
     if limit:
         selected = selected[:limit]
@@ -202,22 +200,42 @@ def write_report(report: EvalReport, out_dir: Path) -> tuple[Path, Path]:
     writer = csv.writer(buf)
     writer.writerow(
         [
-            "paper_id", "title", "outcome", "outcome_score", "deterministic_score",
-            "judge_mean", "quality_score", "body_chars", "num_sections",
-            "figures_present", "figures_referenced", "bare_url_references",
-            "total_references", "citation_quality", "total_tokens",
+            "paper_id",
+            "title",
+            "outcome",
+            "outcome_score",
+            "deterministic_score",
+            "judge_mean",
+            "quality_score",
+            "body_chars",
+            "num_sections",
+            "figures_present",
+            "figures_referenced",
+            "bare_url_references",
+            "total_references",
+            "citation_quality",
+            "total_tokens",
         ]
     )
     for s in report.scores:
         d = s.deterministic
         writer.writerow(
             [
-                s.paper_id, s.title, d.outcome, d.outcome_score,
+                s.paper_id,
+                s.title,
+                d.outcome,
+                d.outcome_score,
                 round(d.deterministic_score, 3),
                 round(s.judge.mean, 3) if s.judge else "",
-                s.quality_score, d.body_chars, d.num_sections,
-                d.figures_present, d.figures_referenced, d.bare_url_references,
-                d.total_references, d.citation_quality, d.total_tokens,
+                s.quality_score,
+                d.body_chars,
+                d.num_sections,
+                d.figures_present,
+                d.figures_referenced,
+                d.bare_url_references,
+                d.total_references,
+                d.citation_quality,
+                d.total_tokens,
             ]
         )
     csv_path.write_text(buf.getvalue())

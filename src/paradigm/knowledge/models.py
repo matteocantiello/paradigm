@@ -181,8 +181,10 @@ class PredictionRule(BaseModel):
         if self.direction == PredictionDirection.INSIDE:
             return self.low is not None and self.high is not None and self.low <= value <= self.high
         if self.direction == PredictionDirection.OUTSIDE:
-            return self.low is not None and self.high is not None and (
-                value < self.low or value > self.high
+            return (
+                self.low is not None
+                and self.high is not None
+                and (value < self.low or value > self.high)
             )
         if self.direction == PredictionDirection.GREATER:
             return self.low is not None and value > self.low

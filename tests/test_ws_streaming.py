@@ -60,11 +60,7 @@ async def test_agent_response_final_carries_full_content_and_stream_id():
     )
     await asyncio.sleep(0.05)
 
-    finals = [
-        m
-        for m in mgr.broadcasts
-        if isinstance(m, AgentOutputStreamMsg) and m.is_final
-    ]
+    finals = [m for m in mgr.broadcasts if isinstance(m, AgentOutputStreamMsg) and m.is_final]
     assert len(finals) == 1
     assert finals[0].content == long_content  # NOT truncated
     assert finals[0].stream_id == "sid9"
@@ -82,7 +78,8 @@ async def test_replay_buffer_excludes_nonfinal_chunks():
     # A long stream of chunks that must NOT evict it.
     for i in range(500):
         await mgr._broadcast(
-            sid, AgentOutputStreamMsg(agent_id="a", content=f"c{i}", stream_id="sid", is_final=False)
+            sid,
+            AgentOutputStreamMsg(agent_id="a", content=f"c{i}", stream_id="sid", is_final=False),
         )
     # The final message IS buffered.
     await mgr._broadcast(

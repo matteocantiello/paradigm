@@ -17,13 +17,7 @@ from paradigm.orchestrator.constants import (
 
 class TestRestartAtParsing:
     def test_parses_restart_at(self):
-        text = (
-            "```python\n"
-            "# EXPERIMENT: resume_fit\n"
-            "# RESTART_AT: 2\n"
-            "print('resuming')\n"
-            "```"
-        )
+        text = "```python\n# EXPERIMENT: resume_fit\n# RESTART_AT: 2\nprint('resuming')\n```"
         blocks = _extract_code_blocks(text)
         assert len(blocks) == 1
         assert blocks[0].restart_at_step == 2

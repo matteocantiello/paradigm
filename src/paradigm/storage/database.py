@@ -533,8 +533,10 @@ class Database:
         """Persist a new research cycle."""
         cursor = self.conn.cursor()
         created = (
-            created_at.isoformat() if hasattr(created_at, "isoformat")
-            else str(created_at) if created_at is not None
+            created_at.isoformat()
+            if hasattr(created_at, "isoformat")
+            else str(created_at)
+            if created_at is not None
             else None
         )
         if created is not None:
@@ -544,8 +546,15 @@ class Database:
                     (cycle_id, seed_prompt, mode, status, team_roles, resumed_from, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (cycle_id, seed_prompt, mode, status,
-                 self._serialize_json(team_roles or []), resumed_from, created),
+                (
+                    cycle_id,
+                    seed_prompt,
+                    mode,
+                    status,
+                    self._serialize_json(team_roles or []),
+                    resumed_from,
+                    created,
+                ),
             )
         else:
             cursor.execute(
@@ -553,8 +562,14 @@ class Database:
                 INSERT INTO cycles (cycle_id, seed_prompt, mode, status, team_roles, resumed_from)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (cycle_id, seed_prompt, mode, status,
-                 self._serialize_json(team_roles or []), resumed_from),
+                (
+                    cycle_id,
+                    seed_prompt,
+                    mode,
+                    status,
+                    self._serialize_json(team_roles or []),
+                    resumed_from,
+                ),
             )
         self.conn.commit()
 

@@ -65,7 +65,9 @@ class FakeManager:
 
 def _request(store, mgr, db):
     return SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(cycle_store=store, session_manager=mgr, database=db))
+        app=SimpleNamespace(
+            state=SimpleNamespace(cycle_store=store, session_manager=mgr, database=db)
+        )
     )
 
 
@@ -79,8 +81,12 @@ def test_json_list_coerces_json_and_lists():
 
 def test_continuation_note_without_thread_or_comment():
     prior = ResearchCycleResponse(
-        cycle_id="c", seed_prompt="s", mode="directed",
-        status=CycleStatus.INTERRUPTED, current_phase=None, created_at=datetime.now(UTC),
+        cycle_id="c",
+        seed_prompt="s",
+        mode="directed",
+        status=CycleStatus.INTERRUPTED,
+        current_phase=None,
+        created_at=datetime.now(UTC),
     )
     note = _build_continuation_note(None, prior, "")
     assert "CONTINUING" in note and "an earlier phase" in note
@@ -100,18 +106,25 @@ async def test_resume_creates_linked_continuation_and_queues_guidance(db):
     )
     store = CycleStore(db)
     # Mirror the real lifecycle: created minimal, then enriched during the run.
-    store.create(ResearchCycleResponse(
-        cycle_id="cyc-old", seed_prompt="study red noise", mode="directed",
-        status=CycleStatus.PENDING, team_roles=["theorist", "analyst"],
-        created_at=datetime.now(UTC),
-    ))
+    store.create(
+        ResearchCycleResponse(
+            cycle_id="cyc-old",
+            seed_prompt="study red noise",
+            mode="directed",
+            status=CycleStatus.PENDING,
+            team_roles=["theorist", "analyst"],
+            created_at=datetime.now(UTC),
+        )
+    )
     store.update(
         "cyc-old", status=CycleStatus.INTERRUPTED, thread_id="thread-old", current_phase="writing"
     )
     mgr = FakeManager()
     request = _request(store, mgr, db)
 
-    new = await resume_research_cycle("cyc-old", request, ResumeRequest(comment="focus on the LMC sample"))
+    new = await resume_research_cycle(
+        "cyc-old", request, ResumeRequest(comment="focus on the LMC sample")
+    )
 
     # A NEW continuation cycle, linked + running, preserving prompt/team.
     assert new.cycle_id != "cyc-old"
@@ -147,10 +160,15 @@ async def test_resume_unknown_cycle_404(db):
 async def test_resume_works_without_checkpoint_or_comment(db):
     """A cycle with no thread/checkpoint still resumes (continuation, no prior context)."""
     store = CycleStore(db)
-    store.create(ResearchCycleResponse(
-        cycle_id="bare", seed_prompt="topic", mode="directed",
-        status=CycleStatus.FAILED, created_at=datetime.now(UTC),
-    ))
+    store.create(
+        ResearchCycleResponse(
+            cycle_id="bare",
+            seed_prompt="topic",
+            mode="directed",
+            status=CycleStatus.FAILED,
+            created_at=datetime.now(UTC),
+        )
+    )
     mgr = FakeManager()
     new = await resume_research_cycle("bare", _request(store, mgr, db), None)
     assert new.resumed_from == "bare" and new.status == CycleStatus.RUNNING

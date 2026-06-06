@@ -31,6 +31,7 @@ def _make_sandbox_writable(path: Path) -> None:
     except OSError as e:
         _logger.warning("Could not relax permissions on %s for the sandbox: %s", path, e)
 
+
 # Auto-import preamble prepended to all experiment code.
 # Agents frequently use standard aliases (np, pd, plt) without explicit imports;
 # this prevents NameError crashes for the most common scientific libraries.

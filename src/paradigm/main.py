@@ -695,9 +695,7 @@ def mcp_login(config: Config) -> None:
     click.echo(f"Logging in to MCP server '{mcp.name}' at {mcp.server_url} …")
     try:
         tools = asyncio.run(
-            interactive_login(
-                server_url=mcp.server_url, name=mcp.name, scope=mcp.oauth_scope
-            )
+            interactive_login(server_url=mcp.server_url, name=mcp.name, scope=mcp.oauth_scope)
         )
     except Exception as e:
         click.echo(f"Login failed: {e}", err=True)

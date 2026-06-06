@@ -43,7 +43,9 @@ api = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
-    "ruff>=0.6.0",
+    # Pinned exactly: ruff's formatter changes between releases, so an unpinned
+    # range makes `ruff format --check` drift red whenever CI grabs a newer ruff.
+    "ruff==0.15.16",
 ]
 
 [project.scripts]

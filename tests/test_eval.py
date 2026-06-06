@@ -79,8 +79,9 @@ def test_compute_metrics_outcome_score():
 
 
 def test_blend_with_and_without_judge():
-    det = DeterministicMetrics(outcome="published", outcome_score=1.0, num_sections=6,
-                               has_references=True)
+    det = DeterministicMetrics(
+        outcome="published", outcome_score=1.0, num_sections=6, has_references=True
+    )
     no_judge = PaperScore.blend(det, None)
     judge = JudgeScores(novelty=8, rigor=8, clarity=8, significance=8, honesty=8)
     with_judge = PaperScore.blend(det, judge)
@@ -116,7 +117,13 @@ class _StubDB:
 
 def test_run_offline_eval_excludes_external(tmp_path):
     papers = [
-        {"id": "p1", "title": "Generated", "body": _SAMPLE, "status": "published", "citation_count": 0},
+        {
+            "id": "p1",
+            "title": "Generated",
+            "body": _SAMPLE,
+            "status": "published",
+            "citation_count": 0,
+        },
         {"id": "ext1", "title": "Ingested", "body": "x", "status": "external", "citation_count": 0},
     ]
     report = run_offline_eval(_StubDB(papers), tmp_path)

@@ -178,9 +178,7 @@ class TestApplyGate:
         )
         records = [
             VerificationRecord(experiment_name="good", status="accepted", reproduced=True),
-            VerificationRecord(
-                experiment_name="bad", status="nondeterministic", detail="drifted"
-            ),
+            VerificationRecord(experiment_name="bad", status="nondeterministic", detail="drifted"),
         ]
         demoted = VerificationKernel.apply_gate(engine, records)
         assert demoted == 1

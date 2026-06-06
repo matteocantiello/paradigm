@@ -22,9 +22,7 @@ from paradigm.orchestrator.preregistration import PreRegistrationHandler, _extra
 
 class TestPredictionRuleWellFormed:
     def test_requires_refutation_condition(self):
-        r = PredictionRule(
-            metric_stdout_key="r", direction=PredictionDirection.GREATER, low=0.5
-        )
+        r = PredictionRule(metric_stdout_key="r", direction=PredictionDirection.GREATER, low=0.5)
         assert not r.is_well_formed()  # empty refutation_condition
 
     def test_requires_metric_key(self):

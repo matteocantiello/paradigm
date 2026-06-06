@@ -77,9 +77,7 @@ class JudgeScores(BaseModel):
     @property
     def mean(self) -> float:
         """Mean of the five dimensions, normalized to 0..1."""
-        return (
-            self.novelty + self.rigor + self.clarity + self.significance + self.honesty
-        ) / 50.0
+        return (self.novelty + self.rigor + self.clarity + self.significance + self.honesty) / 50.0
 
 
 class PaperScore(BaseModel):

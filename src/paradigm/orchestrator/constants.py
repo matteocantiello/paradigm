@@ -1199,9 +1199,7 @@ def _extract_code_blocks(text: str) -> list[CodeBlock]:
         # 1C: optional resume point declared by the agent (# RESTART_AT: <k>)
         restart_match = _RESTART_AT_RE.search(code)
         restart_at = int(restart_match.group(1)) if restart_match else 0
-        blocks.append(
-            CodeBlock(name=name, code=code, depends_on=deps, restart_at_step=restart_at)
-        )
+        blocks.append(CodeBlock(name=name, code=code, depends_on=deps, restart_at_step=restart_at))
     return blocks
 
 
@@ -1301,9 +1299,7 @@ def _best_first_order(
         non_buggy = sorted(
             (n for n in ready if n not in buggy_names), key=lambda n: original_order[n]
         )
-        buggy = sorted(
-            (n for n in ready if n in buggy_names), key=lambda n: original_order[n]
-        )
+        buggy = sorted((n for n in ready if n in buggy_names), key=lambda n: original_order[n])
         if non_buggy and buggy:
             chosen = buggy[0] if rng.random() < debug_prob else non_buggy[0]
         elif non_buggy:

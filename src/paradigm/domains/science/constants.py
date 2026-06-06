@@ -63,7 +63,7 @@ LITERATURE_INSTRUCTION = (
     "(e.g. `JWST little red dots` or `little red dots continuum`).\n"
     "- **Do NOT use boolean operators** (`AND`, `OR`), and do not stack 4+ terms "
     "or long quoted phrases. The search matches keywords, so an over-constrained "
-    "query like `\"JWST Little Red Dots\" AND \"thermal emission\" AND \"5000 K\"` "
+    'query like `"JWST Little Red Dots" AND "thermal emission" AND "5000 K"` '
     "returns ZERO results.\n"
     "- If a search returns nothing, **broaden it** (drop terms, use more general "
     "words) — do not narrow it further.\n\n"

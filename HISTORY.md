@@ -4097,3 +4097,11 @@ Basic bugs from 127 are GONE (rebuild worked). Remaining failures are gemini-2.5
 > Maybe we assign a better model to the experimentalist. Like a flagship Claude model?
 
 The flash-lite experimentalist is the root of the experiment failures. Bumping experimentalist (the code-writing role) to Claude Sonnet 4.6 in production.yaml (flagship-tier code quality at ~half Opus cost, faster — good for the retry loop). Opus 4.8 is a one-line swap if max reliability is wanted.
+
+---
+
+### Prompt 132 — CI failing on `ruff format --check` (28 files)
+
+> CI is failing [ruff format --check would reformat 28 files]
+
+CI runs `ruff format --check` (formatter, separate from the `ruff check` linter I'd been running). 28 files drifted — mostly pre-existing in files not touched this session; CI installs ruff UNPINNED (latest 0.15.16) while local was 0.15.4. Fix: match CI's ruff version, `ruff format src/ tests/`, and PIN ruff==0.15.16 (pyproject [dev] + lint.yml) so the unpinned-latest drift can't recur.

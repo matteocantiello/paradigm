@@ -127,7 +127,9 @@ class WritingHandler:
         if records:
             lines.append("### Verification Ledger (re-execution)")
             for r in records:
-                err = f", max rel error {r.max_rel_error:.2e}" if r.max_rel_error is not None else ""
+                err = (
+                    f", max rel error {r.max_rel_error:.2e}" if r.max_rel_error is not None else ""
+                )
                 lines.append(f"- **{r.experiment_name}**: {r.status.upper()}{err} — {r.detail}")
             lines.append(
                 "Only ACCEPTED experiments reproduced under re-execution. Do NOT report "

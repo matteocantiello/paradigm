@@ -71,7 +71,11 @@ def test_extract_items_prefers_structured_then_text():
 # --- tool discovery --------------------------------------------------------
 def test_picks_fulltext_search_over_embedding_and_content_tool():
     p = _provider(
-        [_tool("embedding_similarity_search"), _tool("full_text_search"), _tool("get_paper_content")],
+        [
+            _tool("embedding_similarity_search"),
+            _tool("full_text_search"),
+            _tool("get_paper_content"),
+        ],
         _result(),
     )
     from paradigm.literature.mcp_provider import _CONTENT_HINTS, _EMBED_HINTS, _SEARCH_HINTS
@@ -114,7 +118,9 @@ async def test_search_normalizes_structured_results():
     assert sr.authors == ["A. Star"]
     assert sr.summary == "A tight period-luminosity law."  # tldr preferred
     # The query + limit args were routed by the discovered schema keys.
-    assert p._session.calls == [("full_text_search", {"query": "cepheid period luminosity", "limit": 5})]
+    assert p._session.calls == [
+        ("full_text_search", {"query": "cepheid period luminosity", "limit": 5})
+    ]
 
 
 async def test_search_from_text_json_and_synthesized_id():
@@ -200,8 +206,14 @@ def test_parse_text_listing_ignores_non_listing_text():
 
 async def test_search_parses_text_listing_results():
     tools = [
-        _tool("discover_papers", {"keywords": {"type": "array"}, "question": {"type": "string"},
-                                  "difficulty": {"type": "number", "minimum": 1, "maximum": 10}}),
+        _tool(
+            "discover_papers",
+            {
+                "keywords": {"type": "array"},
+                "question": {"type": "string"},
+                "difficulty": {"type": "number", "minimum": 1, "maximum": 10},
+            },
+        ),
         _tool("get_paper_content", {"url": {"type": "string", "format": "uri"}}),
     ]
     p = _provider(tools, _result(content=[_text(_ALPHAXIV_LISTING)]))
@@ -213,11 +225,16 @@ async def test_search_parses_text_listing_results():
 
 
 def test_build_search_args_discover_shape():
-    tools = [_tool("discover_papers", {
-        "keywords": {"type": "array"},
-        "question": {"type": "string"},
-        "difficulty": {"type": "number", "minimum": 1, "maximum": 10},
-    })]
+    tools = [
+        _tool(
+            "discover_papers",
+            {
+                "keywords": {"type": "array"},
+                "question": {"type": "string"},
+                "difficulty": {"type": "number", "minimum": 1, "maximum": 10},
+            },
+        )
+    ]
     p = _provider(tools, _result(), search_difficulty=2)
     args = p._build_search_args("discover_papers", "period-luminosity relation for Cepheids", 5)
     assert isinstance(args["keywords"], list) and args["keywords"]  # array of terms
@@ -227,10 +244,16 @@ def test_build_search_args_discover_shape():
 
 
 def test_build_search_args_clamps_difficulty_to_schema():
-    tools = [_tool("discover_papers", {
-        "keywords": {"type": "array"}, "question": {"type": "string"},
-        "difficulty": {"type": "number", "minimum": 1, "maximum": 3},
-    })]
+    tools = [
+        _tool(
+            "discover_papers",
+            {
+                "keywords": {"type": "array"},
+                "question": {"type": "string"},
+                "difficulty": {"type": "number", "minimum": 1, "maximum": 3},
+            },
+        )
+    ]
     p = _provider(tools, _result(), search_difficulty=9)
     args = p._build_search_args("discover_papers", "q", 5)
     assert args["difficulty"] == 3  # clamped to schema maximum

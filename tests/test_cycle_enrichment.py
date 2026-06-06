@@ -20,7 +20,9 @@ from backend.api.routes.research import _enrich_cycle
 def _request(*, state=None, thread=None):
     mgr = SimpleNamespace(get_state=lambda _sid: state)
     db = SimpleNamespace(get_thread=lambda _tid: thread)
-    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(session_manager=mgr, database=db)))
+    return SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(session_manager=mgr, database=db))
+    )
 
 
 def _cycle(**kw) -> ResearchCycleResponse:
@@ -62,7 +64,9 @@ def test_enrich_no_session_is_noop():
 
 
 def test_enrich_failure_state_without_paper():
-    state = SimpleNamespace(status=SessionStatus.FAILED, thread_id="thread-9", current_phase="execution")
+    state = SimpleNamespace(
+        status=SessionStatus.FAILED, thread_id="thread-9", current_phase="execution"
+    )
     cycle = _enrich_cycle(_cycle(), _request(state=state, thread={"current_draft_id": None}))
     assert cycle.status == CycleStatus.FAILED
     assert cycle.paper_id is None

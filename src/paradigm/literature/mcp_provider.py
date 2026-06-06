@@ -68,8 +68,27 @@ _KEYWORD_NAME_HINTS = ("keyword", "term", "tag")
 _QUESTION_NAME_HINTS = ("question", "query", "search_query", "q", "text", "prompt", "description")
 _DIFFICULTY_NAME_HINTS = ("difficulty", "effort", "depth", "rounds", "detail")
 _STOPWORDS = frozenset(
-    {"the", "a", "an", "of", "for", "and", "or", "to", "in", "on", "with",
-     "via", "using", "from", "about", "is", "are", "its", "their"}
+    {
+        "the",
+        "a",
+        "an",
+        "of",
+        "for",
+        "and",
+        "or",
+        "to",
+        "in",
+        "on",
+        "with",
+        "via",
+        "using",
+        "from",
+        "about",
+        "is",
+        "are",
+        "its",
+        "their",
+    }
 )
 
 
@@ -455,7 +474,9 @@ class MCPSourceProvider(SourceProvider):
     def _to_source_document(self, source_id: str, result: Any) -> SourceDocument | None:
         items = _extract_items(result)
         obj = items[0] if items else {}
-        breakdown = _first(obj, "breakdown", "content", "structured_content", "summary") if obj else ""
+        breakdown = (
+            _first(obj, "breakdown", "content", "structured_content", "summary") if obj else ""
+        )
         full = breakdown or _result_text(result)
         if not full:
             return None

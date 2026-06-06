@@ -106,8 +106,7 @@ class PreRegistrationHandler:
 
         if frozen:
             display.info(
-                f"Pre-registration: froze {len(frozen)} falsifiable prediction(s) "
-                f"before execution."
+                f"Pre-registration: froze {len(frozen)} falsifiable prediction(s) before execution."
             )
         else:
             display.info("Pre-registration: no admissible prediction rules were frozen.")
@@ -139,9 +138,7 @@ class PreRegistrationHandler:
         )
 
         try:
-            provider, model, extra_body = engine._config.get_provider_and_model_for_role(
-                "theorist"
-            )
+            provider, model, extra_body = engine._config.get_provider_and_model_for_role("theorist")
             response_text, input_tokens, output_tokens = await asyncio.to_thread(
                 provider.complete,
                 model=model,
@@ -285,9 +282,7 @@ def _extract_metric(stdout: str, key: str) -> float | None:
     """Find the last ``key=<number>`` (or ``key: <number>``) occurrence in stdout."""
     if not key:
         return None
-    pattern = re.compile(
-        rf"{re.escape(key)}\s*[=:]\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
-    )
+    pattern = re.compile(rf"{re.escape(key)}\s*[=:]\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)")
     matches = pattern.findall(stdout)
     if not matches:
         return None

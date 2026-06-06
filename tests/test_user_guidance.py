@@ -64,9 +64,9 @@ async def test_guidance_injected_into_agent_prompts(
         for call in agent.generate.call_args_list
         if call.args
     ]
-    assert any(
-        "HUMAN GUIDANCE" in p and "red-noise systematics" in p for p in prompts
-    ), "guidance was not injected into any agent prompt"
+    assert any("HUMAN GUIDANCE" in p and "red-noise systematics" in p for p in prompts), (
+        "guidance was not injected into any agent prompt"
+    )
 
     # It only applied for the round it was drained — not re-injected forever.
     hits = sum("red-noise systematics" in p for p in prompts)

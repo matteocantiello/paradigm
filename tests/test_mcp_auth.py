@@ -41,7 +41,9 @@ async def test_file_token_storage_roundtrip(_home):
     assert loaded.access_token == "abc123"
     assert loaded.refresh_token == "r1"
     # Token file is written with restrictive perms.
-    assert oct((_home / ".paradigm" / "mcp" / "alphaxiv" / "tokens.json").stat().st_mode)[-3:] == "600"
+    assert (
+        oct((_home / ".paradigm" / "mcp" / "alphaxiv" / "tokens.json").stat().st_mode)[-3:] == "600"
+    )
 
 
 async def test_corrupt_token_file_returns_none(_home):

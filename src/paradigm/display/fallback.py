@@ -393,9 +393,7 @@ class PlainTextFallback:
         click.echo("  [!] All conceptual figure attempts failed, stripping references")
 
     def execution_failed_abort(self, caveats: list[str]) -> None:
-        click.echo(
-            "  Aborting before writing \u2014 experiments produced no usable output."
-        )
+        click.echo("  Aborting before writing \u2014 experiments produced no usable output.")
         for c in caveats:
             click.echo(f"    - {c}")
 

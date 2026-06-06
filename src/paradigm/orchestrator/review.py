@@ -204,9 +204,7 @@ class ReviewHandler:
             figure_list = "\n".join(
                 f"{i}. {name}" for i, (name, _mt, _data) in enumerate(encoded, 1)
             )
-            prompt = _FIGURE_REVIEW_PROMPT.format(
-                n_figures=len(encoded), figure_list=figure_list
-            )
+            prompt = _FIGURE_REVIEW_PROMPT.format(n_figures=len(encoded), figure_list=figure_list)
             message = provider.build_image_message(prompt, [(mt, data) for _n, mt, data in encoded])
             text, input_tokens, output_tokens = await asyncio.to_thread(
                 provider.complete,
@@ -437,12 +435,8 @@ class ReviewHandler:
         self._engine._display.review_max_iterations()
         thread = self._engine._db.get_thread(self._engine.state.thread_id)
         if thread and thread.get("current_draft_id"):
-            self._engine._db.update_paper(
-                thread["current_draft_id"], status="revision_exhausted"
-            )
-        self._engine._db.update_thread(
-            self._engine.state.thread_id, status="revision_exhausted"
-        )
+            self._engine._db.update_paper(thread["current_draft_id"], status="revision_exhausted")
+        self._engine._db.update_thread(self._engine.state.thread_id, status="revision_exhausted")
 
     async def run_revision(self, current_body: str, review_text: str) -> str:
         """Writer revises the paper based on review feedback.

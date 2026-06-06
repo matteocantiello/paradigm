@@ -26,7 +26,9 @@ class TestDecideHumanGate:
         assert called == []  # hook never consulted when off
 
     def test_point_not_enabled_continues(self):
-        decision, _ = decide_human_gate("blocking", ["pre_registration"], "problem_selection", None, "t1")
+        decision, _ = decide_human_gate(
+            "blocking", ["pre_registration"], "problem_selection", None, "t1"
+        )
         assert decision == "continue"
 
     def test_advisory_never_blocks(self):

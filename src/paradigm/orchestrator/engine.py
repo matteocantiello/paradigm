@@ -399,9 +399,7 @@ class OrchestrationEngine:
             # predictions before execution so results can't be reinterpreted later.
             if self._config.knowledge.enable_preregistration:
                 self.state.phase_manager.transition_to(ResearchPhase.PRE_REGISTRATION)
-                self._log_phase_transition(
-                    ResearchPhase.PLANNING, ResearchPhase.PRE_REGISTRATION
-                )
+                self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.PRE_REGISTRATION)
                 self._display.phase_transition("PRE_REGISTRATION")
                 frozen_rules = await self._prereg.run_freeze()
                 if not frozen_rules and self._config.knowledge.prereg_on_empty == "blocking":
@@ -416,9 +414,7 @@ class OrchestrationEngine:
                 ):
                     return self.state.thread_id
                 self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
-                self._log_phase_transition(
-                    ResearchPhase.PRE_REGISTRATION, ResearchPhase.EXECUTION
-                )
+                self._log_phase_transition(ResearchPhase.PRE_REGISTRATION, ResearchPhase.EXECUTION)
             else:
                 self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
                 self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
@@ -437,9 +433,7 @@ class OrchestrationEngine:
             if self._config.knowledge.enable_preregistration and self.state.registered_rules:
                 verdicts = self._prereg.evaluate(exp_result.experiment_metadata)
                 for v in verdicts:
-                    self._display.info(
-                        f"Pre-registration verdict [{v['verdict']}]: {v['detail']}"
-                    )
+                    self._display.info(f"Pre-registration verdict [{v['verdict']}]: {v['detail']}")
 
             # Go/no-go gate: if experiments were attempted but none produced usable
             # output, a data-driven paper is impossible. Stop before WRITING rather

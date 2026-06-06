@@ -123,8 +123,7 @@ def _make_callback_handler(port: int):
 def _headless_redirect(name: str):
     async def _redirect(authorization_url: str) -> None:
         raise RuntimeError(
-            f"MCP server {name!r} needs a one-time interactive login. "
-            f"Run:  paradigm mcp-login"
+            f"MCP server {name!r} needs a one-time interactive login. Run:  paradigm mcp-login"
         )
 
     return _redirect
