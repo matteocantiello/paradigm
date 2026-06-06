@@ -4042,3 +4042,11 @@ ROOT CAUSE (from the agent log, not the toggles): a feedback trap. The agents is
 The toggles are mostly a red herring for this. But note: `production.yaml` has citation grounding / novelty / seed-discovery OFF (speed); the screenshot shows them ON (GUI override). All three need PERPLEXITY_API_KEY — without it on the VM they no-op (seed discovery logs "PERPLEXITY_API_KEY not set" and ingests 0, and it doesn't even increment the found bar). They add latency + failure surface; recommend OFF for the demo unless the key is set.
 
 FIX (src/paradigm/orchestrator/literature.py): (1) Never force [FOLLOW:] when nothing's been discovered — `_build_stall_hint` + new `_build_exhaustion_warning` branch: with real discovered IDs → "use [FOLLOW:] from the list, don't invent IDs"; with none → "broaden ONE [SEARCH:], do NOT invent IDs, note the gap." (2) New gate `_is_discovered_id` + `_note_rejected_id`: [FOLLOW:]/[CITED_BY:]/[READ:] now reject any arXiv ID not in `seen_paper_ids` (i.e. never returned by a real search/traversal) and leave the agent a rejection note. This blocks the hallucination→contamination loop at the source; legit graph traversal is unaffected (every ID in the "Discovered Papers" list is in `seen_paper_ids`). Tests: updated 6 mechanism/dedup tests to stub the discovery precondition; added `test_follow_rejects_undiscovered_id`. Full suite 1508 green, ruff clean. Backend change → `git pull && systemctl restart paradigm-backend` on the VM. Separately: the real fix for "0 papers" is making genuine searches return astro results — check the VM's provider availability (arXiv rate-limit/circuit-breaker, NASA_ADS_API_KEY, alphaXiv) and prefer simpler 1–2 term queries.
+
+---
+
+### Prompt 126 — tighten agent prompts to discourage over-constrained boolean searches
+
+> Yes [tighten the agent prompts to discourage 4-term boolean AND queries that trigger empty searches]
+
+Follow-up to 125: the empty searches that trigger the forced-FOLLOW trap come from agents writing 4–5 term `AND` queries. Updating the [SEARCH:] guidance the agents see to prefer 2–3 plain keywords, no boolean operators, broaden on empty.
