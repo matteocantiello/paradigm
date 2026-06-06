@@ -4201,3 +4201,11 @@ The conda `paradigm` env HAS mcp; the user's `paradigm` CLI resolves to a differ
 > I'll test while you re-enable the chain feature
 
 [CHAIN: id depth=N direction=refs|cites|both] is fully dormant: parser + process_chain_requests + follow_citation_chain exist but process_chain_requests is never invoked + not documented. Wire it into the agent response loop, gate the seed id to discovered ids (no hallucinated seed amplified by depth), bound depth, document it, test.
+
+---
+
+### Prompt 143 — flood of WebSocket 403s in the journal
+
+> can we check why we're getting all these 403 [journal: session-0481… WS 403 every ~30s for 10+ min; a real session connects fine; also Perplexity 401 + "Failed to parse checkpoint JSON"]
+
+The 403s = a stale browser tab reconnecting forever to a session that no longer exists on the backend (deleted / lost on restart) → WS handshake 403 → frontend retry loop never gives up. Cosmetic noise, not a functional break (real runs connect). Fix: frontend should stop reconnecting once the session is gone. (Also visible: Perplexity 401 = bad/placeholder key; "Failed to parse checkpoint JSON" = resume fallback.)

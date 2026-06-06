@@ -45,13 +45,20 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
 
     manager = websocket.app.state.session_manager
 
+    # Accept BEFORE the session-existence check so a "session not found" close
+    # (4004) actually reaches the browser. Closing BEFORE accept is a rejected
+    # handshake (HTTP 403), which browsers surface as a generic abnormal close
+    # (1006) — so the client never sees 4004 and reconnects forever. A stale tab
+    # pointed at a deleted session (or one lost on a backend restart) then floods
+    # the log with 403s every ~30s. Post-accept, the client reads 4004 and stops.
+    await websocket.accept()
+
     # Verify session exists
     state = manager.get_state(session_id)
     if state is None:
         await websocket.close(code=4004, reason="Session not found")
         return
 
-    await websocket.accept()
     await manager.connect_ws(session_id, websocket)
 
     try:
@@ -59,9 +66,7 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
             # Timeout detects dead connections when the client stops sending
             # heartbeats. The frontend pings every 30s, so 90s allows 3 misses.
             try:
-                raw = await asyncio.wait_for(
-                    websocket.receive_text(), timeout=RECEIVE_TIMEOUT
-                )
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=RECEIVE_TIMEOUT)
             except TimeoutError:
                 logger.info(
                     "WebSocket receive timeout for session %s — closing dead connection",
@@ -121,9 +126,7 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
                         session_id,
                         msg.target_agent or "orchestrator",
                     )
-                    await manager.queue_user_guidance(
-                        session_id, msg.content, msg.target_agent
-                    )
+                    await manager.queue_user_guidance(session_id, msg.content, msg.target_agent)
 
                 else:
                     await websocket.send_text(
@@ -140,9 +143,7 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
                     ).model_dump_json()
                 )
             except Exception:
-                logger.exception(
-                    "Error handling %s message for session %s", msg_type, session_id
-                )
+                logger.exception("Error handling %s message for session %s", msg_type, session_id)
                 await websocket.send_text(
                     ErrorMsg(
                         code="message_handler_error",
