@@ -296,6 +296,31 @@ class TestOrchestrationEngine:
         )
 
     @pytest.mark.asyncio
+    async def test_unknown_team_role_dropped_not_fatal(
+        self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
+    ):
+        """A stray invalid role (e.g. display-only 'peer-reviewer' from the GUI) is
+        filtered out instead of crashing the whole cycle."""
+        mock_factory.has_role.side_effect = lambda r: r != "peer-reviewer"
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=mock_factory,
+        )
+
+        await engine.run_research_cycle(
+            seed_prompt="Test",
+            mode="directed",
+            team_roles=["theorist", "peer-reviewer", "skeptic"],
+        )
+
+        mock_factory.create_team.assert_called_once_with(
+            ["theorist", "skeptic"], skill_mode="default"
+        )
+
+    @pytest.mark.asyncio
     async def test_explore_mode_team(
         self, mock_config, tmp_db, tmp_logger, mock_factory, mock_corpus
     ):

@@ -4161,3 +4161,11 @@ Tests +2 (artifact has_pdf/figures). Full suite 1516 green; frontend builds. App
 > The link to the pdf needs to be placed in a better way -- currently overlapping with text. Also it took several seconds for the pdf to be produced, I wonder if the compilation could happen when the cycle ends, not when the user click on the pdf link (so it's ready)
 
 (1) PaperExport's 3-button row (Copy/Download .md/Download PDF) overflows the 200px TOC sidebar → stack vertically. (2) Pre-compile the PDF at cycle end so the link is instant; the on-demand endpoint stays as a fallback for pre-existing papers.
+
+---
+
+### Prompt 138 — cycle fails immediately: Unknown role 'peer-reviewer' (+ alphaXiv token expired)
+
+> I tried a cycle and it failed immediately [journal: ValueError: Unknown role 'peer-reviewer' in create_team; also alphaXiv MCP OAuth "needs interactive login" + anyio BaseExceptionGroup]. What I did was removing the experimentalist and using Explore instead of Directed. If I keep those things it works... There are a bunch of issues -- let's tackle
+
+REGRESSION (mine): adding "peer-reviewer" to AGENT_THEMES (for the reviewer icon) made the team picker offer it as a selectable role, but "peer-reviewer" is a runtime agent_id, not a factory role → create_team raises. Fix: team picker must only offer composable roles (exclude reviewer/peer-reviewer/debate_judge); keep the theme map for display. Bug 2: alphaXiv OAuth token expired → re-login needed; cycle survives via the corpus BaseException guard but logs noise.

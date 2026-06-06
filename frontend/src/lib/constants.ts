@@ -66,6 +66,19 @@ export const AGENT_THEMES: Record<string, AgentTheme> = {
   },
 };
 
+// Roles a user can compose into a research team. This is NOT all of AGENT_THEMES:
+// "reviewer"/"peer-reviewer" are auto-created by the orchestrator for peer review
+// and are not valid factory roles to put on a team (doing so crashes create_team).
+export const SELECTABLE_TEAM_ROLES = [
+  "theorist",
+  "analyst",
+  "experimentalist",
+  "synthesizer",
+  "skeptic",
+  "writer",
+  "editor",
+] as const;
+
 // Phase icons and display order — mirrors src/paradigm/display/theme.py
 export const PHASE_ICONS: Record<string, string> = {
   seeding: "🌱",

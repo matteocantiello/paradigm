@@ -237,6 +237,22 @@ class OrchestrationEngine:
 
                 team_roles = list(MODE_TEAM_ROLES.get(mode, DEFAULT_TEAM_ROLES))
 
+        # Drop any roles this factory can't build (e.g. a stale or display-only
+        # role like "peer-reviewer" from the GUI) so one bad role never crashes the
+        # whole cycle. Fall back to defaults if nothing valid remains.
+        valid_roles = [r for r in team_roles if self._factory.has_role(r)]
+        dropped = [r for r in team_roles if not self._factory.has_role(r)]
+        if dropped:
+            self._logger.log_error(
+                ValueError(f"Ignoring unknown team roles: {dropped}"),
+                thread_id=self.state.thread_id,
+            )
+        if not valid_roles:
+            from paradigm.domains.science.constants import DEFAULT_TEAM_ROLES, MODE_TEAM_ROLES
+
+            valid_roles = list(MODE_TEAM_ROLES.get(mode, DEFAULT_TEAM_ROLES))
+        team_roles = valid_roles
+
         # Reset handler state for new cycle
         self._literature.reset_cycle()
         self._debate.reset_cycle()

@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCreateCycle, useStartSession } from "@/hooks/useCycles";
-import { AGENT_THEMES } from "@/lib/constants";
+import { AGENT_THEMES, SELECTABLE_TEAM_ROLES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, ArrowRight, Play, Loader2, Check } from "lucide-react";
 
@@ -14,7 +14,7 @@ const MODES = [
   { value: "test", label: "Test", desc: "Quick test run with minimal rounds" },
 ];
 
-const ALL_ROLES = Object.keys(AGENT_THEMES);
+const ALL_ROLES: string[] = [...SELECTABLE_TEAM_ROLES];
 
 interface SetupWizardProps {
   onClose: () => void;

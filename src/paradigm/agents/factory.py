@@ -154,6 +154,14 @@ class AgentFactory:
         # default mode
         return role_template.default_skills or None
 
+    def has_role(self, role: str) -> bool:
+        """True if this factory can build an agent for ``role``.
+
+        Lets callers filter user-supplied team roles instead of crashing the
+        whole cycle on one unknown role.
+        """
+        return role in self._roles
+
     def create_team(
         self,
         roles: list[str],
