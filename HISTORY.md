@@ -4247,3 +4247,9 @@ The desk_reject terminal fix (prompt 133) didn't cover the INTERNAL_REVIEW rejec
 > [journal: Seed discovery found IDs via Perplexity, but "failed to ingest <id>: 429" then "arXiv unavailable — circuit breaker open (rate-limited)" for the rest]
 
 Perplexity fixed (returns IDs). New issue: run_seed_discovery fetches each discovered ID from arXiv in a tight loop (~10 rapid get_paper calls) → 429 → circuit breaker opens → arXiv disabled for the whole cycle (incl. agents' later searches). Fix: don't burst — rate-limit or batch the seed fetches (arXiv id_list takes comma-separated IDs → one request), so it doesn't trip the breaker.
+
+### Prompt 150 — how to change default settings on the VM; are GUI choices sticky?
+
+> how do I change the default settings of paradigm on the VM? Are choices sticky (remembered next round) or always fallback to defaults?
+
+Explain the config layers: production.yaml (static defaults, edit+restart) vs the GUI Settings panel (persistence? sticky?) vs per-run wizard choices. Investigate settings.py persistence + how a new cycle applies settings.
