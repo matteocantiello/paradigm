@@ -44,8 +44,13 @@ agent:
     # Fast bulk roles — Gemini Flash-Lite (snappy, streams well in the live view).
     theorist: { provider: gemini, model: gemini-2.5-flash-lite }
     analyst: { provider: gemini, model: gemini-2.5-flash-lite }
-    experimentalist: { provider: gemini, model: gemini-2.5-flash-lite }
     skeptic: { provider: gemini, model: gemini-2.5-flash-lite }
+    # The experimentalist WRITES THE EXPERIMENT CODE — flagship-tier Claude for
+    # correct astropy/numpy/MCMC (flash-lite produced const.k, Planck1D, invented
+    # modules, and unit-conversion spirals). Sonnet 4.6 ≈ Opus code quality here at
+    # ~half the cost and faster (it runs in a retry loop). For the absolute top,
+    # swap to: { provider: anthropic, model: claude-opus-4-8, max_tokens: 16384 }
+    experimentalist: { provider: anthropic, model: claude-sonnet-4-6, max_tokens: 16384 }
     # Quality-sensitive but still fast — Gemini Flash.
     synthesizer: { provider: gemini, model: gemini-2.5-flash }
     editor: { provider: gemini, model: gemini-2.5-flash }

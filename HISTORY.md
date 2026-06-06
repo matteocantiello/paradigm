@@ -4089,3 +4089,11 @@ Guidance only. Frontend change (commit 15f43dd) → needs `cd /opt/paradigm/fron
 > Ok. I am still seeing experiment failures: [log: AttributeError const.k (should be k_B), astropy.modeling.models.Planck1D doesn't exist, `from spectral_fitting_tools import greybody_fit` hallucinated module, 540-line/12k-token unit-conversion spirals]
 
 Basic bugs from 127 are GONE (rebuild worked). Remaining failures are gemini-2.5-flash-lite writing fragile scientific code: const.k vs const.k_B, non-existent Planck1D/BlackBody1D (it's BlackBody), inventing a spectral_fitting_tools module, and drowning in astropy.units B_nu<->B_lambda conversions. Fix: add astropy-gotchas + keep-it-simple + no-invented-imports guidance to the EXECUTION prompt; ALSO recommend bumping the experiment-writing role off flash-lite (the real bottleneck).
+
+---
+
+### Prompt 131 — assign a flagship Claude model to the experimentalist
+
+> Maybe we assign a better model to the experimentalist. Like a flagship Claude model?
+
+The flash-lite experimentalist is the root of the experiment failures. Bumping experimentalist (the code-writing role) to Claude Sonnet 4.6 in production.yaml (flagship-tier code quality at ~half Opus cost, faster — good for the retry loop). Opus 4.8 is a one-line swap if max reliability is wanted.
