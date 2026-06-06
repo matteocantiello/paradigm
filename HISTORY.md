@@ -4185,3 +4185,11 @@ REGRESSION (mine): adding "peer-reviewer" to AGENT_THEMES (for the reviewer icon
 > I would like to keep alphaxiv mcp if possible -- I think it's faster. Maybe we use arxiv as a fallback option? In the meantime I'll add the perplexity key. I know we had it -- including some fancier ways to look into literature graphs etc. Can you check?
 
 Re-enable alphaXiv but make an expired/invalid token degrade cleanly to the other providers (arXiv etc.) without noise. Audit + report the literature-graph capabilities ([FOLLOW:]/[CITED_BY:]/[READ:]/[CHAIN:] + alphaXiv MCP tools).
+
+---
+
+### Prompt 141 — `paradigm mcp-login` fails: No module named 'mcp'
+
+> [mcp-login] Login failed: No module named 'mcp'
+
+The conda `paradigm` env HAS mcp; the user's `paradigm` CLI resolves to a different env without the extra. mcp_auth imports `mcp` lazily so the helpful ImportError handler is skipped → generic "Login failed". Fix: catch ModuleNotFoundError in mcp_login and print an actionable message (install paradigm[mcp] in THIS interpreter / use the conda env). Immediate fix for the user: run from the conda env.

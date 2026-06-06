@@ -697,6 +697,19 @@ def mcp_login(config: Config) -> None:
         tools = asyncio.run(
             interactive_login(server_url=mcp.server_url, name=mcp.name, scope=mcp.oauth_scope)
         )
+    except ModuleNotFoundError as e:
+        # mcp_auth imports `mcp` lazily, so a missing extra shows up here (not at
+        # the import above). Point at THIS interpreter's missing dependency.
+        click.echo(f"Login failed: {e}", err=True)
+        click.echo(
+            "The 'mcp' package isn't installed in the environment running `paradigm` "
+            f"({sys.executable}).\n"
+            "Install the extra there, then retry:\n"
+            "  pip install 'paradigm[mcp]'      # or:  pip install 'mcp>=1.0'\n"
+            "(If you use the conda env, run:  conda run -n paradigm paradigm mcp-login)",
+            err=True,
+        )
+        sys.exit(1)
     except Exception as e:
         click.echo(f"Login failed: {e}", err=True)
         click.echo(
