@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
@@ -61,7 +62,11 @@ async def publish_paper(
     if isinstance(authors, str):
         authors = json.loads(authors)
 
-    corpus.ingest_internal_paper(
+    # ChromaDB ingestion computes embeddings (and may load the embedding model on
+    # first use) — seconds of CPU-bound work. Offload it so it doesn't block the
+    # event loop and freeze WebSocket broadcasts (which read as a UI "stall").
+    await asyncio.to_thread(
+        corpus.ingest_internal_paper,
         paper_id=paper_id,
         title=paper.get("title", ""),
         abstract=paper.get("abstract", ""),

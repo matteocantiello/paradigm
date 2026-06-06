@@ -586,7 +586,10 @@ class OrchestrationEngine:
             self.state.phase_manager.transition_to(ResearchPhase.INTERNAL_REVIEW)
             self._log_phase_transition(ResearchPhase.WRITING, ResearchPhase.INTERNAL_REVIEW)
             self.state.messages = []
-            self._display.phase_transition("INTERNAL_REVIEW")
+            # Pass the enum (value "internal"), NOT the string "INTERNAL_REVIEW":
+            # the display lowercases its arg, and "internal_review" != the canonical
+            # phase value "internal" the UI keys on, so the "Review" pip never lit.
+            self._display.phase_transition(ResearchPhase.INTERNAL_REVIEW)
             await self._review.run_review_phase(paper_draft)
 
             # Check if internal review ended without acceptance (editor rejected the
@@ -636,12 +639,19 @@ class OrchestrationEngine:
                     thread = self._db.get_thread(self.state.thread_id)
                     paper_id = thread["current_draft_id"] if thread else None
                     if paper_id and decision in ("accept", "minor_revision"):
+                        # Advance the live UI to the terminal phase BEFORE the
+                        # (potentially slow) publish work, so the phase bar reaches
+                        # "Published" and the terminal screen renders promptly even
+                        # if corpus ingestion lags. Without this the run looked
+                        # stuck on "Peer Review" after the decision was made.
+                        self._display.phase_transition(ResearchPhase.PUBLISHED)
                         await publish_paper(paper_id, self._db, self._corpus, self._logger, reviews)
                         self._db.update_thread(self.state.thread_id, status="published")
                         self._display.paper_published()
                     elif paper_id:
                         from paradigm.journal.publication import reject_paper
 
+                        self._display.phase_transition(ResearchPhase.REJECTED)
                         reject_paper(paper_id, self._db, reviews, self._logger)
                         self._db.update_thread(self.state.thread_id, status="rejected")
                         self._display.paper_rejected()

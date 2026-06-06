@@ -15,6 +15,17 @@ from paradigm.journal.review import (
 )
 from paradigm.orchestrator.engine import OrchestrationEngine
 
+
+def _phase_transition_values(display: MagicMock) -> list[str]:
+    """Canonical phase VALUES the engine broadcast to the display.
+
+    str() of a ResearchPhase yields its value ("internal", "published"); str() of
+    a stray member-name literal ("INTERNAL_REVIEW") would not — which is exactly
+    the bug that left the "Review" pip un-lit in the live phase bar.
+    """
+    return [str(c.args[0]) for c in display.phase_transition.call_args_list if c.args]
+
+
 # --- PeerReview Model Tests ---
 
 
@@ -549,6 +560,7 @@ class TestEnginePublishedPath:
     async def test_full_cycle_published(self, mock_config, tmp_db, tmp_logger, mock_corpus):
         """Full cycle through PUBLISHED with high-scoring reviews."""
         factory = _make_writing_factory()
+        display = MagicMock()
 
         engine = OrchestrationEngine(
             config=mock_config,
@@ -556,6 +568,7 @@ class TestEnginePublishedPath:
             corpus=mock_corpus,
             logger=tmp_logger,
             agent_factory=factory,
+            display=display,
         )
 
         thread_id = await engine.run_research_cycle(
@@ -573,6 +586,14 @@ class TestEnginePublishedPath:
         # Corpus should have received the paper
         mock_corpus.ingest_internal_paper.assert_called_once()
 
+        # Phase-bar regression: internal review must broadcast the canonical value
+        # "internal" (not the literal "INTERNAL_REVIEW"), and the run must end with
+        # a terminal PUBLISHED transition so the UI leaves "Peer Review".
+        values = _phase_transition_values(display)
+        assert "internal" in values
+        assert "INTERNAL_REVIEW" not in values
+        assert "published" in values
+
 
 class TestEngineRejectedPath:
     """Test the full cycle ending in rejection."""
@@ -589,6 +610,7 @@ class TestEngineRejectedPath:
             ),
         ]
         factory = _make_writing_factory(reviewer_texts=low_score_reviews)
+        display = MagicMock()
 
         engine = OrchestrationEngine(
             config=mock_config,
@@ -596,6 +618,7 @@ class TestEngineRejectedPath:
             corpus=mock_corpus,
             logger=tmp_logger,
             agent_factory=factory,
+            display=display,
         )
 
         thread_id = await engine.run_research_cycle(
@@ -614,6 +637,12 @@ class TestEngineRejectedPath:
         cursor.execute("SELECT * FROM graveyard WHERE type = 'rejected_paper'")
         rows = cursor.fetchall()
         assert len(rows) >= 1
+
+        # A peer-review rejection must broadcast a terminal REJECTED transition so
+        # the UI shows the outcome instead of stalling on "Peer Review".
+        values = _phase_transition_values(display)
+        assert "internal" in values
+        assert "rejected" in values
 
 
 class TestEngineDeskRejection:

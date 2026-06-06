@@ -4259,3 +4259,17 @@ Explain the config layers: production.yaml (static defaults, edit+restart) vs th
 > some show '?' instead of their list of authors [Literature Found panel; papers WITH arXiv IDs but no authors → "(?)"]
 
 Some SourceResults reach the live literature panel with empty authors → rendered "(?)". Likely a provider whose parsing drops author names (alphaXiv text-listing extracts affiliations not authors? Semantic Scholar refs?). Find the renderer + the broadcast + the provider that drops authors; fix author extraction.
+
+Done (commit e9f8111): alphaXiv listings carry a published date but expose affiliations, not author NAMES → `_parse_date` populates the year; frontend `formatByline()` degrades gracefully (Authors (Year) / Authors / (Year) / nothing) — never a bare "(?)". Wired into all 4 render sites. 1526 tests pass, frontend builds.
+
+### Prompt 152 — how do I see how many people visit the VM, and from which IP?
+
+> I would like to know how many people visit the platform on the VM, and ideally from which IP. How do I achieve that? Is that already logged somewhere?
+
+Informational. Visitor IPs are NOT currently captured: the repo/VM Caddyfile has no `log` directive (Caddy is the edge that sees real client IPs, but logs only runtime/error events without it), and uvicorn sits behind Caddy on 127.0.0.1 with no `--proxy-headers`, so its access log shows only 127.0.0.1. Answer: enable Caddy access logging (JSON log block) → analyze with jq / goaccess. Offered to bake the `log` block into deploy/Caddyfile + DEPLOY.md.
+
+### Prompt 153 — stalled again at end (Peer Review); 'Review' stage not lit green in the phase bar
+
+> I think it stalled again at the end. Also trying to understand why the 'Review' stage button is not light up green in the sequence bar [screenshot: phase bar Seeding✓ Ideation✓ Planning✓ Execution✓ Discussion✓ Writing✓ Review(grey,no check) Submitted✓ PeerReview(●current) Published(grey); "Stalled — No activity for 146s" in Peer Review, 10m37s in phase; 3 Reviewer agents produced reviews]
+
+Two issues: (1) terminal stall AGAIN — Peer Review produced reviews (3 reviewers) but then no activity for 146s → the editor decision / transition to Published|Rejected after peer review hangs (LLM call without timeout, or missing terminal broadcast). (2) Phase-bar display bug: "Review" (internal review) shows grey/unchecked while the LATER "Submitted" shows ✓ — the tracker isn't marking an earlier phase complete once a later one is reached. Investigate phases.py order + frontend PhaseTracker completion logic + the peer-review→terminal path in engine/review.
