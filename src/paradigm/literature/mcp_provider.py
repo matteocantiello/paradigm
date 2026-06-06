@@ -26,6 +26,7 @@ mcp-login`` once; the token is cached and auto-refreshed for headless runs.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -35,6 +36,19 @@ from typing import Any
 from paradigm.domains.base import SourceDocument, SourceProvider, SourceResult
 
 _logger = logging.getLogger(__name__)
+
+
+def _summarize_exc(e: BaseException) -> str:
+    """One-line summary of a (possibly grouped) exception for a clean log line."""
+    # Unwrap a BaseExceptionGroup (anyio) down to its first leaf so we log the
+    # actual cause (e.g. the OAuth re-login message) instead of the whole tree.
+    seen = 0
+    while getattr(e, "exceptions", None) and seen < 5:
+        e = e.exceptions[0]  # type: ignore[attr-defined]
+        seen += 1
+    msg = str(e).strip()
+    return f"{type(e).__name__}: {msg}" if msg else type(e).__name__
+
 
 # Heuristics for matching the server's machine tool-names (lowercased substring).
 _SEARCH_HINTS = (
@@ -311,19 +325,41 @@ class MCPSourceProvider(SourceProvider):
             session = await stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
             listed = await session.list_tools()
-        except Exception:
-            await stack.aclose()
+        except asyncio.CancelledError:
             self._connect_failed = True
-            self._log.warning(
-                "MCP literature provider %r could not connect to %s (check auth/URL)",
-                self.name,
-                self._url,
-            )
+            await self._safe_aclose(stack)
             raise
+        except BaseException as e:
+            # Catch BaseException, not just Exception: an OAuth failure (e.g. an
+            # EXPIRED alphaXiv token) surfaces from anyio as a *BaseExceptionGroup*,
+            # which is NOT an Exception. If it escapes, _connect_failed never gets
+            # set and the provider re-tries (noisily) on every search instead of
+            # failing ONCE and letting arXiv + the other providers carry the run.
+            self._connect_failed = True
+            await self._safe_aclose(stack)
+            self._log.warning(
+                "MCP literature provider %r unavailable (%s) — falling back to the "
+                "other providers (arXiv, Semantic Scholar, …) for this run.",
+                self.name,
+                _summarize_exc(e),
+            )
+            raise RuntimeError(f"MCP server {self.name!r} connect failed") from None
         self._stack = stack
         self._session = session
         self._tools = list(listed.tools)
         return session
+
+    async def _safe_aclose(self, stack: AsyncExitStack) -> None:
+        """Close the transport stack, swallowing anyio teardown noise.
+
+        The streamablehttp client runs an anyio task group; tearing it down after
+        a mid-connection failure can itself raise "cancel scope in a different
+        task". That's teardown noise, not the real error — log at debug, move on.
+        """
+        try:
+            await stack.aclose()
+        except BaseException as e:  # noqa: BLE001 — teardown must never mask the cause
+            self._log.debug("MCP %r teardown error (ignored): %s", self.name, e)
 
     # -- tool discovery ---------------------------------------------------
     def _pick_tool(self, override: str | None, hints: tuple[str, ...], *, avoid=()) -> str | None:

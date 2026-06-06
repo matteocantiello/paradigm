@@ -87,12 +87,13 @@ literature:
   max_citation_results: 10
   max_reference_results: 20
   mcp:
-    # alphaXiv via cached OAuth token. DISABLED for the demo: the OAuth token
-    # expires and re-auth can't run headless (just log noise; the cycle survives
-    # it). The in-house providers (arXiv, Semantic Scholar, NASA ADS, …) carry
-    # the literature. To re-enable: run `paradigm mcp-login` on a browser machine,
-    # `scp -r ~/.paradigm/mcp/ <user>@<vm>:~/.paradigm/`, then set this true.
-    enabled: false
+    # alphaXiv via cached OAuth token (fast, rich per-paper breakdowns). ENABLED.
+    # If the token is missing/expired it now degrades CLEANLY — one warning, then
+    # it's skipped for the run and arXiv + the other providers carry the
+    # literature (no retry spam, cycle unaffected). Keep it working: run
+    # `paradigm mcp-login` on a browser machine, then
+    #   scp -r ~/.paradigm/mcp/ root@<vm>:/root/.paradigm/   and restart.
+    enabled: true
 
 storage:
   data_dir: "./data"  # overridden by PARADIGM_DATA_DIR -> a persistent, backed-up volume

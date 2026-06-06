@@ -4177,3 +4177,11 @@ REGRESSION (mine): adding "peer-reviewer" to AGENT_THEMES (for the reviewer icon
 > Let's flip alphaxiv, then also make sure perplexity and arxiv work
 
 (1) production.yaml literature.mcp.enabled → false. (2) Perplexity: needs PERPLEXITY_API_KEY + the citation features (seed discovery / grounding / novelty) that use it — verify env var + enable. (3) arXiv: default provider, no key but rate-limited — verify it's on + working.
+
+---
+
+### Prompt 140 — keep alphaXiv (faster) with arXiv fallback; audit literature-graph features
+
+> I would like to keep alphaxiv mcp if possible -- I think it's faster. Maybe we use arxiv as a fallback option? In the meantime I'll add the perplexity key. I know we had it -- including some fancier ways to look into literature graphs etc. Can you check?
+
+Re-enable alphaXiv but make an expired/invalid token degrade cleanly to the other providers (arXiv etc.) without noise. Audit + report the literature-graph capabilities ([FOLLOW:]/[CITED_BY:]/[READ:]/[CHAIN:] + alphaXiv MCP tools).

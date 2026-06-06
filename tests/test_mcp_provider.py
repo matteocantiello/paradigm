@@ -9,13 +9,51 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from paradigm.literature.mcp_provider import (
     MCPSourceProvider,
     _authors,
     _extract_items,
     _first,
     _parse_text_listing,
+    _summarize_exc,
 )
+
+
+class TestConnectFailureDegradesCleanly:
+    """An OAuth/connect failure (e.g. an expired token) must mark the provider
+    failed so it skips cleanly and arXiv carries — not retry on every search."""
+
+    @pytest.mark.asyncio
+    async def test_base_exception_group_sets_connect_failed(self, monkeypatch):
+        import mcp.client.streamable_http as sh
+
+        def _boom(*_a, **_k):
+            # What anyio raises when the OAuth flow needs interactive re-login —
+            # a BaseExceptionGroup, which is NOT an Exception.
+            raise BaseExceptionGroup("oauth", [RuntimeError("needs interactive login")])
+
+        monkeypatch.setattr(sh, "streamablehttp_client", _boom)
+        p = MCPSourceProvider(
+            server_url="https://x/mcp", auth_mode="bearer", auth_token="t", name="alphaxiv"
+        )
+
+        # First call: fails, but cleanly (RuntimeError, not the raw group) and flags it.
+        with pytest.raises(RuntimeError):
+            await p._ensure_session()
+        assert p._connect_failed is True
+
+        # Second call: fast-fails on the flag — does NOT reconnect (no retry spam).
+        monkeypatch.setattr(
+            sh, "streamablehttp_client", lambda *a, **k: pytest.fail("should not reconnect")
+        )
+        with pytest.raises(RuntimeError, match="unavailable"):
+            await p._ensure_session()
+
+    def test_summarize_exc_unwraps_group(self):
+        grp = BaseExceptionGroup("g", [RuntimeError("needs login")])
+        assert "needs login" in _summarize_exc(grp)
 
 
 def _tool(name: str, props: dict | None = None) -> SimpleNamespace:
