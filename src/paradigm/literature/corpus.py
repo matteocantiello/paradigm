@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -182,8 +183,13 @@ class Corpus:
                     if r.id not in seen_ids:
                         all_results.append(r)
                         seen_ids.add(r.id)
-            except Exception:
-                pass  # Provider can fail silently
+            except asyncio.CancelledError:
+                raise  # a genuine cycle cancellation must propagate
+            except BaseException as e:  # noqa: BLE001
+                # A flaky provider (e.g. an MCP server raising an anyio
+                # BaseExceptionGroup) must NEVER abort the cycle.
+                if self._logger:
+                    self._logger.log_error(e, metadata_key="provider_search")
 
             results = all_results[:max_results]
 
@@ -249,8 +255,14 @@ class Corpus:
                         all_results.append(r)
                         seen_ids.add(r.id)
                 providers_queried.append(name)
-            except Exception:
-                pass  # Non-critical providers can fail silently
+            except asyncio.CancelledError:
+                raise  # a genuine cycle cancellation must propagate
+            except BaseException as e:  # noqa: BLE001
+                # A flaky provider (e.g. an MCP server raising an anyio
+                # BaseExceptionGroup) must NEVER abort the cycle — skip it.
+                providers_skipped.append(name)
+                if self._logger:
+                    self._logger.log_error(e, metadata_key="provider_search")
 
         # Relevance gate: re-rank the aggregated pool by semantic similarity to
         # the query and drop weakly-related results, so broad providers don't
