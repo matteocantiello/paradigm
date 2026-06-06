@@ -9,9 +9,33 @@ from paradigm.agents.providers import (
     AnthropicProvider,
     OpenAICompatibleProvider,
     ProviderConfig,
+    _llm_timeout,
     create_provider,
 )
 from paradigm.config import AgentOverrideConfig, Config, ProviderConfigEntry
+
+
+class TestLLMTimeout:
+    """Every LLM client must be bounded so a hung call can't stall the cycle."""
+
+    def test_default_read_timeout(self, monkeypatch):
+        monkeypatch.delenv("PARADIGM_LLM_TIMEOUT", raising=False)
+        assert _llm_timeout().read == 180.0
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("PARADIGM_LLM_TIMEOUT", "42")
+        assert _llm_timeout().read == 42.0
+
+    def test_malformed_env_falls_back(self, monkeypatch):
+        monkeypatch.setenv("PARADIGM_LLM_TIMEOUT", "not-a-number")
+        assert _llm_timeout().read == 180.0
+
+    def test_anthropic_client_gets_timeout(self, monkeypatch):
+        monkeypatch.delenv("PARADIGM_LLM_TIMEOUT", raising=False)
+        with patch("anthropic.Anthropic") as mock_anthropic:
+            AnthropicProvider(api_key="k")
+            assert mock_anthropic.call_args.kwargs.get("timeout") is not None
+
 
 # ---------------------------------------------------------------------------
 # AnthropicProvider tests

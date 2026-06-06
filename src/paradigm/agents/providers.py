@@ -6,7 +6,29 @@ import os
 from collections.abc import Iterator
 from typing import Any, Protocol, runtime_checkable
 
+import httpx
 from pydantic import BaseModel
+
+
+def _llm_timeout() -> httpx.Timeout:
+    """Per-request timeout applied to every LLM client.
+
+    Without this a hung provider call (a stalled stream, a connection that never
+    closes) blocks the worker thread forever and the whole research cycle stalls
+    indefinitely — we have seen multi-hour stalls in peer review and memory
+    generation from a single call that never returned.
+
+    ``read`` is a PER-READ timeout, so a healthy stream that keeps emitting
+    chunks is never clipped no matter how long the full response takes; only a
+    genuine stall (no bytes for this many seconds) trips it. On timeout the SDKs
+    raise (and retry a couple of times first), so the call fails fast instead of
+    hanging. Override the read timeout with PARADIGM_LLM_TIMEOUT (seconds).
+    """
+    try:
+        read = float(os.getenv("PARADIGM_LLM_TIMEOUT", "180"))
+    except ValueError:
+        read = 180.0
+    return httpx.Timeout(connect=15.0, read=read, write=60.0, pool=15.0)
 
 
 class ProviderConfig(BaseModel):
@@ -78,7 +100,7 @@ class AnthropicProvider:
     def __init__(self, api_key: str, default_model: str = "claude-sonnet-4-5-20250929") -> None:
         from anthropic import Anthropic
 
-        self._client = Anthropic(api_key=api_key)
+        self._client = Anthropic(api_key=api_key, timeout=_llm_timeout())
         self._default_model = default_model
 
     @property
@@ -175,7 +197,7 @@ class OpenAICompatibleProvider:
                 "Install it with: pip install paradigm[openai]"
             ) from e
 
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=_llm_timeout())
         self._default_model = default_model
 
     @property

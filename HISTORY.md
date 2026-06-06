@@ -4130,3 +4130,11 @@ Tests: +1 (hanging-reflection timeout guard); full suite 1510 green; frontend bu
 > yes [tighten the writer/editor prompt to enforce LaTeX math mode + relax the editor's desk-reject threshold]
 
 Editor desk-rejected purely for Unicode math (α vs $\alpha$, × vs $\times$, log subscripts). Two fixes: (1) writer prompt — require LaTeX math mode, never Unicode math symbols; (2) editor desk_review — desk_reject only for FUNDAMENTAL issues, never fixable formatting/notation.
+
+---
+
+### Prompt 135 — reviewer icons + paper stuck in Peer Review (stalled)
+
+> We need icons for the reviewers. Maybe a magnifying glass? Also not sure why the paper got stuck in review (it says stalled) [screenshot: 2 peer-reviewer agents with generic person icons; review gave major_revision; "Stalled 6282s" in Peer Review]
+
+(1) peer-reviewer role has no AGENT_THEMES entry → generic icon; add a magnifier-on-document icon (distinct from skeptic's plain Search). (2) Stalled ~105min in Peer Review = same LLM-hang disease as the memory-gen stall (Prompt 133) but in the review/revision pipeline → need a per-call LLM timeout so NO single call can hang the cycle.

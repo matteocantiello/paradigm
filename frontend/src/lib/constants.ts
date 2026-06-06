@@ -7,7 +7,7 @@ import {
   Search,
   PenTool,
   FileEdit,
-  ClipboardList,
+  FileSearch,
 } from "lucide-react";
 
 // Agent theme map — mirrors src/paradigm/display/theme.py
@@ -54,8 +54,14 @@ export const AGENT_THEMES: Record<string, AgentTheme> = {
     label: "Editor",
   },
   reviewer: {
-    icon: ClipboardList,
-    color: "text-slate-300",
+    icon: FileSearch,
+    color: "text-teal-400",
+    label: "Reviewer",
+  },
+  // Peer reviewers get ids like "peer-reviewer-0" (getAgentRole -> "peer-reviewer").
+  "peer-reviewer": {
+    icon: FileSearch,
+    color: "text-teal-400",
     label: "Reviewer",
   },
 };
