@@ -4153,3 +4153,11 @@ Three issues: (1) paper md figures render as broken image links (figure files no
 3. **PDF never exposed:** added `GET /papers/{id}/pdf` (serves a pre-built PDF, else compiles on-demand via journal.latex.write_paper_latex in a thread; 503 with a clear message if no LaTeX engine). Added has_pdf to artifacts. Frontend: "Download PDF" link in PaperExport (always shown; on-demand). production.yaml journal.enable_latex_output+compile_pdf → true (best-effort; .tex always written, PDF when a LaTeX engine is on PATH). VM needs `tectonic` (one static binary) for actual PDFs.
 
 Tests +2 (artifact has_pdf/figures). Full suite 1516 green; frontend builds. Apply: git pull + restart backend + rebuild frontend; `apt install -y tectonic` (or cargo/binary) on the VM for PDFs.
+
+---
+
+### Prompt 137 — PDF link overlaps text; pre-compile PDF at cycle end (not on click)
+
+> The link to the pdf needs to be placed in a better way -- currently overlapping with text. Also it took several seconds for the pdf to be produced, I wonder if the compilation could happen when the cycle ends, not when the user click on the pdf link (so it's ready)
+
+(1) PaperExport's 3-button row (Copy/Download .md/Download PDF) overflows the 200px TOC sidebar → stack vertically. (2) Pre-compile the PDF at cycle end so the link is instant; the on-demand endpoint stays as a fallback for pre-existing papers.

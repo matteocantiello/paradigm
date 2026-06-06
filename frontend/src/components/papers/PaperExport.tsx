@@ -27,7 +27,7 @@ export function PaperExport({ title, body, pdfUrl }: PaperExportProps) {
   };
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex flex-col items-start gap-0.5">
       <button
         onClick={handleCopy}
         className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"

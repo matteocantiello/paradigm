@@ -429,7 +429,11 @@ class ReviewHandler:
                         body=current_body,
                         status="revised",
                     )
-                    self._engine._writing.save_paper_file(paper_id, current_body)
+                    # Offloaded: save_paper_file may pre-compile the PDF (LaTeX
+                    # subprocess) — keep it off the event loop so the UI never stalls.
+                    await asyncio.to_thread(
+                        self._engine._writing.save_paper_file, paper_id, current_body
+                    )
 
         # Loop ended without editor acceptance (max iterations or stalled revisions).
         self._engine._display.review_max_iterations()

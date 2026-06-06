@@ -598,8 +598,10 @@ class WritingHandler:
         )
         self._engine._db.update_thread(self._engine.state.thread_id, current_draft_id=paper_id)
 
-        # Write markdown file to papers directory
-        self.save_paper_file(paper_id, draft.assembled_body)
+        # Write markdown file to papers directory. Offloaded: save_paper_file may
+        # shell out to a LaTeX engine to pre-compile the PDF (so the download link
+        # is instant), which must not block the event loop / stall the live UI.
+        await asyncio.to_thread(self.save_paper_file, paper_id, draft.assembled_body)
 
         paper_path = ""
         papers_dir = self._engine._config.storage.papers_dir
