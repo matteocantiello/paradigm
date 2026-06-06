@@ -87,12 +87,12 @@ literature:
   max_citation_results: 10
   max_reference_results: 20
   mcp:
-    # alphaXiv via cached OAuth token. Needs the token on the server:
-    # run `paradigm mcp-login` on a machine with a browser, then
-    #   scp -r ~/.paradigm/mcp/ <user>@<vm>:~/.paradigm/
-    # Without a token it now fails cleanly (skips alphaXiv, no crash); the
-    # in-house providers (arXiv, Semantic Scholar, NASA ADS, …) carry literature.
-    enabled: true
+    # alphaXiv via cached OAuth token. DISABLED for the demo: the OAuth token
+    # expires and re-auth can't run headless (just log noise; the cycle survives
+    # it). The in-house providers (arXiv, Semantic Scholar, NASA ADS, …) carry
+    # the literature. To re-enable: run `paradigm mcp-login` on a browser machine,
+    # `scp -r ~/.paradigm/mcp/ <user>@<vm>:~/.paradigm/`, then set this true.
+    enabled: false
 
 storage:
   data_dir: "./data"  # overridden by PARADIGM_DATA_DIR -> a persistent, backed-up volume
@@ -150,6 +150,12 @@ journal:
   compile_pdf: true
 
 citation:
+  # All three use Perplexity (needs PERPLEXITY_API_KEY in the env; without it they
+  # no-op cleanly). Seed discovery is ON: it bootstraps the literature with a few
+  # foundational papers at the start of a cycle (one fast call) — the cheapest,
+  # highest-value Perplexity feature. Citation grounding + novelty add per-claim
+  # Perplexity calls during writing (slower), so they stay OFF by default; enable
+  # them from the GUI settings (or here) when you want stronger citation checking.
   enable_citation_grounding: false
   enable_novelty_check: false
-  enable_seed_discovery: false
+  enable_seed_discovery: true

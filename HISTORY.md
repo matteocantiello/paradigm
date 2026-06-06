@@ -4169,3 +4169,11 @@ Tests +2 (artifact has_pdf/figures). Full suite 1516 green; frontend builds. App
 > I tried a cycle and it failed immediately [journal: ValueError: Unknown role 'peer-reviewer' in create_team; also alphaXiv MCP OAuth "needs interactive login" + anyio BaseExceptionGroup]. What I did was removing the experimentalist and using Explore instead of Directed. If I keep those things it works... There are a bunch of issues -- let's tackle
 
 REGRESSION (mine): adding "peer-reviewer" to AGENT_THEMES (for the reviewer icon) made the team picker offer it as a selectable role, but "peer-reviewer" is a runtime agent_id, not a factory role → create_team raises. Fix: team picker must only offer composable roles (exclude reviewer/peer-reviewer/debate_judge); keep the theme map for display. Bug 2: alphaXiv OAuth token expired → re-login needed; cycle survives via the corpus BaseException guard but logs noise.
+
+---
+
+### Prompt 139 — disable alphaXiv; make Perplexity + arXiv work
+
+> Let's flip alphaxiv, then also make sure perplexity and arxiv work
+
+(1) production.yaml literature.mcp.enabled → false. (2) Perplexity: needs PERPLEXITY_API_KEY + the citation features (seed discovery / grounding / novelty) that use it — verify env var + enable. (3) arXiv: default provider, no key but rate-limited — verify it's on + working.
