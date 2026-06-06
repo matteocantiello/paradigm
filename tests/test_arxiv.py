@@ -144,6 +144,26 @@ async def test_get_paper_not_found(client):
         assert paper is None
 
 
+async def test_get_papers_batches_into_one_request(client):
+    """get_papers fetches many IDs in a SINGLE request (comma-joined id_list) so a
+    burst of single fetches can't trip arXiv's 429 / circuit breaker."""
+    with patch.object(client, "_rate_limited_get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = _mock_response(SAMPLE_ATOM_FEED)
+
+        papers = await client.get_papers(["2301.12345", " 2402.00001 ", "", "2301.12345"])
+        assert mock_get.call_count == 1  # ONE request, not four
+        params = mock_get.call_args.args[1]
+        assert params["id_list"] == "2301.12345,2402.00001,2301.12345"  # stripped, blanks dropped
+        assert isinstance(papers, list)
+
+
+async def test_get_papers_empty(client):
+    """No IDs → no request."""
+    with patch.object(client, "_rate_limited_get", new_callable=AsyncMock) as mock_get:
+        assert await client.get_papers([]) == []
+        mock_get.assert_not_called()
+
+
 async def test_build_query_simple(client):
     """Test basic query building — terms joined with AND, longest first."""
     query = client._build_query("stellar pulsation")

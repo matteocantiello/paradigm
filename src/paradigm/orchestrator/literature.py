@@ -276,23 +276,37 @@ class LiteratureHandler:
             await client.close()
             return 0
 
-        papers = []
+        # Collect unique, not-yet-seen arXiv IDs from the discovered URLs.
+        ids: list[str] = []
         for url in urls[:max_papers]:
             arxiv_id = extract_arxiv_id_from_url(url)
-            if not arxiv_id or arxiv_id in self.seen_paper_ids:
-                continue
+            if arxiv_id and arxiv_id not in self.seen_paper_ids and arxiv_id not in ids:
+                ids.append(arxiv_id)
 
+        # Fetch them ALL in one arXiv request. Firing N rate-limited single fetches
+        # here trips arXiv's 429 + the circuit breaker on cloud IPs, which would
+        # then disable arXiv for the agents' searches too.
+        papers = []
+        try:
+            fetched = await self._engine._corpus._arxiv.get_papers(ids)
+        except Exception as e:
+            _logger.warning("Seed discovery: arXiv batch fetch failed: %s", e)
+            fetched = []
+        for paper in fetched:
             try:
-                paper = await self._engine._corpus._arxiv.get_paper(arxiv_id)
-                if paper is None:
-                    continue
                 await self._engine._corpus.ingest_paper(paper)
-                self.seen_paper_ids.add(arxiv_id)
-                first_author = paper.authors[0] if paper.authors else "Unknown"
-                self._track_paper(arxiv_id, paper.title, first_author)
+                pid = getattr(paper, "arxiv_id", "") or ""
+                if pid:
+                    self.seen_paper_ids.add(pid)
+                    first_author = paper.authors[0] if paper.authors else "Unknown"
+                    self._track_paper(pid, paper.title, first_author)
                 papers.append(paper)
             except Exception as e:
-                _logger.warning("Seed discovery: failed to ingest %s: %s", arxiv_id, e)
+                _logger.warning(
+                    "Seed discovery: failed to ingest %s: %s",
+                    getattr(paper, "arxiv_id", "?"),
+                    e,
+                )
                 continue
 
         if papers:

@@ -303,6 +303,24 @@ class ArxivClient:
             return result.papers[0]
         return None
 
+    async def get_papers(self, arxiv_ids: list[str]) -> list[ArxivPaper]:
+        """Fetch several papers in ONE request via arXiv's comma-separated id_list.
+
+        Batching matters: firing N rate-limited single fetches (e.g. seed discovery
+        ingesting ~10 IDs) trips arXiv's 429 + our circuit breaker on cloud IPs.
+        One request avoids that. Order isn't guaranteed and missing IDs are simply
+        absent — callers match by ``arxiv_id``.
+        """
+        ids = [i for i in (a.strip() for a in arxiv_ids) if i]
+        if not ids:
+            return []
+        params: dict[str, Any] = {
+            "id_list": ",".join(ids),
+            "max_results": len(ids),
+        }
+        response = await self._rate_limited_get(ARXIV_API_BASE, params)
+        return self._parse_feed(response.text).papers
+
     async def fetch_pdf_from_url(self, url: str) -> str | None:
         """Download and extract text from a PDF at the given URL.
 

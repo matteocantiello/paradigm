@@ -4241,3 +4241,9 @@ Record 2 future items (GPT-5.4-mini option; per-agent model dropdown in the agen
 > still seeing an issue when the research process terminates (accepted or not). It stalls instead of giving a message about the outcome and showing the paper. [screenshot: "Internal review rejected the paper", then Stalled 522s, in "internal review"]
 
 The desk_reject terminal fix (prompt 133) didn't cover the INTERNAL_REVIEW reject path. Need: every terminal outcome (publish / desk-reject / peer-reject / internal-reject / revision-exhausted / no-paper) must finalize → set REJECTED/PUBLISHED phase + broadcast + return, so the frontend TerminalScreen shows the outcome + paper. Investigate the engine internal-review branch + whether it hangs or just doesn't broadcast terminal.
+
+### Prompt 149 — Perplexity works now; arXiv 429s during seed-discovery ingestion
+
+> [journal: Seed discovery found IDs via Perplexity, but "failed to ingest <id>: 429" then "arXiv unavailable — circuit breaker open (rate-limited)" for the rest]
+
+Perplexity fixed (returns IDs). New issue: run_seed_discovery fetches each discovered ID from arXiv in a tight loop (~10 rapid get_paper calls) → 429 → circuit breaker opens → arXiv disabled for the whole cycle (incl. agents' later searches). Fix: don't burst — rate-limit or batch the seed fetches (arXiv id_list takes comma-separated IDs → one request), so it doesn't trip the breaker.
