@@ -4105,3 +4105,5 @@ The flash-lite experimentalist is the root of the experiment failures. Bumping e
 > CI is failing [ruff format --check would reformat 28 files]
 
 CI runs `ruff format --check` (formatter, separate from the `ruff check` linter I'd been running). 28 files drifted — mostly pre-existing in files not touched this session; CI installs ruff UNPINNED (latest 0.15.16) while local was 0.15.4. Fix: match CI's ruff version, `ruff format src/ tests/`, and PIN ruff==0.15.16 (pyproject [dev] + lint.yml) so the unpinned-latest drift can't recur.
+
+**Follow-up (Test Python 3.11/3.12 failing):** once the format check passed, the test step ran and exposed a PRE-EXISTING collection error: `ModuleNotFoundError: No module named 'fastapi'` in tests/test_cycle_enrichment.py + tests/test_resume_cycle.py (they import the backend). CI installed only `.[dev]`. Fix: CI now installs `.[dev,api]` so fastapi is present and the backend tests actually run. (The "Node.js 20 actions are deprecated" lines are a non-blocking GitHub warning — actions/checkout@v4 + setup-python@v5 are already latest; auto-migrates to Node24 by Sept 2026. No action needed.)

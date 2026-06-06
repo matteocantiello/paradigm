@@ -27,7 +27,10 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+        # Include the api extra (fastapi/uvicorn): tests/test_cycle_enrichment.py
+        # and tests/test_resume_cycle.py import the backend, so without it pytest
+        # errors at collection (ModuleNotFoundError: fastapi).
+        pip install -e ".[dev,api]"
 
     - name: Verify setup
       run: |
