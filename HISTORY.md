@@ -4022,3 +4022,11 @@ Re-enabled mcp in production.yaml. Robustness: MCPSourceProvider._ensure_session
 > the execution halts after the experiments ... the paradigm-sandbox:latest Docker image was not found
 
 Missed deploy step (Step 4): the sandbox image was never built on the VM, so experiments skip (graceful — the platform reported it cleanly, didn't crash). Fix: build it. Updated DEPLOY.md to use `docker/` as the build context (Dockerfile has no COPY → avoids sending the whole repo) + marked it REQUIRED. User runs: `docker build -t paradigm-sandbox:latest -f docker/Dockerfile.sandbox docker/`, no restart needed.
+
+---
+
+### Prompt 124 — agents shown as bare numbers; add icons/names + calls + tokens
+
+> add the agents icons and names when showing their total number of calls and tokens used ... don't understand the number succession next to Ideation
+
+ROOT CAUSE: agent ids are `${role}-${index}` ("theorist-0") but getAgentRole returned parts[LAST] = the index ("0") → numeric labels, generic icons everywhere (AgentPanel, NowPlaying "number succession", Messages, Draft). Fixed getAgentRole to strip the trailing numeric index → return the role. Reworked AgentPanel: role icon + role name + "N calls · M tokens" (calls = per-agent message count; tokens = summed), dropped the confusing/inconsistent activity subtitle. The NowPlaying agent labels now resolve to role names+icons too (fixes the "number succession"). tsc + build clean. Frontend change → needs `npm run build` on the VM.

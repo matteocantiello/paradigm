@@ -147,6 +147,11 @@ export const CONFLICT_TYPE_COLORS: Record<string, string> = {
 };
 
 export function getAgentRole(agentId: string): string {
+  // Agent ids are `${role}-${index}` (e.g. "theorist-0"). The role is everything
+  // before the trailing numeric index — NOT the index itself.
   const parts = agentId.split("-");
-  return parts[parts.length - 1] ?? agentId;
+  if (parts.length > 1 && /^\d+$/.test(parts[parts.length - 1])) {
+    return parts.slice(0, -1).join("-");
+  }
+  return agentId;
 }

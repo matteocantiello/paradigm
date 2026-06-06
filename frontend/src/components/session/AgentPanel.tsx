@@ -1,18 +1,20 @@
 import { AGENT_THEMES, getAgentRole } from "@/lib/constants";
 import { cn, formatTokens } from "@/lib/utils";
 import { useSessionStore } from "@/stores/sessionStore";
-import { Coins, User } from "lucide-react";
+import { Coins, RefreshCw, User } from "lucide-react";
 
 interface AgentPanelProps {
   activeAgents: Record<string, string>;
 }
 
 export function AgentPanel({ activeAgents }: AgentPanelProps) {
-  // Per-agent cumulative token usage, summed from each agent's messages.
+  // Per-agent usage, summed from each agent's messages: one message ≈ one call.
   const agentOutputs = useSessionStore((s) => s.agentOutputs);
   const tokensByAgent: Record<string, number> = {};
+  const callsByAgent: Record<string, number> = {};
   for (const o of agentOutputs) {
     tokensByAgent[o.agentId] = (tokensByAgent[o.agentId] ?? 0) + (o.tokens || 0);
+    callsByAgent[o.agentId] = (callsByAgent[o.agentId] ?? 0) + 1;
   }
   const entries = Object.entries(activeAgents);
 
@@ -28,6 +30,8 @@ export function AgentPanel({ activeAgents }: AgentPanelProps) {
         const role = getAgentRole(agentId);
         const theme = AGENT_THEMES[role];
         const Icon = theme?.icon ?? User;
+        const calls = callsByAgent[agentId] ?? 0;
+        const tokens = tokensByAgent[agentId] ?? 0;
         return (
           <div
             key={agentId}
@@ -38,27 +42,30 @@ export function AgentPanel({ activeAgents }: AgentPanelProps) {
                 : "border-muted-foreground/30 hover:bg-accent/30"
             )}
           >
-            <div className={cn(
-              "flex items-center justify-center h-7 w-7 rounded-full bg-accent/50",
-              activity && "animate-breathe"
-            )}>
+            <div
+              className={cn(
+                "flex items-center justify-center h-7 w-7 rounded-full bg-accent/50",
+                activity && "animate-breathe"
+              )}
+            >
               <Icon className={cn("h-4 w-4 shrink-0", theme?.color ?? "text-muted-foreground")} />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-xs font-semibold truncate">{theme?.label ?? role}</span>
-                {tokensByAgent[agentId] > 0 && (
+              <div className="text-xs font-semibold truncate">{theme?.label ?? role}</div>
+              <div className="flex items-center gap-2 text-[10px] tabular-nums text-muted-foreground/80">
+                <span className="flex items-center gap-0.5" title={`${calls} agent calls`}>
+                  <RefreshCw className="h-2.5 w-2.5" />
+                  {calls} {calls === 1 ? "call" : "calls"}
+                </span>
+                {tokens > 0 && (
                   <span
-                    className="flex items-center gap-0.5 shrink-0 text-[9px] tabular-nums text-muted-foreground/70"
-                    title={`${tokensByAgent[agentId].toLocaleString()} tokens used`}
+                    className="flex items-center gap-0.5"
+                    title={`${tokens.toLocaleString()} tokens used`}
                   >
                     <Coins className="h-2.5 w-2.5" />
-                    {formatTokens(tokensByAgent[agentId])}
+                    {formatTokens(tokens)}
                   </span>
                 )}
-              </div>
-              <div className="text-[10px] text-muted-foreground truncate">
-                {activity}
               </div>
             </div>
           </div>
