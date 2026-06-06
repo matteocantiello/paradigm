@@ -4014,3 +4014,11 @@ ABORTED = session task cancelled. Tracing what cancels it: backend abort/cleanup
 > wait, I want alphaxiv mcp to work. So how do I make it work on the VM?
 
 Re-enabled mcp in production.yaml. Robustness: MCPSourceProvider._ensure_session now pre-checks storage.has_tokens() in oauth mode and fails cleanly + fast (no streamablehttp connection → no anyio BaseExceptionGroup) when no token. systemd unit sets Environment=HOME=/root so $HOME/.paradigm/mcp/ resolves for the root service. User steps: run mcp-login on a browser machine, scp ~/.paradigm/mcp/ to /root/.paradigm/ on the VM, git pull, re-cp the unit (HOME), daemon-reload, restart.
+
+---
+
+### Prompt 123 — experiments halt: paradigm-sandbox:latest image not found
+
+> the execution halts after the experiments ... the paradigm-sandbox:latest Docker image was not found
+
+Missed deploy step (Step 4): the sandbox image was never built on the VM, so experiments skip (graceful — the platform reported it cleanly, didn't crash). Fix: build it. Updated DEPLOY.md to use `docker/` as the build context (Dockerfile has no COPY → avoids sending the whole repo) + marked it REQUIRED. User runs: `docker build -t paradigm-sandbox:latest -f docker/Dockerfile.sandbox docker/`, no restart needed.

@@ -67,10 +67,15 @@ The **extras matter**: `api` = FastAPI/uvicorn (the web server), `openai` = the 
 provider (OpenAI-compatible), `mcp` = alphaXiv literature. `anthropic` + `chromadb`
 are core deps. (Installing just `.[mcp]` leaves you with **no uvicorn**.)
 
-## 4. Build the sandbox image (code execution)
+## 4. Build the sandbox image (code execution) — REQUIRED for experiments
+Without this image, experiments are skipped ("paradigm-sandbox:latest not found").
+The Dockerfile has no COPY, so use `docker/` as the context (avoids sending the
+whole repo). Takes a few minutes (installs numpy/scipy/astropy/emcee/lmfit/…):
 ```bash
-docker build -f docker/Dockerfile.sandbox -t paradigm-sandbox:latest .
+docker build -t paradigm-sandbox:latest -f docker/Dockerfile.sandbox docker/
+docker images | grep paradigm-sandbox     # confirm it exists
 ```
+No backend restart needed — the executor looks the image up per run.
 
 ## 5. Build the frontend (Caddy serves this folder)
 ```bash
