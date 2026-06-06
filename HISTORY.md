@@ -4107,3 +4107,18 @@ The flash-lite experimentalist is the root of the experiment failures. Bumping e
 CI runs `ruff format --check` (formatter, separate from the `ruff check` linter I'd been running). 28 files drifted — mostly pre-existing in files not touched this session; CI installs ruff UNPINNED (latest 0.15.16) while local was 0.15.4. Fix: match CI's ruff version, `ruff format src/ tests/`, and PIN ruff==0.15.16 (pyproject [dev] + lint.yml) so the unpinned-latest drift can't recur.
 
 **Follow-up (Test Python 3.11/3.12 failing):** once the format check passed, the test step ran and exposed a PRE-EXISTING collection error: `ModuleNotFoundError: No module named 'fastapi'` in tests/test_cycle_enrichment.py + tests/test_resume_cycle.py (they import the backend). CI installed only `.[dev]`. Fix: CI now installs `.[dev,api]` so fastapi is present and the backend tests actually run. (The "Node.js 20 actions are deprecated" lines are a non-blocking GitHub warning — actions/checkout@v4 + setup-python@v5 are already latest; auto-migrates to Node24 by Sept 2026. No action needed.)
+
+---
+
+### Prompt 133 — rejected paper leaves the run stuck; need a terminal action (show paper/reason)
+
+> Interestingly the paper was rejected. But the research ends up being stuck -- I think we need an action once rejected (like still show the final paper) [screenshot: editor desk_reject at Submitted, phase tracker stuck on "Submitted", "Stalled — No activity for 773s"]
+
+Editor desk_rejected (LaTeX math-notation violations) at the Submitted gate, but the cycle didn't finalize → UI stalls in Submitted for 13min instead of a terminal screen. Need: (1) backend finalizes/broadcasts terminal status on reject; (2) frontend terminal action shows the final paper + rejection reason (+ resume/revise).
+
+**FIXES (commit pending):**
+1. **The stall (root cause):** after desk-reject the engine still runs `run_memory_generation()` (one LLM reflection per agent) with NO timeout — a stuck call left `run_research_cycle` never returning, so the session never finalized and the UI stalled forever (status stuck "running" → "Stalled"). Bounded reflection with `asyncio.wait_for(_REFLECTION_TIMEOUT_S=120)`; on timeout it's a non-fatal memory_error and the cycle finalizes. (Also protects the success path.)
+2. **Desk-reject was invisible to the UI:** review.py transitioned state→REJECTED but never called `_display.phase_transition(REJECTED)`, and engine.py's desk-reject branch never called `_display.paper_rejected()` (unlike the peer-review path). Added both → tracker advances to Rejected + a "Paper REJECTED" notification.
+3. **Terminal screen now handles rejection:** TerminalScreen treats `currentPhase==="rejected"` as a distinct terminal state ("Paper was not accepted" + View paper + "Revise & resubmit"), not a convergence. SessionPage refetches cycles on terminal status so `paper_id` (enriched from the thread) is present → "View paper" works for rejected papers.
+
+Tests: +1 (hanging-reflection timeout guard); full suite 1510 green; frontend builds. Apply: `git pull && systemctl restart paradigm-backend` + `cd frontend && npm run build`.

@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from paradigm.logging.events import EventType
 
 if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
+
+# Post-cycle reflection makes one LLM call per agent. It is best-effort and runs
+# as the LAST step of a cycle, so a stuck call must NOT block the cycle from
+# finalizing (otherwise the run never reaches its terminal state and the UI
+# stalls forever). Bound it so completion is guaranteed.
+_REFLECTION_TIMEOUT_S = 120.0
 
 
 class MemoryHandler:
@@ -45,15 +52,18 @@ class MemoryHandler:
             thread = engine._db.get_thread(engine.state.thread_id)
             outcome = thread.get("status", "completed") if thread else "completed"
             _reflection_provider = engine._config.get_provider()
-            reflections = await generate_reflections(
-                agents=engine.state.agents,
-                messages=all_messages,
-                seed_prompt=engine.state.seed_prompt,
-                thread_id=engine.state.thread_id,
-                outcome_summary=f"Research cycle ended with status: {outcome}",
-                provider=_reflection_provider,
-                model=_reflection_provider.default_model,
-                database=engine._db,
+            reflections = await asyncio.wait_for(
+                generate_reflections(
+                    agents=engine.state.agents,
+                    messages=all_messages,
+                    seed_prompt=engine.state.seed_prompt,
+                    thread_id=engine.state.thread_id,
+                    outcome_summary=f"Research cycle ended with status: {outcome}",
+                    provider=_reflection_provider,
+                    model=_reflection_provider.default_model,
+                    database=engine._db,
+                ),
+                timeout=_REFLECTION_TIMEOUT_S,
             )
             total = sum(len(r.memories) for r in reflections)
             for r in reflections:

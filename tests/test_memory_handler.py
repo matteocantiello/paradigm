@@ -109,3 +109,36 @@ class TestMemoryErrorCaught:
         # memory_error should have been called on the display
         engine._display.memory_error.assert_called_once()
         db.close()
+
+
+class TestMemoryGenerationTimeout:
+    @pytest.mark.asyncio
+    async def test_hanging_reflection_does_not_block(self, tmp_path):
+        """A reflection call that hangs is bounded — the cycle can still finalize.
+
+        Without the timeout guard a stuck LLM call here leaves the whole run
+        unable to reach its terminal state (the live UI stalls forever).
+        """
+        import asyncio
+
+        mock_store = MagicMock()
+        engine, db = _make_engine(tmp_path, memory_store=mock_store)
+        engine._config.memory.enabled = True
+
+        async def _never_returns(*args, **kwargs):
+            await asyncio.sleep(60)  # would hang past the (patched) timeout
+
+        with (
+            patch("paradigm.orchestrator.memory._REFLECTION_TIMEOUT_S", 0.05),
+            patch(
+                "paradigm.agents.memory.generate_reflections",
+                new=_never_returns,
+            ),
+        ):
+            # Must return promptly (≈ the patched timeout), not hang for 60s.
+            await asyncio.wait_for(engine._memory.run_memory_generation(), timeout=5)
+
+        # Timed out -> treated as a (non-fatal) error; no memories stored.
+        engine._display.memory_error.assert_called_once()
+        mock_store.add_memories.assert_not_called()
+        db.close()

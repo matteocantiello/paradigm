@@ -584,6 +584,10 @@ class ReviewHandler:
                 )
             self._engine.state.phase_manager.transition_to(ResearchPhase.REJECTED)
             self._engine._log_phase_transition(ResearchPhase.SUBMITTED, ResearchPhase.REJECTED)
+            # Surface the terminal phase to the live UI (the tracker + terminal
+            # screen key off current_phase) — without this the run looks stuck on
+            # "Submitted" after a desk rejection.
+            self._engine._display.phase_transition(ResearchPhase.REJECTED)
             return False
 
         self._engine._display.desk_review_result(True)

@@ -70,13 +70,23 @@ export function TerminalScreen({
   const phaseLabel = currentPhase
     ? (PHASE_LABELS[currentPhase] ?? currentPhase.replace(/_/g, " "))
     : "—";
-  const converged = status === "completed" && !!paperId;
+  // A rejected paper still finishes the session as "completed"; the rejection is
+  // signalled by the terminal phase. It is NOT a convergence.
+  const rejected = currentPhase === "rejected";
+  const converged = status === "completed" && !!paperId && !rejected;
 
   let tone: keyof typeof TONES;
   let Icon = CheckCircle2;
   let title = "Research complete";
   let line = "The team converged and produced a paper.";
-  if (converged) {
+  if (rejected) {
+    tone = "warn";
+    Icon = AlertTriangle;
+    title = "Paper was not accepted";
+    line =
+      "The paper was rejected at review — see the transcript below for the reason. " +
+      "You can still read the draft, or revise and resubmit.";
+  } else if (converged) {
     tone = "ok";
   } else if (status === "completed") {
     tone = "warn";
@@ -140,7 +150,7 @@ export function TerminalScreen({
               title="Continue this research from its last checkpoint"
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              {converged ? "Continue research" : "Resume"}
+              {rejected ? "Revise & resubmit" : converged ? "Continue research" : "Resume"}
             </button>
           )}
           <button

@@ -626,6 +626,7 @@ class OrchestrationEngine:
                 else:
                     # Desk rejected
                     self._db.update_thread(self.state.thread_id, status="rejected")
+                    self._display.paper_rejected()
             else:
                 self._db.update_thread(self.state.thread_id, status="reviewed")
         else:
