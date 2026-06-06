@@ -100,6 +100,7 @@ class LiteratureConfig(BaseModel):
     follow_budget_per_round: int = 3
     cited_by_budget_per_round: int = 2
     read_budget_per_round: int = 5
+    chain_budget_per_round: int = 1  # multi-hop [CHAIN:] is expensive (depth x fan-out)
     max_read_chars: int = 8000
     max_citation_results: int = 10
     max_reference_results: int = 20

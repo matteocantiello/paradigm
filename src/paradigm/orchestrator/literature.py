@@ -105,6 +105,7 @@ class LiteratureHandler:
         self.follow_count_this_round: int = 0
         self.cited_by_count_this_round: int = 0
         self.read_count_this_round: int = 0
+        self.chain_count_this_round: int = 0
         self.agent_search_count: dict[str, int] = {}
 
         # Per-cycle state (reset between research cycles)
@@ -141,6 +142,7 @@ class LiteratureHandler:
         self.cited_by_count_this_round = 0
         self.read_count_this_round = 0
         self.data_count_this_round = 0
+        self.chain_count_this_round = 0
         self.agent_search_count = {}
 
     def reset_cycle(self) -> None:
@@ -150,6 +152,7 @@ class LiteratureHandler:
         self.cited_by_count_this_round = 0
         self.read_count_this_round = 0
         self.data_count_this_round = 0
+        self.chain_count_this_round = 0
         self.agent_search_count = {}
         self.searched_queries = set()
         self.searched_query_keywords = []
@@ -791,15 +794,21 @@ class LiteratureHandler:
         if not chain_reqs:
             return
 
-        # Use source_providers from the engine's corpus if available
-        providers = {}
-        if hasattr(self._engine, "_corpus") and hasattr(self._engine._corpus, "_source_providers"):
-            providers = self._engine._corpus._source_providers or {}
-
+        lit_config = self._engine._config.literature
+        # The corpus exposes its SourceProviders as ``_providers`` (get_references/
+        # get_citations route through them). Without providers there's nothing to walk.
+        providers = getattr(self._engine._corpus, "_providers", None) or {}
         if not providers:
             return
 
         for req in chain_reqs:
+            if self.chain_count_this_round >= lit_config.chain_budget_per_round:
+                break
+            # Gate: only walk from a paper actually discovered via search. A depth-N
+            # BFS from a hallucinated seed would amplify contamination across levels.
+            if not self._is_discovered_id(req.paper_id):
+                self._note_rejected_id("CHAIN", req.paper_id)
+                continue
             try:
                 papers = await follow_citation_chain(
                     providers=providers,
@@ -813,6 +822,8 @@ class LiteratureHandler:
                     e, agent_id=agent_id, thread_id=self._engine.state.thread_id
                 )
                 continue
+
+            self.chain_count_this_round += 1
 
             # Track discovered papers
             for p in papers:

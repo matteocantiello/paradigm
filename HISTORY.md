@@ -4193,3 +4193,11 @@ Re-enable alphaXiv but make an expired/invalid token degrade cleanly to the othe
 > [mcp-login] Login failed: No module named 'mcp'
 
 The conda `paradigm` env HAS mcp; the user's `paradigm` CLI resolves to a different env without the extra. mcp_auth imports `mcp` lazily so the helpful ImportError handler is skipped → generic "Login failed". Fix: catch ModuleNotFoundError in mcp_login and print an actionable message (install paradigm[mcp] in THIS interpreter / use the conda env). Immediate fix for the user: run from the conda env.
+
+---
+
+### Prompt 142 — re-enable the CHAIN feature (multi-hop citation-graph traversal)
+
+> I'll test while you re-enable the chain feature
+
+[CHAIN: id depth=N direction=refs|cites|both] is fully dormant: parser + process_chain_requests + follow_citation_chain exist but process_chain_requests is never invoked + not documented. Wire it into the agent response loop, gate the seed id to discovered ids (no hallucinated seed amplified by depth), bound depth, document it, test.

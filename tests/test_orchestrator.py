@@ -1547,6 +1547,70 @@ class TestLiteratureGraphTraversal:
         assert "rejected" in engine._literature.literature_context
 
     @pytest.mark.asyncio
+    async def test_chain_requests_processed(self, mock_config, tmp_db, tmp_logger):
+        """[CHAIN:] is wired in and triggers follow_citation_chain for a discovered seed."""
+        from datetime import UTC, datetime
+        from unittest.mock import patch as _patch
+
+        from paradigm.domains.base import SourceResult
+
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+        corpus._providers = {"arxiv": MagicMock()}  # non-empty so the walk runs
+
+        chained = [
+            SourceResult(
+                id="2401.55555",
+                source_type="semantic_scholar",
+                title="Chained Paper",
+                authors=["Author"],
+                summary="Abstract",
+                url="",
+                date=datetime(2024, 1, 1, tzinfo=UTC),
+            )
+        ]
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+                    agent.generate = AsyncMock(
+                        return_value=AgentResponse(
+                            content="Ideas [CHAIN: 2301.12345 depth=2 direction=both]",
+                            usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                            model="claude-sonnet-4-5-20250929",
+                        )
+                    )
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+        engine._literature._is_discovered_id = lambda _id: True  # treat the seed as discovered
+
+        with _patch(
+            "paradigm.orchestrator.literature.follow_citation_chain",
+            new=AsyncMock(return_value=chained),
+        ) as mock_chain:
+            await engine.run_research_cycle(seed_prompt="Test chain", mode="directed")
+
+        mock_chain.assert_called()
+
+    @pytest.mark.asyncio
     async def test_follow_budget_enforced(self, mock_config, tmp_db, tmp_logger):
         """Stops processing [FOLLOW:] after budget exhausted."""
         corpus = MagicMock()

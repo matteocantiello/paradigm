@@ -981,6 +981,9 @@ class OrchestrationEngine:
             # Process any [DATA: url] requests (pre-stage datasets for sandbox)
             await self._literature.process_data_requests(agent_id, response.content, phase)
 
+            # Process any [CHAIN: id depth=N direction=...] multi-hop graph walks
+            await self._literature.process_chain_requests(agent_id, response.content, phase)
+
             # Process any [CHALLENGE: ...] requests in the agent's response
             await self._debate.process_challenge_requests(
                 agent_id, response.content, phase, round_num
