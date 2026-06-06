@@ -4065,3 +4065,27 @@ Three distinct EXECUTION failures to investigate: (1) code executes without its 
 3. **dust_extinction missing** — the prompt PROMISED photutils/specutils/dust_extinction/galpy/healpy/plotly/bokeh/tables/netCDF4/pyarrow but the Dockerfile installed NONE → agents hand-rolled a broken CCM89 and spiralled (14.4k tok). Added the reliable-wheel subset to Dockerfile.sandbox (photutils, specutils, dust_extinction, plotly, bokeh, tables, netCDF4, pyarrow; dropped galpy/healpy to keep the slim build compiler-free) and synced the prompt list to match + told agents to use dust_extinction's CCM89 instead of hand-rolling.
 
 Tests: +2 (preamble astropy aliases, _make_sandbox_writable mode); full suite green. Apply on VM: `git pull && systemctl restart paradigm-backend` (fixes 1+2) AND **rebuild the sandbox image** for fix 3: `docker build -t paradigm-sandbox:latest -f docker/Dockerfile.sandbox docker/`.
+
+---
+
+### Prompt 128 — git pull blocked by local edits to deploy/paradigm-backend.service (VM)
+
+> [git pull error: local changes to deploy/paradigm-backend.service would be overwritten]
+
+Guidance only (VM ops). The repo file is a TEMPLATE; the running unit is the installed copy at /etc/systemd/system/. Safe sequence: diff + back up the file, `git stash push deploy/paradigm-backend.service`, `git pull` (fast-forwards), do NOT re-cp the template (installed unit already has root + conda ExecStart + HOME=/root). Optional: `git update-index --skip-worktree` to stop future conflicts.
+
+---
+
+### Prompt 129 — agent icons/numbers still old on the VM
+
+> I am still seeing the old issue with the agent icons and numbers on the VM
+
+Guidance only. Frontend change (commit 15f43dd) → needs `cd /opt/paradigm/frontend && npm run build` (Caddy serves the prebuilt dist/; a backend restart doesn't touch it) + hard-refresh. `npm ci` first if build errors.
+
+---
+
+### Prompt 130 — experiment failures round 2 (astropy API misuse + hallucinated module + unit spirals)
+
+> Ok. I am still seeing experiment failures: [log: AttributeError const.k (should be k_B), astropy.modeling.models.Planck1D doesn't exist, `from spectral_fitting_tools import greybody_fit` hallucinated module, 540-line/12k-token unit-conversion spirals]
+
+Basic bugs from 127 are GONE (rebuild worked). Remaining failures are gemini-2.5-flash-lite writing fragile scientific code: const.k vs const.k_B, non-existent Planck1D/BlackBody1D (it's BlackBody), inventing a spectral_fitting_tools module, and drowning in astropy.units B_nu<->B_lambda conversions. Fix: add astropy-gotchas + keep-it-simple + no-invented-imports guidance to the EXECUTION prompt; ALSO recommend bumping the experiment-writing role off flash-lite (the real bottleneck).
