@@ -40,6 +40,7 @@ export interface ResearchCycleResponse {
   thread_id?: string | null;
   paper_id?: string | null;
   current_phase?: string | null;
+  topics?: string[] | null;
   resumed_from?: string | null;
   created_at: string;
   updated_at?: string | null;
@@ -144,6 +145,7 @@ export interface PaperSummary {
   title: string;
   status: string;
   abstract: string;
+  topics?: string[] | null;
   created_at?: string | null;
   published_at?: string | null;
 }
@@ -156,6 +158,7 @@ export interface PaperDetail {
   body: string;
   status: string;
   keywords: string[];
+  topics?: string[] | null;
   citations: string[];
   review_scores?: Record<string, unknown> | null;
   citation_count: number;

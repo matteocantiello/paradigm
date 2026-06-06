@@ -152,6 +152,7 @@ interface SessionStoreState {
   papersFound: number;
   elapsedSeconds: number;
   completedPhases: string[];
+  topics: string[];
   avgStepMs: number;
   phaseElapsedSeconds: number;
   // ms-epoch of the last inbound server message — drives stalled-detection.
@@ -214,6 +215,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   papersFound: 0,
   elapsedSeconds: 0,
   completedPhases: [],
+  topics: [],
   avgStepMs: 0,
   phaseElapsedSeconds: 0,
   lastActivityAt: 0,
@@ -248,6 +250,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       papersFound: 0,
       elapsedSeconds: 0,
       completedPhases: [],
+      topics: [],
       avgStepMs: 0,
       phaseElapsedSeconds: 0,
       lastActivityAt: Date.now(),
@@ -324,9 +327,16 @@ function handleServerMessage(
         papersFound: msg.papers_found,
         elapsedSeconds: msg.elapsed_seconds,
         completedPhases: msg.completed_phases,
+        // Only overwrite topics when the snapshot actually carries them, so a
+        // state sync between the initial/final classifications can't wipe a badge.
+        ...(msg.topics && msg.topics.length > 0 ? { topics: msg.topics } : {}),
         avgStepMs: msg.avg_step_ms ?? 0,
         phaseElapsedSeconds: msg.phase_elapsed_seconds ?? 0,
       });
+      break;
+
+    case "topics_update":
+      set({ topics: msg.topics });
       break;
 
     case "agent_output_stream": {

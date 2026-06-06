@@ -1184,6 +1184,15 @@ class DisplayManager:
     # Publication
     # ------------------------------------------------------------------
 
+    def topics_assigned(
+        self, topics: list[str], *, stage: str = "final", agent_id: str = ""
+    ) -> None:
+        self._state.add_event("knowledge", f"Topics ({stage}): {', '.join(topics)}")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.topics_assigned(topics, stage=stage, agent_id=agent_id)
+
     def paper_published(self) -> None:
         # Move current phase to completed and set PUBLISHED as current
         if self._state.current_phase is not None:

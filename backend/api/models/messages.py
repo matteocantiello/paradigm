@@ -25,6 +25,7 @@ class ServerMessageType(str, Enum):
     APPROVAL_REQUEST = "approval_request"
     SESSION_STATE = "session_state"
     PHASE_TRANSITION = "phase_transition"
+    TOPICS_UPDATE = "topics_update"
     ROUND_UPDATE = "round_update"
     ERROR = "error"
     NOTIFICATION = "notification"
@@ -113,6 +114,8 @@ class SessionStateMsg(BaseModel):
     papers_found: int = 0
     elapsed_seconds: float = 0.0
     completed_phases: list[str] = Field(default_factory=list)
+    # Broad arXiv-style field tags for this cycle (cross-pollination → multiple).
+    topics: list[str] = Field(default_factory=list)
     # Live pacing (Phase B): rolling-average per-turn duration + time in the
     # current phase, so the client can render a "now playing" header + rough ETA.
     avg_step_ms: float = 0.0
@@ -130,6 +133,18 @@ class PhaseTransitionMsg(BaseModel):
     max_rounds: int | None = None
     active_agents: int | None = None
     total_agents: int | None = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TopicsUpdateMsg(BaseModel):
+    """Broad field tags assigned to the cycle/paper (cross-pollination → multiple).
+
+    ``stage`` is "initial" (from the seed prompt) or "final" (from the finished paper).
+    """
+
+    type: Literal["topics_update"] = "topics_update"
+    topics: list[str] = Field(default_factory=list)
+    stage: str = "final"
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -264,6 +279,7 @@ ServerMessage = Annotated[
     | ApprovalRequestMsg
     | SessionStateMsg
     | PhaseTransitionMsg
+    | TopicsUpdateMsg
     | RoundUpdateMsg
     | ErrorMsg
     | NotificationMsg

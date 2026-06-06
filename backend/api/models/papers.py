@@ -14,6 +14,7 @@ class PaperSummary(BaseModel):
     title: str
     status: str
     abstract: str = ""
+    topics: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     published_at: datetime | None = None
 
@@ -28,6 +29,7 @@ class PaperDetail(BaseModel):
     body: str = ""
     status: str = ""
     keywords: list[str] = Field(default_factory=list)
+    topics: list[str] = Field(default_factory=list)
     citations: list[str] = Field(default_factory=list)
     review_scores: dict[str, object] | None = None
     citation_count: int = 0

@@ -278,6 +278,10 @@ class OrchestrationEngine:
         # Initialize phase manager (starts at SEEDING, transition to IDEATION)
         self.state.phase_manager = PhaseManager(ResearchPhase.SEEDING)
 
+        # Topic tags: the theorist's first read of the problem. An early badge so
+        # the cycle shows a field while it runs (refined from the paper at the end).
+        await self._assign_topics(seed_prompt, stage="initial", paper_id=None)
+
         # Seed discovery via Perplexity (optional, pre-populates literature context)
         if self._config.citation.enable_seed_discovery:
             try:
@@ -606,6 +610,7 @@ class OrchestrationEngine:
                 self._display.paper_rejected()
                 paper_id = thread.get("current_draft_id") if thread else None
                 if paper_id:
+                    await self._assign_final_topics(paper_id)
                     self._save_auxiliary_files(paper_id)
                 self._print_token_summary()
                 return self.state.thread_id
@@ -668,6 +673,8 @@ class OrchestrationEngine:
         thread = self._db.get_thread(self.state.thread_id)
         paper_id = thread.get("current_draft_id") if thread else None
         if paper_id:
+            # Re-tag from the finished paper (drift + cross-pollination).
+            await self._assign_final_topics(paper_id)
             self._save_auxiliary_files(paper_id)
 
         # Display token usage summary
@@ -1772,6 +1779,58 @@ class OrchestrationEngine:
             phase=str(to_phase),
         )
         self._db.update_thread(self.state.thread_id, current_phase=str(to_phase))
+
+    async def _assign_topics(self, text: str, *, stage: str, paper_id: str | None) -> None:
+        """Classify ``text`` into broad fields and persist + broadcast the tags.
+
+        Routed through the theorist's brain ("the agent who reads the prompt first"),
+        falling back to the default provider. Best-effort and bounded: topic tagging
+        must never block, break, or stall a cycle. ``stage`` is "initial" (seed prompt)
+        or "final" (finished paper); the final pass allows MULTIPLE tags so
+        cross-disciplinary work earns multiple badges (cross-pollination).
+        """
+        try:
+            from paradigm.agents.topics import classify_topics
+
+            theorist = self._find_agent_by_role("theorist")
+            provider = theorist.provider if theorist is not None else self._config.get_provider()
+            model = theorist.model if theorist is not None else provider.default_model
+            max_topics = 3 if stage == "final" else 2
+
+            topics = await asyncio.wait_for(
+                classify_topics(text, provider=provider, model=model, max_topics=max_topics),
+                timeout=60.0,
+            )
+            if not topics:
+                return
+            self._db.update_thread(self.state.thread_id, topics=topics)
+            if paper_id:
+                self._db.update_paper(paper_id, topics=topics)
+            self._display.topics_assigned(
+                topics,
+                stage=stage,
+                agent_id=theorist.agent_id if theorist is not None else "",
+            )
+        except Exception as e:  # never let tagging break the cycle
+            self._logger.log_error(
+                e, thread_id=self.state.thread_id, metadata_key=f"topics_{stage}"
+            )
+
+    async def _assign_final_topics(self, paper_id: str) -> None:
+        """Re-classify the FINISHED paper (drift check + cross-pollination)."""
+        paper = self._db.get_paper(paper_id)
+        if not paper:
+            return
+        text = "\n\n".join(
+            part
+            for part in (
+                paper.get("title", ""),
+                paper.get("abstract", ""),
+                (paper.get("body", "") or "")[:6000],
+            )
+            if part
+        )
+        await self._assign_topics(text, stage="final", paper_id=paper_id)
 
     def _find_agent_by_role(self, role: str) -> Agent | None:
         """Find an agent by its skill profile / role.

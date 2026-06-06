@@ -6,6 +6,7 @@ import rehypeKatex from "rehype-katex";
 import type { PaperDetail } from "@/api/client";
 import { paperFigureUrl } from "@/api/client";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { TopicBadges } from "@/components/shared/TopicBadges";
 
 function toSlug(text: string): string {
   return text
@@ -64,6 +65,7 @@ export function PaperViewer({ paper }: PaperViewerProps) {
             {paper.authors.join(", ")}
           </p>
         )}
+        <TopicBadges topics={paper.topics} className="mb-3" />
         {paper.keywords.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-3">
             {paper.keywords.map((kw) => (

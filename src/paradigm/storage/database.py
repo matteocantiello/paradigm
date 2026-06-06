@@ -80,7 +80,7 @@ class Database:
         self._add_columns_if_missing(
             cursor,
             "papers",
-            {"verification": "TEXT", "prereg": "TEXT", "provenance": "TEXT"},
+            {"verification": "TEXT", "prereg": "TEXT", "provenance": "TEXT", "topics": "TEXT"},
         )
 
         # Agents table
@@ -118,6 +118,10 @@ class Database:
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Topic tags (broad arXiv-style fields), added idempotently. Stored as a
+        # JSON list; classified by an agent at the start (the seed prompt) and
+        # refreshed from the finished paper at the end of the cycle.
+        self._add_columns_if_missing(cursor, "threads", {"topics": "TEXT"})
 
         # Research cycles table — the web/research-tab unit of work. Persisted so
         # the research tab survives a restart and orphaned runs can be marked
@@ -290,6 +294,7 @@ class Database:
             "verification",
             "prereg",
             "provenance",
+            "topics",
         ]
         for field in json_fields:
             if field in fields and fields[field] is not None:
@@ -503,6 +508,7 @@ class Database:
             "experiments_run",
             "open_questions",
             "next_steps",
+            "topics",
         ]
         for field in json_fields:
             if field in fields and fields[field] is not None:

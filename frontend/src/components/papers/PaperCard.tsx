@@ -1,4 +1,5 @@
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { TopicBadges } from "@/components/shared/TopicBadges";
 import { truncate } from "@/lib/utils";
 import type { PaperSummary } from "@/api/client";
 
@@ -22,6 +23,7 @@ export function PaperCard({ paper, onClick }: PaperCardProps) {
           {truncate(paper.abstract, 200)}
         </p>
       )}
+      <TopicBadges topics={paper.topics} size="xs" className="mb-2" />
       <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
         {paper.created_at && (
           <span>{new Date(paper.created_at).toLocaleDateString()}</span>

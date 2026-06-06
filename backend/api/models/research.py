@@ -49,6 +49,9 @@ class ResearchCycleResponse(BaseModel):
     thread_id: str | None = None
     paper_id: str | None = None
     current_phase: str | None = None
+    # Broad arXiv-style field tags (cross-pollination → multiple), classified by an
+    # agent from the prompt and refreshed from the finished paper.
+    topics: list[str] | None = None
     # Set when this cycle continues an earlier one (resume).
     resumed_from: str | None = None
     created_at: datetime

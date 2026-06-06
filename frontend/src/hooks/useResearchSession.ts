@@ -15,6 +15,7 @@ export function useResearchSession(sessionId: string | undefined) {
   const papersFound = useSessionStore((s) => s.papersFound);
   const elapsedSeconds = useSessionStore((s) => s.elapsedSeconds);
   const completedPhases = useSessionStore((s) => s.completedPhases);
+  const topics = useSessionStore((s) => s.topics);
   const avgStepMs = useSessionStore((s) => s.avgStepMs);
   const phaseElapsedSeconds = useSessionStore((s) => s.phaseElapsedSeconds);
   const agentOutputs = useSessionStore((s) => s.agentOutputs);
@@ -45,6 +46,7 @@ export function useResearchSession(sessionId: string | undefined) {
     papersFound,
     elapsedSeconds,
     completedPhases,
+    topics,
     avgStepMs,
     phaseElapsedSeconds,
     agentOutputs,

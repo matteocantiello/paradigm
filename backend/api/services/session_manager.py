@@ -363,9 +363,7 @@ class SessionManager:
 
         # Enrich the prompt with live context (surviving hypotheses) so the
         # reviewer can make an informed call rather than a blind approve.
-        description = (
-            f"The team finished {from_phase} and wants to move to {to_phase}."
-        )
+        description = f"The team finished {from_phase} and wants to move to {to_phase}."
         snapshot = self.get_knowledge_snapshot(session_id)
         if snapshot is not None and snapshot.hypotheses:
             alive = [h for h in snapshot.hypotheses if h.get("status") != "rejected"]
@@ -419,6 +417,7 @@ class SessionManager:
                 status=state.status.value,
                 current_phase=state.current_phase,
                 completed_phases=state.completed_phases,
+                topics=state.topics,
                 round_num=state.round_num,
                 max_rounds=state.max_rounds,
                 thread_id=state.thread_id,
@@ -463,9 +462,7 @@ class SessionManager:
             event.set()
         await self._broadcast(
             session_id,
-            NotificationMsg(
-                level="success", category="lifecycle", message="Resumed."
-            ),
+            NotificationMsg(level="success", category="lifecycle", message="Resumed."),
         )
         await self._broadcast_status(session_id)
 
@@ -544,9 +541,7 @@ class SessionManager:
             try:
                 import chromadb
 
-                client = chromadb.PersistentClient(
-                    path=str(self._config.storage.vector_db_path)
-                )
+                client = chromadb.PersistentClient(path=str(self._config.storage.vector_db_path))
                 client.delete_collection(f"paradigm_papers_{session_id}")
             except Exception:  # collection may not exist / chroma unavailable
                 logger.debug("No vector collection to drop for session %s", session_id)

@@ -38,9 +38,7 @@ def _json_list(raw: Any) -> list[str]:
     return []
 
 
-def _build_continuation_note(
-    database: Any, prior: ResearchCycleResponse, comment: str
-) -> str:
+def _build_continuation_note(database: Any, prior: ResearchCycleResponse, comment: str) -> str:
     """Assemble the continuation context delivered to the resumed run as guidance.
 
     Built from the prior thread's checkpoint (hypothesis / findings / open
@@ -101,6 +99,11 @@ def _enrich_cycle(cycle: ResearchCycleResponse, request: Request) -> ResearchCyc
                     cycle.paper_id = thread["current_draft_id"]
                 if not cycle.current_phase and thread.get("current_phase"):
                     cycle.current_phase = thread["current_phase"]
+                raw_topics = thread.get("topics")
+                if raw_topics:
+                    cycle.topics = (
+                        json.loads(raw_topics) if isinstance(raw_topics, str) else raw_topics
+                    )
     except Exception:  # noqa: BLE001 — enrichment must never break the API
         pass
     return cycle

@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Trash2, RotateCcw } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { TopicBadges } from "@/components/shared/TopicBadges";
 import { truncate } from "@/lib/utils";
 import { resumeCycle, type ResearchCycleResponse } from "@/api/client";
 
@@ -51,7 +52,8 @@ export function CycleCard({ cycle, onDelete }: CycleCardProps) {
           <RotateCcw className="h-3 w-3" /> continues an earlier run
         </p>
       )}
-      <p className="text-sm mb-3 line-clamp-3">{truncate(cycle.seed_prompt, 200)}</p>
+      <p className="text-sm mb-2 line-clamp-3">{truncate(cycle.seed_prompt, 200)}</p>
+      <TopicBadges topics={cycle.topics} size="xs" className="mb-3" />
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground font-mono">
           {new Date(cycle.created_at).toLocaleDateString()}

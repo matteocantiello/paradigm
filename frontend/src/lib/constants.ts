@@ -165,6 +165,35 @@ export const CONFLICT_TYPE_COLORS: Record<string, string> = {
   partial: "text-yellow-400 border-yellow-500/30",
 };
 
+// Topic badges — broad arXiv-style fields. Keys MUST match the backend taxonomy
+// in src/paradigm/agents/topics.py. A paper/cycle can carry several (cross-
+// pollination). `border` colors keep each pill readable on the dark theme.
+export const TOPIC_LABELS: Record<string, string> = {
+  astro: "Astro",
+  physics: "Physics",
+  cs: "CS",
+  math: "Math",
+  stat: "Stats",
+  bio: "Bio",
+  med: "Med",
+  econ: "Econ",
+  eess: "EESS",
+  other: "Other",
+};
+
+export const TOPIC_COLORS: Record<string, string> = {
+  astro: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+  physics: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  cs: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  math: "bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/30",
+  stat: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  bio: "bg-green-500/15 text-green-300 border-green-500/30",
+  med: "bg-rose-500/15 text-rose-300 border-rose-500/30",
+  econ: "bg-teal-500/15 text-teal-300 border-teal-500/30",
+  eess: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
+  other: "bg-slate-500/15 text-slate-300 border-slate-500/30",
+};
+
 export function getAgentRole(agentId: string): string {
   // Agent ids are `${role}-${index}` (e.g. "theorist-0"). The role is everything
   // before the trailing numeric index — NOT the index itself.

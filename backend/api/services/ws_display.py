@@ -27,6 +27,7 @@ from backend.api.models.messages import (
     PhaseTransitionMsg,
     RoundUpdateMsg,
     SessionStateMsg,
+    TopicsUpdateMsg,
 )
 
 if TYPE_CHECKING:
@@ -197,9 +198,7 @@ class WebSocketDisplayAdapter:
             else 0.0
         )
         phase_elapsed = (
-            time.monotonic() - self._phase_started_at
-            if self._phase_started_at is not None
-            else 0.0
+            time.monotonic() - self._phase_started_at if self._phase_started_at is not None else 0.0
         )
         _fire_and_forget(
             self._manager.broadcast_message(
@@ -212,6 +211,7 @@ class WebSocketDisplayAdapter:
                     # phase tracker from every state sync, so omitting this wipes the
                     # completed-phase list between transitions in the real engine path.
                     completed_phases=state.completed_phases,
+                    topics=state.topics,
                     round_num=state.round_num,
                     max_rounds=state.max_rounds,
                     thread_id=state.thread_id,
@@ -296,6 +296,25 @@ class WebSocketDisplayAdapter:
             duration_ms=prev_ms,
             to_phase=phase_str,
             from_phase=from_phase or "",
+        )
+
+    def topics_assigned(
+        self, topics: list[str], *, stage: str = "final", agent_id: str = ""
+    ) -> None:
+        topics = list(topics)
+        self._manager.update_session_state(self._session_id, topics=topics)
+        _fire_and_forget(
+            self._manager.broadcast_message(
+                self._session_id,
+                TopicsUpdateMsg(topics=topics, stage=stage),
+            )
+        )
+        self._activity(
+            "topics_assigned",
+            f"Topics: {', '.join(topics)}",
+            agent_id=agent_id,
+            stage=stage,
+            topics=topics,
         )
 
     def phase_aborted(self) -> None:

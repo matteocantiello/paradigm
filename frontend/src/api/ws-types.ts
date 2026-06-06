@@ -67,6 +67,7 @@ export interface SessionStateMsg {
   papers_found: number;
   elapsed_seconds: number;
   completed_phases: string[];
+  topics?: string[];
   avg_step_ms?: number;
   phase_elapsed_seconds?: number;
   protocol_version: string;
@@ -80,6 +81,13 @@ export interface PhaseTransitionMsg {
   max_rounds?: number | null;
   active_agents?: number | null;
   total_agents?: number | null;
+  timestamp: string;
+}
+
+export interface TopicsUpdateMsg {
+  type: "topics_update";
+  topics: string[];
+  stage: string;
   timestamp: string;
 }
 
@@ -259,6 +267,7 @@ export type ServerMessage =
   | ApprovalRequestMsg
   | SessionStateMsg
   | PhaseTransitionMsg
+  | TopicsUpdateMsg
   | RoundUpdateMsg
   | ErrorMsg
   | NotificationMsg

@@ -103,6 +103,12 @@ class Agent:
     # Threshold above which we use streaming to avoid Anthropic's 10-minute timeout
     _STREAMING_THRESHOLD = 8192
 
+    @property
+    def provider(self) -> Any:
+        """The agent's LLM provider (for one-off calls that bypass generate()'s
+        streaming side-channel, e.g. topic classification)."""
+        return self._provider
+
     def set_stream_sink(self, sink: StreamSink | None, *, min_chars: int = 0) -> None:
         """Attach (or clear) a streaming side-channel. See ``StreamSink``.
 

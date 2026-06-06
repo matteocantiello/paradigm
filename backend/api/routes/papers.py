@@ -33,6 +33,21 @@ router = APIRouter(prefix="/api/v1", tags=["papers"])
 _demo_papers: dict[str, dict[str, Any]] = {}
 
 
+def _json_list(value: Any) -> list[str]:
+    """Best-effort decode of a DB JSON-list column (string or already-a-list) to a list."""
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return []
+
+
 @router.get(
     "/sessions/{session_id}/outputs",
     response_model=OutputList,
@@ -130,6 +145,7 @@ async def get_output(session_id: str, output_id: str, request: Request) -> Paper
         body=paper.get("body", ""),
         status=paper.get("status", ""),
         keywords=keywords,
+        topics=_json_list(paper.get("topics")),
         citation_count=paper.get("citation_count", 0),
         created_at=paper.get("created_at"),
         published_at=paper.get("published_at"),
@@ -164,6 +180,7 @@ async def list_papers(
                 title=p.get("title", ""),
                 status=p.get("status", ""),
                 abstract=p.get("abstract", "")[:500],
+                topics=_json_list(p.get("topics")),
                 created_at=p.get("created_at"),
                 published_at=p.get("published_at"),
             )
@@ -185,6 +202,7 @@ async def list_papers(
             title=p.get("title", ""),
             status=p.get("status", ""),
             abstract=p.get("abstract", "")[:500],
+            topics=_json_list(p.get("topics")),
             created_at=p.get("created_at"),
             published_at=p.get("published_at"),
         )
@@ -220,6 +238,7 @@ async def get_paper(paper_id: str, request: Request) -> PaperDetail:
             body=paper.get("body", ""),
             status=paper.get("status", ""),
             keywords=paper.get("keywords", []),
+            topics=paper.get("topics", []),
             citation_count=paper.get("citation_count", 0),
             created_at=paper.get("created_at"),
             published_at=paper.get("published_at"),
@@ -259,6 +278,7 @@ async def get_paper(paper_id: str, request: Request) -> PaperDetail:
         body=paper.get("body", ""),
         status=paper.get("status", ""),
         keywords=keywords,
+        topics=_json_list(paper.get("topics")),
         citation_count=paper.get("citation_count", 0),
         created_at=paper.get("created_at"),
         published_at=paper.get("published_at"),

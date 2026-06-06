@@ -11,6 +11,7 @@ import { ConnectionIndicator } from "./ConnectionIndicator";
 import { LiteraturePanel } from "./LiteraturePanel";
 import { StatusPill } from "./StatusPill";
 import { TerminalScreen } from "./TerminalScreen";
+import { TopicBadges } from "@/components/shared/TopicBadges";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "aborted"]);
 // A terminal phase means the outcome is decided even if the session status is
@@ -37,6 +38,7 @@ interface SessionViewProps {
   status: string;
   currentPhase: string | null;
   completedPhases: string[];
+  topics: string[];
   roundNum: number;
   maxRounds: number;
   activeAgents: Record<string, string>;
@@ -69,6 +71,7 @@ export function SessionView(props: SessionViewProps) {
         <div className="flex items-center gap-2 shrink-0">
           <StatusPill />
           <ConnectionIndicator status={props.connectionStatus} />
+          <TopicBadges topics={props.topics} size="xs" />
         </div>
         {props.topic && (
           <p

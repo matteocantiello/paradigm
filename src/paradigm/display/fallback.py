@@ -492,6 +492,11 @@ class PlainTextFallback:
     # Publication
     # ------------------------------------------------------------------
 
+    def topics_assigned(
+        self, topics: list[str], *, stage: str = "final", agent_id: str = ""
+    ) -> None:
+        click.echo(f"  Topics ({stage}): {', '.join(topics)}")
+
     def paper_published(self) -> None:
         click.echo("  Paper PUBLISHED")
 
