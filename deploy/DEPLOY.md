@@ -93,16 +93,43 @@ chmod 600 deploy/.env.production
 ```
 Fill `deploy/.env.production`:
 ```
-ANTHROPIC_API_KEY=sk-ant-...
-GEMINI_API_KEY=...
+ANTHROPIC_API_KEY=sk-ant-...        # Claude (writer + experimentalist)  — REQUIRED
+GEMINI_API_KEY=...                  # Gemini (most agents)               — REQUIRED
+PERPLEXITY_API_KEY=pplx-...         # seed discovery (ON) + citation/novelty — recommended
 PARADIGM_CONFIG=configs/production.yaml
 PARADIGM_DATA_DIR=/var/lib/paradigm/data
 PARADIGM_CORS_ORIGINS=https://paradigm.stellarphysics.org
 PARADIGM_MAX_CONCURRENT_SESSIONS=3
+# PARADIGM_LLM_TIMEOUT=180          # optional: per-LLM-request read timeout (s)
 ```
 **This file must exist** — without it the backend boots with no keys and the wrong
-config (a run would fail on auth). Optional alphaXiv literature: from a machine where
-you ran `paradigm mcp-login`, `scp -r ~/.paradigm/mcp/ root@<vm>:/root/.paradigm/`.
+config (a run would fail on auth). production.yaml uses BOTH Claude and Gemini, so
+both keys are required. `PERPLEXITY_API_KEY` is optional but recommended — seed
+discovery is **on** and bootstraps the literature with it (without the key it
+no-ops cleanly; a wrong key logs `401`). Env files use the **last** occurrence of
+a key, so don't leave a duplicate line.
+
+**alphaXiv literature (optional, on by default):** it's OAuth-gated (no static
+key). From a machine with a browser: `paradigm mcp-login` (needs the `mcp` extra —
+`pip install 'paradigm[mcp]'`), then `scp -r ~/.paradigm/mcp/ root@<vm>:/root/.paradigm/`.
+The token expires periodically; if it does, alphaXiv degrades cleanly (one log
+line) and arXiv + the other providers carry the run — just re-login to restore it.
+To turn it off entirely: `literature.mcp.enabled: false` in production.yaml.
+
+## 6b. (Optional) PDF export — install a LaTeX engine
+Papers compile a typeset **PDF** at cycle end (`journal.compile_pdf: true`) and the
+viewer shows a **Download PDF** button, but only if a LaTeX engine is on `PATH`.
+Tectonic is the leanest (one static binary, fetches its own packages on first use):
+```bash
+cd /usr/local/bin
+curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.fullyjustified.net | sh
+# the GNU build needs a few libs:
+apt install -y libgraphite2-3 libharfbuzz0b libfontconfig1 libfreetype6
+tectonic --version          # confirm; then restart the backend
+```
+Without it nothing breaks — the `.md` still downloads and the PDF link returns a
+clear "install a LaTeX engine" message. (First compile is slow while tectonic
+fetches packages into `/root/.cache/Tectonic`; pre-warm with one compile.)
 
 ## 7. Run the backend with systemd
 ```bash
@@ -177,6 +204,10 @@ start a run → it streams live and reaches a paper.
 | Run errors with an auth message | wrong/missing key | fix `deploy/.env.production` → `systemctl restart paradigm-backend` |
 | `502 Bad Gateway` | backend not on `:8000` | `systemctl status paradigm-backend` / journal |
 | Fresh clone won't build (`utils.ts` missing) | a `lib/` gitignore rule once hid `frontend/src/lib` | already fixed in repo; `git pull` if on an old clone |
+| `Perplexity discover_papers ... 401 Unauthorized` | `PERPLEXITY_API_KEY` is wrong/placeholder (a *missing* key logs "not set" + skips silently) | fix the key value; `grep PERPLEXITY deploy/.env.production` for a duplicate line; restart |
+| Flood of `WebSocket … 403` every ~30s | a stale browser tab reconnecting to a deleted/restart-lost session | harmless; fixed so the client stops after one close — `git pull` + restart, or close the tab |
+| `Download PDF` returns a 503 / error | no LaTeX engine on the server | install tectonic (step 6b); without it the `.md` still works |
+| alphaXiv OAuth traceback in the log | cached token expired | non-fatal (arXiv carries); re-run `paradigm mcp-login` + re-`scp` the token, or set `mcp.enabled: false` |
 
 ---
 

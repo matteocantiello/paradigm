@@ -749,7 +749,14 @@ Agents embed these tags in their natural-language responses:
 | `[FOLLOW: arxiv_id]` | Get papers cited by this paper (references) | `[FOLLOW: 2301.12345]` |
 | `[CITED_BY: arxiv_id]` | Get papers that cite this paper | `[CITED_BY: 1903.09534]` |
 | `[READ: arxiv_id]` | Deep-read key sections of a paper | `[READ: 2301.12345]` |
+| `[CHAIN: id depth=N direction=refs\|cites\|both]` | Multi-hop BFS through the citation graph from one seed | `[CHAIN: 2301.12345 depth=2 direction=both]` |
 | `[DATA: url]` | Stage a dataset for use in experiments | `[DATA: https://example.com/catalog.csv]` |
+
+`[FOLLOW:]`, `[CITED_BY:]`, `[READ:]`, and `[CHAIN:]` only operate on arXiv IDs that
+actually appeared in a real search result — an invented/hallucinated ID is rejected
+(it would otherwise pull in unrelated papers). `[CHAIN:]` walks references and/or
+citations breadth-first up to `depth` (capped at 3) from a discovered seed; it's
+budgeted at `chain_budget_per_round` (default 1) since it fans out fast.
 
 After every agent response, the orchestrator parses these tags and executes the corresponding actions. Results are appended to the literature context and included in subsequent agent prompts.
 
@@ -928,6 +935,7 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 | `follow_budget_per_round` | int | `3` | Max `[FOLLOW:]` requests per round |
 | `cited_by_budget_per_round` | int | `2` | Max `[CITED_BY:]` requests per round |
 | `read_budget_per_round` | int | `5` | Max `[READ:]` requests per round |
+| `chain_budget_per_round` | int | `1` | Max `[CHAIN:]` multi-hop walks per round |
 | `max_read_chars` | int | `8000` | Character limit for deep-read extraction |
 | `max_citation_results` | int | `10` | Papers returned per `[CITED_BY:]` |
 | `max_reference_results` | int | `20` | Papers returned per `[FOLLOW:]` |
@@ -1089,6 +1097,11 @@ Each paper folder is a self-contained research artifact. Alongside the paper mar
 - **`experiments/`** --- Working Python code from experiments that produced successful (non-vacuous) results during the EXECUTION phase, with a `README.md` index.
 - **`literature_searches.md`** --- Log of all literature search queries, which agent made them, and the papers returned.
 - **`reviews.md`** --- Complete review report including internal review, desk review, peer review scores, and a session summary with token usage and elapsed time.
+- **`<paper-id>.tex` / `<paper-id>.pdf`** --- Journal-ready LaTeX and (if a LaTeX engine
+  such as tectonic is on `PATH`) a typeset PDF, written when `journal.enable_latex_output`
+  / `journal.compile_pdf` are on. In the web UI the paper view renders figures inline and
+  offers **Copy Markdown**, **Download .md**, and **Download PDF** (compiled on demand if
+  not pre-built).
 
 ---
 
@@ -1162,11 +1175,20 @@ The computational sandbox executes Python code in isolated Docker containers. By
 ### Building the Image
 
 ```bash
-# Build from the project root
-docker build -t paradigm-sandbox:latest -f docker/Dockerfile.sandbox .
+# The Dockerfile has no COPY — use docker/ as the build context (not the repo root)
+docker build -t paradigm-sandbox:latest -f docker/Dockerfile.sandbox docker/
 ```
 
-The sandbox image includes: Python 3.12, NumPy, SciPy, Matplotlib, Pandas, scikit-learn, SymPy, Astropy.
+The sandbox image includes Python 3.12 plus: NumPy, SciPy, Matplotlib, Pandas,
+scikit-learn, SymPy, Astropy, seaborn, h5py, emcee, corner, lmfit, uncertainties,
+statsmodels, tqdm, numba, xarray, joblib, pyyaml, pypdf, pdfminer.six, beautifulsoup4,
+and the astro/data extras photutils, specutils, dust_extinction, plotly, bokeh,
+tables, netCDF4, pyarrow. Keep this list in sync with `docker/Dockerfile.sandbox`
+and the EXECUTION prompt's "Extra packages" line, or agents import something that
+isn't there. Each experiment runs as a **fresh process** with `numpy` (np),
+`pandas` (pd), `matplotlib.pyplot` (plt), `scipy`, `astropy.units` (u), and
+`astropy.constants` (const) **auto-imported**; write intermediate files to
+`/data/workspace/` to share data between experiments.
 
 ### Security Model
 

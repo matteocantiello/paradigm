@@ -435,6 +435,16 @@ These are tracked but not scheduled:
 - **Human-in-the-loop mode**: Real scientists collaborate with agent teams
 - **Replication challenge**: Limit literature to pre-2020, see if agents re-derive recent results
 - **Continuous prompt tuning**: Systematic evaluation and improvement of agent prompts
+- **Per-agent model picker (GUI)**: A dropdown in the Agents tab to set each role's
+  provider/model at launch — surfacing the available models (Claude, Gemini, OpenAI)
+  instead of editing `agent.overrides` in YAML. Backend already supports per-role
+  overrides; this is the frontend affordance. (Prompt 145.)
+- **OpenAI provider option**: Add `type: openai_compatible` against `api.openai.com`
+  so roles can use OpenAI models. Good candidate: **GPT-5.4-mini** (fast, cheaper,
+  still strong) for bulk roles, or an o-series reasoning model for the skeptic
+  (debate diversity). NOTE: reasoning models (o-series, GPT-5.x) need a provider
+  shim — they want `max_completion_tokens` (not `max_tokens`) and reject a custom
+  `temperature`. (Prompt 145.)
 
 ---
 

@@ -4217,3 +4217,11 @@ The 403s = a stale browser tab reconnecting forever to a session that no longer 
 > Ok I generated a new perplexity API key: [REDACTED]
 
 No code change. Key goes in the VM's gitignored deploy/.env.production (overwrite the bad value that caused the 401), then restart. Secret NOT stored in repo; advised the user to rotate it since it was shared in chat.
+
+---
+
+### Prompt 145 — note GPT-5.4-mini for future + agents-tab model dropdown (future); update DEPLOY + user manual
+
+> GPT-5.4 mini could be a good option ... let's leave it for the future. A future implementation should also show possible models in the agents tab in a drop-down menu (frontend change). Finally ... update the deployment instructions, and also the user manual.
+
+Record 2 future items (GPT-5.4-mini option; per-agent model dropdown in the agents tab). Now: update deploy/DEPLOY.md for all the recent VM/config changes (GEMINI required + PERPLEXITY keys, tectonic for PDF, alphaXiv re-login, sandbox image, config defaults) and the user manual.
