@@ -433,13 +433,12 @@ async def generate_reflections(
     Returns:
         List of ReflectionResult (one per agent that contributed).
     """
-    results: list[ReflectionResult] = []
 
-    for agent_id, agent in agents.items():
+    async def _reflect_one(agent_id: str, agent: Agent) -> ReflectionResult | None:
         # Collect messages from this agent
         agent_msgs = [m for m in messages if m.get("from") == agent_id]
         if not agent_msgs:
-            continue
+            return None
 
         # Format agent messages for the prompt
         formatted = []
@@ -467,7 +466,7 @@ async def generate_reflections(
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            # Track token usage
+            # Track token usage (back on the event loop — no cross-thread DB writes)
             if database is not None:
                 database.record_token_usage(
                     model=model,
@@ -477,11 +476,17 @@ async def generate_reflections(
                     thread_id=thread_id,
                 )
 
-            result = _parse_reflection_response(text, agent_id, thread_id)
-            results.append(result)
-
+            return _parse_reflection_response(text, agent_id, thread_id)
         except Exception:
             # Reflection failure is non-fatal — skip this agent
-            continue
+            return None
 
-    return results
+    # Reflect for every contributing agent CONCURRENTLY. Sequential reflection made
+    # the post-cycle tail take N x (LLM latency) — minutes for a full team — which
+    # blocked the cycle from reaching its terminal state (the caller's wait_for
+    # can't interrupt a blocking to_thread call, so the bound was ineffective).
+    # Running them in parallel collapses the tail to ~a single reflection.
+    reflections = await asyncio.gather(
+        *(_reflect_one(agent_id, agent) for agent_id, agent in agents.items())
+    )
+    return [r for r in reflections if r is not None]

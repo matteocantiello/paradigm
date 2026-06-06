@@ -1,5 +1,6 @@
 """Tests for agent episodic memory system."""
 
+import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -12,6 +13,7 @@ from paradigm.agents.memory import (
     _parse_reflection_response,
     compute_recency_weight,
     format_memory_context,
+    generate_reflections,
     rank_memories_with_recency,
 )
 
@@ -306,6 +308,84 @@ SUMMARY: Productive cycle that identified key bimodal structure in pulsation dat
         result = _parse_reflection_response(text, "agent-0", "thread-0")
         assert len(result.memories) == 1
         assert result.memories[0].memory_type == "mistake"
+
+
+# ---------------------------------------------------------------------------
+# generate_reflections (concurrency regression)
+# ---------------------------------------------------------------------------
+
+
+class _FakeAgent:
+    def __init__(self, skill_profile: str = "role") -> None:
+        self.skill_profile = skill_profile
+
+
+class _ConcurrencyProvider:
+    """Sync provider that sleeps and records peak concurrency.
+
+    generate_reflections invokes complete() via asyncio.to_thread, so concurrent
+    reflections run in parallel worker threads — letting us prove they no longer
+    run one-at-a-time (the sequential loop made the post-cycle tail take
+    N x latency and blocked the cycle from finalizing).
+    """
+
+    default_model = "fake-model"
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.in_flight = 0
+        self.peak = 0
+
+    def complete(self, *, model, max_tokens, temperature, system, messages):
+        with self._lock:
+            self.in_flight += 1
+            self.peak = max(self.peak, self.in_flight)
+        time.sleep(0.1)
+        with self._lock:
+            self.in_flight -= 1
+        return ("[insight] reflected lesson\nSUMMARY: ok", 10, 5)
+
+
+class TestGenerateReflections:
+    @pytest.mark.asyncio
+    async def test_runs_concurrently(self):
+        agents = {f"agent-{i}": _FakeAgent() for i in range(5)}
+        messages = [{"from": aid, "type": "message", "content": "did work"} for aid in agents]
+        provider = _ConcurrencyProvider()
+
+        start = time.monotonic()
+        results = await generate_reflections(
+            agents=agents,
+            messages=messages,
+            seed_prompt="q",
+            thread_id="t1",
+            outcome_summary="done",
+            provider=provider,
+        )
+        elapsed = time.monotonic() - start
+
+        assert len(results) == 5
+        # Strong proof of concurrency: more than one reflection was in flight.
+        assert provider.peak > 1
+        # 5 x 0.1s overlap → far under the 0.5s sequential sum.
+        assert elapsed < 0.4
+
+    @pytest.mark.asyncio
+    async def test_skips_agents_without_messages(self):
+        agents = {"a": _FakeAgent(), "b": _FakeAgent()}
+        messages = [{"from": "a", "type": "message", "content": "x"}]  # only 'a' contributed
+        provider = _ConcurrencyProvider()
+
+        results = await generate_reflections(
+            agents=agents,
+            messages=messages,
+            seed_prompt="q",
+            thread_id="t",
+            outcome_summary="done",
+            provider=provider,
+        )
+        assert len(results) == 1
+        assert results[0].agent_id == "a"
 
 
 # ---------------------------------------------------------------------------

@@ -48,9 +48,16 @@ export interface SystemStatus {
 const WORKING_MS = 12_000;
 const STALL_MS = 120_000;
 
+// Once the run reaches a terminal PHASE the outcome is decided; the backend may
+// still be doing best-effort bookkeeping (reflections, file saves) before it
+// flips the session status to "completed". Treat these as done so we never show
+// a false "Stalled" after the result is in.
+const TERMINAL_PHASES = new Set(["published", "rejected"]);
+
 export function useSystemState(): SystemStatus {
   const connectionStatus = useSessionStore((s) => s.connectionStatus);
   const status = useSessionStore((s) => s.status);
+  const currentPhase = useSessionStore((s) => s.currentPhase);
   const pendingApproval = useSessionStore((s) => s.pendingApproval);
   const lastActivityAt = useSessionStore((s) => s.lastActivityAt);
   const streaming = useSessionStore((s) => s.agentOutputs.some((o) => o.streaming));
@@ -73,6 +80,19 @@ export function useSystemState(): SystemStatus {
 
   if (pendingApproval)
     return { state: "awaiting", tone: "attention", label: "Waiting for you", hint: "Approve, pause, or abort to continue", idleSeconds };
+
+  // A terminal phase wins over a still-"running" status: the research is done,
+  // even if the session hasn't formally finalized yet. Never show "stalled" here.
+  if (status === "running" && currentPhase && TERMINAL_PHASES.has(currentPhase)) {
+    const rejected = currentPhase === "rejected";
+    return {
+      state: "done",
+      tone: rejected ? "attention" : "ok",
+      label: rejected ? "Not accepted" : "Completed",
+      hint: rejected ? "The paper was not accepted — see the outcome below" : "The research cycle finished",
+      idleSeconds,
+    };
+  }
 
   switch (status) {
     case "paused":

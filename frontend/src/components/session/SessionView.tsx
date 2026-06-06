@@ -13,6 +13,9 @@ import { StatusPill } from "./StatusPill";
 import { TerminalScreen } from "./TerminalScreen";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "aborted"]);
+// A terminal phase means the outcome is decided even if the session status is
+// still "running" (backend finalizing). Show the end-of-run screen regardless.
+const TERMINAL_PHASES = new Set(["published", "rejected"]);
 
 // Demo: hide the steering/control bar to foreground the autonomous flow.
 // Flip to true to bring back live steering + pause/abort.
@@ -108,10 +111,13 @@ export function SessionView(props: SessionViewProps) {
       />
 
       {/* Terminal screen — a clear end-of-run action (View paper / summary).
-          Shown above the panels so the transcript stays available for reference. */}
-      {TERMINAL_STATUSES.has(props.status) && (
+          Shown above the panels so the transcript stays available for reference.
+          Triggered by a terminal status OR a terminal phase (the latter renders
+          the outcome immediately, before the backend finishes finalizing). */}
+      {(TERMINAL_STATUSES.has(props.status) ||
+        (props.currentPhase != null && TERMINAL_PHASES.has(props.currentPhase))) && (
         <TerminalScreen
-          status={props.status}
+          status={TERMINAL_STATUSES.has(props.status) ? props.status : "completed"}
           cycleId={props.cycleId}
           paperId={props.paperId}
           currentPhase={props.currentPhase}
