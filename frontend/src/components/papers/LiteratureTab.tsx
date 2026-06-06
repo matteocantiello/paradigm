@@ -4,7 +4,7 @@ import { usePaperLiterature } from "@/hooks/usePapers";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { EmptyState } from "@/components/shared/EmptyState";
 import type { LiteratureSearchEntry, LiteratureSearchPaper } from "@/api/client";
-import { cn } from "@/lib/utils";
+import { cn, formatByline } from "@/lib/utils";
 
 interface LiteratureTabProps {
   paperId: string;
@@ -93,9 +93,11 @@ function PaperRow({ paper }: { paper: LiteratureSearchPaper }) {
     <div className="flex items-start gap-3 rounded-md border border-border p-3 hover:border-indigo-500/40 transition-colors">
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium leading-tight">{paper.title}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          {paper.authors} ({paper.year})
-        </p>
+        {formatByline(paper.authors, paper.year) && (
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {formatByline(paper.authors, paper.year)}
+          </p>
+        )}
       </div>
       {paper.arxiv_id && hasValidId && (
         <div className="flex items-center gap-2 shrink-0">
@@ -161,7 +163,12 @@ function SearchBlock({
               <span className="text-muted-foreground shrink-0 w-4 text-right">{paper.rank}.</span>
               <div className="min-w-0">
                 <span className="font-medium">{paper.title}</span>
-                <span className="text-muted-foreground"> — {paper.authors} ({paper.year})</span>
+                {formatByline(paper.authors, paper.year) && (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — {formatByline(paper.authors, paper.year)}
+                  </span>
+                )}
                 {paper.arxiv_id && isValidArxivId(paper.arxiv_id) && (
                   <a
                     href={paper.arxiv_url || `https://arxiv.org/abs/${paper.arxiv_id}`}

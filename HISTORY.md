@@ -4253,3 +4253,9 @@ Perplexity fixed (returns IDs). New issue: run_seed_discovery fetches each disco
 > how do I change the default settings of paradigm on the VM? Are choices sticky (remembered next round) or always fallback to defaults?
 
 Explain the config layers: production.yaml (static defaults, edit+restart) vs the GUI Settings panel (persistence? sticky?) vs per-run wizard choices. Investigate settings.py persistence + how a new cycle applies settings.
+
+### Prompt 151 — some literature papers show '(?)' instead of authors
+
+> some show '?' instead of their list of authors [Literature Found panel; papers WITH arXiv IDs but no authors → "(?)"]
+
+Some SourceResults reach the live literature panel with empty authors → rendered "(?)". Likely a provider whose parsing drops author names (alphaXiv text-listing extracts affiliations not authors? Semantic Scholar refs?). Find the renderer + the broadcast + the provider that drops authors; fix author extraction.

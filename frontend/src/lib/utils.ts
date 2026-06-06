@@ -20,3 +20,18 @@ export function formatTokens(n: number): string {
 export function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + "..." : s;
 }
+
+/**
+ * "Authors (Year)" byline that degrades gracefully — never renders a bare "(?)".
+ * Some providers (e.g. alphaXiv listings) return papers without author names or a
+ * year; show whatever we have, or nothing.
+ */
+export function formatByline(authors: string | string[], year?: string): string {
+  const a = (Array.isArray(authors) ? authors.join(", ") : authors || "").trim();
+  const y = (year || "").trim();
+  const hasYear = y !== "" && y !== "?";
+  if (a && hasYear) return `${a} (${y})`;
+  if (a) return a;
+  if (hasYear) return `(${y})`;
+  return "";
+}

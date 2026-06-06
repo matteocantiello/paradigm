@@ -5,7 +5,7 @@ import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { EmptyState } from "@/components/shared/EmptyState";
 import type { LiteratureSearchPaper, LiteratureSearchEntry } from "@/api/client";
 import type { LiveLiterature } from "@/stores/sessionStore";
-import { cn } from "@/lib/utils";
+import { cn, formatByline } from "@/lib/utils";
 
 // Normalized types for rendering (works with both live and API data)
 type PaperInfo = {
@@ -196,9 +196,11 @@ function PaperCard({ paper }: { paper: PaperInfo }) {
   return (
     <div className="rounded-md border border-border p-3 hover:border-indigo-500/40 transition-colors">
       <p className="text-sm font-medium leading-tight mb-1">{paper.title}</p>
-      <p className="text-xs text-muted-foreground mb-1.5">
-        {paper.authors} ({paper.year})
-      </p>
+      {formatByline(paper.authors, paper.year) && (
+        <p className="text-xs text-muted-foreground mb-1.5">
+          {formatByline(paper.authors, paper.year)}
+        </p>
+      )}
       {paper.arxiv_id && absUrl && (
         <div className="flex items-center gap-2">
           <a
@@ -269,7 +271,12 @@ function SearchDetail({
               <span className="text-muted-foreground shrink-0 w-4 text-right">{rank + 1}.</span>
               <div className="min-w-0">
                 <span className="font-medium">{paper.title}</span>
-                <span className="text-muted-foreground"> — {paper.authors} ({paper.year})</span>
+                {formatByline(paper.authors, paper.year) && (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — {formatByline(paper.authors, paper.year)}
+                  </span>
+                )}
                 {paper.arxiv_id && makeArxivUrl(paper.arxiv_id) && (
                   <a
                     href={makeArxivUrl(paper.arxiv_id)}

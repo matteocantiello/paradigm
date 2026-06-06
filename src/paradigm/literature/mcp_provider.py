@@ -31,6 +31,7 @@ import json
 import logging
 import re
 from contextlib import AsyncExitStack
+from datetime import datetime
 from typing import Any
 
 from paradigm.domains.base import SourceDocument, SourceProvider, SourceResult
@@ -48,6 +49,21 @@ def _summarize_exc(e: BaseException) -> str:
         seen += 1
     msg = str(e).strip()
     return f"{type(e).__name__}: {msg}" if msg else type(e).__name__
+
+
+def _parse_date(item: dict) -> datetime | None:
+    """Best-effort parse of a published date/year from an MCP result item."""
+    raw = _first(item, "published", "date", "published_date", "year").strip()
+    if not raw:
+        return None
+    # Try full date, then year-month, then a leading 4-digit year (handles
+    # "2024-01-15", "2024-01-15T...", "2024-01", "2024").
+    for length, fmt in ((10, "%Y-%m-%d"), (7, "%Y-%m"), (4, "%Y")):
+        try:
+            return datetime.strptime(raw[:length], fmt)
+        except ValueError:
+            continue
+    return None
 
 
 # Heuristics for matching the server's machine tool-names (lowercased substring).
@@ -505,6 +521,10 @@ class MCPSourceProvider(SourceProvider):
             # alphaXiv-style: prefer the pre-digested breakdown/tldr over abstract.
             summary=_first(item, "tldr", "breakdown", "summary", "abstract", "description"),
             url=_first(item, "url", "link", "pdf_url", "abs_url"),
+            # alphaXiv listings carry a "published" date but no author NAMES (only
+            # affiliations). Capture the date so at least the year shows instead of
+            # "(?)"; author names aren't in the feed for those results.
+            date=_parse_date(item),
         )
 
     def _to_source_document(self, source_id: str, result: Any) -> SourceDocument | None:

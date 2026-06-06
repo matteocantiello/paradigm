@@ -51,6 +51,15 @@ class TestConnectFailureDegradesCleanly:
         with pytest.raises(RuntimeError, match="unavailable"):
             await p._ensure_session()
 
+    def test_parse_date_for_year_display(self):
+        """alphaXiv listings carry a published date but no author names; capture the
+        date so the UI shows a year instead of '(?)'."""
+        from paradigm.literature.mcp_provider import _parse_date
+
+        assert _parse_date({"published": "2024-03-05"}).year == 2024
+        assert _parse_date({"year": "2019"}).year == 2019
+        assert _parse_date({}) is None
+
     def test_summarize_exc_unwraps_group(self):
         grp = BaseExceptionGroup("g", [RuntimeError("needs login")])
         assert "needs login" in _summarize_exc(grp)
