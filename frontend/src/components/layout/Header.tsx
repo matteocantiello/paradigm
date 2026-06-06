@@ -87,9 +87,23 @@ export function Header() {
             {mode === "testing" ? "Testing" : "Production"}
           </button>
         ) : (
-          <span className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400">
-            <div className="h-2 w-2 rounded-full bg-amber-500" />
-            Demo
+          // No testing config -> show the actual mode. "Demo" only when the
+          // backend has no config loaded (mode === "demo"); otherwise "Live".
+          <span
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+              mode === "demo"
+                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+            )}
+          >
+            <div
+              className={cn(
+                "h-2 w-2 rounded-full",
+                mode === "demo" ? "bg-amber-500" : "bg-emerald-500"
+              )}
+            />
+            {mode === "demo" ? "Demo" : "Live"}
           </span>
         )}
         <button

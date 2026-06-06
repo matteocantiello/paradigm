@@ -3994,3 +3994,13 @@ Two deploy bugs found: (1) frontend WS URL hardcoded :8000 in its fallback (`win
 > Can you make a detailed md file with the deployment instructions? So that we can easily redo it ... and/or fix issues
 
 Deployment succeeded (Hetzner/Ubuntu 24.04 + Caddy + systemd). Rewrote deploy/DEPLOY.md as the battle-tested guide: full ordered steps + a "gotchas we actually hit" table (python3.12-venv, .[api,mcp,openai] extras, .env.production, User=root, Caddy /api/* AND /health, the WS :8000→same-origin rebuild, npm from frontend/, the lib gitignore fix) + operating/backup/hardening sections.
+
+---
+
+### Prompt 121 — cycles aborting right after start (deployed)
+
+> I am getting a lot of aborted cycles right after starting on the platform
+
+ABORTED = session task cancelled. Tracing what cancels it: backend abort/cleanup paths + WS-disconnect handling, and frontend abort triggers (on unmount / WS failure). Suspect the WS can't connect through Caddy basic_auth → reconnect/unmount churn → abort, or a disconnect-triggered cleanup.
+
+**Diagnosis (in progress).** Screenshot confirms a REAL cycle (gemini-2.5-flash-lite, user's CRISPR prompt, 1.1k real tokens, real [SEARCH:] request) that gets ABORTED ~12s into ideation, right after the theorist's first step. The "Demo" badge is cosmetic: config/mode sets testing_available = (len(testing_overrides)>0); production.yaml has none → Header hard-coded "Demo". FIXED Header to show "Live" when mode=production ("Demo" only when config is None). ABORTED = task cancelled; callers are shutdown() (SIGTERM/restart), delete_research_cycle, ws client abort. Need the VM journal to see which — suspect backend restart (OOM?) during the first literature search (chromadb/embedding model load). Awaiting journalctl.
