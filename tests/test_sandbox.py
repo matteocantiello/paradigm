@@ -512,3 +512,22 @@ class TestSciencePreamble:
         assert "import pandas as pd" in _SCIENCE_PREAMBLE
         assert "import matplotlib.pyplot as plt" in _SCIENCE_PREAMBLE
         assert "import scipy" in _SCIENCE_PREAMBLE
+        # astropy aliases agents rely on heavily (caused repeated NameError: 'u')
+        assert "import astropy.units as u" in _SCIENCE_PREAMBLE
+        assert "import astropy.constants as const" in _SCIENCE_PREAMBLE
+
+    def test_make_sandbox_writable_relaxes_mode(self, tmp_path):
+        """Bind-mounted dirs must be writable by the non-root container user.
+
+        The backend (often root on a VM) creates these dirs; without relaxing the
+        mode the in-container `sandbox` user gets PermissionError on /data/workspace.
+        """
+        import stat
+
+        from paradigm.sandbox.executor import _make_sandbox_writable
+
+        d = tmp_path / "ws"
+        d.mkdir()
+        d.chmod(0o755)
+        _make_sandbox_writable(d)
+        assert stat.S_IMODE(d.stat().st_mode) == 0o777

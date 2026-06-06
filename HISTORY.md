@@ -4050,3 +4050,18 @@ FIX (src/paradigm/orchestrator/literature.py): (1) Never force [FOLLOW:] when no
 > Yes [tighten the agent prompts to discourage 4-term boolean AND queries that trigger empty searches]
 
 Follow-up to 125: the empty searches that trigger the forced-FOLLOW trap come from agents writing 4–5 term `AND` queries. Updating the [SEARCH:] guidance the agents see to prefer 2–3 plain keywords, no boolean operators, broaden on empty.
+
+---
+
+### Prompt 127 — experiments still failing (NameError 'u', PermissionError on /data/workspace, dust_extinction missing)
+
+> Other issue: we are still having problems with the experiments -- see this log [long EXECUTION-phase log: repeated `NameError: name 'u' is not defined`, `PermissionError` writing to /data/workspace/*.csv, dust_extinction not available → hand-rolled CCM89 spiral, agents giving up and proposing theoretical/synthetic fallbacks]
+
+Three distinct EXECUTION failures to investigate: (1) code executes without its imports — agents treat experiments as a persistent notebook kernel but each runs fresh; (2) /data/workspace not actually writable despite the prompt claiming it is; (3) dust_extinction/extinction not in the sandbox image.
+
+**FIXES (commit pending):**
+1. **NameError `u`/`const`** — the auto-import preamble (`executor.py:_SCIENCE_PREAMBLE`) imported np/scipy/plt/pd but NOT astropy. Added `import astropy.units as u` + `astropy.constants as const` (try/except). Updated the EXECUTION prompt to say u/const are auto-imported (don't re-import) + each experiment is a FRESH process (not a notebook — variables don't persist; use /data/workspace files).
+2. **PermissionError on /data/workspace** — `/data/workspace` + `/data/results` are bind-mounted from host dirs created by the backend (root on the VM); the container runs as non-root `sandbox`, so root-owned 0755 dirs → PermissionError. Added `_make_sandbox_writable()` (chmod 0o777) on both dirs after mkdir. The image's `chown sandbox /data` is overridden by the bind mount — this is the real fix.
+3. **dust_extinction missing** — the prompt PROMISED photutils/specutils/dust_extinction/galpy/healpy/plotly/bokeh/tables/netCDF4/pyarrow but the Dockerfile installed NONE → agents hand-rolled a broken CCM89 and spiralled (14.4k tok). Added the reliable-wheel subset to Dockerfile.sandbox (photutils, specutils, dust_extinction, plotly, bokeh, tables, netCDF4, pyarrow; dropped galpy/healpy to keep the slim build compiler-free) and synced the prompt list to match + told agents to use dust_extinction's CCM89 instead of hand-rolling.
+
+Tests: +2 (preamble astropy aliases, _make_sandbox_writable mode); full suite green. Apply on VM: `git pull && systemctl restart paradigm-backend` (fixes 1+2) AND **rebuild the sandbox image** for fix 3: `docker build -t paradigm-sandbox:latest -f docker/Dockerfile.sandbox docker/`.

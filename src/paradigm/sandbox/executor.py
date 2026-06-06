@@ -1,6 +1,7 @@
 """High-level code execution pipeline."""
 
 import ast
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -10,8 +11,25 @@ from paradigm.sandbox.docker import ContainerManager
 from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, ExecutionStatus
 from paradigm.sandbox.safety import SafetyConfig, SafetyScanner
 
+_logger = logging.getLogger(__name__)
+
 # Max characters of stdout/stderr to include in event logs
 _LOG_OUTPUT_LIMIT: int = 2048
+
+
+def _make_sandbox_writable(path: Path) -> None:
+    """Make a host dir writable by the container's non-root ``sandbox`` user.
+
+    /data/workspace and /data/results are bind-mounted from host dirs created
+    by the backend. On a deployed VM the backend runs as root, so those dirs
+    are root-owned and the in-container ``sandbox`` user gets PermissionError
+    when it writes intermediate files/figures. Relaxing the mode (the dirs are
+    ephemeral per-thread scratch under the data dir) lets the sandbox write.
+    """
+    try:
+        path.chmod(0o777)
+    except OSError as e:
+        _logger.warning("Could not relax permissions on %s for the sandbox: %s", path, e)
 
 # Auto-import preamble prepended to all experiment code.
 # Agents frequently use standard aliases (np, pd, plt) without explicit imports;
@@ -27,6 +45,11 @@ import pandas as pd
 from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
+try:
+    import astropy.units as u
+    import astropy.constants as const
+except ImportError:
+    pass
 workspace = Path('/data/workspace')
 workspace.mkdir(parents=True, exist_ok=True)
 """
@@ -139,6 +162,7 @@ class CodeExecutor:
         workspace_dir = self.workspace_dir
         if workspace_dir:
             workspace_dir.mkdir(parents=True, exist_ok=True)
+            _make_sandbox_writable(workspace_dir)
 
         # Offline pip cache for agent-driven package installs
         packages_dir = self.data_dir / "packages"
@@ -176,6 +200,7 @@ class CodeExecutor:
         dir_name = f"{request.agent_id}-{timestamp}"
         results_dir = self.data_dir / "executions" / dir_name
         results_dir.mkdir(parents=True, exist_ok=True)
+        _make_sandbox_writable(results_dir)
         return results_dir
 
     async def cleanup(self) -> None:

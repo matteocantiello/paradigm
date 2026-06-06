@@ -26,6 +26,21 @@ RUN pip install --no-cache-dir \
     pyyaml \
     joblib
 
+# Extra packages PROMISED to agents in the EXECUTION prompt (orchestrator/constants.py).
+# Keep this list in sync with that prompt's "Extra packages" line — otherwise agents
+# import something that isn't here and hand-roll broken substitutes (we saw
+# dust_extinction -> a buggy inline CCM89). All ship cp312 linux wheels, so the
+# slim base needs no compiler.
+RUN pip install --no-cache-dir \
+    photutils \
+    specutils \
+    dust_extinction \
+    plotly \
+    bokeh \
+    tables \
+    netCDF4 \
+    pyarrow
+
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash sandbox
 
