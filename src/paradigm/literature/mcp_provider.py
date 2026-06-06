@@ -266,9 +266,20 @@ class MCPSourceProvider(SourceProvider):
         if self._auth_mode == "oauth":
             from paradigm.literature.mcp_auth import build_oauth_provider
 
-            auth, _ = build_oauth_provider(
+            auth, storage = build_oauth_provider(
                 server_url=self._url, name=self.name, scope=self._oauth_scope, interactive=False
             )
+            # Fail cleanly + early when there's no cached token (headless server
+            # never ran `paradigm mcp-login`). Otherwise the OAuth flow raises
+            # mid-connection and the anyio client teardown throws a
+            # BaseExceptionGroup. (The corpus guard now catches that too, but
+            # this keeps it clean + fast-fails for the rest of the cycle.)
+            if not storage.has_tokens():
+                self._connect_failed = True
+                raise RuntimeError(
+                    f"MCP {self.name!r}: no cached OAuth token. Run `paradigm mcp-login` "
+                    f"and copy ~/.paradigm/mcp/ to the server."
+                )
         elif self._auth_mode == "bearer" and self._auth:
             headers = {"Authorization": f"Bearer {self._auth}"}
 

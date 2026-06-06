@@ -82,11 +82,12 @@ literature:
   max_citation_results: 10
   max_reference_results: 20
   mcp:
-    # OFF by default for deployment: alphaXiv needs a cached OAuth token
-    # (`paradigm mcp-login`, then copy ~/.paradigm/mcp/ to the VM). Without it the
-    # provider can't auth — enable only AFTER the token is in place. The in-house
-    # providers (arXiv, Semantic Scholar, NASA ADS, …) carry literature meanwhile.
-    enabled: false
+    # alphaXiv via cached OAuth token. Needs the token on the server:
+    # run `paradigm mcp-login` on a machine with a browser, then
+    #   scp -r ~/.paradigm/mcp/ <user>@<vm>:~/.paradigm/
+    # Without a token it now fails cleanly (skips alphaXiv, no crash); the
+    # in-house providers (arXiv, Semantic Scholar, NASA ADS, …) carry literature.
+    enabled: true
 
 storage:
   data_dir: "./data"  # overridden by PARADIGM_DATA_DIR -> a persistent, backed-up volume

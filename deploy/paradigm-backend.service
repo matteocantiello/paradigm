@@ -23,6 +23,10 @@ Type=simple
 User=paradigm
 Group=paradigm
 WorkingDirectory=/opt/paradigm
+# Make ~ resolve predictably so the alphaXiv MCP OAuth token at
+# $HOME/.paradigm/mcp/ is found. MUST match the service User's home
+# (/root for User=root; /home/<user> otherwise).
+Environment=HOME=/root
 EnvironmentFile=/opt/paradigm/deploy/.env.production
 ExecStart=/opt/paradigm/.venv/bin/uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
 Restart=always
