@@ -4233,3 +4233,11 @@ Record 2 future items (GPT-5.4-mini option; per-agent model dropdown in the agen
 > still seeing issues with perplexity, even if I just created a new API key [journal: 401 Unauthorized on api.perplexity.ai/chat/completions, attempts 1+2]
 
 401 with a new key (after restart, new PID 28291) → either the process isn't seeing the new value (env not reloaded / malformed line / duplicate), the key value is malformed (quotes/whitespace/CR from vi), or the Perplexity account lacks credits/billing. Investigate the client (key read, headers, model, base_url) + give VM debug steps (file check, /proc/<pid>/environ check, direct curl) + surface the 401 response body.
+
+### Prompt 147 — Perplexity key was malformed (resolved by user). 
+
+### Prompt 148 — internal-review rejection stalls (no terminal screen)
+
+> still seeing an issue when the research process terminates (accepted or not). It stalls instead of giving a message about the outcome and showing the paper. [screenshot: "Internal review rejected the paper", then Stalled 522s, in "internal review"]
+
+The desk_reject terminal fix (prompt 133) didn't cover the INTERNAL_REVIEW reject path. Need: every terminal outcome (publish / desk-reject / peer-reject / internal-reject / revision-exhausted / no-paper) must finalize → set REJECTED/PUBLISHED phase + broadcast + return, so the frontend TerminalScreen shows the outcome + paper. Investigate the engine internal-review branch + whether it hangs or just doesn't broadcast terminal.

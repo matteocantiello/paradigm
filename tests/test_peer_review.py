@@ -832,6 +832,51 @@ class TestReviewLoopWritingFailedOnExhaustion:
         assert thread["status"] == "review_rejected"
 
     @pytest.mark.asyncio
+    async def test_internal_reject_broadcasts_terminal_outcome(
+        self, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        """Internal-review reject must emit a terminal REJECTED phase + paper_rejected
+        so the live UI shows the outcome + draft instead of looking stalled."""
+        from unittest.mock import MagicMock
+
+        from paradigm.orchestrator.phases import ResearchPhase
+
+        config = Config(
+            api_key="fake-api-key",
+            storage={"data_dir": str(tmp_path / "data")},
+            orchestrator={
+                "max_rounds_per_phase": 1,
+                "checkpoint_interval": 1,
+                "enable_writing": True,
+                "enable_experimentation": False,
+                "max_review_iterations": 3,
+                "enable_peer_review": True,
+            },
+        )
+        patch_config_provider(config)
+        factory = _make_writing_factory(
+            editor_desk_response=(
+                "## Strengths\n- Interesting\n\n"
+                "## Weaknesses\n- Fatal, unrecoverable flaw\n\n"
+                "## Recommendation\nReject"
+            )
+        )
+        display = MagicMock()
+        engine = OrchestrationEngine(
+            config=config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+            display=display,
+        )
+        await engine.run_research_cycle(seed_prompt="Paper the editor rejects", mode="directed")
+
+        phases = [c.args[0] for c in display.phase_transition.call_args_list if c.args]
+        assert ResearchPhase.REJECTED in phases
+        display.paper_rejected.assert_called()
+
+    @pytest.mark.asyncio
     async def test_review_loop_stops_early_when_not_converging(
         self, tmp_path, tmp_db, tmp_logger, mock_corpus
     ):

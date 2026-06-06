@@ -595,6 +595,12 @@ class OrchestrationEngine:
             review_status = thread.get("status") if thread else None
             if review_status in ("review_rejected", "revision_exhausted"):
                 self._display.writing_failed_review_exhausted(review_status)
+                # Surface a terminal REJECTED outcome to the live UI (the tracker +
+                # terminal screen key off the broadcast phase + a paper_rejected
+                # notice). Without this the run looks stuck on "internal review"
+                # instead of ending with "Paper was not accepted" + the draft.
+                self._display.phase_transition(ResearchPhase.REJECTED)
+                self._display.paper_rejected()
                 paper_id = thread.get("current_draft_id") if thread else None
                 if paper_id:
                     self._save_auxiliary_files(paper_id)
