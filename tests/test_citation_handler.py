@@ -307,10 +307,11 @@ class TestSeedDiscovery:
                 "https://arxiv.org/abs/2302.67890",
             ]
         )
-        mock_get_paper = AsyncMock(side_effect=[paper1, paper2])
+        # Seed discovery now fetches all IDs in one batched arXiv request.
+        mock_get_papers = AsyncMock(return_value=[paper1, paper2])
         mock_ingest = AsyncMock()
 
-        engine._corpus._arxiv.get_paper = mock_get_paper
+        engine._corpus._arxiv.get_papers = mock_get_papers
         engine._corpus.ingest_paper = mock_ingest
 
         with patch("paradigm.orchestrator.literature.PerplexityClient") as mock_client_cls:
