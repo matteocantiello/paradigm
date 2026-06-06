@@ -4225,3 +4225,11 @@ No code change. Key goes in the VM's gitignored deploy/.env.production (overwrit
 > GPT-5.4 mini could be a good option ... let's leave it for the future. A future implementation should also show possible models in the agents tab in a drop-down menu (frontend change). Finally ... update the deployment instructions, and also the user manual.
 
 Record 2 future items (GPT-5.4-mini option; per-agent model dropdown in the agents tab). Now: update deploy/DEPLOY.md for all the recent VM/config changes (GEMINI required + PERPLEXITY keys, tectonic for PDF, alphaXiv re-login, sandbox image, config defaults) and the user manual.
+
+---
+
+### Prompt 146 — Perplexity still 401 with a brand-new key
+
+> still seeing issues with perplexity, even if I just created a new API key [journal: 401 Unauthorized on api.perplexity.ai/chat/completions, attempts 1+2]
+
+401 with a new key (after restart, new PID 28291) → either the process isn't seeing the new value (env not reloaded / malformed line / duplicate), the key value is malformed (quotes/whitespace/CR from vi), or the Perplexity account lacks credits/billing. Investigate the client (key read, headers, model, base_url) + give VM debug steps (file check, /proc/<pid>/environ check, direct curl) + surface the 401 response body.

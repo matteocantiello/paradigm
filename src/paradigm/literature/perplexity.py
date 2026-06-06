@@ -175,6 +175,23 @@ Your answer should not have the formatting marks <TEXT> and </TEXT>, just the te
 # ---------------------------------------------------------------------------
 
 
+def _describe_exc(e: Exception) -> str:
+    """Include the HTTP response body so 401/4xx reasons are visible.
+
+    raise_for_status() reports only the status; the body is where Perplexity says
+    *why* (e.g. "Invalid API key" vs an account/credits message), which is exactly
+    what you need to tell a malformed key from an unprovisioned account.
+    """
+    resp = getattr(e, "response", None)
+    if resp is not None:
+        try:
+            body = (resp.text or "").strip().replace("\n", " ")[:300]
+        except Exception:  # noqa: BLE001
+            body = ""
+        return f"{e} | response: {body}" if body else str(e)
+    return str(e)
+
+
 class PerplexityClient:
     """Async client for Perplexity citation grounding."""
 
@@ -187,13 +204,17 @@ class PerplexityClient:
         timeout: float = 120.0,
         max_retries: int = 2,
     ) -> None:
-        self._api_key = api_key
+        # Strip whitespace/newlines: a trailing space or CR (very common when the
+        # key is pasted into an env file with vi / on a CRLF system) makes the
+        # Bearer header malformed and Perplexity returns 401 with an otherwise
+        # valid key.
+        self._api_key = (api_key or "").strip()
         self._event_logger = event_logger
         self._max_retries = max_retries
         self._client = httpx.AsyncClient(
             timeout=timeout,
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
             },
         )
@@ -233,7 +254,11 @@ class PerplexityClient:
 
                 return _extract_arxiv_urls(cleaned, citations)
             except Exception as e:
-                logger.warning("Perplexity discover_papers attempt %d failed: %s", attempt + 1, e)
+                logger.warning(
+                    "Perplexity discover_papers attempt %d failed: %s",
+                    attempt + 1,
+                    _describe_exc(e),
+                )
                 if self._event_logger:
                     self._event_logger.log_error(
                         e, metadata_key="perplexity_discovery", attempt=attempt + 1
@@ -280,7 +305,9 @@ class PerplexityClient:
                     citation_urls=citations,
                 )
             except Exception as e:
-                logger.warning("Perplexity cite_paragraph attempt %d failed: %s", attempt + 1, e)
+                logger.warning(
+                    "Perplexity cite_paragraph attempt %d failed: %s", attempt + 1, _describe_exc(e)
+                )
                 if self._event_logger:
                     self._event_logger.log_error(e, metadata_key="perplexity", attempt=attempt + 1)
 

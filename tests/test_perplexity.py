@@ -10,10 +10,28 @@ from paradigm.literature.perplexity import (
     PerplexityClient,
     _build_citation_prompt,
     _build_discovery_prompt,
+    _describe_exc,
     _extract_arxiv_urls,
     _split_into_paragraphs,
     _strip_think_tags,
 )
+
+
+class TestApiKeyHygiene:
+    def test_key_is_stripped_in_auth_header(self):
+        """A pasted key with trailing whitespace/CR must not break the Bearer header
+        (the #1 cause of a 401 with an otherwise-valid key)."""
+        c = PerplexityClient(api_key="  pplx-abc123\r\n")
+        assert c._api_key == "pplx-abc123"
+        assert c._client.headers["Authorization"] == "Bearer pplx-abc123"
+
+    def test_describe_exc_includes_response_body(self):
+        """4xx errors surface the response body so the reason (bad key vs credits) shows."""
+        req = httpx.Request("POST", "https://api.perplexity.ai/chat/completions")
+        resp = httpx.Response(401, request=req, text='{"error":"Invalid API key"}')
+        err = httpx.HTTPStatusError("401", request=req, response=resp)
+        assert "Invalid API key" in _describe_exc(err)
+
 
 # ---------------------------------------------------------------------------
 # _strip_think_tags
