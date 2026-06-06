@@ -4122,3 +4122,11 @@ Editor desk_rejected (LaTeX math-notation violations) at the Submitted gate, but
 3. **Terminal screen now handles rejection:** TerminalScreen treats `currentPhase==="rejected"` as a distinct terminal state ("Paper was not accepted" + View paper + "Revise & resubmit"), not a convergence. SessionPage refetches cycles on terminal status so `paper_id` (enriched from the thread) is present → "View paper" works for rejected papers.
 
 Tests: +1 (hanging-reflection timeout guard); full suite 1510 green; frontend builds. Apply: `git pull && systemctl restart paradigm-backend` + `cd frontend && npm run build`.
+
+---
+
+### Prompt 134 — fix the LaTeX-notation desk rejection (writer enforce math mode + relax editor)
+
+> yes [tighten the writer/editor prompt to enforce LaTeX math mode + relax the editor's desk-reject threshold]
+
+Editor desk-rejected purely for Unicode math (α vs $\alpha$, × vs $\times$, log subscripts). Two fixes: (1) writer prompt — require LaTeX math mode, never Unicode math symbols; (2) editor desk_review — desk_reject only for FUNDAMENTAL issues, never fixable formatting/notation.
