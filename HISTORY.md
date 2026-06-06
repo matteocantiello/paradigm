@@ -4209,3 +4209,11 @@ The conda `paradigm` env HAS mcp; the user's `paradigm` CLI resolves to a differ
 > can we check why we're getting all these 403 [journal: session-0481… WS 403 every ~30s for 10+ min; a real session connects fine; also Perplexity 401 + "Failed to parse checkpoint JSON"]
 
 The 403s = a stale browser tab reconnecting forever to a session that no longer exists on the backend (deleted / lost on restart) → WS handshake 403 → frontend retry loop never gives up. Cosmetic noise, not a functional break (real runs connect). Fix: frontend should stop reconnecting once the session is gone. (Also visible: Perplexity 401 = bad/placeholder key; "Failed to parse checkpoint JSON" = resume fallback.)
+
+---
+
+### Prompt 144 — new Perplexity API key
+
+> Ok I generated a new perplexity API key: [REDACTED]
+
+No code change. Key goes in the VM's gitignored deploy/.env.production (overwrite the bad value that caused the 401), then restart. Secret NOT stored in repo; advised the user to rotate it since it was shared in chat.
