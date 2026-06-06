@@ -492,29 +492,15 @@ class LiteratureHandler:
             # Early termination: 2 consecutive stale searches from this agent
             if consecutive_stale >= _CONSECUTIVE_STALE_LIMIT:
                 self._engine._display.search_stale(agent_id, _CONSECUTIVE_STALE_LIMIT)
-                examples = self._build_follow_examples(_FOLLOW_EXAMPLES_COUNT)
-                stall_warning = (
-                    "\n\n> **Warning:** Keyword searches are exhausted for this topic. "
-                    "You MUST use [FOLLOW: arxiv_id] or [CITED_BY: arxiv_id] to discover "
-                    "new papers. Do NOT issue more [SEARCH:] requests.\n"
-                )
-                if examples:
-                    stall_warning += examples
-                self._append_to_context(stall_warning, trim=False)
+                self._append_to_context(self._build_exhaustion_warning(), trim=False)
                 break
 
         # Cross-round exhaustion warning: inject persistent warning
         if self.total_stale_keyword_searches >= _STALE_SEARCH_THRESHOLD:
-            examples = self._build_follow_examples(_FOLLOW_EXAMPLES_COUNT)
-            exhaustion_warning = (
-                "\n\n> \u26a0 Keyword searches are exhausted for this topic. You MUST use "
-                "[FOLLOW: arxiv_id] or [CITED_BY: arxiv_id] to discover new papers. "
-                "Do NOT issue [SEARCH:] requests.\n"
-            )
-            if examples:
-                exhaustion_warning += examples
-            if "\u26a0 Keyword searches are exhausted" not in self.literature_context:
-                self._append_to_context(exhaustion_warning, trim=False)
+            if "Keyword searches are exhausted" not in self.literature_context and (
+                "Literature search has returned no usable results" not in self.literature_context
+            ):
+                self._append_to_context(self._build_exhaustion_warning(), trim=False)
 
     async def _resolve_id_query(
         self,
@@ -604,6 +590,11 @@ class LiteratureHandler:
                 self._engine._display.follow_skipped(arxiv_id)
                 continue
 
+            if not self._is_discovered_id(arxiv_id):
+                self._note_rejected_id("FOLLOW", arxiv_id)
+                self._engine._display.follow_skipped(arxiv_id)
+                continue
+
             try:
                 papers = await self._engine._corpus.get_references(
                     arxiv_id, max_results=lit_config.max_reference_results
@@ -668,6 +659,11 @@ class LiteratureHandler:
                 self._engine._display.cited_by_skipped(arxiv_id)
                 continue
 
+            if not self._is_discovered_id(arxiv_id):
+                self._note_rejected_id("CITED_BY", arxiv_id)
+                self._engine._display.cited_by_skipped(arxiv_id)
+                continue
+
             try:
                 papers = await self._engine._corpus.get_citations(
                     arxiv_id, max_results=lit_config.max_citation_results
@@ -729,6 +725,11 @@ class LiteratureHandler:
                 break
 
             if arxiv_id in self.read_paper_ids:
+                self._engine._display.read_skipped(arxiv_id)
+                continue
+
+            if not self._is_discovered_id(arxiv_id):
+                self._note_rejected_id("READ", arxiv_id)
                 self._engine._display.read_skipped(arxiv_id)
                 continue
 
@@ -963,13 +964,64 @@ class LiteratureHandler:
         Returns:
             Formatted hint string.
         """
-        hint = (
-            "\n\n> **Hint:** Your keyword searches are returning no new results. "
-            "Use [FOLLOW: arxiv_id] to explore references of papers "
-            "you've already found, or [CITED_BY: arxiv_id] to find recent work "
-            "building on foundational papers.\n"
-        )
         examples = self._build_follow_examples(_FOLLOW_EXAMPLES_COUNT)
         if examples:
-            hint += examples
-        return hint
+            return (
+                "\n\n> **Hint:** Your keyword searches are returning no new results. "
+                "Use [FOLLOW: arxiv_id] to explore references of papers "
+                "you've already found, or [CITED_BY: arxiv_id] to find recent work "
+                "building on foundational papers. Only use IDs from the discovered "
+                "list — never invent or guess arXiv IDs.\n" + examples
+            )
+        # No papers discovered yet: forcing [FOLLOW:] would only invite invented
+        # IDs, which resolve to real-but-unrelated papers and poison the context.
+        return (
+            "\n\n> **Hint:** Literature search is returning no results for this topic "
+            "so far. Try ONE broader, simpler [SEARCH:] (fewer terms, no boolean AND) "
+            "before giving up. Do NOT invent or guess arXiv IDs for "
+            "[FOLLOW:]/[CITED_BY:]/[READ:] — IDs that were never returned by a real "
+            "search will be rejected. If searches keep coming up empty, proceed with "
+            "your analysis and explicitly note the literature gap.\n"
+        )
+
+    def _build_exhaustion_warning(self) -> str:
+        """Warning injected when keyword searches are exhausted.
+
+        Only pushes [FOLLOW:]/[CITED_BY:] when there are real discovered IDs to
+        traverse; otherwise it would force agents to hallucinate IDs.
+        """
+        examples = self._build_follow_examples(_FOLLOW_EXAMPLES_COUNT)
+        if examples:
+            return (
+                "\n\n> ⚠ Keyword searches are exhausted for this topic. Use "
+                "[FOLLOW: arxiv_id] or [CITED_BY: arxiv_id] on the discovered papers "
+                "below to find more — do NOT issue [SEARCH:] requests, and do NOT "
+                "invent arXiv IDs (only IDs from the discovered list work).\n" + examples
+            )
+        return (
+            "\n\n> ⚠ Literature search has returned no usable results for this "
+            "topic — the external sources may be unavailable. Do NOT invent arXiv IDs "
+            "for [FOLLOW:]/[CITED_BY:]/[READ:] (they will be rejected). Proceed with "
+            "the analysis and explicitly note the literature gap.\n"
+        )
+
+    def _is_discovered_id(self, arxiv_id: str) -> bool:
+        """True if this arXiv ID was actually returned by a real search/traversal.
+
+        Agents sometimes invent plausible-looking arXiv IDs (e.g. ``2303.11111``)
+        when no real papers were found. Those IDs resolve to real-but-unrelated
+        papers (we have seen XAI papers surface for an astrophysics topic), which
+        then poison the shared literature context. Gating graph actions to
+        previously-discovered IDs blocks that contamination at the source.
+        """
+        return arxiv_id in self.seen_paper_ids
+
+    def _note_rejected_id(self, action: str, arxiv_id: str) -> None:
+        """Tell the agent (via shared context) why an invented ID was rejected."""
+        self._append_to_context(
+            f"\n> [{action}: {arxiv_id}] rejected — that arXiv ID was never returned by "
+            "a search, so it cannot be trusted to be the paper you intend. Use "
+            "[SEARCH:] to find real papers, then [FOLLOW:]/[CITED_BY:] only IDs from "
+            "the discovered list.\n",
+            trim=False,
+        )

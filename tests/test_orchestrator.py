@@ -1364,6 +1364,10 @@ class TestLiteratureGraphTraversal:
             agent_factory=factory,
         )
 
+        # The graph gate only allows FOLLOW on previously-discovered IDs; this test
+        # exercises the FOLLOW->get_references mechanism, so treat the ID as discovered.
+        engine._literature._is_discovered_id = lambda _id: True
+
         await engine.run_research_cycle(seed_prompt="Test follow", mode="directed")
 
         corpus.get_references.assert_called()
@@ -1421,6 +1425,8 @@ class TestLiteratureGraphTraversal:
             agent_factory=factory,
         )
 
+        engine._literature._is_discovered_id = lambda _id: True
+
         await engine.run_research_cycle(seed_prompt="Test cited_by", mode="directed")
 
         corpus.get_citations.assert_called()
@@ -1461,9 +1467,59 @@ class TestLiteratureGraphTraversal:
             agent_factory=factory,
         )
 
+        engine._literature._is_discovered_id = lambda _id: True
+
         await engine.run_research_cycle(seed_prompt="Test read", mode="directed")
 
         corpus.read_paper.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_follow_rejects_undiscovered_id(self, mock_config, tmp_db, tmp_logger):
+        """[FOLLOW:] on an arXiv ID that was never returned by a search is rejected.
+
+        Agents sometimes invent plausible-looking IDs when no real papers are found;
+        those resolve to real-but-unrelated papers and poison the shared context.
+        The gate must skip the fetch entirely and leave a note for the agent.
+        """
+        corpus = MagicMock()
+        corpus.build_literature_context = AsyncMock(return_value="No papers.")
+        corpus.search = AsyncMock(return_value=[])  # nothing is ever discovered
+        corpus.get_references = AsyncMock(return_value=[])
+        corpus.get_citations = AsyncMock(return_value=[])
+        corpus.read_paper = AsyncMock(return_value=None)
+
+        factory = MagicMock()
+
+        def _create_team(roles, skill_mode="default"):
+            agents = []
+            for role in roles:
+                agent = make_mock_agent(f"{role}-0", role)
+                if role == roles[0]:
+                    response = AgentResponse(
+                        content="Ideas [FOLLOW: 9999.99999]",  # hallucinated, never searched
+                        usage=TokenUsage(input_tokens=50, output_tokens=30, total_tokens=80),
+                        model="claude-sonnet-4-5-20250929",
+                    )
+                    agent.generate = AsyncMock(return_value=response)
+                agents.append(agent)
+            return agents
+
+        factory.create_team = MagicMock(side_effect=_create_team)
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+        )
+
+        await engine.run_research_cycle(seed_prompt="Test reject", mode="directed")
+
+        # The hallucinated ID must NOT be fetched, and the agent gets a rejection note.
+        corpus.get_references.assert_not_called()
+        assert "9999.99999" not in engine._literature.followed_paper_ids
+        assert "rejected" in engine._literature.literature_context
 
     @pytest.mark.asyncio
     async def test_follow_budget_enforced(self, mock_config, tmp_db, tmp_logger):
@@ -2281,6 +2337,8 @@ class TestReadDeduplication:
             agent_factory=factory,
         )
 
+        engine._literature._is_discovered_id = lambda _id: True
+
         await engine.run_research_cycle(seed_prompt="Test read dedup", mode="directed")
 
         # read_paper should only be called once despite two [READ: 2401.12345] requests
@@ -2374,6 +2432,8 @@ class TestFollowCitedByDeduplication:
             agent_factory=factory,
         )
 
+        engine._literature._is_discovered_id = lambda _id: True
+
         await engine.run_research_cycle(seed_prompt="Test follow dedup", mode="directed")
 
         # get_references should only be called once despite two [FOLLOW: 2301.12345] requests
@@ -2441,6 +2501,8 @@ class TestFollowCitedByDeduplication:
             logger=tmp_logger,
             agent_factory=factory,
         )
+
+        engine._literature._is_discovered_id = lambda _id: True
 
         await engine.run_research_cycle(seed_prompt="Test cited_by dedup", mode="directed")
 
