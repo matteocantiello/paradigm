@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { PaperArtifactList, PaperDetail } from "@/api/client";
+import { paperPdfUrl } from "@/api/client";
 import { PaperViewer } from "./PaperViewer";
 import { PaperTOC } from "./PaperTOC";
 import { PaperExport } from "./PaperExport";
@@ -75,7 +76,11 @@ export function ArtifactTabs({ paper, artifacts }: ArtifactTabsProps) {
           <aside className="sticky top-0 self-start">
             <PaperTOC body={paper.body} />
             <div className="mt-4 border-t border-border pt-3">
-              <PaperExport title={paper.title} body={paper.body} />
+              <PaperExport
+                title={paper.title}
+                body={paper.body}
+                pdfUrl={paperPdfUrl(paper.paper_id)}
+              />
             </div>
           </aside>
           <PaperViewer paper={paper} />

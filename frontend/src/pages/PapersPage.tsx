@@ -53,6 +53,7 @@ export function PapersPage() {
               has_transcript: false,
               has_experiments: false,
               has_figures: false,
+              has_pdf: false,
               experiment_files: [],
               figure_files: [],
             }}

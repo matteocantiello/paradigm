@@ -1,12 +1,13 @@
-import { Copy, Download, Check } from "lucide-react";
+import { Copy, Download, Check, FileDown } from "lucide-react";
 import { useState } from "react";
 
 interface PaperExportProps {
   title: string;
   body: string;
+  pdfUrl?: string;
 }
 
-export function PaperExport({ title, body }: PaperExportProps) {
+export function PaperExport({ title, body, pdfUrl }: PaperExportProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -41,6 +42,18 @@ export function PaperExport({ title, body }: PaperExportProps) {
         <Download className="h-3.5 w-3.5" />
         Download .md
       </button>
+      {pdfUrl && (
+        <a
+          href={pdfUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Download the typeset PDF (compiled on the server)"
+          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          <FileDown className="h-3.5 w-3.5" />
+          Download PDF
+        </a>
+      )}
     </div>
   );
 }

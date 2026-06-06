@@ -366,6 +366,7 @@ export interface PaperArtifactList {
   has_transcript: boolean;
   has_experiments: boolean;
   has_figures: boolean;
+  has_pdf: boolean;
   experiment_files: string[];
   figure_files: string[];
 }
@@ -401,4 +402,8 @@ export function getPaperExperiment(paperId: string, filename: string) {
 
 export function paperFigureUrl(paperId: string, filename: string) {
   return `${BASE}/api/v1/papers/${paperId}/figures/${encodeURIComponent(filename)}`;
+}
+
+export function paperPdfUrl(paperId: string) {
+  return `${BASE}/api/v1/papers/${paperId}/pdf`;
 }

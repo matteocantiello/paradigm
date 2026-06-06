@@ -125,6 +125,8 @@ def scan_paper_artifacts(paper_dir: Path) -> PaperArtifactList:
             if f.is_file() and f.suffix.lower() in _ALLOWED_FIGURE_EXT
         )
 
+    has_pdf = (paper_dir / f"{paper_id}.pdf").exists() or (paper_dir / "paper.pdf").exists()
+
     return PaperArtifactList(
         paper_id=paper_id,
         has_paper=has_paper,
@@ -133,6 +135,7 @@ def scan_paper_artifacts(paper_dir: Path) -> PaperArtifactList:
         has_transcript=has_transcript,
         has_experiments=len(experiment_files) > 0,
         has_figures=len(figure_files) > 0,
+        has_pdf=has_pdf,
         experiment_files=experiment_files,
         figure_files=figure_files,
     )

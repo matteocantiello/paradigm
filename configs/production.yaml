@@ -141,8 +141,13 @@ knowledge:
   enable_preregistration: false
 
 journal:
-  enable_latex_output: false
-  compile_pdf: false
+  # Write a journal-ready .tex next to each paper and, if a LaTeX engine
+  # (tectonic / xelatex / pdflatex) is on PATH, compile a PDF. Both are
+  # best-effort: with no engine the .tex is still written and nothing breaks.
+  # Install tectonic on the server for one-command, dependency-free PDFs.
+  # The /papers/{id}/pdf endpoint also compiles on demand for existing papers.
+  enable_latex_output: true
+  compile_pdf: true
 
 citation:
   enable_citation_grounding: false

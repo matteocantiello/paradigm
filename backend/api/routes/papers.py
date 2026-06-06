@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -153,6 +154,9 @@ async def list_papers(
         all_papers = list(_demo_papers.values())
         if status:
             all_papers = [p for p in all_papers if p.get("status") == status]
+        else:
+            # "All" tab: this system's own papers only, not ingested literature.
+            all_papers = [p for p in all_papers if p.get("status") != "external"]
         page = all_papers[offset : offset + limit]
         items = [
             PaperSummary(
@@ -167,7 +171,13 @@ async def list_papers(
         ]
         return PaperList(items=items, total=len(all_papers), offset=offset, limit=limit)
 
-    papers = db.list_papers(status=status, limit=limit)
+    rows = db.list_papers(status=status)
+    # Ingested literature is stored as papers with status="external" (for citation
+    # grounding / dedup). It must NOT appear in the user's own-papers list.
+    if status != "external":
+        rows = [p for p in rows if p.get("status") != "external"]
+    total = len(rows)
+    page = rows[offset : offset + limit]
 
     items = [
         PaperSummary(
@@ -178,12 +188,12 @@ async def list_papers(
             created_at=p.get("created_at"),
             published_at=p.get("published_at"),
         )
-        for p in papers
+        for p in page
     ]
 
     return PaperList(
         items=items,
-        total=len(items),
+        total=total,
         offset=offset,
         limit=limit,
     )
@@ -423,3 +433,56 @@ async def get_paper_figure(paper_id: str, filename: str, request: Request) -> Fi
             media = _FIGURE_MEDIA_TYPES.get(ext, "application/octet-stream")
             return FileResponse(fig_file, media_type=media)
     raise HTTPException(status_code=404, detail="Figure not found")
+
+
+@router.get(
+    "/papers/{paper_id}/pdf",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_paper_pdf(paper_id: str, request: Request) -> FileResponse:
+    """Serve the paper's PDF, compiling on demand if a LaTeX engine is available.
+
+    Returns a pre-built PDF if present; otherwise renders the stored body to LaTeX
+    and compiles it (figures resolve from the paper's ``figures/`` dir). If no
+    LaTeX engine is installed, responds 503 with a clear message rather than 500.
+    """
+    paper_dir = _paper_dir(request, paper_id)
+    if paper_dir is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    for name in (f"{paper_id}.pdf", "paper.pdf"):
+        pdf = paper_dir / name
+        if pdf.is_file():
+            return FileResponse(pdf, media_type="application/pdf", filename=f"{paper_id}.pdf")
+
+    db = request.app.state.database
+    paper = db.get_paper(paper_id) if db is not None else None
+    if not paper or not paper.get("body"):
+        raise HTTPException(status_code=404, detail="Paper body not available for PDF")
+
+    from paradigm.journal.latex import write_paper_latex
+
+    try:
+        result = await asyncio.to_thread(
+            write_paper_latex,
+            paper_dir,
+            paper_id,
+            paper["body"],
+            title=paper.get("title"),
+            compile_to_pdf=True,
+        )
+    except Exception as e:  # noqa: BLE001 — surface as an HTTP error, never crash the server
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}") from e
+
+    pdf_path = result.get("pdf_path")
+    if result.get("pdf") and pdf_path and Path(str(pdf_path)).is_file():
+        return FileResponse(pdf_path, media_type="application/pdf", filename=f"{paper_id}.pdf")
+
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "PDF generation requires a LaTeX engine on the server "
+            "(install tectonic, xelatex, or pdflatex). "
+            f"{result.get('pdf_message', '')}"
+        ).strip(),
+    )

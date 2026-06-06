@@ -4138,3 +4138,18 @@ Editor desk-rejected purely for Unicode math (α vs $\alpha$, × vs $\times$, lo
 > We need icons for the reviewers. Maybe a magnifying glass? Also not sure why the paper got stuck in review (it says stalled) [screenshot: 2 peer-reviewer agents with generic person icons; review gave major_revision; "Stalled 6282s" in Peer Review]
 
 (1) peer-reviewer role has no AGENT_THEMES entry → generic icon; add a magnifier-on-document icon (distinct from skeptic's plain Search). (2) Stalled ~105min in Peer Review = same LLM-hang disease as the memory-gen stall (Prompt 133) but in the review/revision pipeline → need a per-call LLM timeout so NO single call can hang the cycle.
+
+---
+
+### Prompt 136 — broken figure links in paper, PDF never exposed, literature papers polluting the Papers tab
+
+> Moreover, the figures in the md paper are not visualized (broken links). Also the pdf of the paper (when produced like in this case it should) is never exposed (there should be at least a link). Finally why are some papers from the literature ending up in the published papers tab (external)? [screenshots: paper viewer with broken Figure 6/9 images; Papers tab showing A&A 621/640/668/692 as "External" alongside the platform's own papers] Let's fix all these issues
+
+Three issues: (1) paper md figures render as broken image links (figure files not served / paths not rewritten); (2) no PDF download link exposed even when a PDF is produced; (3) external literature citations (A&A IGW refs) appear in the Papers tab as "External" — should be excluded from the platform's own papers list.
+
+**FIXES (commit pending):**
+1. **External literature in Papers tab:** corpus stores ingested refs as papers with status="external" (for citation/dedup). The Papers "All" list now excludes them (papers.py list_papers, both demo + db paths) + fixes total/pagination. They never had a tab, so they should never show.
+2. **Broken figure links:** paper md embeds `![Figure N](figures/<name>)` (relative). PaperViewer now renders a custom `img` that rewrites `figures/<name>` → paperFigureUrl(paperId, name) (the existing authed /papers/{id}/figures/{file} endpoint that FiguresTab already uses).
+3. **PDF never exposed:** added `GET /papers/{id}/pdf` (serves a pre-built PDF, else compiles on-demand via journal.latex.write_paper_latex in a thread; 503 with a clear message if no LaTeX engine). Added has_pdf to artifacts. Frontend: "Download PDF" link in PaperExport (always shown; on-demand). production.yaml journal.enable_latex_output+compile_pdf → true (best-effort; .tex always written, PDF when a LaTeX engine is on PATH). VM needs `tectonic` (one static binary) for actual PDFs.
+
+Tests +2 (artifact has_pdf/figures). Full suite 1516 green; frontend builds. Apply: git pull + restart backend + rebuild frontend; `apt install -y tectonic` (or cargo/binary) on the VM for PDFs.

@@ -4,6 +4,7 @@ import remarkMath from "remark-math";
 import remarkGfm from "remark-gfm";
 import rehypeKatex from "rehype-katex";
 import type { PaperDetail } from "@/api/client";
+import { paperFigureUrl } from "@/api/client";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 
 function toSlug(text: string): string {
@@ -11,6 +12,30 @@ function toSlug(text: string): string {
     .toLowerCase()
     .replace(/[^\w\s-]/g, "")
     .replace(/\s+/g, "-");
+}
+
+// The paper body embeds figures as `![Figure N](figures/<name>)` — a relative
+// path that the browser can't resolve. Rewrite it to the backend figure endpoint.
+function resolveFigureSrc(paperId: string, src?: string): string | undefined {
+  if (!src) return src;
+  if (/^(https?:|data:)/i.test(src)) return src; // already absolute / inline
+  const marker = "figures/";
+  const idx = src.lastIndexOf(marker);
+  const name = idx >= 0 ? src.slice(idx + marker.length) : src.replace(/^\.?\//, "");
+  return paperFigureUrl(paperId, name);
+}
+
+function makeFigureImg(paperId: string) {
+  return function FigureImg({ src, alt }: { src?: string; alt?: string }) {
+    return (
+      <img
+        src={resolveFigureSrc(paperId, src)}
+        alt={alt ?? ""}
+        loading="lazy"
+        className="mx-auto my-4 max-w-full rounded-md border border-border"
+      />
+    );
+  };
 }
 
 function headingWithId(level: number) {
@@ -66,7 +91,11 @@ export function PaperViewer({ paper }: PaperViewerProps) {
         <ReactMarkdown
           remarkPlugins={[remarkMath, remarkGfm]}
           rehypePlugins={[rehypeKatex]}
-          components={{ h2: headingWithId(2), h3: headingWithId(3) }}
+          components={{
+            h2: headingWithId(2),
+            h3: headingWithId(3),
+            img: makeFigureImg(paper.paper_id),
+          }}
         >
           {paper.body}
         </ReactMarkdown>
