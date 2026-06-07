@@ -269,6 +269,54 @@ class TestOpenAICompatibleProvider:
             assert msgs[0] == {"role": "system", "content": "You are helpful."}
             assert msgs[1] == {"role": "user", "content": "Hi"}
 
+    def _openai_provider(self):
+        mock_openai_mod = MagicMock()
+        mock_client = MagicMock()
+        resp = MagicMock()
+        resp.choices = [MagicMock()]
+        resp.choices[0].message.content = "ok"
+        resp.usage.prompt_tokens = 1
+        resp.usage.completion_tokens = 1
+        mock_client.chat.completions.create.return_value = resp
+        mock_openai_mod.OpenAI.return_value = mock_client
+        return mock_openai_mod, mock_client
+
+    def test_openai_reasoning_uses_max_completion_tokens_no_temperature(self):
+        """gpt-5 / o-series reject temperature (a 0.0 ping 400s) and need
+        max_completion_tokens — otherwise they're unusable + wrongly swapped."""
+        mock_mod, mock_client = self._openai_provider()
+        with patch.dict("sys.modules", {"openai": mock_mod}):
+            provider = OpenAICompatibleProvider(api_key="k", base_url="https://api.openai.com/v1")
+            for model in ("gpt-5", "gpt-5-mini", "o4-mini"):
+                provider.complete(
+                    model=model,
+                    system="s",
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_tokens=64,
+                    temperature=0.0,
+                )
+                kw = mock_client.chat.completions.create.call_args.kwargs
+                assert kw["max_completion_tokens"] == 64, model
+                assert "max_tokens" not in kw, model
+                assert "temperature" not in kw, model
+
+    def test_non_reasoning_keeps_max_tokens_and_temperature(self):
+        mock_mod, mock_client = self._openai_provider()
+        with patch.dict("sys.modules", {"openai": mock_mod}):
+            provider = OpenAICompatibleProvider(api_key="k", base_url="https://api.openai.com/v1")
+            for model in ("gpt-4o", "gpt-4.1-mini"):
+                provider.complete(
+                    model=model,
+                    system="s",
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_tokens=64,
+                    temperature=0.3,
+                )
+                kw = mock_client.chat.completions.create.call_args.kwargs
+                assert kw["max_tokens"] == 64, model
+                assert kw["temperature"] == 0.3, model
+                assert "max_completion_tokens" not in kw, model
+
 
 # ---------------------------------------------------------------------------
 # create_provider factory tests

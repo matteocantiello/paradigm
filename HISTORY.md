@@ -4349,3 +4349,9 @@ Update (favicon): user shared the app's existing Observatory logo (concentric go
 > I am having problems loading claude models... Model check: swapped unreachable model(s) — theorist: claude-opus-4-7 → gemini-2.5-flash-lite; experimentalist: claude-opus-4-7 → gemini; editor: Qwen/Qwen2.5-72B-Instruct-Turbo → gemini
 
 Root cause: AnthropicProvider.complete/complete_streaming always sent `temperature`, but Claude Opus 4.7/4.8 REMOVED sampling params (temperature/top_p/top_k → 400). So the preflight ping (and every agent turn) 400'd → opus-4-7 looked "unreachable" → swapped to gemini. Fix: `_accepts_temperature(model)` — omit temperature for claude-opus-4-7/4-8 prefixes (keep it for 4.6/sonnet/haiku). The editor/Qwen swap is separate (Together transient/availability). Tests: opus-4-7/4-8 omit temperature; 4.6/sonnet/haiku keep it.
+
+### Prompt 164 — enable OpenAI models in the picker (reasoning-param shim + catalog)
+
+> Can we also enable OpenAI models with this change? ... worried about the temperature as well. I already have the OpenAI API key set on the VM. Add a few top OpenAI models.
+
+Done. (1) OpenAICompatibleProvider shim: `_token_sampling_kwargs` — OpenAI reasoning models (o-series, gpt-5*) use `max_completion_tokens` (not `max_tokens`) and OMIT `temperature` (default-only → a 0.0 ping 400s); non-reasoning (gpt-4o/4.1) keep max_tokens+temperature. (2) Catalog: `provider_family` maps api.openai.com → "openai" (+ "openai_compatible" generic fallback); curated OpenAI shortlist (gpt-5/-mini, gpt-4.1/-mini, gpt-4o/-mini, o4-mini); live filter keeps gpt-/o* chat models, drops embeddings/audio/image/realtime/etc.; FAMILY_LABELS openai="OpenAI". (3) production.yaml: openai provider (OPENAI_API_KEY, base_url api.openai.com/v1, default gpt-4o-mini; hidden if no key). (4) .env example + DEPLOY note OPENAI_API_KEY. Tests: reasoning shim (max_completion_tokens/no-temp) + non-reasoning; openai family + curated + live filter. 1574 pass.

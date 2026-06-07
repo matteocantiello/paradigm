@@ -192,8 +192,24 @@ class AnthropicProvider:
             yield "", final.usage.input_tokens, final.usage.output_tokens
 
 
+# OpenAI reasoning models (o-series, GPT-5) reject `temperature` (only the default
+# is allowed, so a 0.0 ping 400s) and require `max_completion_tokens` instead of
+# `max_tokens`. Gemini/Together/non-reasoning models keep the classic params.
+_OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
+
+
+def _is_openai_reasoning(model: str) -> bool:
+    return model.lower().startswith(_OPENAI_REASONING_PREFIXES)
+
+
+def _token_sampling_kwargs(model: str, max_tokens: int, temperature: float) -> dict[str, Any]:
+    if _is_openai_reasoning(model):
+        return {"max_completion_tokens": max_tokens}  # no temperature (default only)
+    return {"max_tokens": max_tokens, "temperature": temperature}
+
+
 class OpenAICompatibleProvider:
-    """LLM provider for OpenAI-compatible APIs (Together, Fireworks, DeepInfra, etc.)."""
+    """LLM provider for OpenAI-compatible APIs (OpenAI, Together, Gemini, Fireworks, …)."""
 
     def __init__(
         self,
@@ -230,8 +246,7 @@ class OpenAICompatibleProvider:
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": full_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
+            **_token_sampling_kwargs(model, max_tokens, temperature),
         }
         if extra_body:
             kwargs["extra_body"] = extra_body
@@ -269,10 +284,9 @@ class OpenAICompatibleProvider:
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": full_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
             "stream": True,
             "stream_options": {"include_usage": True},
+            **_token_sampling_kwargs(model, max_tokens, temperature),
         }
         if extra_body:
             kwargs["extra_body"] = extra_body

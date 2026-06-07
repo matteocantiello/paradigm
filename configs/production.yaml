@@ -39,6 +39,14 @@ providers:
     api_key_env: TOGETHER_API_KEY
     base_url: https://api.together.xyz/v1
     default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  # OpenAI — selectable per-agent once OPENAI_API_KEY is set (GPT-5 / GPT-4.1 / o4).
+  # Reasoning models (gpt-5*, o*) are handled by the provider shim
+  # (max_completion_tokens, no temperature). Unset key → hidden in the picker.
+  openai:
+    type: openai_compatible
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    default_model: gpt-4o-mini
 
 agent:
   default_model: "gemini-2.5-flash-lite"

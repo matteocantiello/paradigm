@@ -28,6 +28,7 @@ _DEFAULT_PROVIDERS = [
         "https://generativelanguage.googleapis.com/v1beta/openai/",
     ),
     ("together", "openai_compatible", "TOGETHER_API_KEY", "https://api.together.xyz/v1"),
+    ("openai", "openai_compatible", "OPENAI_API_KEY", "https://api.openai.com/v1"),
 ]
 
 
@@ -62,6 +63,7 @@ async def list_models(request: Request, refresh: bool = False) -> ModelCatalogRe
     ~1h); a failed live fetch falls back to that provider's curated list.
     """
     from paradigm.agents.model_catalog import (
+        FAMILY_LABELS,
         curated_models,
         fetch_live_models,
         provider_family,
@@ -72,12 +74,7 @@ async def list_models(request: Request, refresh: bool = False) -> ModelCatalogRe
 
     for spec in _provider_specs(config):
         family = provider_family(spec.type, spec.base_url)
-        label = {
-            "anthropic": "Anthropic",
-            "gemini": "Google Gemini",
-            "together": "TogetherAI",
-            "openai": "OpenAI-compatible",
-        }.get(family, spec.name)
+        label = FAMILY_LABELS.get(family, spec.name)
         available = bool(os.getenv(spec.api_key_env or ""))
 
         models = curated_models(family)

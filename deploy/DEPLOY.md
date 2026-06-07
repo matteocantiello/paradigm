@@ -97,6 +97,7 @@ ANTHROPIC_API_KEY=sk-ant-...        # Claude (writer + experimentalist)  — REQ
 GEMINI_API_KEY=...                  # Gemini (most agents)               — REQUIRED
 PERPLEXITY_API_KEY=pplx-...         # seed discovery (ON) + citation/novelty — recommended
 TOGETHER_API_KEY=...                # optional: makes TogetherAI (Llama/Qwen/DeepSeek) selectable in the agent model picker
+OPENAI_API_KEY=...                  # optional: makes OpenAI (GPT-5 / GPT-4.1 / o-series) selectable in the agent model picker
 PARADIGM_CONFIG=configs/production.yaml
 PARADIGM_DATA_DIR=/var/lib/paradigm/data
 PARADIGM_CORS_ORIGINS=https://paradigm.stellarphysics.org

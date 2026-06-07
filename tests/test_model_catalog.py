@@ -26,11 +26,18 @@ class TestProviderFamily:
             == "gemini"
         )
 
+    def test_openai_by_base_url(self):
+        assert provider_family("openai_compatible", "https://api.openai.com/v1") == "openai"
+
     def test_unknown_openai_compatible(self):
-        assert provider_family("openai_compatible", "https://api.fireworks.ai/v1") == "openai"
+        assert (
+            provider_family("openai_compatible", "https://api.fireworks.ai/v1")
+            == "openai_compatible"
+        )
 
     def test_curated_lists(self):
         assert any(i == "claude-opus-4-8" for i, _ in curated_models("anthropic"))
+        assert any(i == "gpt-5" for i, _ in curated_models("openai"))
         assert curated_models("does-not-exist") == []
 
 
@@ -97,6 +104,33 @@ class TestLiveFetchFiltering:
         assert "Qwen/Qwen2.5-72B-Instruct-Turbo" in ids
         assert not any("m2-bert" in i for i in ids)  # 'bert' hint
         assert not any("FLUX" in i for i in ids)  # 'flux' hint
+
+    def test_openai_keeps_chat_models_drops_the_rest(self, monkeypatch):
+        import openai
+
+        _FakeOpenAI.ids = [
+            "gpt-5",
+            "gpt-4o",
+            "o4-mini",
+            "text-embedding-3-small",
+            "dall-e-3",
+            "whisper-1",
+            "gpt-4o-audio-preview",
+            "gpt-image-1",
+        ]
+        monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
+        ids = [
+            i for i, _ in mc._fetch_openai_compatible("k", "https://api.openai.com/v1", "openai")
+        ]
+        assert {"gpt-5", "gpt-4o", "o4-mini"} <= set(ids)
+        for dropped in (
+            "text-embedding-3-small",
+            "dall-e-3",
+            "whisper-1",
+            "gpt-4o-audio-preview",
+            "gpt-image-1",
+        ):
+            assert dropped not in ids
 
     def test_fetch_live_requires_key(self, monkeypatch):
         monkeypatch.delenv("NOPE_KEY", raising=False)

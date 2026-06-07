@@ -37,13 +37,26 @@ CURATED: dict[str, list[tuple[str, str]]] = {
         ("deepseek-ai/DeepSeek-R1", "DeepSeek R1"),
         ("mistralai/Mixtral-8x7B-Instruct-v0.1", "Mixtral 8x7B Instruct"),
     ],
+    # A starting shortlist — use the GUI's "Refresh from API" to pull the exact set
+    # your key can access (incl. the newest GPT-5.x). Reasoning models (gpt-5*, o*)
+    # are handled by the provider shim (max_completion_tokens, no temperature).
+    "openai": [
+        ("gpt-5", "GPT-5"),
+        ("gpt-5-mini", "GPT-5 mini"),
+        ("gpt-4.1", "GPT-4.1"),
+        ("gpt-4.1-mini", "GPT-4.1 mini"),
+        ("gpt-4o", "GPT-4o"),
+        ("gpt-4o-mini", "GPT-4o mini"),
+        ("o4-mini", "o4-mini"),
+    ],
 }
 
 FAMILY_LABELS: dict[str, str] = {
     "anthropic": "Anthropic",
     "gemini": "Google Gemini",
     "together": "TogetherAI",
-    "openai": "OpenAI-compatible",
+    "openai": "OpenAI",
+    "openai_compatible": "OpenAI-compatible",
 }
 
 # Live Together listing returns 100+ entries incl. non-chat models — drop the
@@ -59,6 +72,13 @@ _NON_CHAT_HINTS = (
     "-tts",
     "upscal",
     "vision-free",
+    # OpenAI non-chat variants (audio / image / realtime / transcription / search)
+    "audio",
+    "realtime",
+    "transcribe",
+    "search-preview",
+    "image",
+    "moderation",
 )
 
 _LIVE_TTL_S = 3600.0
@@ -76,7 +96,9 @@ def provider_family(provider_type: str | None, base_url: str | None) -> str:
         return "together"
     if "generativelanguage" in base or "googleapis" in base:
         return "gemini"
-    return "openai"
+    if "api.openai.com" in base:
+        return "openai"
+    return "openai_compatible"
 
 
 def curated_models(family: str) -> list[tuple[str, str]]:
@@ -107,6 +129,12 @@ def _fetch_openai_compatible(api_key: str, base_url: str, family: str) -> list[t
                 continue
         elif family == "together":
             low = mid.lower()
+            if any(h in low for h in _NON_CHAT_HINTS):
+                continue
+        elif family == "openai":
+            low = mid.lower()
+            if not (low.startswith("gpt-") or low.startswith(("o1", "o3", "o4"))):
+                continue  # drop embeddings / tts / whisper / dall-e / etc.
             if any(h in low for h in _NON_CHAT_HINTS):
                 continue
         out.append((mid, mid))
