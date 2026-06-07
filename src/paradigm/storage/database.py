@@ -339,6 +339,17 @@ class Database:
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
 
+    def list_threads(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """List all research threads (newest first). Raw rows; JSON columns not decoded."""
+        cursor = self.conn.cursor()
+        query = "SELECT * FROM threads ORDER BY created_at DESC"
+        params: list[Any] = []
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_thread_id_for_paper(self, paper_id: str) -> str | None:
         """Return the thread whose current draft is this paper, if any.
 

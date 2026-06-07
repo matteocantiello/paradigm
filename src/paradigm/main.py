@@ -721,5 +721,51 @@ def mcp_login(config: Config) -> None:
     click.echo(f"✓ Logged in to '{mcp.name}'. Token cached. Tools: {', '.join(tools)}")
 
 
+@cli.command(name="backfill-topics")
+@click.option("--force", is_flag=True, help="Re-classify items that already have topics.")
+@click.option("--dry-run", is_flag=True, help="Show what would be tagged without writing.")
+@click.option("--limit", type=int, default=0, help="Max items to process (0 = all).")
+@click.pass_obj
+def backfill_topics_command(config: Config, force: bool, dry_run: bool, limit: int) -> None:
+    """Retroactively assign topic badges to existing papers and research cycles.
+
+    Classifies each paper from its content (title + abstract + body) and each
+    remaining cycle from its seed prompt, writing broad-field tags so old runs
+    show badges. Idempotent: already-tagged items are skipped unless --force;
+    ingested-literature papers are left untouched.
+
+    Examples:
+        paradigm backfill-topics --dry-run     # preview
+        paradigm backfill-topics               # tag everything untagged
+        paradigm backfill-topics --force       # re-tag everything
+    """
+    from paradigm.agents.topics import backfill_topics
+    from paradigm.storage.database import Database
+
+    database = Database(config.storage.db_path)
+    provider = config.get_provider()
+    try:
+        results = asyncio.run(
+            backfill_topics(
+                database,
+                provider=provider,
+                model=provider.default_model,
+                force=force,
+                dry_run=dry_run,
+                limit=limit,
+            )
+        )
+        for kind, item_id, label, topics in results:
+            click.echo(f"  {kind:<5} {item_id}: {label[:48]!r} -> {', '.join(topics)}")
+        n_papers = sum(1 for r in results if r[0] == "paper")
+        n_cycles = sum(1 for r in results if r[0] == "cycle")
+        verb = "Would tag" if dry_run else "Tagged"
+        click.echo(f"{verb} {n_papers} paper(s) + {n_cycles} cycle(s).")
+        if not dry_run and results:
+            click.echo("Refresh the web UI to see the badges (no restart needed).")
+    finally:
+        database.close()
+
+
 if __name__ == "__main__":
     cli()

@@ -8,7 +8,12 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from paradigm.agents.topics import VALID_TOPICS, _parse_topics, classify_topics
+from paradigm.agents.topics import (
+    VALID_TOPICS,
+    _parse_topics,
+    backfill_topics,
+    classify_topics,
+)
 from paradigm.storage.database import Database
 
 # --- parsing -------------------------------------------------------------
@@ -116,3 +121,64 @@ class TestTopicsPersistence:
         db.update_thread("thread-t1", topics=["astro"])
         row = db.get_thread("thread-t1")
         assert json.loads(row["topics"]) == ["astro"]
+
+
+# --- retroactive backfill ------------------------------------------------
+
+
+class TestBackfillTopics:
+    @pytest.mark.asyncio
+    async def test_backfills_papers_and_cycles_and_is_idempotent(self, db):
+        provider = _FakeProvider("astro")
+        # A paper + its owning thread (the cycle badge mirrors the paper's tags).
+        db.create_paper(
+            paper_id="paper-1", title="Cepheids", abstract="P-L relation", authors=["a-0"], body="b"
+        )
+        db.create_thread(
+            thread_id="thread-1", title="Cepheids", mode="directed", participants=["theorist-0"]
+        )
+        db.update_thread("thread-1", current_draft_id="paper-1")
+        # A second cycle that never produced a paper — tagged from its seed prompt.
+        db.create_thread(
+            thread_id="thread-2",
+            title="Dark matter halos",
+            mode="directed",
+            participants=["theorist-0"],
+        )
+        db.update_thread("thread-2", hypothesis="Study dark matter halo profiles")
+
+        results = await backfill_topics(db, provider=provider, model="fake")
+
+        kinds = sorted(r[0] for r in results)
+        assert kinds == ["cycle", "paper"]  # one paper + one paperless cycle
+        assert json.loads(db.get_paper("paper-1")["topics"]) == ["astro"]
+        # The paper's thread is tagged to match so the cycle badge agrees.
+        assert json.loads(db.get_thread("thread-1")["topics"]) == ["astro"]
+        assert json.loads(db.get_thread("thread-2")["topics"]) == ["astro"]
+
+        # Idempotent: a second run tags nothing (already-tagged are skipped).
+        again = await backfill_topics(db, provider=provider, model="fake")
+        assert again == []
+
+    @pytest.mark.asyncio
+    async def test_dry_run_writes_nothing(self, db):
+        provider = _FakeProvider("cs")
+        db.create_paper(paper_id="paper-d", title="T", abstract="A", authors=["a-0"], body="b")
+        results = await backfill_topics(db, provider=provider, model="fake", dry_run=True)
+        assert len(results) == 1
+        assert db.get_paper("paper-d")["topics"] is None  # nothing persisted
+
+    @pytest.mark.asyncio
+    async def test_skips_external_literature(self, db):
+        provider = _FakeProvider("astro")
+        db.create_paper(
+            paper_id="ext-1",
+            title="Ingested",
+            abstract="A",
+            authors=[],
+            body="b",
+            status="external",
+        )
+        results = await backfill_topics(db, provider=provider, model="fake")
+        assert results == []
+        assert db.get_paper("ext-1")["topics"] is None

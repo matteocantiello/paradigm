@@ -13,6 +13,7 @@ domain-agnostic. Keep the keys in sync with the frontend's TOPIC_LABELS/TOPIC_CO
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from typing import Any
 
@@ -152,3 +153,82 @@ async def classify_topics(
         messages=[{"role": "user", "content": prompt}],
     )
     return _parse_topics(raw, max_topics)
+
+
+def _has_topics(raw: Any) -> bool:
+    """Whether a DB topics column (JSON string or list) already holds tags."""
+    if not raw:
+        return False
+    try:
+        val = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return False
+    return bool(val)
+
+
+async def backfill_topics(
+    database: Any,
+    *,
+    provider: Any,
+    model: str,
+    force: bool = False,
+    dry_run: bool = False,
+    limit: int = 0,
+) -> list[tuple[str, str, str, list[str]]]:
+    """Retroactively classify existing papers + cycles in ``database``.
+
+    Papers are tagged from their content (and their owning thread is tagged to
+    match, so the cycle badge agrees); remaining cycles are tagged from the seed
+    prompt. Idempotent — already-tagged items are skipped unless ``force``; ingested
+    literature (``status == "external"``) is left untouched.
+
+    Returns one ``(kind, id, label, topics)`` tuple per processed item, where
+    ``kind`` is "paper" or "cycle". With ``dry_run`` nothing is written.
+    """
+    results: list[tuple[str, str, str, list[str]]] = []
+    tagged_threads: set[str] = set()
+
+    # 1) Papers — authoritative tags from the actual paper content.
+    for paper in database.list_papers():
+        if limit and len(results) >= limit:
+            return results
+        if paper.get("status") == "external":
+            continue
+        if _has_topics(paper.get("topics")) and not force:
+            continue
+        text = "\n\n".join(
+            part
+            for part in (
+                paper.get("title", ""),
+                paper.get("abstract", ""),
+                (paper.get("body", "") or "")[:6000],
+            )
+            if part
+        )
+        topics = await classify_topics(text, provider=provider, model=model, max_topics=3)
+        if not dry_run:
+            database.update_paper(paper["id"], topics=topics)
+            tid = database.get_thread_id_for_paper(paper["id"])
+            if tid:
+                database.update_thread(tid, topics=topics)
+                tagged_threads.add(tid)
+        results.append(("paper", paper["id"], paper.get("title", ""), topics))
+
+    # 2) Cycles with no paper (or not reached above) — tag from the seed prompt.
+    for thread in database.list_threads():
+        if limit and len(results) >= limit:
+            return results
+        tid = thread["id"]
+        if tid in tagged_threads:
+            continue
+        if _has_topics(thread.get("topics")) and not force:
+            continue
+        seed = (thread.get("hypothesis") or thread.get("title") or "").strip()
+        if not seed:
+            continue
+        topics = await classify_topics(seed, provider=provider, model=model, max_topics=2)
+        if not dry_run:
+            database.update_thread(tid, topics=topics)
+        results.append(("cycle", tid, seed, topics))
+
+    return results
