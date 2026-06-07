@@ -472,7 +472,10 @@ class Corpus:
                         # Cache in DB
                         self._cache_body_text(arxiv_id, doc.full_text)
                         return doc.title, extract_key_sections(doc.full_text, max_chars)
-                except Exception:
+                except asyncio.CancelledError:
+                    raise  # a genuine cycle cancellation must propagate
+                except BaseException:  # noqa: BLE001 — a flaky MCP provider (anyio
+                    # BaseExceptionGroup / OAuth re-login) must never abort a read.
                     continue
 
         # Fall back to fetching from arXiv directly

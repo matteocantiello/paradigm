@@ -6,6 +6,7 @@ inject a fake MCP session + tool list and exercise tool-matching + normalization
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -328,3 +329,52 @@ async def test_fetch_passes_url_through_when_already_url():
     p = _provider(tools, _result(content=[_text("body")]))
     await p.fetch("https://alphaxiv.org/overview/2307.12307")
     assert p._session.calls[0][1] == {"url": "https://alphaxiv.org/overview/2307.12307"}
+
+
+# --- degradation: a flaky / expired-token MCP server must never crash a run ---
+
+
+class _RaisingSession:
+    """A session whose tool call blows up — simulating an OAuth/expiry failure
+    mid-session (which surfaces as a raw RuntimeError or anyio BaseExceptionGroup)."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+        self.calls: list = []
+
+    async def call_tool(self, name, args):
+        raise self._exc
+
+
+async def test_search_degrades_on_base_exception_group():
+    # An expired alphaXiv token surfaces from anyio as a BaseExceptionGroup (NOT an
+    # Exception) wrapping the raw "needs interactive login" error. It must degrade
+    # to no results so arXiv + the other providers carry the run.
+    p = _provider([_tool("full_text_search", {"query": {}})], _result())
+    p._session = _RaisingSession(
+        BaseExceptionGroup("oauth", [RuntimeError("needs a one-time interactive login")])
+    )
+    assert await p.search("q") == []
+
+
+async def test_fetch_degrades_on_raw_login_runtimeerror():
+    p = _provider([_tool("get_paper_content", {"paper_id": {}})], _result())
+    p._session = _RaisingSession(RuntimeError("needs a one-time interactive login"))
+    assert await p.fetch("2501.00001") is None
+
+
+async def test_search_and_fetch_degrade_when_connect_already_failed():
+    # No live session + a prior connect failure -> _ensure_session raises; both
+    # public methods must swallow it into empty results, not propagate.
+    p = MCPSourceProvider(server_url="http://x", source_type="alphaxiv", name="alphaxiv")
+    p._connect_failed = True
+    assert await p.search("q") == []
+    assert await p.fetch("x") is None
+
+
+async def test_cancellation_still_propagates():
+    # A genuine cycle cancellation must NOT be swallowed by the degrade guard.
+    p = _provider([_tool("full_text_search", {"query": {}})], _result())
+    p._session = _RaisingSession(asyncio.CancelledError())
+    with pytest.raises(asyncio.CancelledError):
+        await p.search("q")

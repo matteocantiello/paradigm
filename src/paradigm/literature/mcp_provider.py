@@ -485,29 +485,50 @@ class MCPSourceProvider(SourceProvider):
         return source_id
 
     # -- SourceProvider API ----------------------------------------------
+    def _degrade(self, op: str, exc: BaseException) -> None:
+        """A failed MCP call must never reach the orchestrator. Connect failures are
+        already warned once in ``_ensure_session`` (and flip ``_connect_failed`` so
+        later calls fast-fail); log per-call failures at debug and carry on."""
+        self._log.debug("MCP %r %s unavailable (%s) — skipping", self.name, op, _summarize_exc(exc))
+
     async def search(self, query: str, max_results: int = 10) -> list[SourceResult]:
-        session = await self._ensure_session()
-        tool = self._pick_tool(self._search_override, _SEARCH_HINTS, avoid=_EMBED_HINTS)
-        if tool is None:
+        # NEVER propagate to the caller: an OAuth/expiry failure (which surfaces as
+        # a raw "needs interactive login" RuntimeError or an anyio BaseExceptionGroup)
+        # must degrade to "no results" so arXiv + the other providers carry the run.
+        try:
+            session = await self._ensure_session()
+            tool = self._pick_tool(self._search_override, _SEARCH_HINTS, avoid=_EMBED_HINTS)
+            if tool is None:
+                return []
+            args = self._build_search_args(tool, query, max_results)
+            result = await session.call_tool(tool, args)
+            out: list[SourceResult] = []
+            for item in _extract_items(result)[:max_results]:
+                sr = self._to_source_result(item)
+                if sr is not None:
+                    out.append(sr)
+            return out
+        except asyncio.CancelledError:
+            raise  # a genuine cycle cancellation must propagate
+        except BaseException as e:  # noqa: BLE001 — a flaky MCP server is non-fatal
+            self._degrade("search", e)
             return []
-        args = self._build_search_args(tool, query, max_results)
-        result = await session.call_tool(tool, args)
-        out: list[SourceResult] = []
-        for item in _extract_items(result)[:max_results]:
-            sr = self._to_source_result(item)
-            if sr is not None:
-                out.append(sr)
-        return out
 
     async def fetch(self, source_id: str) -> SourceDocument | None:
-        session = await self._ensure_session()
-        tool = self._pick_tool(self._content_override, _CONTENT_HINTS)
-        if tool is None:
+        try:
+            session = await self._ensure_session()
+            tool = self._pick_tool(self._content_override, _CONTENT_HINTS)
+            if tool is None:
+                return None
+            idkey = self._input_key(tool, _ID_ARG_HINTS, "paper_id")
+            value = self._coerce_id_value(tool, idkey, source_id)
+            result = await session.call_tool(tool, {idkey: value})
+            return self._to_source_document(source_id, result)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as e:  # noqa: BLE001 — a flaky MCP server is non-fatal
+            self._degrade("fetch", e)
             return None
-        idkey = self._input_key(tool, _ID_ARG_HINTS, "paper_id")
-        value = self._coerce_id_value(tool, idkey, source_id)
-        result = await session.call_tool(tool, {idkey: value})
-        return self._to_source_document(source_id, result)
 
     # -- normalization ----------------------------------------------------
     def _to_source_result(self, item: dict) -> SourceResult | None:
