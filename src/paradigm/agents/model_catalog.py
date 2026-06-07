@@ -37,16 +37,18 @@ CURATED: dict[str, list[tuple[str, str]]] = {
         ("deepseek-ai/DeepSeek-R1", "DeepSeek R1"),
         ("mistralai/Mixtral-8x7B-Instruct-v0.1", "Mixtral 8x7B Instruct"),
     ],
-    # A starting shortlist — use the GUI's "Refresh from API" to pull the exact set
-    # your key can access (incl. the newest GPT-5.x). Reasoning models (gpt-5*, o*)
-    # are handled by the provider shim (max_completion_tokens, no temperature).
+    # A current top shortlist — use the GUI's "Refresh from API" for the exact set
+    # your key can access (versions move fast). Reasoning models (gpt-5*, o*) are
+    # handled by the provider shim (max_completion_tokens, no temperature).
     "openai": [
-        ("gpt-5", "GPT-5"),
-        ("gpt-5-mini", "GPT-5 mini"),
+        ("gpt-5.5", "GPT-5.5"),
+        ("gpt-5.5-pro", "GPT-5.5 Pro"),
+        ("gpt-5.4", "GPT-5.4"),
+        ("gpt-5.4-mini", "GPT-5.4 mini"),
+        ("gpt-5.4-nano", "GPT-5.4 nano"),
+        ("gpt-5.1", "GPT-5.1"),
         ("gpt-4.1", "GPT-4.1"),
         ("gpt-4.1-mini", "GPT-4.1 mini"),
-        ("gpt-4o", "GPT-4o"),
-        ("gpt-4o-mini", "GPT-4o mini"),
         ("o4-mini", "o4-mini"),
     ],
 }

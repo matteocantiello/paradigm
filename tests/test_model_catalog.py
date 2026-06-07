@@ -37,7 +37,7 @@ class TestProviderFamily:
 
     def test_curated_lists(self):
         assert any(i == "claude-opus-4-8" for i, _ in curated_models("anthropic"))
-        assert any(i == "gpt-5" for i, _ in curated_models("openai"))
+        assert any(i == "gpt-5.4-mini" for i, _ in curated_models("openai"))
         assert curated_models("does-not-exist") == []
 
 
