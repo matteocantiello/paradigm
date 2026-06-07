@@ -4341,3 +4341,5 @@ Done (badge robustness): a produced paper now ALWAYS gets a topic badge. _assign
 Add a favicon. Replace the Vite default with an on-brand SVG (Observatory theme: gold/indigo). Wire it in frontend/index.html + frontend/public/, rebuild. Explain how to swap for a custom image.
 
 Done: added frontend/public/favicon.svg (Observatory mark — starlight-gold star on the deep-indigo void + a cyan orbit/agent dot, theme-matched) and wired <link rel="icon" type="image/svg+xml"> + <meta theme-color="#16131f"> into frontend/index.html. Vite copies it to dist/ → served at /favicon.svg by Caddy. Frontend-only; rebuild on the VM to deploy.
+
+Update (favicon): user shared the app's existing Observatory logo (concentric gold aperture rings + central gold sun + small cyan orbiting star, top-right, on a dark navy tile — the Sidebar.tsx CSS-div mark). Redrew favicon.svg to match it exactly (gold #e8c069 rings/sun + cyan #5cd0dd star on #0e1322, with a faint gold center glow), replacing the earlier star design. Rebuilt.
