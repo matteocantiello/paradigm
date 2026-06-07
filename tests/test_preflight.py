@@ -90,7 +90,9 @@ class TestPreflight:
         fb_provider, fb_model = res.overrides["skeptic"]
         assert fb_model == "gemini-2.5-flash-lite"  # fell back to the healthy default
         assert fb_provider is gemini
-        assert ("skeptic", "some-llama", "gemini-2.5-flash-lite") in res.swaps
+        swap = next(s for s in res.swaps if s[0] == "skeptic")
+        assert swap[1] == "some-llama" and swap[2] == "gemini-2.5-flash-lite"
+        assert "503" in swap[3]  # the failure REASON is surfaced
 
     @pytest.mark.asyncio
     async def test_all_unhealthy_reports_no_fallback(self):
@@ -107,8 +109,10 @@ class TestPreflight:
         )
         res = await preflight_team_models(cfg, ["theorist", "skeptic"])
         assert res.overrides == {}  # nothing healthy to swap to
-        assert ("theorist", "m1", "") in res.swaps
-        assert ("skeptic", "m2", "") in res.swaps
+        swaps = {s[0]: s for s in res.swaps}
+        assert swaps["theorist"][1] == "m1" and swaps["theorist"][2] == ""
+        assert swaps["skeptic"][1] == "m2" and swaps["skeptic"][2] == ""
+        assert swaps["theorist"][3]  # reason recorded even with no fallback
 
     @pytest.mark.asyncio
     async def test_never_raises_on_bad_config(self):

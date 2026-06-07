@@ -317,11 +317,15 @@ class WebSocketDisplayAdapter:
             topics=topics,
         )
 
-    def model_preflight(self, checked: int, swaps: list[tuple[str, str, str]]) -> None:
+    def model_preflight(self, checked: int, swaps: list[tuple[str, str, str, str]]) -> None:
         if swaps:
             details = "; ".join(
-                (f"{role}: {old} → {new}" if new else f"{role}: {old} (no fallback)")
-                for role, old, new in swaps
+                (
+                    f"{role}: {old} → {new} ({reason})"
+                    if new
+                    else f"{role}: {old} unreachable, no fallback ({reason})"
+                )
+                for role, old, new, reason in swaps
             )
             self._notify(
                 f"Model check: swapped unreachable model(s) — {details}",

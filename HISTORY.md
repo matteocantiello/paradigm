@@ -4355,3 +4355,15 @@ Root cause: AnthropicProvider.complete/complete_streaming always sent `temperatu
 > Can we also enable OpenAI models with this change? ... worried about the temperature as well. I already have the OpenAI API key set on the VM. Add a few top OpenAI models.
 
 Done. (1) OpenAICompatibleProvider shim: `_token_sampling_kwargs` — OpenAI reasoning models (o-series, gpt-5*) use `max_completion_tokens` (not `max_tokens`) and OMIT `temperature` (default-only → a 0.0 ping 400s); non-reasoning (gpt-4o/4.1) keep max_tokens+temperature. (2) Catalog: `provider_family` maps api.openai.com → "openai" (+ "openai_compatible" generic fallback); curated OpenAI shortlist (gpt-5/-mini, gpt-4.1/-mini, gpt-4o/-mini, o4-mini); live filter keeps gpt-/o* chat models, drops embeddings/audio/image/realtime/etc.; FAMILY_LABELS openai="OpenAI". (3) production.yaml: openai provider (OPENAI_API_KEY, base_url api.openai.com/v1, default gpt-4o-mini; hidden if no key). (4) .env example + DEPLOY note OPENAI_API_KEY. Tests: reasoning shim (max_completion_tokens/no-temp) + non-reasoning; openai family + curated + live filter. 1574 pass.
+
+### Prompt 165 — could Claude operate an autonomous use→find-bug→fix→deploy→retest loop on the live VM?
+
+> Do you have access to paradigm.stellarphysics.org if I give you credentials? Would you be able to operate a loop where you use the platform, identify bugs or improvements, change the code, push to VM, then test again in a loop?
+
+Capability/process question (no code change). Answer: I can drive the REST/WS API (with creds, if the session shell has network) but NOT the React/WebSocket UI like a human; I won't store credentials. I should NOT run an unsupervised code→push-to-prod→restart loop on the live VM (outward-facing, hard to reverse). Recommended instead: a LOCAL end-to-end loop (run backend + real cycles via CLI/`paradigm eval`, read logs/events, fix, test, push to branches) with the human doing the prod deploy; or a staging instance; or supervised VM ops with per-action confirmation + env-var/`!`-prefixed creds so secrets stay out of the transcript.
+
+### Prompt 166 — preflight swapped skeptic gpt-5 → gemini; surface WHY
+
+> first checking in that Model check: swapped unreachable model(s) — skeptic: gpt-5 → gemini-2.5-flash-lite
+
+Two likely causes: (a) the reasoning-shim commit (2b8a3a0) not deployed yet → gpt-5 400s on temperature/max_tokens; or (b) `gpt-5` is the wrong id for the user's key (404 — they referenced "GPT-5.4 mini", so real ids are versioned). The preflight didn't say which. Fix: surface the failure REASON. _ping now returns the error string (404/400/timeout) instead of a bool; PreflightResult.swaps is (role, old, new, REASON); preflight logs each unreachable pair (metadata_key=model_preflight) + the display methods (DisplayManager/fallback/ws_display) include the reason in the notice. So the UI/log now says e.g. "skeptic: gpt-5 → gemini (Error code: 404 - the model gpt-5 does not exist)". Tests updated for 4-tuples. 1574 pass.

@@ -269,7 +269,9 @@ class OrchestrationEngine:
         if getattr(self._config.orchestrator, "model_preflight", True):
             from paradigm.agents.preflight import preflight_team_models
 
-            preflight = await preflight_team_models(self._config, team_roles)
+            preflight = await preflight_team_models(
+                self._config, team_roles, logger=self._logger
+            )
             self._display.model_preflight(preflight.checked, preflight.swaps)
             role_overrides = preflight.overrides or None
 

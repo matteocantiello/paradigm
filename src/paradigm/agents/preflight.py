@@ -1,10 +1,11 @@
 """Pre-flight model health check — verify each agent's model responds before a run.
 
-A dead or over-capacity provider (e.g. a TogetherAI 503) would otherwise cripple a
-role for the whole cycle. Before starting, we ping each distinct ``(provider, model)``
-the team will use with a tiny 1-token completion (fast + cheap), then reassign any
-role whose model didn't answer to a verified-healthy fallback — preferring the
-config's default model (chosen to be responsive).
+A dead or over-capacity provider (e.g. a TogetherAI 503), a wrong model id (404),
+or an unsupported param (400) would otherwise cripple a role for the whole cycle.
+Before starting, we ping each distinct ``(provider, model)`` the team will use with
+a tiny 1-token completion (fast + cheap), then reassign any role whose model didn't
+answer to a verified-healthy fallback — preferring the config's default model. Each
+swap carries the REASON the model failed so it's obvious why (404 / 400 / timeout).
 
 The result feeds ``AgentFactory.create_team(role_overrides=...)``, so the swap is
 per-run and never mutates the shared config. Best-effort throughout: any failure
@@ -25,8 +26,8 @@ class PreflightResult:
     # role -> (provider_obj, model) to use instead of the configured one
     overrides: dict[str, tuple[Any, str]] = field(default_factory=dict)
     checked: int = 0  # distinct (provider, model) pairs pinged
-    # (role, old_model, new_model); new_model "" means nothing healthy to fall back to
-    swaps: list[tuple[str, str, str]] = field(default_factory=list)
+    # (role, old_model, new_model, reason); new_model "" => nothing healthy to use
+    swaps: list[tuple[str, str, str, str]] = field(default_factory=list)
 
 
 def _provider_name_for(config: Any, role: str) -> str:
@@ -36,8 +37,15 @@ def _provider_name_for(config: Any, role: str) -> str:
     return config.agent.default_provider
 
 
-async def _ping(provider: Any, model: str, *, timeout: float) -> bool:
-    """True if ``model`` answers a 1-token completion within ``timeout``."""
+def _short_err(e: BaseException) -> str:
+    if isinstance(e, (TimeoutError, asyncio.TimeoutError)):
+        return "timed out"
+    s = (str(e) or type(e).__name__).strip().replace("\n", " ")
+    return s[:240]
+
+
+async def _ping(provider: Any, model: str, *, timeout: float) -> str | None:
+    """None if ``model`` answers a 1-token completion; else a short failure reason."""
     try:
         await asyncio.wait_for(
             asyncio.to_thread(
@@ -50,9 +58,11 @@ async def _ping(provider: Any, model: str, *, timeout: float) -> bool:
             ),
             timeout=timeout,
         )
-        return True
-    except BaseException:
-        return False
+        return None
+    except asyncio.CancelledError:
+        raise
+    except BaseException as e:  # noqa: BLE001 — health check classifies every failure
+        return _short_err(e)
 
 
 async def preflight_team_models(
@@ -60,8 +70,9 @@ async def preflight_team_models(
     roles: list[str],
     *,
     timeout: float = _PING_TIMEOUT_S,
+    logger: Any = None,
 ) -> PreflightResult:
-    """Ping the team's models; return per-role swaps for any that didn't respond."""
+    """Ping the team's models; return per-role swaps (with reasons) for any that fail."""
     try:
         # 1) Resolve each role's (provider_name, provider_obj, model).
         role_target: dict[str, tuple[str, Any, str]] = {}
@@ -84,10 +95,11 @@ async def preflight_team_models(
         if default_provider is not None:
             pairs.setdefault((default_pname, default_model), default_provider)
 
-        # 4) Ping all distinct pairs concurrently.
+        # 4) Ping all distinct pairs concurrently; capture each failure reason.
         keys = list(pairs)
-        oks = await asyncio.gather(*(_ping(pairs[k], k[1], timeout=timeout) for k in keys))
-        healthy = {k for k, ok in zip(keys, oks, strict=True) if ok}
+        pings = await asyncio.gather(*(_ping(pairs[k], k[1], timeout=timeout) for k in keys))
+        reasons = dict(zip(keys, pings, strict=True))  # key -> reason|None
+        healthy = {k for k, err in reasons.items() if err is None}
 
         # 5) Pick a fallback: the healthy default first, else any healthy team model.
         fallback_key: tuple[str, str] | None = None
@@ -99,17 +111,24 @@ async def preflight_team_models(
                     fallback_key = (pname, model)
                     break
 
-        # 6) Build per-role swaps for unhealthy roles.
+        # 6) Build per-role swaps for unhealthy roles, recording why.
         result = PreflightResult(checked=len(keys))
         for role, (pname, _provider, model) in role_target.items():
-            if (pname, model) in healthy:
+            key = (pname, model)
+            if key in healthy:
                 continue
+            reason = reasons.get(key) or "unreachable"
+            if logger is not None:
+                logger.log_error(
+                    RuntimeError(f"preflight: {pname}/{model} for {role!r}: {reason}"),
+                    metadata_key="model_preflight",
+                )
             if fallback_key is None:
-                result.swaps.append((role, model, ""))  # nothing reachable
+                result.swaps.append((role, model, "", reason))
                 continue
             fb_model = fallback_key[1]
             result.overrides[role] = (pairs[fallback_key], fb_model)
-            result.swaps.append((role, model, fb_model))
+            result.swaps.append((role, model, fb_model, reason))
         return result
     except Exception:
         # Never let a health check block a cycle from starting.

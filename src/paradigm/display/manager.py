@@ -1193,13 +1193,13 @@ class DisplayManager:
         else:
             self._fallback.topics_assigned(topics, stage=stage, agent_id=agent_id)
 
-    def model_preflight(self, checked: int, swaps: list[tuple[str, str, str]]) -> None:
+    def model_preflight(self, checked: int, swaps: list[tuple[str, str, str, str]]) -> None:
         if swaps:
-            for role, old, new in swaps:
+            for role, old, new, reason in swaps:
                 msg = (
-                    f"{role}: {old} unreachable → {new}"
+                    f"{role}: {old} → {new} ({reason})"
                     if new
-                    else f"{role}: {old} unreachable, no healthy fallback"
+                    else f"{role}: {old} unreachable, no healthy fallback ({reason})"
                 )
                 self._state.add_event("warning", f"Model check: {msg}")
         else:
