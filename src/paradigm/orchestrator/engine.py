@@ -1799,37 +1799,68 @@ class OrchestrationEngine:
         )
         self._db.update_thread(self.state.thread_id, current_phase=str(to_phase))
 
+    async def _classify(self, text: str, *, max_topics: int) -> list[str] | None:
+        """Classify ``text`` into broad fields. Tries the theorist's brain ("the agent
+        who reads the prompt first") then the config default provider as a reliable
+        fallback, bounding each attempt. Returns None only if every attempt fails."""
+        from paradigm.agents.topics import classify_topics
+
+        candidates: list[tuple[Any, str]] = []
+        theorist = self._find_agent_by_role("theorist")
+        if theorist is not None:
+            candidates.append((theorist.provider, theorist.model))
+        try:  # default provider — a reliable fallback (and the only try if no theorist)
+            dp = self._config.get_provider()
+            candidates.append((dp, dp.default_model))
+        except Exception:
+            pass
+
+        for provider, model in candidates:
+            try:
+                topics = await asyncio.wait_for(
+                    classify_topics(text, provider=provider, model=model, max_topics=max_topics),
+                    timeout=45.0,
+                )
+                if topics:
+                    return topics
+            except Exception as e:  # try the next candidate
+                self._logger.log_error(
+                    e, thread_id=self.state.thread_id, metadata_key="topics_classify"
+                )
+        return None
+
+    def _thread_topics(self) -> list[str]:
+        """The cycle's currently-stored topics (the initial badge), or []."""
+        thread = self._db.get_thread(self.state.thread_id)
+        raw = thread.get("topics") if thread else None
+        if not raw:
+            return []
+        try:
+            val = json.loads(raw) if isinstance(raw, str) else raw
+            return val if isinstance(val, list) else []
+        except (ValueError, TypeError):
+            return []
+
     async def _assign_topics(self, text: str, *, stage: str, paper_id: str | None) -> None:
         """Classify ``text`` into broad fields and persist + broadcast the tags.
 
-        Routed through the theorist's brain ("the agent who reads the prompt first"),
-        falling back to the default provider. Best-effort and bounded: topic tagging
-        must never block, break, or stall a cycle. ``stage`` is "initial" (seed prompt)
-        or "final" (finished paper); the final pass allows MULTIPLE tags so
-        cross-disciplinary work earns multiple badges (cross-pollination).
+        Best-effort and bounded: topic tagging must never block, break, or stall a
+        cycle. ``stage`` is "initial" (seed prompt) or "final" (finished paper); the
+        final pass allows MULTIPLE tags so cross-disciplinary work earns multiple
+        badges (cross-pollination). A finished paper ALWAYS ends up with a badge: if
+        classification fails it inherits the cycle's initial topics (or "other").
         """
         try:
-            from paradigm.agents.topics import classify_topics
-
-            theorist = self._find_agent_by_role("theorist")
-            provider = theorist.provider if theorist is not None else self._config.get_provider()
-            model = theorist.model if theorist is not None else provider.default_model
             max_topics = 3 if stage == "final" else 2
-
-            topics = await asyncio.wait_for(
-                classify_topics(text, provider=provider, model=model, max_topics=max_topics),
-                timeout=60.0,
-            )
+            topics = await self._classify(text, max_topics=max_topics)
+            if not topics and stage == "final" and paper_id is not None:
+                topics = self._thread_topics() or ["other"]
             if not topics:
                 return
             self._db.update_thread(self.state.thread_id, topics=topics)
-            if paper_id:
+            if paper_id is not None:
                 self._db.update_paper(paper_id, topics=topics)
-            self._display.topics_assigned(
-                topics,
-                stage=stage,
-                agent_id=theorist.agent_id if theorist is not None else "",
-            )
+            self._display.topics_assigned(topics, stage=stage)
         except Exception as e:  # never let tagging break the cycle
             self._logger.log_error(
                 e, thread_id=self.state.thread_id, metadata_key=f"topics_{stage}"

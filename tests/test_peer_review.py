@@ -1192,3 +1192,58 @@ class TestPauseCheckpoint:
         )
         await engine.run_research_cycle(seed_prompt="Test stellar convection", mode="directed")
         assert is_paused.called
+
+
+# --- Topic badge always present on a finished paper ------------------------
+
+
+class TestTopicInheritance:
+    """A produced paper must ALWAYS get a topic badge: if final classification
+    fails, it inherits the cycle's initial topics (or 'other')."""
+
+    def _engine(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        return OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=_make_writing_factory(),
+            display=MagicMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_inherits_initial_topics_when_classify_fails(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        from unittest.mock import AsyncMock
+
+        engine = self._engine(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine.state.thread_id = "thread-z"
+        tmp_db.create_thread(
+            thread_id="thread-z", title="t", mode="directed", participants=["theorist-0"]
+        )
+        tmp_db.update_thread("thread-z", topics=["astro", "cs"])  # initial badge
+        tmp_db.create_paper(paper_id="paper-z", title="T", abstract="A", authors=["a"], body="b")
+        engine._classify = AsyncMock(return_value=None)  # final classification fails
+
+        await engine._assign_topics("paper text", stage="final", paper_id="paper-z")
+
+        assert json.loads(tmp_db.get_paper("paper-z")["topics"]) == ["astro", "cs"]
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_other_when_no_initial(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        from unittest.mock import AsyncMock
+
+        engine = self._engine(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine.state.thread_id = "thread-z2"
+        tmp_db.create_thread(
+            thread_id="thread-z2", title="t", mode="directed", participants=["theorist-0"]
+        )
+        tmp_db.create_paper(paper_id="paper-z2", title="T", abstract="A", authors=["a"], body="b")
+        engine._classify = AsyncMock(return_value=None)
+
+        await engine._assign_topics("paper text", stage="final", paper_id="paper-z2")
+
+        assert json.loads(tmp_db.get_paper("paper-z2")["topics"]) == ["other"]
