@@ -4375,3 +4375,11 @@ Update: user's OPENAI key list goes to GPT-5.5 (gpt-5 IS available → the earli
 > keep model diversity ... top OpenAI for theorist, top anthropic for analyst/skeptic, best for experimentalist (gpt-5.5 or Opus 4.8), a good careful model for the writer, Gemini for reviewers/editor. Set a sensible default given these + your thoughts.
 
 New production.yaml default lineup (all 3 providers): theorist=openai/gpt-5.4 (max_tokens 12288), analyst+skeptic=anthropic/claude-sonnet-4-6 (top-practical; Opus too slow/costly for every-phase roles, reserve it for the writer), experimentalist=openai/gpt-5.5 (best; writes code; 16384), writer=anthropic/claude-opus-4-8 (best careful long-form; 16384), synthesizer+editor+reviewer=gemini/gemini-2.5-flash. openai default_model gpt-4o-mini→gpt-4.1-mini (confirmed in user's key list). Config validates; all override providers in registry. NOTE: this is a production.yaml change → user does the stash/pop dance.
+
+### Prompt 168 — build the local self-test loop
+
+> Ok. now let's work on the local self-test loop
+
+Build a local, fast, cheap harness that runs real research cycles + auto-triages the result (errors / stalls / empty output), so the loop is run → triage → fix → re-run without touching prod. First assess local env (keys, network from the sandboxed shell, Docker, deps); design a selftest config (cheapest models, 1 round, experiments off) + a runner/triage script; then run + iterate.
+
+Done (self-test loop v1): added configs/selftest.yaml (cheapest end-to-end: all Gemini Flash-Lite, 1 round/phase, experiments OFF, lean peer review, no LaTeX/Perplexity) + scripts/selftest.py — drives the real `paradigm run` CLI in an isolated temp data dir, then triages the event log + SQLite DB + process output for CRASH / STALL / INCOMPLETE / THIN_PAPER / NO_BADGE / real ERROR events; transient external errors (429 / rate limit / 503 / semantic_scholar / arxiv) are downgraded to notes, not failures. Exits non-zero on real issues (smoke gate). Validated: 2 real cycles ran clean end-to-end (~170–220s, ~30K-char papers, terminal status revision_exhausted) — only a transient Semantic Scholar 429, no real bugs. Platform is healthy end-to-end.
