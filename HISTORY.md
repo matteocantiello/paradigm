@@ -4333,3 +4333,11 @@ Done (preflight): model health check before each run. New agents/preflight.py pi
 A produced paper shows no topic badge → paper.topics empty. Likely the FINAL classification (_assign_final_topics → _assign_topics) failed/timed-out (caught + logged "topics_final", topics not written) — plausibly the theorist's model was flaky (recent Together/503). Robustness fix: if final classification fails, the paper should INHERIT the cycle's initial topics (so it always gets a badge), and classification should fall back to a reliable provider. Investigate _assign_topics/_assign_final_topics + make the paper always get topics.
 
 Done (badge robustness): a produced paper now ALWAYS gets a topic badge. _assign_topics refactored: new _classify() tries the theorist's brain then the config DEFAULT provider (reliable fallback), each bounded to 45s; if the final classification still fails, the paper INHERITS the cycle's initial topics (or ["other"]) so it never ends up badge-less. Existing badge-less papers: fix retroactively with `paradigm backfill-topics`. Tests: inherit-initial + other-fallback. 1568 pass.
+
+### Prompt 162 — add a favicon (browser-tab icon) for paradigm.stellarphysics.org
+
+> What if I want to add a little icon that appears on the browser tab when I load paradigm.stellarphysics.org ?
+
+Add a favicon. Replace the Vite default with an on-brand SVG (Observatory theme: gold/indigo). Wire it in frontend/index.html + frontend/public/, rebuild. Explain how to swap for a custom image.
+
+Done: added frontend/public/favicon.svg (Observatory mark — starlight-gold star on the deep-indigo void + a cyan orbit/agent dot, theme-matched) and wired <link rel="icon" type="image/svg+xml"> + <meta theme-color="#16131f"> into frontend/index.html. Vite copies it to dist/ → served at /favicon.svg by Caddy. Frontend-only; rebuild on the VM to deploy.
