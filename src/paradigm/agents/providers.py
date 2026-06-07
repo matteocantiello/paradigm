@@ -94,6 +94,16 @@ class LLMProvider(Protocol):
         ...
 
 
+# Claude Opus 4.7+ removed the sampling params — sending `temperature` (or top_p/
+# top_k) returns a 400. Omit it for these so the ping AND agent calls succeed.
+# Extend this tuple as new such models ship.
+_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
+
+
+def _accepts_temperature(model: str) -> bool:
+    return not any(model.startswith(p) for p in _NO_TEMPERATURE_PREFIXES)
+
+
 class AnthropicProvider:
     """LLM provider wrapping the Anthropic SDK."""
 
@@ -120,10 +130,11 @@ class AnthropicProvider:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
-            "temperature": temperature,
             "system": system,
             "messages": messages,
         }
+        if _accepts_temperature(model):
+            kwargs["temperature"] = temperature
         if extra_body:
             # Per-role overrides (e.g. extended thinking) from config — forward
             # them as request body params, matching the OpenAI-compatible path.
@@ -167,10 +178,11 @@ class AnthropicProvider:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
-            "temperature": temperature,
             "system": system,
             "messages": messages,
         }
+        if _accepts_temperature(model):
+            kwargs["temperature"] = temperature
         if extra_body:
             kwargs["extra_body"] = extra_body
         with self._client.messages.stream(**kwargs) as stream:

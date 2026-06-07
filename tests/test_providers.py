@@ -128,6 +128,52 @@ class TestAnthropicProvider:
             _, kwargs = mock_client.messages.create.call_args
             assert "extra_body" not in kwargs
 
+    def test_omits_temperature_for_opus_47_and_48(self):
+        """Opus 4.7/4.8 reject sampling params (400) — temperature must be omitted,
+        or the model is unusable and the pre-flight wrongly swaps it out."""
+        for model in ("claude-opus-4-7", "claude-opus-4-8"):
+            with patch("anthropic.Anthropic") as mock_cls:
+                mock_client = MagicMock()
+                mock_response = MagicMock()
+                mock_response.content = [MagicMock(text="ok")]
+                mock_response.usage.input_tokens = 1
+                mock_response.usage.output_tokens = 1
+                mock_client.messages.create.return_value = mock_response
+                mock_cls.return_value = mock_client
+
+                AnthropicProvider(api_key="k").complete(
+                    model=model,
+                    system="s",
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_tokens=1,
+                    temperature=0.7,
+                )
+                _, kwargs = mock_client.messages.create.call_args
+                assert "temperature" not in kwargs, model
+                assert kwargs["model"] == model
+
+    def test_keeps_temperature_for_other_models(self):
+        """Models that accept sampling (e.g. Opus 4.6, Sonnet) still get temperature."""
+        for model in ("claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"):
+            with patch("anthropic.Anthropic") as mock_cls:
+                mock_client = MagicMock()
+                mock_response = MagicMock()
+                mock_response.content = [MagicMock(text="ok")]
+                mock_response.usage.input_tokens = 1
+                mock_response.usage.output_tokens = 1
+                mock_client.messages.create.return_value = mock_response
+                mock_cls.return_value = mock_client
+
+                AnthropicProvider(api_key="k").complete(
+                    model=model,
+                    system="s",
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_tokens=1,
+                    temperature=0.3,
+                )
+                _, kwargs = mock_client.messages.create.call_args
+                assert kwargs.get("temperature") == 0.3, model
+
     def test_complete_streaming(self):
         """complete_streaming() yields chunks then final usage."""
         with patch("anthropic.Anthropic") as mock_cls:

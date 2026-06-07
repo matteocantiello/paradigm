@@ -4343,3 +4343,9 @@ Add a favicon. Replace the Vite default with an on-brand SVG (Observatory theme:
 Done: added frontend/public/favicon.svg (Observatory mark — starlight-gold star on the deep-indigo void + a cyan orbit/agent dot, theme-matched) and wired <link rel="icon" type="image/svg+xml"> + <meta theme-color="#16131f"> into frontend/index.html. Vite copies it to dist/ → served at /favicon.svg by Caddy. Frontend-only; rebuild on the VM to deploy.
 
 Update (favicon): user shared the app's existing Observatory logo (concentric gold aperture rings + central gold sun + small cyan orbiting star, top-right, on a dark navy tile — the Sidebar.tsx CSS-div mark). Redrew favicon.svg to match it exactly (gold #e8c069 rings/sun + cyan #5cd0dd star on #0e1322, with a faint gold center glow), replacing the earlier star design. Rebuilt.
+
+### Prompt 163 — Claude models failing to load (preflight swaps opus-4-7 → gemini)
+
+> I am having problems loading claude models... Model check: swapped unreachable model(s) — theorist: claude-opus-4-7 → gemini-2.5-flash-lite; experimentalist: claude-opus-4-7 → gemini; editor: Qwen/Qwen2.5-72B-Instruct-Turbo → gemini
+
+Root cause: AnthropicProvider.complete/complete_streaming always sent `temperature`, but Claude Opus 4.7/4.8 REMOVED sampling params (temperature/top_p/top_k → 400). So the preflight ping (and every agent turn) 400'd → opus-4-7 looked "unreachable" → swapped to gemini. Fix: `_accepts_temperature(model)` — omit temperature for claude-opus-4-7/4-8 prefixes (keep it for 4.6/sonnet/haiku). The editor/Qwen swap is separate (Together transient/availability). Tests: opus-4-7/4-8 omit temperature; 4.6/sonnet/haiku keep it.
