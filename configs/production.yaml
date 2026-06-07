@@ -46,7 +46,7 @@ providers:
     type: openai_compatible
     api_key_env: OPENAI_API_KEY
     base_url: https://api.openai.com/v1
-    default_model: gpt-4o-mini
+    default_model: gpt-4.1-mini
 
 agent:
   default_model: "gemini-2.5-flash-lite"
@@ -57,21 +57,31 @@ agent:
   token_budget_per_agent: 100000
   default_provider: gemini
   overrides:
-    # Fast bulk roles — Gemini Flash-Lite (snappy, streams well in the live view).
-    theorist: { provider: gemini, model: gemini-2.5-flash-lite }
-    analyst: { provider: gemini, model: gemini-2.5-flash-lite }
-    skeptic: { provider: gemini, model: gemini-2.5-flash-lite }
-    # The experimentalist WRITES THE EXPERIMENT CODE — flagship-tier Claude for
-    # correct astropy/numpy/MCMC (flash-lite produced const.k, Planck1D, invented
-    # modules, and unit-conversion spirals). Sonnet 4.6 ≈ Opus code quality here at
-    # ~half the cost and faster (it runs in a retry loop). For the absolute top,
-    # swap to: { provider: anthropic, model: claude-opus-4-8, max_tokens: 16384 }
-    experimentalist: { provider: anthropic, model: claude-sonnet-4-6, max_tokens: 16384 }
-    # Quality-sensitive but still fast — Gemini Flash.
+    # Deliberately DIVERSE across all three providers — quality where it matters,
+    # speed/cost where it doesn't. (1 round/phase keeps per-role call counts low,
+    # so the premium models here are affordable.) Tweak any of these live in the
+    # GUI Agents panel — these are just the starting defaults.
+    #
+    # Theorist — a top OpenAI reasoning model for hypothesis quality (one notch
+    # below the experimentalist's best). Reasoning models share their budget with
+    # hidden reasoning, so give it more room.
+    theorist: { provider: openai, model: gpt-5.4, max_tokens: 12288 }
+    # Analyst + Skeptic — top *practical* Anthropic. Sonnet 4.6 (not Opus) here:
+    # they run each phase, and Sonnet 4.6 is flagship-quality reasoning at far
+    # lower latency/cost. Bump either to claude-opus-4-8 if you want the very top.
+    analyst: { provider: anthropic, model: claude-sonnet-4-6 }
+    skeptic: { provider: anthropic, model: claude-sonnet-4-6 }
+    # Experimentalist — the BEST model: it writes the experiment code (in a retry
+    # loop) where correctness matters most. GPT-5.5 (reasoning → larger budget).
+    experimentalist: { provider: openai, model: gpt-5.5, max_tokens: 16384 }
+    # Writer — Claude Opus 4.8 for the final paper: best long-form markdown/LaTeX
+    # and the most careful (fewest mistakes). Runs once + revisions → cost bounded.
+    writer: { provider: anthropic, model: claude-opus-4-8, max_tokens: 16384 }
+    # Synthesizer / Editor / Reviewers — Gemini Flash: fast + capable + cheap for
+    # integration and review passes.
     synthesizer: { provider: gemini, model: gemini-2.5-flash }
     editor: { provider: gemini, model: gemini-2.5-flash }
-    # The final paper — Claude Haiku (best long-form markdown/LaTeX), larger budget.
-    writer: { provider: anthropic, model: claude-haiku-4-5, max_tokens: 16384 }
+    reviewer: { provider: gemini, model: gemini-2.5-flash }
 
 # Code execution sandbox.
 # NOTE: experiments run real code here. It's network-isolated (network=none) and
