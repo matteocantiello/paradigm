@@ -96,7 +96,7 @@ export function useSystemState(): SystemStatus {
 
   switch (status) {
     case "paused":
-      return { state: "paused", tone: "paused", label: "Paused", hint: "Resume from the bar below when ready", idleSeconds };
+      return { state: "paused", tone: "paused", label: "Paused", hint: "Click Resume (top right) to continue — you can also come back later", idleSeconds };
     case "completed":
       return { state: "done", tone: "ok", label: "Completed", hint: "The research cycle finished", idleSeconds };
     case "aborted":

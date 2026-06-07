@@ -237,6 +237,10 @@ class SessionManager:
                 display=display,
                 domain_profile=domain_profile,
                 pause_gate=resume_event.wait,
+                # Predicate the engine uses to checkpoint at the pause point (so a
+                # paused cycle can be resumed later). `resume_event` is set while
+                # running, cleared while paused.
+                is_paused=lambda ev=resume_event: not ev.is_set(),
                 guidance_provider=self._make_guidance_provider(session_id),
             )
 

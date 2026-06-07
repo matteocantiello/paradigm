@@ -1111,3 +1111,84 @@ class TestResolveInternalRecommendation:
 
     def test_reject_passes_through(self):
         assert self._resolve("reject", 0, 0) == "reject"
+
+
+# --- Pause checkpoint (resume-later) ---------------------------------------
+
+
+class TestPauseCheckpoint:
+    """A paused cycle persists a checkpoint at the pause point so it can be resumed
+    later — even after a backend restart — from where it stopped."""
+
+    @pytest.mark.asyncio
+    async def test_save_checkpoint_persists_and_notifies(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        from unittest.mock import AsyncMock
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=_make_writing_factory(),
+        )
+        engine.state.thread_id = "thread-x"
+        engine.state.messages = [{"from": "theorist-0", "content": "hi"}]
+        sentinel = object()
+        engine._checkpoint_mgr = MagicMock()
+        engine._checkpoint_mgr.create_checkpoint = AsyncMock(return_value=sentinel)
+        engine._display = MagicMock()
+
+        await engine._save_checkpoint("ideation", 2, label="pause")
+
+        engine._checkpoint_mgr.create_checkpoint.assert_awaited_once()
+        assert engine.state.checkpoint is sentinel
+        engine._display.checkpoint_saved.assert_called_once_with("pause")
+
+    @pytest.mark.asyncio
+    async def test_save_checkpoint_is_noop_without_messages(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        from unittest.mock import AsyncMock
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=_make_writing_factory(),
+        )
+        engine.state.thread_id = "t"
+        engine.state.messages = []
+        engine._checkpoint_mgr = MagicMock()
+        engine._checkpoint_mgr.create_checkpoint = AsyncMock()
+        engine._display = MagicMock()
+
+        await engine._save_checkpoint("ideation", 1, label="pause")
+
+        engine._checkpoint_mgr.create_checkpoint.assert_not_awaited()
+        engine._display.checkpoint_saved.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_round_loop_consults_is_paused(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        # The engine must consult is_paused at round boundaries (so it can checkpoint
+        # before blocking on the pause gate). A non-blocking gate keeps the run going.
+        is_paused = MagicMock(return_value=False)
+
+        async def _noop_gate() -> None:
+            return None
+
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=_make_writing_factory(),
+            pause_gate=_noop_gate,
+            is_paused=is_paused,
+        )
+        await engine.run_research_cycle(seed_prompt="Test stellar convection", mode="directed")
+        assert is_paused.called

@@ -11,6 +11,7 @@ import { ConnectionIndicator } from "./ConnectionIndicator";
 import { LiteraturePanel } from "./LiteraturePanel";
 import { StatusPill } from "./StatusPill";
 import { TerminalScreen } from "./TerminalScreen";
+import { SessionControls } from "./SessionControls";
 import { TopicBadges } from "@/components/shared/TopicBadges";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "aborted"]);
@@ -73,14 +74,17 @@ export function SessionView(props: SessionViewProps) {
           <ConnectionIndicator status={props.connectionStatus} />
           <TopicBadges topics={props.topics} size="xs" />
         </div>
-        {props.topic && (
-          <p
-            className="truncate text-xs text-muted-foreground/80 max-w-[60%]"
-            title={props.topic}
-          >
-            {props.topic}
-          </p>
-        )}
+        <div className="flex min-w-0 items-center gap-3">
+          {props.topic && (
+            <p
+              className="truncate text-xs text-muted-foreground/80 max-w-[40vw]"
+              title={props.topic}
+            >
+              {props.topic}
+            </p>
+          )}
+          <SessionControls />
+        </div>
       </div>
 
       {/* Phase tracker */}

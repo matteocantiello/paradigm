@@ -79,6 +79,7 @@ class OrchestrationEngine:
         display: DisplayManager | None = None,
         domain_profile: Any | None = None,
         pause_gate: Callable[[], Awaitable[None]] | None = None,
+        is_paused: Callable[[], bool] | None = None,
         guidance_provider: Callable[[], Awaitable[list[str]]] | None = None,
     ) -> None:
         """Initialize the orchestration engine.
@@ -106,6 +107,10 @@ class OrchestrationEngine:
         # Optional async gate (supplied by the backend) that blocks while the
         # session is paused. Awaited at round boundaries. No-op for the CLI.
         self._pause_gate = pause_gate
+        # Optional sync predicate: True when a pause is in effect. Used to persist a
+        # checkpoint at the pause point so the run can be RESUMED LATER (even after a
+        # backend restart) from where it stopped, not just the last interval/phase end.
+        self._is_paused = is_paused
         # Optional async provider (supplied by the backend) that returns any
         # human guidance typed into the GUI since the last round. Drained at
         # round boundaries and injected into the next agent prompts. No-op for
@@ -807,8 +812,12 @@ class OrchestrationEngine:
             active_count = len(self.state.agents)
 
         for round_num in range(1, max_rounds + 1):
-            # Real pause: block here while the session is paused (GUI-driven).
+            # Real pause: block here while the session is paused (GUI-driven). Before
+            # blocking, persist a checkpoint so a paused cycle can be resumed LATER —
+            # even after a backend restart — from this round, not a stale phase end.
             if self._pause_gate is not None:
+                if self._is_paused is not None and self._is_paused():
+                    await self._save_checkpoint(phase, round_num, label="pause")
                 await self._pause_gate()
             # Pull in any human guidance typed since the last round and inject it
             # into this round's agent prompts (round-boundary steering).
@@ -844,38 +853,32 @@ class OrchestrationEngine:
                     self._logger.log_error(e, thread_id=self.state.thread_id)
 
             # Checkpoint at intervals
-            should_checkpoint = (
-                self._config.orchestrator.enable_checkpointing
-                and round_num % checkpoint_interval == 0
-            )
-            if should_checkpoint:
-                try:
-                    self.state.checkpoint = await self._checkpoint_mgr.create_checkpoint(
-                        thread_id=self.state.thread_id,
-                        phase=str(phase),
-                        round_number=round_num,
-                        messages=self.state.messages,
-                        previous_checkpoint=self.state.checkpoint,
-                    )
-                    self._display.checkpoint_saved(f"round {round_num}")
-                except Exception as e:
-                    self._logger.log_error(e, thread_id=self.state.thread_id)
-                    self._display.checkpoint_error(e)
+            if round_num % checkpoint_interval == 0:
+                await self._save_checkpoint(phase, round_num, label=f"round {round_num}")
 
         # Final checkpoint at end of phase
-        if self.state.messages and self._config.orchestrator.enable_checkpointing:
-            try:
-                self.state.checkpoint = await self._checkpoint_mgr.create_checkpoint(
-                    thread_id=self.state.thread_id,
-                    phase=str(phase),
-                    round_number=max_rounds,
-                    messages=self.state.messages,
-                    previous_checkpoint=self.state.checkpoint,
-                )
-                self._display.checkpoint_saved("end of phase")
-            except Exception as e:
-                self._logger.log_error(e, thread_id=self.state.thread_id)
-                self._display.checkpoint_error(e)
+        await self._save_checkpoint(phase, max_rounds, label="end of phase")
+
+    async def _save_checkpoint(self, phase: ResearchPhase, round_num: int, *, label: str) -> None:
+        """Compress the thread into a checkpoint + persist it (best-effort).
+
+        Used at round intervals, phase ends, and at the pause point. Never breaks a
+        run — a failed checkpoint is logged and the cycle continues.
+        """
+        if not (self.state.messages and self._config.orchestrator.enable_checkpointing):
+            return
+        try:
+            self.state.checkpoint = await self._checkpoint_mgr.create_checkpoint(
+                thread_id=self.state.thread_id,
+                phase=str(phase),
+                round_number=round_num,
+                messages=self.state.messages,
+                previous_checkpoint=self.state.checkpoint,
+            )
+            self._display.checkpoint_saved(label)
+        except Exception as e:
+            self._logger.log_error(e, thread_id=self.state.thread_id)
+            self._display.checkpoint_error(e)
 
     async def _drain_guidance(self, phase: ResearchPhase, round_num: int) -> None:
         """Pull human guidance from the GUI and stage it for this round's prompts.
