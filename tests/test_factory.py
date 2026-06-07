@@ -125,6 +125,24 @@ class TestAgentFactory:
         assert agent.skills == ["citation-management"]
         assert "### Skill: citation-management" in agent.system_prompt
 
+    def test_create_team_applies_role_overrides(
+        self, config: Config, science_prompts_dir: Path
+    ) -> None:
+        # The model pre-flight swaps an unreachable model by passing a per-role
+        # (provider, model) override into create_team — verify it takes effect.
+        factory = AgentFactory(config, prompts_dir=science_prompts_dir)
+        fake_provider = object()
+        team = factory.create_team(
+            ["theorist", "analyst"],
+            role_overrides={"theorist": (fake_provider, "fallback-model")},
+        )
+        by_role = {a.skill_profile: a for a in team}
+        assert by_role["theorist"].model == "fallback-model"
+        assert by_role["theorist"].provider is fake_provider
+        # An un-overridden role keeps its configured model + provider.
+        assert by_role["analyst"].model != "fallback-model"
+        assert by_role["analyst"].provider is not fake_provider
+
     def test_create_agent_all_skills(
         self, config: Config, registry: SkillRegistry, science_prompts_dir: Path
     ) -> None:

@@ -1193,6 +1193,22 @@ class DisplayManager:
         else:
             self._fallback.topics_assigned(topics, stage=stage, agent_id=agent_id)
 
+    def model_preflight(self, checked: int, swaps: list[tuple[str, str, str]]) -> None:
+        if swaps:
+            for role, old, new in swaps:
+                msg = (
+                    f"{role}: {old} unreachable → {new}"
+                    if new
+                    else f"{role}: {old} unreachable, no healthy fallback"
+                )
+                self._state.add_event("warning", f"Model check: {msg}")
+        else:
+            self._state.add_event("info", f"Model check: {checked} model(s) OK")
+        if self._use_rich:
+            self._refresh()
+        else:
+            self._fallback.model_preflight(checked, swaps)
+
     def paper_published(self) -> None:
         # Move current phase to completed and set PUBLISHED as current
         if self._state.current_phase is not None:

@@ -263,8 +263,24 @@ class OrchestrationEngine:
         self._debate.reset_cycle()
         self._review.reset_cycle()
 
-        # Create agent team
-        agents = self._factory.create_team(team_roles, skill_mode="default")
+        # Pre-flight: ping each agent's model and swap any that don't respond to a
+        # healthy fallback, so a dead/over-capacity provider can't cripple a role.
+        role_overrides: dict[str, Any] | None = None
+        if getattr(self._config.orchestrator, "model_preflight", True):
+            from paradigm.agents.preflight import preflight_team_models
+
+            preflight = await preflight_team_models(self._config, team_roles)
+            self._display.model_preflight(preflight.checked, preflight.swaps)
+            role_overrides = preflight.overrides or None
+
+        # Create agent team (pass role_overrides only when the pre-flight actually
+        # swapped a model, so the common no-swap path matches the plain signature).
+        if role_overrides:
+            agents = self._factory.create_team(
+                team_roles, skill_mode="default", role_overrides=role_overrides
+            )
+        else:
+            agents = self._factory.create_team(team_roles, skill_mode="default")
         self.state.agents = {a.agent_id: a for a in agents}
 
         # Live token streaming (opt-in): wire each agent's stream side-channel to

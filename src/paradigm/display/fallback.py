@@ -497,6 +497,16 @@ class PlainTextFallback:
     ) -> None:
         click.echo(f"  Topics ({stage}): {', '.join(topics)}")
 
+    def model_preflight(self, checked: int, swaps: list[tuple[str, str, str]]) -> None:
+        if not swaps:
+            click.echo(f"  Model check: {checked} model(s) responsive")
+            return
+        for role, old, new in swaps:
+            if new:
+                click.echo(f"  Model check: {role} '{old}' unreachable → using '{new}'")
+            else:
+                click.echo(f"  Model check: {role} '{old}' unreachable — no healthy fallback")
+
     def paper_published(self) -> None:
         click.echo("  Paper PUBLISHED")
 

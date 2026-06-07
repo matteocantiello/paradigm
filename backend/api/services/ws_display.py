@@ -317,6 +317,30 @@ class WebSocketDisplayAdapter:
             topics=topics,
         )
 
+    def model_preflight(self, checked: int, swaps: list[tuple[str, str, str]]) -> None:
+        if swaps:
+            details = "; ".join(
+                (f"{role}: {old} → {new}" if new else f"{role}: {old} (no fallback)")
+                for role, old, new in swaps
+            )
+            self._notify(
+                f"Model check: swapped unreachable model(s) — {details}",
+                level="warning",
+                category="info",
+            )
+            self._activity(
+                "model_preflight",
+                f"Model check: {len(swaps)} model(s) swapped",
+                severity="warning",
+                detail=details,
+            )
+        else:
+            self._activity(
+                "model_preflight",
+                f"Model check: {checked} model(s) responsive",
+                severity="success",
+            )
+
     def phase_aborted(self) -> None:
         self._notify(
             "Research cycle aborted by intervention hook.", level="error", category="phase"

@@ -167,6 +167,7 @@ class AgentFactory:
         roles: list[str],
         skill_mode: str = "default",
         shared_skills: list[str] | None = None,
+        role_overrides: dict[str, tuple[Any, str]] | None = None,
     ) -> list[Agent]:
         """Create a team of agents with specified roles.
 
@@ -175,6 +176,9 @@ class AgentFactory:
             skill_mode: Skill selection mode for all agents.
             shared_skills: Additional skills applied to all agents
                            (merged with role-specific skills).
+            role_overrides: Optional per-role ``(provider, model)`` to use instead of
+                the configured one — e.g. from the model pre-flight, which swaps a
+                role whose configured model didn't respond to a healthy fallback.
 
         Returns:
             List of configured Agent instances.
@@ -183,11 +187,17 @@ class AgentFactory:
         for i, role in enumerate(roles):
             agent_id = f"{role}-{i}"
             extra_skills = shared_skills if skill_mode == "custom" else None
+            extra: dict[str, Any] = {}
+            if role_overrides and role in role_overrides:
+                provider, model = role_overrides[role]
+                extra["provider"] = provider
+                extra["model"] = model
             agent = self.create_agent(
                 agent_id=agent_id,
                 role=role,
                 skills=extra_skills,
                 skill_mode=skill_mode,
+                **extra,
             )
             agents.append(agent)
         return agents
