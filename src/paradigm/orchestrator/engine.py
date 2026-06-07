@@ -269,9 +269,7 @@ class OrchestrationEngine:
         if getattr(self._config.orchestrator, "model_preflight", True):
             from paradigm.agents.preflight import preflight_team_models
 
-            preflight = await preflight_team_models(
-                self._config, team_roles, logger=self._logger
-            )
+            preflight = await preflight_team_models(self._config, team_roles, logger=self._logger)
             self._display.model_preflight(preflight.checked, preflight.swaps)
             role_overrides = preflight.overrides or None
 
@@ -488,6 +486,9 @@ class OrchestrationEngine:
                 and not exp_result.successful_code
             ):
                 self._db.update_thread(self.state.thread_id, status="execution_failed")
+                # Surface a terminal outcome to the live UI (settle the phase bar +
+                # render the terminal screen now), consistent with the reject paths.
+                self._display.phase_transition(ResearchPhase.REJECTED)
                 self._display.execution_failed_abort(exp_result.caveats)
                 self._print_token_summary()
                 return self.state.thread_id
@@ -509,6 +510,7 @@ class OrchestrationEngine:
                     and not self.state.successful_code
                 ):
                     self._db.update_thread(self.state.thread_id, status="verification_failed")
+                    self._display.phase_transition(ResearchPhase.REJECTED)
                     self._display.execution_failed_abort(
                         ["No experiments reproduced under verification."]
                     )

@@ -79,13 +79,22 @@ export function TerminalScreen({
   let Icon = CheckCircle2;
   let title = "Research complete";
   let line = "The team converged and produced a paper.";
-  if (rejected) {
+  if (rejected && paperId) {
     tone = "warn";
     Icon = AlertTriangle;
     title = "Paper was not accepted";
     line =
       "The paper was rejected at review — see the transcript below for the reason. " +
       "You can still read the draft, or revise and resubmit.";
+  } else if (rejected) {
+    // Terminal "rejected" with no paper = the run stopped before producing one
+    // (e.g. experiments yielded no usable output, or writing failed).
+    tone = "warn";
+    Icon = AlertTriangle;
+    title = "Finished without a paper";
+    line =
+      "The run stopped before a paper was written — usually because the experiments " +
+      "didn't yield usable results. Your work up to here is saved; you can resume to retry.";
   } else if (converged) {
     tone = "ok";
   } else if (status === "completed") {
@@ -150,7 +159,11 @@ export function TerminalScreen({
               title="Continue this research from its last checkpoint"
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              {rejected ? "Revise & resubmit" : converged ? "Continue research" : "Resume"}
+              {rejected && paperId
+                ? "Revise & resubmit"
+                : converged
+                  ? "Continue research"
+                  : "Resume"}
             </button>
           )}
           <button

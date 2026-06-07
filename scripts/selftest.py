@@ -45,6 +45,8 @@ _TERMINAL_THREAD_STATUS = {
     "revision_exhausted",
     "planning_complete",
     "aborted",
+    "execution_failed",  # experiments yielded no usable output (abort_on_execution_failure)
+    "verification_failed",  # nothing reproduced under verification
 }
 
 
@@ -57,7 +59,9 @@ def _run_cycle(prompt: str, mode: str, config: Path, timeout: int) -> dict:
         "PARADIGM_DATA_DIR": str(data_dir),
         "PARADIGM_LOG_LEVEL": "INFO",
     }
-    cmd = [sys.executable, "-m", "paradigm.main", "run", "--mode", mode, "--prompt", prompt]
+    # explore mode takes a --topic; directed/review/etc. take a --prompt.
+    input_flag = "--topic" if mode == "explore" else "--prompt"
+    cmd = [sys.executable, "-m", "paradigm.main", "run", "--mode", mode, input_flag, prompt]
     started = time.monotonic()
     timed_out = False
     try:
