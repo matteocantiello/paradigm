@@ -32,3 +32,14 @@ export function useUpdateAgent() {
     },
   });
 }
+
+// Model catalog for the per-agent picker. `refresh` swaps the curated list for a
+// live pull from each provider's API (cached server-side). Keyed by `refresh` so
+// the two are cached separately and toggling re-fetches.
+export function useModelCatalog(refresh: boolean) {
+  return useQuery({
+    queryKey: ["model-catalog", refresh],
+    queryFn: () => api.getModelCatalog(refresh),
+    staleTime: 5 * 60 * 1000,
+  });
+}

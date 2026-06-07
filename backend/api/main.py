@@ -10,7 +10,16 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.routes import agents, config, papers, research, sessions, settings, ws
+from backend.api.routes import (
+    agents,
+    config,
+    models,
+    papers,
+    research,
+    sessions,
+    settings,
+    ws,
+)
 from backend.api.services.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -91,7 +100,9 @@ async def lifespan(app: FastAPI):
         try:
             session_manager.max_concurrent_sessions = max(1, int(_max_sessions))
         except ValueError:
-            logger.warning("Invalid PARADIGM_MAX_CONCURRENT_SESSIONS=%r — using default", _max_sessions)
+            logger.warning(
+                "Invalid PARADIGM_MAX_CONCURRENT_SESSIONS=%r — using default", _max_sessions
+            )
 
     # Durable research-cycle store. Mark any cycle left mid-run by the previous
     # process as interrupted so the research tab shows it as resumable rather
@@ -156,6 +167,7 @@ def create_app() -> FastAPI:
     app.include_router(research.router)
     app.include_router(sessions.router)
     app.include_router(agents.router)
+    app.include_router(models.router)
     app.include_router(papers.router)
     app.include_router(config.router)
     app.include_router(settings.router)

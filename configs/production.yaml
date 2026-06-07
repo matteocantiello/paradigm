@@ -31,6 +31,14 @@ providers:
     api_key_env: GEMINI_API_KEY
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
     default_model: gemini-2.5-flash
+  # TogetherAI (OpenAI-compatible) — selectable per-agent from the GUI model
+  # picker once TOGETHER_API_KEY is set. Hosts open models (Llama / Qwen /
+  # DeepSeek / Mixtral). Unset key → it's simply hidden in the picker.
+  together:
+    type: openai_compatible
+    api_key_env: TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
 
 agent:
   default_model: "gemini-2.5-flash-lite"

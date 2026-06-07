@@ -228,6 +228,30 @@ export function updateAgentConfig(agentType: string, body: AgentConfigUpdate) {
   });
 }
 
+// --- Model catalog (for the per-agent model picker) ---
+export interface ModelOption {
+  id: string;
+  label: string;
+}
+
+export interface ProviderModels {
+  name: string; // config provider name (stored in an override's `provider`)
+  family: string; // anthropic | gemini | together | openai
+  label: string; // display name, e.g. "TogetherAI"
+  available: boolean; // API key present
+  models: ModelOption[];
+  source: string; // "curated" | "live"
+  error: string;
+}
+
+export interface ModelCatalogResponse {
+  providers: ProviderModels[];
+}
+
+export function getModelCatalog(refresh = false) {
+  return request<ModelCatalogResponse>(`/api/v1/models${refresh ? "?refresh=true" : ""}`);
+}
+
 // --- Config Mode ---
 export interface ConfigModeResponse {
   mode: string;

@@ -118,6 +118,15 @@ async def update_agent_config(
     if agent_type not in known:
         raise HTTPException(status_code=404, detail=f"Unknown agent type: {agent_type}")
 
+    # Validate the provider is one the config actually knows about (the picker only
+    # offers valid providers, but guard against a stale/typo'd selection).
+    registry = getattr(config, "providers", None) or {}
+    if body.provider and registry and body.provider not in registry:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown provider '{body.provider}'. Known: {', '.join(sorted(registry))}",
+        )
+
     # Apply override
     from backend.api.config import AgentOverrideConfig
 
