@@ -1,0 +1,46 @@
+# Transformer-enabled sandbox image for the "BioBERT head-to-head" challenge.
+#
+# Extends the lean classic-ML sandbox with a CPU PyTorch + HuggingFace stack and
+# pre-bakes the exact checkpoint the CliniFact paper used
+# (dmis-lab/biobert-base-cased-v1.1) into the image's HF cache. Because the model
+# ships IN the image, experiments load it fully offline — the sandbox can stay
+# `--network=none` (no internet required, isolation preserved).
+#
+# Kept as a SEPARATE image (not folded into paradigm-sandbox) so normal science
+# runs aren't forced to carry a ~2 GB ML stack, and so general agents aren't told
+# torch/transformers exist when they don't. Only the challenge config
+# (configs/verify-clinifact.yaml) points image_name at this tag.
+#
+# Build (after the base image exists):
+#   docker build -t paradigm-sandbox:latest    -f docker/Dockerfile.sandbox    docker/
+#   docker build -t paradigm-sandbox-ml:latest -f docker/Dockerfile.sandbox-ml docker/
+FROM paradigm-sandbox:latest
+
+USER root
+
+# CPU-only PyTorch (the cpu wheel is ~190 MB vs multi-GB CUDA builds).
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# HuggingFace stack. accelerate is needed by transformers' Trainer; tokenizers
+# and safetensors are pulled in but pinned-by-resolver here for a smaller layer.
+RUN pip install --no-cache-dir \
+    transformers \
+    tokenizers \
+    safetensors \
+    accelerate
+
+# Pre-cache BioBERT into the image so from_pretrained() works with no network.
+# AutoModelForSequenceClassification reuses these cached base weights at runtime
+# (only a fresh classification head is added — no further download).
+ENV HF_HOME=/opt/hf
+RUN mkdir -p /opt/hf && \
+    python -c "from transformers import AutoTokenizer, AutoModel; m='dmis-lab/biobert-base-cased-v1.1'; AutoTokenizer.from_pretrained(m); AutoModel.from_pretrained(m)" && \
+    chmod -R a+rwX /opt/hf
+
+# Force fully-offline behavior at runtime (no network lookups, no lock fetches).
+ENV TRANSFORMERS_OFFLINE=1 \
+    HF_HUB_OFFLINE=1 \
+    TOKENIZERS_PARALLELISM=false
+
+USER sandbox
+WORKDIR /data/results
