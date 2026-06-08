@@ -5,6 +5,7 @@ import {
   FileText,
   Users,
   Settings,
+  Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -64,30 +65,38 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <div className="px-2 pb-2">
-        <NavLink
-          to="/settings"
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-all border-l-2",
-              isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground border-primary glow-sm"
-                : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground border-transparent"
-            )
-          }
-        >
-          {({ isActive }) => (
-            <>
-              <div className={cn(
-                "flex items-center justify-center h-6 w-6 rounded-full transition-colors",
-                isActive ? "bg-primary/15" : ""
-              )}>
-                <Settings className="h-4 w-4" />
-              </div>
-              Settings
-            </>
-          )}
-        </NavLink>
+      <div className="px-2 pb-2 space-y-0.5">
+        {[
+          { to: "/about", icon: Info, label: "About" },
+          { to: "/settings", icon: Settings, label: "Settings" },
+        ].map(({ to, icon: Icon, label }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-all border-l-2",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground border-primary glow-sm"
+                  : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground border-transparent"
+              )
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <div
+                  className={cn(
+                    "flex items-center justify-center h-6 w-6 rounded-full transition-colors",
+                    isActive ? "bg-primary/15" : ""
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                </div>
+                {label}
+              </>
+            )}
+          </NavLink>
+        ))}
       </div>
       <div className="px-4 pb-3">
         <span className="text-[10px] text-muted-foreground/40 font-mono">v0.1 alpha</span>
