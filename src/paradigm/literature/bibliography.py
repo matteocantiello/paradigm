@@ -98,11 +98,14 @@ class BibliographyBuilder:
 
             references.append(ref)
 
-        # Count and report unverified references
+        # Count and report unverified references. This is a citation-QUALITY note
+        # (some refs couldn't be resolved to metadata and would render as bare URLs,
+        # often just arXiv rate-limiting), NOT a cycle error — log it under
+        # CITATION_GROUNDING so it doesn't pollute the error stream / fail monitors.
         url_only = [r for r in references if not r.title]
         if url_only and self._event_logger:
             self._event_logger.log(
-                EventType.ERROR,
+                EventType.CITATION_GROUNDING,
                 content={
                     "event": "citation_grounding_incomplete",
                     "total_refs": len(references),
