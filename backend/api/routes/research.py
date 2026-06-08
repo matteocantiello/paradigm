@@ -71,6 +71,19 @@ def _build_continuation_note(database: Any, prior: ResearchCycleResponse, commen
     return "\n\n".join(parts)
 
 
+def _thread_elapsed_seconds(thread: dict[str, Any]) -> int | None:
+    """Wall-clock seconds from thread creation to its last update (≈ completion)."""
+    created, updated = thread.get("created_at"), thread.get("updated_at")
+    if not created or not updated:
+        return None
+    try:
+        delta = datetime.fromisoformat(str(updated)) - datetime.fromisoformat(str(created))
+    except ValueError:
+        return None
+    secs = int(delta.total_seconds())
+    return secs if secs > 0 else None
+
+
 def _enrich_cycle(cycle: ResearchCycleResponse, request: Request) -> ResearchCycleResponse:
     """Backfill live status / thread_id / paper_id onto an in-memory cycle.
 
@@ -104,6 +117,14 @@ def _enrich_cycle(cycle: ResearchCycleResponse, request: Request) -> ResearchCyc
                     cycle.topics = (
                         json.loads(raw_topics) if isinstance(raw_topics, str) else raw_topics
                     )
+                cycle.elapsed_seconds = _thread_elapsed_seconds(thread)
+            # Per-thread token total for the end-of-run summary (own try so a stats
+            # hiccup doesn't drop the paper_id/topics enrichment above).
+            try:
+                usage = db.get_token_usage(thread_id=cycle.thread_id)
+                cycle.total_tokens = usage.get("total_tokens") or None
+            except Exception:  # noqa: BLE001
+                pass
     except Exception:  # noqa: BLE001 — enrichment must never break the API
         pass
     return cycle

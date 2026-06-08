@@ -54,6 +54,10 @@ class ResearchCycleResponse(BaseModel):
     topics: list[str] | None = None
     # Set when this cycle continues an earlier one (resume).
     resumed_from: str | None = None
+    # End-of-run stats, backfilled from the thread for the terminal summary
+    # (None when unknown — e.g. before the cycle has a thread).
+    total_tokens: int | None = None
+    elapsed_seconds: int | None = None
     created_at: datetime
     updated_at: datetime | None = None
 

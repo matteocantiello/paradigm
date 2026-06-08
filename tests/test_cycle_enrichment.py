@@ -17,9 +17,12 @@ from backend.api.models.session import SessionStatus
 from backend.api.routes.research import _enrich_cycle
 
 
-def _request(*, state=None, thread=None):
+def _request(*, state=None, thread=None, token_usage=None):
     mgr = SimpleNamespace(get_state=lambda _sid: state)
-    db = SimpleNamespace(get_thread=lambda _tid: thread)
+    db = SimpleNamespace(
+        get_thread=lambda _tid: thread,
+        get_token_usage=lambda thread_id=None, agent_id=None: token_usage or {"total_tokens": 0},
+    )
     return SimpleNamespace(
         app=SimpleNamespace(state=SimpleNamespace(session_manager=mgr, database=db))
     )
@@ -70,3 +73,33 @@ def test_enrich_failure_state_without_paper():
     cycle = _enrich_cycle(_cycle(), _request(state=state, thread={"current_draft_id": None}))
     assert cycle.status == CycleStatus.FAILED
     assert cycle.paper_id is None
+
+
+def test_enrich_backfills_stats():
+    # End-of-run summary stats: tokens (per-thread) + elapsed (created->updated).
+    state = SimpleNamespace(
+        status=SessionStatus.COMPLETED, thread_id="thread-1", current_phase="published"
+    )
+    thread = {
+        "current_draft_id": "paper-1",
+        "created_at": "2026-06-08 00:00:00",
+        "updated_at": "2026-06-08 00:05:30",  # 5m30s
+    }
+    cycle = _enrich_cycle(
+        _cycle(), _request(state=state, thread=thread, token_usage={"total_tokens": 123456})
+    )
+    assert cycle.total_tokens == 123456
+    assert cycle.elapsed_seconds == 330
+
+
+def test_enrich_stats_none_when_unavailable():
+    # No timestamps -> elapsed None; zero tokens -> None (treated as "unknown").
+    state = SimpleNamespace(
+        status=SessionStatus.COMPLETED, thread_id="thread-1", current_phase="writing"
+    )
+    cycle = _enrich_cycle(
+        _cycle(),
+        _request(state=state, thread={"current_draft_id": "p"}, token_usage={"total_tokens": 0}),
+    )
+    assert cycle.elapsed_seconds is None
+    assert cycle.total_tokens is None

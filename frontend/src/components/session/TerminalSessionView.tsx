@@ -52,9 +52,9 @@ export function TerminalSessionView({ cycle }: { cycle: ResearchCycleResponse })
               paperId={cycle.paper_id ?? undefined}
               currentPhase={cycle.current_phase ?? null}
               roundNum={0}
-              totalTokens={0}
+              totalTokens={cycle.total_tokens ?? 0}
               papersFound={0}
-              elapsedSeconds={0}
+              elapsedSeconds={cycle.elapsed_seconds ?? 0}
             />
           </div>
 

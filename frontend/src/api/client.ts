@@ -42,6 +42,8 @@ export interface ResearchCycleResponse {
   current_phase?: string | null;
   topics?: string[] | null;
   resumed_from?: string | null;
+  total_tokens?: number | null;
+  elapsed_seconds?: number | null;
   created_at: string;
   updated_at?: string | null;
 }
