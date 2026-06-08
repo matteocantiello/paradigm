@@ -4435,6 +4435,12 @@ Primary ask = the cycle-routing bug (clicking a finished cycle → /session/<id>
 
 gpt-5.x "btw": diagnosed + (b2a0c70) preflight now RETRIES transient 429s (the concurrent ping burst fires 2 OpenAI roles at once → per-minute rate limit that clears in seconds) before swapping; a genuine quota/billing 429 keeps failing and still swaps. The 429-"exceeded your current quota" the user saw is account-side (new credits propagate / tier limits on gpt-5.x) — code can't fix billing, but the burst-induced false swaps are now avoided. The output-token-limit error is the reasoning-shim/preflight class already fixed in code — needs the VM deployed to current.
 
+### Prompt 175 — enable citation grounding + full terminal-screen-from-persisted-data
+
+> set citation grounding ON and then take a pass at the "full terminal-screen-from-persisted-data" enhancement
+
+(1) production.yaml: `citation.enable_citation_grounding: false → true` (whole-body grounding + batch-resolved bibliography is the cheapest path to a publication-grade reference list; needs PERPLEXITY_API_KEY, no-ops cleanly without). (2) New `frontend/src/components/session/TerminalSessionView.tsx`: a standalone end-of-run summary rendered from the persisted cycle record (prompt, status, topics + the reused TerminalScreen outcome/actions) — replaces the empty live panels a finished /session/:id used to show below the terminal banner. SessionPage renders it when the cycle is terminal AND was never live in this view: an `everConnected` ref (latched on connectionStatus==="connected", which a dead session never reaches) keeps the LIVE view + transcript when a run is watched to completion, and shows the standalone summary only for a cycle that was already finished when opened. Frontend tsc + build clean.
+
 ### Prompt 172 — preflight still swapping healthy gpt-5.x + gemini-flash
 
 > Im still getting this error: Model check: swapped unreachable model(s) — theorist: gpt-5.4 → gemini-2.5-flash-lite (Error code: 400 ... max_tokens or model output limit was reached ...); experimentalist: gpt-5.5 → ...; synthesizer/editor: gemini-2.5-flash → ... (timed out)
