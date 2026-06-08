@@ -1,6 +1,8 @@
 # Parallel-Branch Research (phase-level beam search)
 
-**Status:** exploring. Phase-0 spike built (`scripts/branch_spike.py`); see _Results_.
+**Status:** Phase-0 done → **shelved for ideation** (2 runs, 12 seeds: branching
+ties sequential, both tie a single pass; selection/taste — not parallelism — is the
+lever). See §10 _Results_. Harness + diversity-merge prompt kept for reuse.
 **Owner:** —  ·  **Created:** 2026-06-08
 
 A research modality where, at each phase of a cycle, we fan out **B** diverse
@@ -190,15 +192,51 @@ is a *proxy* for final-paper quality; one coarse integer-scoring judge (pairwise
 Elo would discriminate better); cheapest generator + the *simplest* branching.
 The negative result is about THIS naive implementation, not the concept ceiling.
 
-**Revised recommendation: do NOT start the engine refactor (Phase 1).** The spike
-did its job — it killed the cheap assumption and pinpointed the real lever. Next
-cheap experiments, in order:
-1. **Diversity-preserving synthesis** — replace "pick strongest K" with select-the-
-   most-*different* K (or an Elo tournament + merge-by-grafting). Re-run. **If a
-   better merge flips the result, branching has legs; if not, the idea is weak for
-   ideation.** This is the decisive next test.
-2. **Branch a different phase** — the value may live at PLANNING (diverse
-   experimental approaches) more than ideation. Test branch-at-planning.
-3. **Hybrid** — rounds *then* a branch (refine, then diversify) vs pure branch.
+**Run 2 — 2026-06-08, 8 seeds (astro + bio + ML + materials), the decisive test.**
+Added a **diversity-preserving merge** (`branch-B-div`, coverage-first) applied to
+the SAME branch candidates as the naive merge, so the merge is the only variable.
 
-Only if (1)/(2) show a real, cost-justified win do we generalize the engine.
+| variant | overall | breadth | tokens | quality/1k |
+|---|---|---|---|---|
+| baseline-1 (one pass) | 5.47 | 4.9 | 2.8k | **1.96** |
+| baseline-3 (3 rounds) | 5.53 | 4.8 | 8.6k | 0.64 |
+| branch-6 (naive merge) | 5.33 | 5.5 | 9.8k | 0.54 |
+| branch-6-div (diversity merge) | 5.35 | **6.0** | 9.7k | 0.55 |
+
+**Two clear findings:**
+1. **The diversity merge works *mechanically*** — it lifted breadth to 6.0 (vs naive
+   5.5, vs sequential ~4.8). So the branches DO carry real diversity, and a better
+   merge CAN preserve it. The §3 hypothesis was right.
+2. **…but it didn't lift OVERALL quality.** More breadth came at the cost of
+   specificity (5.4) and rigor (4.6) — a wash. And the bigger picture: **all four
+   strategies tie on overall (5.33–5.53), within noise.** Nothing beats a *single
+   pass* on quality, and a single pass wins decisively on quality-per-token (1.96
+   vs ~0.55). The extra 3.5× compute (rounds OR branches) bought ~nothing for
+   ideation. Per-seed there's no consistent winner (branching wins 2/8, loses 3/8).
+
+### Verdict
+
+**Do NOT pursue parallel branching at IDEATION, and do NOT do the engine refactor.**
+Two runs (12 seeds total) say the same thing: for ideation, marginal compute —
+serial *or* parallel — does not reliably improve quality. Ideation is cheap and a
+single good pass is ~as good as 3.5× the spend. The diversity merge is a real,
+reusable capability (it does raise coverage) but coverage alone doesn't lift the
+aggregate under an equal-weighted rubric.
+
+**What the spike actually taught us (the valuable part):**
+- The lever for research *quality* is **not** more ideation compute. It's
+  downstream (execution rigor, citation/review quality) and — the deeper one — a
+  **better selector/taste judge**. Best-of-N only pays if you can *tell* the best
+  from the rest; the judge here is coarse. A real taste model is the unlock, and
+  it makes branching, tournaments, and best-of all work better. (Consistent with
+  the taste-judge dev direction.)
+- A genuinely open question this metric can't answer: it scores the **mean** quality
+  of the consolidated set, but the reason to branch is the **max** — insurance that
+  *one* branch hit gold and the pipeline develops it. A "best-of / does the set
+  contain a standout" metric (and branching at PLANNING/EXECUTION, where a bad
+  design is expensive to discover serially) is the only thing that would reopen
+  this — but the bar is now high after two flat runs.
+
+Net: shelved for ideation. Reusable artifacts: the A/B harness, the diversity-merge
+prompt, and a sharpened thesis that **selection/taste — not parallelism — is the
+quality lever.**
