@@ -15,6 +15,7 @@ from backend.api.models.research import (
     ResearchCycleCreate,
     ResearchCycleList,
     ResearchCycleResponse,
+    ResearchStats,
     ResumeRequest,
 )
 
@@ -236,6 +237,36 @@ async def list_research_cycles(
         total=len(all_cycles),
         offset=offset,
         limit=limit,
+    )
+
+
+@router.get(
+    "/stats",
+    response_model=ResearchStats,
+    dependencies=[Depends(verify_api_key)],
+)
+async def research_stats(request: Request) -> ResearchStats:
+    """Headline counts for the dashboard overview (cycles run, papers, tokens).
+
+    Declared BEFORE ``/{cycle_id}`` so "stats" isn't matched as a cycle id.
+    """
+    total_cycles = len(request.app.state.cycle_store.list())
+    papers_published = 0
+    total_tokens = 0
+    db = getattr(request.app.state, "database", None)
+    if db is not None:
+        try:
+            papers_published = len(db.list_papers(status="published", limit=100000))
+        except Exception:  # noqa: BLE001 — stats must never 500 the dashboard
+            pass
+        try:
+            total_tokens = db.get_token_usage().get("total_tokens", 0)
+        except Exception:  # noqa: BLE001
+            pass
+    return ResearchStats(
+        total_cycles=total_cycles,
+        papers_published=papers_published,
+        total_tokens=total_tokens,
     )
 
 

@@ -4443,6 +4443,12 @@ gpt-5.x "btw": diagnosed + (b2a0c70) preflight now RETRIES transient 429s (the c
 
 Follow-on ("yes. then push"): surface real per-cycle stats in the summary. Backend `_enrich_cycle` now backfills `total_tokens` (db.get_token_usage(thread_id=…)) + `elapsed_seconds` (thread created_at→updated_at) onto ResearchCycleResponse (both optional, own try so a stats hiccup never drops the paper_id/topics enrichment); TerminalSessionView feeds them to TerminalScreen (which already hides zero stats). Rounds/papers aren't cleanly persisted per-thread, so omitted. +2 enrichment tests. Full suite 1604.
 
+### Prompt 176 — Dashboard vs Research were confusingly redundant
+
+> What is the difference between Dashboard and Research? I find it a bit confusing
+
+They overlapped ~80%: both rendered the same CycleCards (Dashboard = a 5-item preview of Research's full list), and Dashboard's "Quick Start" just bounced to Research's wizard. Explained the difference, then (AskUserQuestion → "Differentiate them") gave each a distinct job. **Dashboard** is now a real overview — "what's running + what came out": headline stats (cycles run / papers published / tokens used), a **Running now** section (active cycles only), **Latest papers** (5 most recent published, click → paper), and **New Research** opens the SetupWizard INLINE (no bounce). **Research** stays the full manager (all cycles, paginated, create/resume/delete). Backend: new `GET /api/v1/research/stats` (declared before `/{cycle_id}` so "stats" isn't matched as an id) → {total_cycles, papers_published, total_tokens}; +3 tests (stats counts, route-order guard, +the asyncio one). Frontend: useResearchStats hook, rewritten Dashboard. tsc + build clean, full suite 1606.
+
 ### Prompt 172 — preflight still swapping healthy gpt-5.x + gemini-flash
 
 > Im still getting this error: Model check: swapped unreachable model(s) — theorist: gpt-5.4 → gemini-2.5-flash-lite (Error code: 400 ... max_tokens or model output limit was reached ...); experimentalist: gpt-5.5 → ...; synthesizer/editor: gemini-2.5-flash → ... (timed out)

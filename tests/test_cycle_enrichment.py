@@ -12,9 +12,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
+
 from backend.api.models.research import CycleStatus, ResearchCycleResponse
 from backend.api.models.session import SessionStatus
-from backend.api.routes.research import _enrich_cycle
+from backend.api.routes.research import _enrich_cycle, research_stats, router
 
 
 def _request(*, state=None, thread=None, token_usage=None):
@@ -103,3 +105,31 @@ def test_enrich_stats_none_when_unavailable():
     )
     assert cycle.elapsed_seconds is None
     assert cycle.total_tokens is None
+
+
+@pytest.mark.asyncio
+async def test_research_stats_counts():
+    store = SimpleNamespace(list=lambda: [object(), object(), object()])  # 3 cycles
+    db = SimpleNamespace(
+        list_papers=lambda status=None, limit=None: (
+            [{"id": "p1"}, {"id": "p2"}] if status == "published" else []
+        ),
+        get_token_usage=lambda: {"total_tokens": 500000},
+    )
+    req = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(cycle_store=store, database=db))
+    )
+    stats = await research_stats(req)
+    assert stats.total_cycles == 3
+    assert stats.papers_published == 2
+    assert stats.total_tokens == 500000
+
+
+def test_stats_route_declared_before_cycle_id():
+    # /stats must be registered before /{cycle_id} or "stats" is matched as an id.
+    paths = [
+        r.path for r in router.routes if getattr(r, "path", "").endswith(("/stats", "/{cycle_id}"))
+    ]
+    assert paths.index(next(p for p in paths if p.endswith("/stats"))) < paths.index(
+        next(p for p in paths if p.endswith("/{cycle_id}"))
+    )

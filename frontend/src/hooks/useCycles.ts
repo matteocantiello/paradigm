@@ -8,6 +8,13 @@ export function useCycles(offset = 0, limit = 20) {
   });
 }
 
+export function useResearchStats() {
+  return useQuery({
+    queryKey: ["research-stats"],
+    queryFn: () => api.getResearchStats(),
+  });
+}
+
 export function useCycle(cycleId: string | undefined) {
   return useQuery({
     queryKey: ["cycle", cycleId],

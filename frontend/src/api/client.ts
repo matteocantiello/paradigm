@@ -61,6 +61,16 @@ export function listCycles(offset = 0, limit = 20) {
   );
 }
 
+export interface ResearchStats {
+  total_cycles: number;
+  papers_published: number;
+  total_tokens: number;
+}
+
+export function getResearchStats() {
+  return request<ResearchStats>(`/api/v1/research/stats`);
+}
+
 export function getCycle(cycleId: string) {
   return request<ResearchCycleResponse>(`/api/v1/research/${cycleId}`);
 }

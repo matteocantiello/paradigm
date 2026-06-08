@@ -69,3 +69,11 @@ class ResearchCycleList(BaseModel):
     total: int
     offset: int
     limit: int
+
+
+class ResearchStats(BaseModel):
+    """Headline counts for the dashboard overview."""
+
+    total_cycles: int = 0
+    papers_published: int = 0
+    total_tokens: int = 0
