@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from paradigm.agents.preflight import preflight_team_models
@@ -165,6 +167,40 @@ class TestPreflight:
         assert res.overrides == {}  # recovered on retry → no swap
         assert res.swaps == []
         assert gemini.pings == 2  # one failure + one successful retry
+
+    @pytest.mark.asyncio
+    async def test_retries_transient_429_then_resolves(self):
+        # A 429 from the concurrent ping burst usually clears — retry, don't swap.
+        prov = _RaiseThenOK(RuntimeError("Error code: 429 - rate limit reached"), fail_times=1)
+        cfg = _Config(
+            providers={"openai": prov},
+            role_map={"theorist": ("openai", "gpt-5.4")},
+            default_provider="openai",
+            default_model="gpt-5.4",
+            overrides={"theorist": _Override(provider="openai", model="gpt-5.4")},
+        )
+        with patch("paradigm.agents.preflight.asyncio.sleep", new=AsyncMock()):
+            res = await preflight_team_models(cfg, ["theorist"])
+        assert res.overrides == {}  # recovered on retry → not swapped
+        assert res.swaps == []
+        assert prov.pings == 2
+
+    @pytest.mark.asyncio
+    async def test_persistent_429_still_swaps(self):
+        # A genuine quota exhaustion keeps 429-ing → swap to the healthy fallback.
+        openai = _RaiseThenOK(RuntimeError("429 - you exceeded your current quota"), fail_times=99)
+        gemini = _Provider(ok=True)
+        cfg = _Config(
+            providers={"openai": openai, "gemini": gemini},
+            role_map={"theorist": ("openai", "gpt-5.4"), "writer": ("gemini", "gemini-2.5-flash")},
+            default_provider="gemini",
+            default_model="gemini-2.5-flash",
+            overrides={"theorist": _Override(provider="openai", model="gpt-5.4")},
+        )
+        with patch("paradigm.agents.preflight.asyncio.sleep", new=AsyncMock()):
+            res = await preflight_team_models(cfg, ["theorist", "writer"])
+        assert "theorist" in res.overrides  # exhausted quota → swapped
+        assert res.overrides["theorist"][1] == "gemini-2.5-flash"
 
     @pytest.mark.asyncio
     async def test_never_raises_on_bad_config(self):

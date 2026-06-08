@@ -48,6 +48,30 @@ def _is_output_limit_error(e: BaseException) -> bool:
     return any(h in msg for h in _OUTPUT_LIMIT_HINTS)
 
 
+# Transient failures worth a retry: a 429/rate-limit is COMMON here because preflight
+# pings every model AT ONCE, so two OpenAI roles fire concurrently and can trip a
+# per-minute limit that clears in seconds (and never recurs once the cycle spaces its
+# calls out). Retrying avoids needlessly swapping a perfectly usable model. (A genuine
+# quota/billing exhaustion keeps failing and still swaps after the retries.)
+_RETRYABLE_PING_HINTS = (
+    "429",
+    "rate limit",
+    "rate-limit",
+    "too many requests",
+    "503",
+    "502",
+    "504",
+    "overloaded",
+    "temporarily",
+)
+_PING_RETRY_BACKOFF_S = 3.0
+
+
+def _is_retryable_ping_error(e: BaseException) -> bool:
+    msg = (str(e) or "").lower()
+    return any(h in msg for h in _RETRYABLE_PING_HINTS)
+
+
 @dataclass
 class PreflightResult:
     # role -> (provider_obj, model) to use instead of the configured one
@@ -99,7 +123,15 @@ async def _ping(provider: Any, model: str, *, timeout: float) -> str | None:
             continue
         except BaseException as e:  # noqa: BLE001 — health check classifies every failure
             # A tiny-budget output-limit 400 means the model is up and generating.
-            return None if _is_output_limit_error(e) else _short_err(e)
+            if _is_output_limit_error(e):
+                return None
+            # A 429/rate-limit (often from the concurrent ping burst) usually clears —
+            # back off and retry before giving up on the model.
+            if _is_retryable_ping_error(e) and _attempt < _PING_ATTEMPTS - 1:
+                last = _short_err(e)
+                await asyncio.sleep(_PING_RETRY_BACKOFF_S * (_attempt + 1))
+                continue
+            return _short_err(e)
     return last
 
 
