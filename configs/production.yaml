@@ -178,11 +178,11 @@ journal:
 
 citation:
   # All three use Perplexity (needs PERPLEXITY_API_KEY in the env; without it they
-  # no-op cleanly). Seed discovery is ON: it bootstraps the literature with a few
-  # foundational papers at the start of a cycle (one fast call) — the cheapest,
-  # highest-value Perplexity feature. Citation grounding + novelty add per-claim
-  # Perplexity calls during writing (slower), so they stay OFF by default; enable
-  # them from the GUI settings (or here) when you want stronger citation checking.
-  enable_citation_grounding: false
+  # no-op cleanly). Seed discovery bootstraps the literature with a few foundational
+  # papers at the start of a cycle (one fast call). Citation grounding inserts [N]
+  # markers across the whole body + builds a real (batch-resolved) bibliography —
+  # the cheapest way to a publication-grade reference list, so it's ON. Novelty
+  # checking adds per-idea Perplexity calls; leave it off unless you want it.
+  enable_citation_grounding: true
   enable_novelty_check: false
   enable_seed_discovery: true
