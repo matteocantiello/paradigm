@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Paradigm pre-push smoke gate. Install once (from the repo root):
+#
+#     git config core.hooksPath .githooks
+#
+# Always runs the FAST gate before a push: ruff (lint) + the pytest suite. These
+# are offline and take ~30s, and they catch the regressions CI would catch before
+# you push. Set PARADIGM_PREPUSH_SMOKE=1 to ALSO run one real end-to-end self-test
+# cycle (scripts/selftest.py) — that makes live API calls (a few cents + a few
+# minutes), so it's opt-in rather than on every push.
+#
+# Override the Python launcher with PARADIGM_PY (default: the conda `paradigm` env
+# if present, else whatever is on PATH). Skip everything with PARADIGM_NO_PREPUSH=1.
+set -euo pipefail
+
+if [ "${PARADIGM_NO_PREPUSH:-0}" = "1" ]; then
+    echo "↪ pre-push checks skipped (PARADIGM_NO_PREPUSH=1)"
+    exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Resolve a Python launcher. The project uses a conda env named `paradigm`.
+PY="${PARADIGM_PY:-}"
+if [ -z "$PY" ]; then
+    if command -v conda >/dev/null 2>&1 && conda env list 2>/dev/null | grep -qE '/paradigm$'; then
+        PY="conda run -n paradigm"
+    fi
+fi
+
+echo "▶ pre-push: ruff check (src, tests)…"
+$PY ruff check src tests
+
+echo "▶ pre-push: ruff format --check (src, tests)…"
+$PY ruff format --check src tests
+
+echo "▶ pre-push: pytest…"
+$PY python -m pytest -q
+
+if [ "${PARADIGM_PREPUSH_SMOKE:-0}" = "1" ]; then
+    echo "▶ pre-push: self-test cycle (PARADIGM_PREPUSH_SMOKE=1; live API calls)…"
+    $PY python scripts/selftest.py \
+        --prompt "Explain the period-luminosity relation for Cepheid variable stars."
+fi
+
+echo "✓ pre-push checks passed"
