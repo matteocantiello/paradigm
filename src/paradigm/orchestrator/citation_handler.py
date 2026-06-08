@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from typing import TYPE_CHECKING
@@ -18,6 +19,11 @@ from paradigm.logging.events import EventType
 
 if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
+
+# Hard wall-clock cap on the whole citation-grounding pass. Grounding is a
+# best-effort enhancement — if Perplexity is slow/rate-limited past this, leave the
+# paper ungrounded rather than stall the cycle.
+_GROUNDING_BUDGET_S = 240.0
 
 
 class CitationHandler:
@@ -72,14 +78,33 @@ class CitationHandler:
             timeout=config.perplexity_timeout,
             max_retries=config.max_retries_per_paragraph,
         ) as client:
-            for section_name, section_content in sections.items():
-                if section_name.lower() not in citable_sections:
-                    continue
-
-                cited_text, urls = await client.cite_section(section_content, section_name)
+            citable = [
+                (name, content)
+                for name, content in sections.items()
+                if name.lower() in citable_sections
+            ]
+            try:
+                # Ground all citable sections CONCURRENTLY, under an overall budget so
+                # a slow/rate-limited Perplexity can never stall the cycle (grounding
+                # is best-effort — leave the paper ungrounded if it overruns).
+                results = await asyncio.wait_for(
+                    asyncio.gather(*(client.cite_section(c, n) for n, c in citable)),
+                    timeout=_GROUNDING_BUDGET_S,
+                )
+            except TimeoutError:
+                self._engine._logger.log_error(
+                    RuntimeError(
+                        "citation grounding exceeded its budget — leaving paper ungrounded"
+                    ),
+                    thread_id=self._engine.state.thread_id,
+                    metadata_key="citation_grounding",
+                )
+                self._engine._display.citation_grounding_complete(0)
+                return draft
+            for (name, _content), (cited_text, urls) in zip(citable, results, strict=True):
                 section_texts.append(cited_text)
                 section_url_lists.append(urls)
-                cited_section_names.append(section_name)
+                cited_section_names.append(name)
 
         if not section_texts:
             self._engine._display.citation_grounding_complete(0)

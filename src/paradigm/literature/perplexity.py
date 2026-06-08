@@ -6,6 +6,7 @@ numbered citation markers ([1], [2], ...) and collect arXiv citation URLs.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -329,14 +330,19 @@ class PerplexityClient:
         if not paragraphs:
             return section_text, []
 
+        # Ground every paragraph CONCURRENTLY — each is an independent Perplexity
+        # call (up to perplexity_timeout + retries). Sequential grounding summed
+        # those latencies and could run many minutes / read as a stall; gather makes
+        # the wall-clock the slowest single paragraph.
+        results = await asyncio.gather(
+            *(self.cite_paragraph(para) for para in paragraphs), return_exceptions=True
+        )
+
         all_urls: list[str] = []
         cited_text = section_text
-
-        for para in paragraphs:
-            result = await self.cite_paragraph(para)
-            if result is None:
+        for para, result in zip(paragraphs, results, strict=True):
+            if not isinstance(result, CitedParagraph):
                 continue
-
             # Replace original paragraph with cited version
             if result.cited_text and result.cited_text != para:
                 cited_text = cited_text.replace(para, result.cited_text, 1)
