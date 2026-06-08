@@ -175,11 +175,13 @@ def _convert_body_block(lines: list[str]) -> str:
         if img:
             _close_lists()
             alt, path = img.group(1), img.group(2).split()[0].strip('"')
+            caption = _FIG_LABEL_RE.sub("", alt).strip()  # drop redundant "Figure N:"
             out.append(r"\begin{figure}[htbp]")
             out.append(r"\centering")
             out.append(rf"\includegraphics[width=0.8\linewidth]{{{path}}}")
-            if alt:
-                out.append(rf"\caption{{{_convert_inline(alt)}}}")
+            # Always emit \caption (keeps the auto-numbered "Figure N" label that
+            # the prose refers to); include the description when one survives.
+            out.append(rf"\caption{{{_convert_inline(caption)}}}" if caption else r"\caption{}")
             out.append(r"\end{figure}")
             i += 1
             continue
@@ -235,6 +237,9 @@ def _convert_body_block(lines: list[str]) -> str:
 _BULLET_RE = re.compile(r"^[-*+]\s+(.*)$")
 _NUMBER_RE = re.compile(r"^\d+[.)]\s+(.*)$")
 _TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$")
+# A leading "Figure N:" / "Fig. N." in alt text is redundant — LaTeX's \caption
+# adds its own "Figure N:" label, so strip it to avoid "Figure 1: Figure 1: ...".
+_FIG_LABEL_RE = re.compile(r"^(?:figure|fig\.?)\s*\d+\s*[:.—-]?\s*", re.IGNORECASE)
 
 
 def _looks_like_table_row(stripped: str) -> bool:

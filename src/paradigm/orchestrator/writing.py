@@ -34,6 +34,22 @@ from paradigm.orchestrator.phases import ResearchPhase
 if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
 
+_FIG_WORDS = {"fig", "figure", "plot", "chart", "graph", "diagram"}
+
+
+def _humanize_figure_name(exp_name: str) -> str:
+    """Turn an experiment/figure name into a short, human-readable caption.
+
+    ``mass_luminosity_fit`` -> ``Mass luminosity fit``. Used as the figure
+    caption so the PDF reads "Figure 1: Mass luminosity fit" instead of the old
+    "Figure 1: Figure 1". Returns "" if nothing meaningful remains.
+    """
+    name = re.sub(r"\.(png|pdf|jpe?g|svg)$", "", exp_name or "", flags=re.IGNORECASE)
+    name = name.replace("_", " ").replace("-", " ")
+    words = [w for w in name.split() if w.lower() not in _FIG_WORDS]
+    name = " ".join(words).strip()
+    return name[0].upper() + name[1:] if name else ""
+
 
 class WritingHandler:
     """Encapsulates writing-phase logic extracted from OrchestrationEngine."""
@@ -707,9 +723,9 @@ class WritingHandler:
                 )
                 for i, (exp_name, fpath) in enumerate(self._engine.state.execution_figures, 1):
                     dest_name = self.figure_dest_name(exp_name, fpath)
-                    fig_lines.append(
-                        f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`"
-                    )
+                    cap = _humanize_figure_name(exp_name)
+                    alt = f"Figure {i}: {cap}" if cap else f"Figure {i}"
+                    fig_lines.append(f"- Figure {i} ({exp_name}): `![{alt}](figures/{dest_name})`")
                 fig_lines.append(
                     f"\nYou have exactly {len(self._engine.state.execution_figures)} figures. "
                     "Do NOT reference any Figure number beyond this count."
@@ -915,7 +931,9 @@ class WritingHandler:
             fig_lines.append("Include these figures in the paper using the markdown syntax shown:")
             for i, (exp_name, fpath) in enumerate(self._engine.state.execution_figures, 1):
                 dest_name = self.figure_dest_name(exp_name, fpath)
-                fig_lines.append(f"- Figure {i} ({exp_name}): `![Figure {i}](figures/{dest_name})`")
+                cap = _humanize_figure_name(exp_name)
+                alt = f"Figure {i}: {cap}" if cap else f"Figure {i}"
+                fig_lines.append(f"- Figure {i} ({exp_name}): `![{alt}](figures/{dest_name})`")
             fig_lines.append(
                 f"\nIMPORTANT: Only {len(self._engine.state.execution_figures)} figures exist. "
                 "Do NOT reference Figure numbers beyond this count. "
@@ -1158,10 +1176,10 @@ class WritingHandler:
         if not self._engine.state.execution_figures:
             return body
 
-        # Build ordered mapping: figure number -> destination filename
-        fig_map: dict[int, str] = {}
+        # Build ordered mapping: figure number -> (destination filename, caption)
+        fig_map: dict[int, tuple[str, str]] = {}
         for i, (exp_name, fpath) in enumerate(self._engine.state.execution_figures, 1):
-            fig_map[i] = self.figure_dest_name(exp_name, fpath)
+            fig_map[i] = (self.figure_dest_name(exp_name, fpath), _humanize_figure_name(exp_name))
 
         # Regex to detect existing image tags like ![Figure 1](figures/...)
         existing_img_re = re.compile(r"!\[(?:Figure|Fig\.?)\s*(\d+)[^\]]*\]\(figures/[^)]+\)")
@@ -1173,7 +1191,7 @@ class WritingHandler:
 
         # For each figure not yet embedded, find its first textual reference
         # and insert the image tag after that paragraph.
-        for fig_num, dest_name in fig_map.items():
+        for fig_num, (dest_name, caption) in fig_map.items():
             if fig_num in already_embedded:
                 continue
 
@@ -1185,17 +1203,18 @@ class WritingHandler:
                 # No textual reference — skip (don't force-append unreferenced figures)
                 continue
 
+            alt = f"Figure {fig_num}: {caption}" if caption else f"Figure {fig_num}"
             # Find the end of the paragraph containing the reference
             pos = match.end()
             # Look for the next blank line (paragraph boundary)
             next_blank = body.find("\n\n", pos)
             if next_blank == -1:
                 # Reference is in the last paragraph
-                body = body.rstrip() + f"\n\n![Figure {fig_num}](figures/{dest_name})\n"
+                body = body.rstrip() + f"\n\n![{alt}](figures/{dest_name})\n"
             else:
                 # Insert after the blank line
                 insert_pos = next_blank + 2  # after the \n\n
-                tag = f"![Figure {fig_num}](figures/{dest_name})\n\n"
+                tag = f"![{alt}](figures/{dest_name})\n\n"
                 body = body[:insert_pos] + tag + body[insert_pos:]
 
         # Strip orphan image tags referencing figures beyond our count

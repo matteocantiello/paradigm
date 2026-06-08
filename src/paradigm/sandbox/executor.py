@@ -35,6 +35,14 @@ def _make_sandbox_writable(path: Path) -> None:
 # Auto-import preamble prepended to all experiment code.
 # Agents frequently use standard aliases (np, pd, plt) without explicit imports;
 # this prevents NameError crashes for the most common scientific libraries.
+#
+# It ALSO applies a publication-quality matplotlib style to EVERY generated figure
+# (experiment + conceptual) — both paths run through CodeExecutor.execute, so this
+# is the single styling chokepoint. Without it, figures used raw matplotlib
+# defaults: tiny fonts, clashing colors, thin spines, and the notorious
+# "1e-13+7.04e-2" axis offset text. The style is best-effort (try/except) so a
+# matplotlib version that rejects a key can never break an experiment. Agent code
+# can still override any of these afterwards.
 _SCIENCE_PREAMBLE = """\
 import re
 import numpy as np
@@ -46,6 +54,48 @@ import pandas as pd
 from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
+try:
+    from cycler import cycler as _cycler
+    plt.rcParams.update({
+        'figure.figsize': (7.0, 4.5),
+        'figure.dpi': 150,
+        'figure.facecolor': 'white',
+        'savefig.dpi': 200,
+        'savefig.bbox': 'tight',
+        'savefig.pad_inches': 0.05,
+        'savefig.facecolor': 'white',
+        'font.family': 'serif',
+        'font.serif': ['DejaVu Serif'],
+        'font.size': 12,
+        'mathtext.fontset': 'cm',
+        'axes.titlesize': 13,
+        'axes.titleweight': 'bold',
+        'axes.labelsize': 12,
+        'axes.linewidth': 0.8,
+        'axes.spines.top': False,
+        'axes.spines.right': False,
+        'axes.grid': True,
+        'axes.axisbelow': True,
+        'grid.alpha': 0.3,
+        'grid.linewidth': 0.6,
+        'axes.formatter.useoffset': False,
+        'axes.formatter.use_mathtext': True,
+        'legend.fontsize': 10,
+        'legend.frameon': False,
+        'xtick.labelsize': 10,
+        'ytick.labelsize': 10,
+        'xtick.direction': 'out',
+        'ytick.direction': 'out',
+        'lines.linewidth': 1.8,
+        'lines.markersize': 5,
+        'image.cmap': 'viridis',
+        'axes.prop_cycle': _cycler(color=[
+            '#0072B2', '#D55E00', '#009E73', '#CC79A7',
+            '#E69F00', '#56B4E9', '#999999', '#000000',
+        ]),
+    })
+except Exception:
+    pass
 try:
     import astropy.units as u
     import astropy.constants as const

@@ -20,6 +20,24 @@ from paradigm.journal.paper import (
     strip_agent_scaffolding,
 )
 from paradigm.orchestrator.engine import OrchestrationEngine
+from paradigm.orchestrator.writing import _humanize_figure_name
+
+
+# --- Figure caption humanization (B2) ---
+class TestHumanizeFigureName:
+    def test_snake_case_to_caption(self):
+        assert _humanize_figure_name("mass_luminosity_fit") == "Mass luminosity fit"
+
+    def test_strips_generic_figure_words_and_extension(self):
+        assert (
+            _humanize_figure_name("entrainment_vs_coupling_plot.png") == "Entrainment vs coupling"
+        )
+        assert _humanize_figure_name("fig_correlation") == "Correlation"
+
+    def test_empty_when_only_generic_words(self):
+        assert _humanize_figure_name("figure") == ""
+        assert _humanize_figure_name("") == ""
+
 
 # --- Paper Model Tests ---
 

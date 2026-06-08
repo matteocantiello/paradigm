@@ -79,6 +79,18 @@ class TestMarkdownToLatex:
         assert r"\caption{SEM plot}" in out
         assert r"\begin{figure}" in out
 
+    def test_figure_caption_strips_redundant_label(self):
+        # "![Figure 1: desc]" must not become "Figure 1: Figure 1: desc" (LaTeX
+        # already adds the "Figure N:" label).
+        out = _tex("# T\n\n## R\n![Figure 1: Mass-luminosity relation](figures/ml.png)")
+        assert r"\caption{Mass-luminosity relation}" in out
+        assert "Figure 1: Mass" not in out  # no doubled label
+
+    def test_figure_bare_label_yields_empty_caption(self):
+        # "![Figure 1]" (no description) -> empty caption keeps the auto "Figure 1:" label.
+        out = _tex("# T\n\n## R\n![Figure 1](figures/x.png)")
+        assert r"\caption{}" in out
+
     def test_itemize_and_enumerate(self):
         out = _tex("# T\n\n## S\n- a\n- b\n\n1. one\n2. two")
         assert r"\begin{itemize}" in out and r"\end{itemize}" in out
