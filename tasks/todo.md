@@ -1,52 +1,35 @@
-# Terminal action + resumable cycles
+# Quality Audit & Improvement — Prompt 173
 
-User ask (prompt 103): on any cycle end, a clear GUI action — show the paper, or
-a non-convergence summary — and ALWAYS a way to continue an unfinished cycle
-(after a dropped connection, etc.), logged as resumable in the research tab, with
-optional steering. Sequencing chosen by user: **terminal screen first**.
+Autonomous multi-hour effort. Ground every fix in real generated artifacts; verify with fresh cycles.
 
-## Phase 1 — Terminal action / summary  ✅ DONE
-- [x] Backend `_enrich_cycle`: backfill live status + thread_id + paper_id onto the
-      in-memory cycle (it was only written at start → stuck on "running", no paper).
-      Wired into list + get. +4 tests.
-- [x] `TerminalScreen` component: outcome (complete / no-paper / failed / stopped),
-      one-line summary, stats (phase, rounds, elapsed, tokens, papers), and actions —
-      **View paper** (converged) / Resume (disabled, "soon" → Phase 3) / Back to research.
-- [x] Wired into `SessionView` (shown above the panels on terminal status).
-- [x] `PapersPage` deep-link `?paper=<id>` so "View paper" opens directly.
+## Audit findings (confirmed against real PDF `paper-489a566e6225.pdf` + code)
 
-## Phase 2 — Persist cycles + mark interrupted  ✅ DONE
-- [x] DB `cycles` table + CRUD (`create/get/list/update/delete_cycle`) +
-      `mark_running_cycles_interrupted()`. team_roles JSON round-trip.
-- [x] `CycleStore` service (DB-backed; in-memory fallback shares research._cycles
-      for demo mode). Wired into the lifespan; `mark_interrupted_on_startup()`.
-- [x] Migrated research.py + sessions.py routes to the store; session_manager
-      persists the terminal cycle (status + thread_id from engine.state — survives
-      a mid-run drop — + paper_id) in the `finally`.
-- [x] `CycleStatus.INTERRUPTED`; StatusBadge amber "interrupted"; CycleCard shows
-      the phase reached. +6 tests.
+### Area A — LaTeX/PDF (`journal/latex.py`) ✅ DONE (b147830)
+- [x] **A1. Markdown tables** → booktabs `tabular` with l/c/r alignment + math/escaped cells. Verified in a real compiled PDF.
+- [x] **A2. Loose-list numbering** → lists survive blank lines (1,2,3 not 1,1,1).
+- [x] **A3. Robust preamble** → booktabs/microtype/caption/float/enumitem/xcolor behind `\IfFileExists` (minimal-install safe; booktabs→\hline fallback). References hanging-indent.
+- [x] +9 tests.
 
-## Phase 3 — Resume from checkpoint + steering  ✅ DONE
-- [x] No engine surgery: resume reuses the Phase-99 guidance inbox. The prior
-      thread's checkpoint (hypothesis/findings/open-questions/next-steps/summary) +
-      the operator comment are assembled into a continuation note and queued as
-      first-round guidance for a fresh linked run. (Mid-phase re-entry rejected —
-      the engine's phases have hard state deps; checkpoint-granularity per plan.)
-- [x] `POST /api/v1/research/{cycle_id}/resume` (optional `comment`) → creates a
-      continuation cycle (`resumed_from` lineage; DB column + model + store), starts
-      it, queues the note. Works for interrupted/failed/aborted AND completed
-      ("extend further").
-- [x] Frontend: `resumeCycle()`; TerminalScreen Resume button + inline steering box;
-      CycleCard quick-Resume (resumable statuses) + "continues an earlier run"
-      lineage; cycleId threaded SessionPage→SessionView→TerminalScreen. +5 tests.
+### Area B — Figures (default matplotlib → publication quality) ✅ DONE (e8fe15d)
+- [x] **B1. Publication rcParams** in `_SCIENCE_PREAMBLE` — serif+cm-math, despined, subtle grid, Okabe-Ito palette, 200-dpi tight, `useoffset=False` (kills `1e-13+…`). Both figure paths inherit it. try/except-safe. **Verified by rendering in the real sandbox image** — dramatic improvement.
+- [x] **B2. Descriptive captions** — humanize experiment name into alt text; strip redundant "Figure N:" in latex. Prompt guidance: style is pre-applied, demand titles+unit-labelled axes+legend.
+- [x] +9 tests.
+
+### Area C — Citations (often sparse / incomplete) ✅ DONE (22040de)
+- [x] **C1.** `citation_sections` default → whole body (intro/methods/results/discussion/conclusion).
+- [x] **C2.** Retry+backoff in `_fetch_metadata` (transient 429/timeout/5xx), bounded-concurrent resolution (semaphore 4). Redundant per-ref ERROR → debug.
+- [x] **C3.** `max_retries_per_paragraph` 2→3.
+- [ ] (defer) Feed agent-discovered papers into bibliography — revisit if still sparse after a real run.
+- [x] +8 tests.
+
+## Verification (the "few cycles of improvement")
+- [~] Flash-Lite cycle (verify-quality.yaml: experiments+grounding+latex/pdf) — RUNNING, inspect PDF.
+- [ ] Production-lineup cycle (verify-production.yaml) — strong models, publish path (= task 2).
+
+## Offered follow-ups
+- [ ] **(1)** Cover review's conceptual-figure branch (force figure references).
+- [ ] **(2)** Real production-lineup batch (strong models, publish path) — config ready.
+- [x] **(3)** Wire `selftest.py` into a pre-push smoke check — `.githooks/pre-push` (dcfc3dc), validated.
 
 ## Review
-All 3 phases shipped. Full suite 1497; ruff + tsc + vite build clean. Resume is
-checkpoint-granularity (re-derives forward with prior context), not exact
-mid-experiment replay — set with the user up front. Future: thread-reuse /
-draft-continuation once engine.py is refactored for phase re-entry.
-
-## Review
-Phase 1 verified: full suite 1486 pass; ruff + frontend tsc/build clean. The
-enrichment also fixes a latent bug — cycle.status was set to "running" at start
-and never updated, so the research tab showed every cycle as running forever.
+(to be filled in)
