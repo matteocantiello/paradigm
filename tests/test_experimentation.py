@@ -852,7 +852,8 @@ class TestEmbedFiguresInline:
 
         body = "# Paper\n\n## Results\n\nAs shown in Figure 1, the data is clear.\n\n## Conclusion\n\nDone."
         result = engine._writing.embed_figures_inline(body)
-        assert "![Figure 1](figures/test_exp_plot.png)" in result
+        # Tag now carries a humanized caption derived from the experiment name.
+        assert "![Figure 1: Test exp](figures/test_exp_plot.png)" in result
 
     def test_skips_already_embedded(self, tmp_path):
         engine = self._make_engine(tmp_path)
@@ -882,8 +883,8 @@ class TestEmbedFiguresInline:
 
         body = "# Paper\n\nFigure 1 shows X.\n\nFigure 2 shows Y."
         result = engine._writing.embed_figures_inline(body)
-        assert "![Figure 1](figures/exp_a_fig_a.png)" in result
-        assert "![Figure 2](figures/exp_b_fig_b.png)" in result
+        assert "![Figure 1: Exp a](figures/exp_a_fig_a.png)" in result
+        assert "![Figure 2: Exp b](figures/exp_b_fig_b.png)" in result
 
     def test_figure_dest_name_sanitizes(self, tmp_path):
         engine = self._make_engine(tmp_path)

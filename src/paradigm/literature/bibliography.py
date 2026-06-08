@@ -6,6 +6,7 @@ Fetches metadata for arXiv/Semantic Scholar URLs and formats a numbered
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -15,6 +16,35 @@ from paradigm.literature.semantic_scholar import SemanticScholarClient
 from paradigm.logging.events import EventLogger, EventType
 
 logger = logging.getLogger(__name__)
+
+# Metadata resolution (Semantic Scholar / arXiv) is flaky under load — a momentary
+# 429 would otherwise strand a citation as a bare URL. Retry transient failures with
+# a short backoff, but cap concurrency so we don't stampede the APIs into MORE 429s.
+_METADATA_ATTEMPTS = 3
+_METADATA_BACKOFF_S = 2.0
+_MAX_CONCURRENT_METADATA = 4
+_TRANSIENT_META_HINTS = (
+    "429",
+    "rate limit",
+    "rate-limit",
+    "timeout",
+    "timed out",
+    "502",
+    "503",
+    "504",
+    "temporarily",
+    "connection",
+)
+
+
+def _is_transient_meta_error(e: Exception) -> bool:
+    s = str(e).lower()
+    return any(h in s for h in _TRANSIENT_META_HINTS)
+
+
+async def _none() -> list:
+    """Awaitable empty result — stands in when a metadata client is unconfigured."""
+    return []
 
 
 @dataclass
@@ -87,16 +117,22 @@ class BibliographyBuilder:
                 seen.add(url)
                 unique_urls.append(url)
 
-        references: list[Reference] = []
-        for i, url in enumerate(unique_urls, 1):
-            ref = Reference(index=i, url=url)
-            arxiv_id = extract_arxiv_id_from_url(url)
+        references = [Reference(index=i, url=url) for i, url in enumerate(unique_urls, 1)]
 
-            if arxiv_id:
-                ref.arxiv_id = arxiv_id
+        # Resolve metadata concurrently (bounded), so the wall-clock is the slowest
+        # single lookup rather than the sum — important now that retries+backoff can
+        # make any one lookup take a few seconds.
+        sem = asyncio.Semaphore(_MAX_CONCURRENT_METADATA)
+
+        async def _resolve(ref: Reference) -> None:
+            arxiv_id = extract_arxiv_id_from_url(ref.url)
+            if not arxiv_id:
+                return
+            ref.arxiv_id = arxiv_id
+            async with sem:
                 await self._fetch_metadata(ref, arxiv_id)
 
-            references.append(ref)
+        await asyncio.gather(*(_resolve(r) for r in references), return_exceptions=True)
 
         # Count and report unverified references. This is a citation-QUALITY note
         # (some refs couldn't be resolved to metadata and would render as bare URLs,
@@ -117,51 +153,55 @@ class BibliographyBuilder:
         return references
 
     async def _fetch_metadata(self, ref: Reference, arxiv_id: str) -> None:
-        """Try to fetch metadata from Semantic Scholar, then arXiv as fallback.
+        """Populate ``ref`` from Semantic Scholar, then arXiv, retrying transients.
 
-        Args:
-            ref: Reference to populate.
-            arxiv_id: arXiv paper ID.
+        Each provider is retried up to ``_METADATA_ATTEMPTS`` times on a transient
+        failure (429 / timeout / 5xx) with a short linear backoff, so a momentary
+        rate-limit doesn't strand the reference as a bare URL.
         """
-        # Try Semantic Scholar first (faster, structured)
-        if self._s2:
-            try:
-                papers = await self._s2.search(f"arXiv:{arxiv_id}", limit=1)
-                if papers:
-                    paper = papers[0]
-                    ref.title = paper.title
-                    ref.authors = ", ".join(paper.authors[:3]) + (
-                        " et al." if len(paper.authors) > 3 else ""
-                    )
-                    ref.year = str(paper.year) if paper.year else ""
-                    return
-            except Exception as e:
-                logger.debug("S2 metadata fetch failed for %s: %s", arxiv_id, e)
+        if await self._resolve_from(
+            ref,
+            lambda: self._s2.search(f"arXiv:{arxiv_id}", limit=1) if self._s2 else _none(),
+            year_of=lambda p: str(p.year) if p.year else "",
+            label="S2",
+            arxiv_id=arxiv_id,
+        ):
+            return
+        if await self._resolve_from(
+            ref,
+            lambda: self._arxiv.search(f"id:{arxiv_id}", max_results=1) if self._arxiv else _none(),
+            year_of=lambda p: p.published[:4] if p.published else "",
+            label="arXiv",
+            arxiv_id=arxiv_id,
+        ):
+            return
 
-        # Fallback: arXiv API
-        if self._arxiv:
-            try:
-                papers = await self._arxiv.search(f"id:{arxiv_id}", max_results=1)
-                if papers:
-                    paper = papers[0]
-                    ref.title = paper.title
-                    ref.authors = ", ".join(paper.authors[:3]) + (
-                        " et al." if len(paper.authors) > 3 else ""
-                    )
-                    ref.year = paper.published[:4] if paper.published else ""
-                    return
-            except Exception as e:
-                logger.debug("arXiv metadata fetch failed for %s: %s", arxiv_id, e)
+        # Both lookups failed — reference stays URL-only. The aggregate count is
+        # already reported (as a CITATION_GROUNDING quality note) in build_references,
+        # so just log a debug line here rather than spamming a per-ref ERROR event.
+        logger.debug("Citation metadata unresolved for arXiv:%s (S2 + arXiv both empty)", arxiv_id)
 
-        # Both lookups failed — reference will be URL-only
-        if self._event_logger:
-            self._event_logger.log(
-                EventType.ERROR,
-                content=(
-                    f"Citation metadata lookup failed for arXiv:{arxiv_id} "
-                    f"(both Semantic Scholar and arXiv API returned no results)"
-                ),
+    async def _resolve_from(self, ref, search, *, year_of, label, arxiv_id) -> bool:
+        """Run one provider's search with retry/backoff; populate ``ref`` if it hits."""
+        for attempt in range(_METADATA_ATTEMPTS):
+            try:
+                papers = await search()
+            except Exception as e:  # noqa: BLE001 — transient vs fatal decided below
+                if _is_transient_meta_error(e) and attempt < _METADATA_ATTEMPTS - 1:
+                    await asyncio.sleep(_METADATA_BACKOFF_S * (attempt + 1))
+                    continue
+                logger.debug("%s metadata fetch failed for %s: %s", label, arxiv_id, e)
+                return False
+            if not papers:
+                return False  # resolved-but-empty is not transient; don't retry
+            paper = papers[0]
+            ref.title = paper.title
+            ref.authors = ", ".join(paper.authors[:3]) + (
+                " et al." if len(paper.authors) > 3 else ""
             )
+            ref.year = year_of(paper)
+            return True
+        return False
 
     @staticmethod
     def drop_unresolved_references(

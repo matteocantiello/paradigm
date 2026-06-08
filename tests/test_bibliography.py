@@ -1,5 +1,8 @@
 """Tests for the bibliography builder module."""
 
+from dataclasses import dataclass
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from paradigm.literature.bibliography import (
@@ -184,3 +187,88 @@ class TestBuildReferences:
         assert len(refs) == 1
         assert refs[0].arxiv_id == ""
         assert refs[0].url == "https://example.com/paper"
+
+
+# ---------------------------------------------------------------------------
+# Metadata resolution: retry/backoff + bounded-concurrent (C2)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FakePaper:
+    title: str
+    authors: list
+    year: int = 2020
+    published: str = "2020-01-01"
+
+
+class _SeqS2:
+    """S2 fake returning a scripted sequence (Exception or list[_FakePaper]) per call."""
+
+    def __init__(self, behaviors):
+        self._behaviors = behaviors
+        self.calls = 0
+
+    async def search(self, query, limit=1):
+        b = self._behaviors[min(self.calls, len(self._behaviors) - 1)]
+        self.calls += 1
+        if isinstance(b, Exception):
+            raise b
+        return b
+
+
+class _MapS2:
+    """S2 fake mapping ``arXiv:<id>`` queries to a paper (for order tests)."""
+
+    def __init__(self, mapping):
+        self._mapping = mapping
+        self.calls = 0
+
+    async def search(self, query, limit=1):
+        self.calls += 1
+        aid = query.split(":", 1)[1]
+        p = self._mapping.get(aid)
+        return [p] if p else []
+
+
+@pytest.mark.asyncio
+class TestMetadataResolution:
+    async def test_retries_transient_then_resolves(self):
+        s2 = _SeqS2(
+            [RuntimeError("429 Too Many Requests"), [_FakePaper("A Title", ["Smith"], 2021)]]
+        )
+        builder = BibliographyBuilder(s2_client=s2)
+        with patch("paradigm.literature.bibliography.asyncio.sleep", new=AsyncMock()):
+            refs = await builder.build_references(["https://arxiv.org/abs/2301.12345"])
+        assert refs[0].title == "A Title"
+        assert refs[0].year == "2021"
+        assert s2.calls == 2  # retried the transient 429 once
+
+    async def test_non_transient_does_not_retry(self):
+        s2 = _SeqS2([ValueError("malformed json")])
+        builder = BibliographyBuilder(s2_client=s2)
+        with patch("paradigm.literature.bibliography.asyncio.sleep", new=AsyncMock()):
+            refs = await builder.build_references(["https://arxiv.org/abs/2301.12345"])
+        assert s2.calls == 1  # a non-transient error is not retried
+        assert refs[0].title == ""  # stays URL-only
+
+    async def test_gives_up_after_max_attempts(self):
+        s2 = _SeqS2([RuntimeError("503 unavailable")])  # always transient-fails
+        builder = BibliographyBuilder(s2_client=s2)
+        with patch("paradigm.literature.bibliography.asyncio.sleep", new=AsyncMock()):
+            refs = await builder.build_references(["https://arxiv.org/abs/2301.12345"])
+        assert s2.calls == 3  # _METADATA_ATTEMPTS
+        assert refs[0].title == ""
+
+    async def test_concurrent_resolution_preserves_order(self):
+        mapping = {
+            "2301.00001": _FakePaper("First", ["A"], 2001),
+            "2301.00002": _FakePaper("Second", ["B"], 2002),
+            "2301.00003": _FakePaper("Third", ["C"], 2003),
+        }
+        s2 = _MapS2(mapping)
+        builder = BibliographyBuilder(s2_client=s2)
+        urls = [f"https://arxiv.org/abs/{aid}" for aid in mapping]
+        refs = await builder.build_references(urls)
+        assert [r.title for r in refs] == ["First", "Second", "Third"]
+        assert [r.index for r in refs] == [1, 2, 3]

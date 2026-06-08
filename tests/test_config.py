@@ -100,8 +100,14 @@ def test_citation_config_defaults():
 
     assert config.citation.enable_citation_grounding is False
     assert config.citation.perplexity_api_key_env == "PERPLEXITY_API_KEY"
-    assert config.citation.citation_sections == ["introduction", "methods"]
-    assert config.citation.max_retries_per_paragraph == 2
+    assert config.citation.citation_sections == [
+        "introduction",
+        "methods",
+        "results",
+        "discussion",
+        "conclusion",
+    ]
+    assert config.citation.max_retries_per_paragraph == 3
     assert config.citation.perplexity_timeout == 120.0
     assert config.citation.enable_novelty_check is False
     assert config.citation.novelty_mode == "semantic_scholar"

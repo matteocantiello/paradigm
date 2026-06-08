@@ -240,8 +240,19 @@ class CitationConfig(BaseModel):
     enable_citation_grounding: bool = False
     drop_unresolved_citations: bool = False  # drop refs that don't resolve (vs bare-URL)
     perplexity_api_key_env: str = "PERPLEXITY_API_KEY"
-    citation_sections: list[str] = Field(default_factory=lambda: ["introduction", "methods"])
-    max_retries_per_paragraph: int = 2
+    # Ground the whole body, not just intro+methods — results/discussion/conclusion
+    # make substantive claims that need citing too (a big completeness win). Grounding
+    # is concurrent under a wall-clock budget, so more sections cost little latency.
+    citation_sections: list[str] = Field(
+        default_factory=lambda: [
+            "introduction",
+            "methods",
+            "results",
+            "discussion",
+            "conclusion",
+        ]
+    )
+    max_retries_per_paragraph: int = 3
     perplexity_timeout: float = 120.0
     enable_novelty_check: bool = False
     novelty_mode: str = "semantic_scholar"  # or "futurehouse"

@@ -138,8 +138,9 @@ class TestCitationHandlerEnabled:
         engine._display.citation_grounding_complete.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_only_intro_methods_cited(self):
-        """Only introduction and methods sections are processed by default."""
+    async def test_body_sections_cited_not_abstract(self):
+        """The whole body (intro/methods/results/discussion/conclusion) is grounded,
+        but the abstract is not (citations in abstracts are unusual)."""
         engine = _make_mock_engine(enable_grounding=True)
         handler = CitationHandler(engine)
         draft = _make_draft_with_body()
@@ -160,11 +161,11 @@ class TestCitationHandlerEnabled:
 
             await handler.run_citation_grounding(draft)
 
-        # Default citation_sections is ["introduction", "methods"]
+        # Default citation_sections now spans the whole body.
         assert "introduction" in cited_sections
         assert "methods" in cited_sections
-        assert "results" not in cited_sections
-        assert "conclusion" not in cited_sections
+        assert "results" in cited_sections
+        assert "conclusion" in cited_sections
         assert "abstract" not in cited_sections
 
 
