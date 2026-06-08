@@ -3,9 +3,19 @@
 A dead or over-capacity provider (e.g. a TogetherAI 503), a wrong model id (404),
 or an unsupported param (400) would otherwise cripple a role for the whole cycle.
 Before starting, we ping each distinct ``(provider, model)`` the team will use with
-a tiny 1-token completion (fast + cheap), then reassign any role whose model didn't
-answer to a verified-healthy fallback — preferring the config's default model. Each
-swap carries the REASON the model failed so it's obvious why (404 / 400 / timeout).
+a tiny completion (fast + cheap), then reassign any role whose model didn't answer
+to a verified-healthy fallback — preferring the config's default model. Each swap
+carries the REASON the model failed so it's obvious why (404 / 400 / timeout).
+
+Two false-negatives this guards against:
+  * **Reasoning models** (gpt-5.x, o-series) spend tokens on hidden reasoning
+    before any visible output, so a tiny-budget ping can 400 with "max_tokens /
+    model output limit was reached". That error PROVES the model is reachable —
+    it accepted the request and began generating — so we count it healthy, not a
+    failure. (The real cycle uses a large max_tokens, so it never hits this.)
+  * **Cold connections** (first TLS/auth handshake to a provider endpoint) can be
+    slow, so a single short timeout would wrongly swap a healthy model. We allow a
+    generous timeout and one retry before giving up on a model.
 
 The result feeds ``AgentFactory.create_team(role_overrides=...)``, so the swap is
 per-run and never mutates the shared config. Best-effort throughout: any failure
@@ -18,7 +28,24 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-_PING_TIMEOUT_S = 10.0
+_PING_TIMEOUT_S = 15.0  # generous: first call pays the TLS/auth cold-start
+_PING_ATTEMPTS = 2  # retry once — a cold endpoint often answers on the 2nd try
+_PING_MAX_TOKENS = 16  # small but non-trivial; reasoning models fail fast into the healthy path
+
+# Error fragments meaning "the model accepted the request and began generating,
+# only hitting the tiny ping's output budget" — i.e. it is reachable, not broken.
+_OUTPUT_LIMIT_HINTS = (
+    "could not finish the message",
+    "max_tokens or model output limit",
+    "output limit was reached",
+    "max output limit",
+)
+
+
+def _is_output_limit_error(e: BaseException) -> bool:
+    """True if the failure is just the ping exhausting its (tiny) output budget."""
+    msg = (str(e) or "").lower()
+    return any(h in msg for h in _OUTPUT_LIMIT_HINTS)
 
 
 @dataclass
@@ -45,24 +72,35 @@ def _short_err(e: BaseException) -> str:
 
 
 async def _ping(provider: Any, model: str, *, timeout: float) -> str | None:
-    """None if ``model`` answers a 1-token completion; else a short failure reason."""
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(
-                provider.complete,
-                model=model,
-                system="",
-                messages=[{"role": "user", "content": "ping"}],
-                max_tokens=1,
-                temperature=0.0,
-            ),
-            timeout=timeout,
-        )
-        return None
-    except asyncio.CancelledError:
-        raise
-    except BaseException as e:  # noqa: BLE001 — health check classifies every failure
-        return _short_err(e)
+    """None if ``model`` is reachable; else a short failure reason.
+
+    Retries once on timeout (cold-start tolerance). An output/token-limit error is
+    treated as reachable — see the module docstring.
+    """
+    last = "unreachable"
+    for _attempt in range(_PING_ATTEMPTS):
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    provider.complete,
+                    model=model,
+                    system="",
+                    messages=[{"role": "user", "content": "ping"}],
+                    max_tokens=_PING_MAX_TOKENS,
+                    temperature=0.0,
+                ),
+                timeout=timeout,
+            )
+            return None
+        except asyncio.CancelledError:
+            raise
+        except TimeoutError as e:  # asyncio.TimeoutError is an alias on 3.11+
+            last = _short_err(e)  # retry: a cold connection often answers next time
+            continue
+        except BaseException as e:  # noqa: BLE001 — health check classifies every failure
+            # A tiny-budget output-limit 400 means the model is up and generating.
+            return None if _is_output_limit_error(e) else _short_err(e)
+    return last
 
 
 async def preflight_team_models(

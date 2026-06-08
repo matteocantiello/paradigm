@@ -21,6 +21,21 @@ class _Provider:
         return ("pong", 1, 1)
 
 
+class _RaiseThenOK:
+    """Fake provider: raise ``exc`` on the first ``fail_times`` pings, then succeed."""
+
+    def __init__(self, exc: BaseException, fail_times: int = 1) -> None:
+        self._exc = exc
+        self._fail_times = fail_times
+        self.pings = 0
+
+    def complete(self, *, model, system, messages, max_tokens, temperature):
+        self.pings += 1
+        if self.pings <= self._fail_times:
+            raise self._exc
+        return ("pong", 1, 1)
+
+
 class _Override:
     def __init__(self, provider=None, model=None) -> None:
         self.provider = provider
@@ -113,6 +128,43 @@ class TestPreflight:
         assert swaps["theorist"][1] == "m1" and swaps["theorist"][2] == ""
         assert swaps["skeptic"][1] == "m2" and swaps["skeptic"][2] == ""
         assert swaps["theorist"][3]  # reason recorded even with no fallback
+
+    @pytest.mark.asyncio
+    async def test_output_limit_400_counts_as_healthy(self):
+        # Reasoning models (gpt-5.x) burn the tiny ping's budget on hidden reasoning
+        # and 400 — but that PROVES they are reachable, so no swap should happen.
+        msg = (
+            "Error code: 400 - {'error': {'message': 'Could not finish the message "
+            "because max_tokens or model output limit was reached. Please try again "
+            "with higher max_tokens.', 'type': 'invalid_request_error'}}"
+        )
+        openai = _RaiseThenOK(RuntimeError(msg), fail_times=99)  # always 400s on the ping
+        cfg = _Config(
+            providers={"openai": openai},
+            role_map={"theorist": ("openai", "gpt-5.5")},
+            default_provider="openai",
+            default_model="gpt-5.5",
+            overrides={"theorist": _Override(provider="openai", model="gpt-5.5")},
+        )
+        res = await preflight_team_models(cfg, ["theorist"])
+        assert res.overrides == {}  # healthy → untouched
+        assert res.swaps == []
+
+    @pytest.mark.asyncio
+    async def test_retries_once_on_timeout(self):
+        # A cold connection times out the first ping but answers the retry → healthy.
+        gemini = _RaiseThenOK(TimeoutError("timed out"), fail_times=1)
+        cfg = _Config(
+            providers={"gemini": gemini},
+            role_map={"writer": ("gemini", "gemini-2.5-flash")},
+            default_provider="gemini",
+            default_model="gemini-2.5-flash",
+            overrides={},
+        )
+        res = await preflight_team_models(cfg, ["writer"])
+        assert res.overrides == {}  # recovered on retry → no swap
+        assert res.swaps == []
+        assert gemini.pings == 2  # one failure + one successful retry
 
     @pytest.mark.asyncio
     async def test_never_raises_on_bad_config(self):
