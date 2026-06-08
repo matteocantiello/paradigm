@@ -198,12 +198,14 @@ class CitationHandler:
             renumbered = re.sub(r"\[(\d+)\]", _replace_marker, cited_text)
             updated_body = updated_body.replace(original_content, renumbered, 1)
 
-        # Build bibliography
+        # Build bibliography. Give the builder BOTH metadata sources the corpus
+        # already has: Semantic Scholar AND arXiv. S2 is an INDEPENDENT source, so a
+        # rate-limited arXiv (common late in a cycle) no longer leaves every
+        # reference a bare URL — the single biggest citation-quality issue.
+        corpus = self._engine._corpus
         bib_builder = BibliographyBuilder(
-            arxiv_client=self._engine._corpus._arxiv
-            if hasattr(self._engine._corpus, "_arxiv")
-            else None,
-            s2_client=None,
+            arxiv_client=getattr(corpus, "_arxiv", None),
+            s2_client=getattr(corpus, "_s2", None),
             event_logger=self._engine._logger,
         )
         references = await bib_builder.build_references(global_url_list)

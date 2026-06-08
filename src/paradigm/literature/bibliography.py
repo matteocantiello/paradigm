@@ -17,12 +17,15 @@ from paradigm.logging.events import EventLogger, EventType
 
 logger = logging.getLogger(__name__)
 
-# Metadata resolution (Semantic Scholar / arXiv) is flaky under load — a momentary
-# 429 would otherwise strand a citation as a bare URL. Retry transient failures with
-# a short backoff, but cap concurrency so we don't stampede the APIs into MORE 429s.
-_METADATA_ATTEMPTS = 3
+# Metadata resolution. Resolve in BATCH (one request per source for ALL ids) rather
+# than N rate-limited single lookups — the per-id approach trips arXiv's 429 + our
+# circuit breaker late in a cycle and leaves every reference a bare URL. Each batch
+# is retried once on a transient failure with a short backoff. CRITICAL: use each
+# source's EXACT id endpoint (S2 /paper/batch with ArXiv: ids, arXiv id_list) — a
+# fuzzy text search returns the WRONG paper.
+_METADATA_ATTEMPTS = 2
 _METADATA_BACKOFF_S = 2.0
-_MAX_CONCURRENT_METADATA = 4
+_BATCH_SIZE = 100  # S2 /paper/batch caps at 500; keep arXiv id_list well-bounded too
 _TRANSIENT_META_HINTS = (
     "429",
     "rate limit",
@@ -35,6 +38,7 @@ _TRANSIENT_META_HINTS = (
     "temporarily",
     "connection",
 )
+_VERSION_RE = re.compile(r"v\d+$")
 
 
 def _is_transient_meta_error(e: Exception) -> bool:
@@ -42,9 +46,20 @@ def _is_transient_meta_error(e: Exception) -> bool:
     return any(h in s for h in _TRANSIENT_META_HINTS)
 
 
-async def _none() -> list:
-    """Awaitable empty result — stands in when a metadata client is unconfigured."""
-    return []
+def _base_arxiv_id(arxiv_id: str | None) -> str:
+    """Strip a trailing version (``v2``) so ids match across sources."""
+    return _VERSION_RE.sub("", (arxiv_id or "").strip())
+
+
+def _chunked(items: list, size: int):
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
+
+
+def _apply_paper(ref: Reference, *, title: str, authors: list[str], year: str) -> None:
+    ref.title = title
+    ref.authors = ", ".join(authors[:3]) + (" et al." if len(authors) > 3 else "")
+    ref.year = year
 
 
 @dataclass
@@ -119,20 +134,15 @@ class BibliographyBuilder:
 
         references = [Reference(index=i, url=url) for i, url in enumerate(unique_urls, 1)]
 
-        # Resolve metadata concurrently (bounded), so the wall-clock is the slowest
-        # single lookup rather than the sum — important now that retries+backoff can
-        # make any one lookup take a few seconds.
-        sem = asyncio.Semaphore(_MAX_CONCURRENT_METADATA)
-
-        async def _resolve(ref: Reference) -> None:
+        # Group references by (versionless) arXiv id and resolve metadata in BATCH.
+        id_to_refs: dict[str, list[Reference]] = {}
+        for ref in references:
             arxiv_id = extract_arxiv_id_from_url(ref.url)
-            if not arxiv_id:
-                return
-            ref.arxiv_id = arxiv_id
-            async with sem:
-                await self._fetch_metadata(ref, arxiv_id)
-
-        await asyncio.gather(*(_resolve(r) for r in references), return_exceptions=True)
+            if arxiv_id:
+                ref.arxiv_id = arxiv_id
+                id_to_refs.setdefault(_base_arxiv_id(arxiv_id), []).append(ref)
+        if id_to_refs:
+            await self._resolve_metadata_batch(id_to_refs)
 
         # Count and report unverified references. This is a citation-QUALITY note
         # (some refs couldn't be resolved to metadata and would render as bare URLs,
@@ -152,56 +162,64 @@ class BibliographyBuilder:
 
         return references
 
-    async def _fetch_metadata(self, ref: Reference, arxiv_id: str) -> None:
-        """Populate ``ref`` from Semantic Scholar, then arXiv, retrying transients.
+    async def _resolve_metadata_batch(self, id_to_refs: dict[str, list[Reference]]) -> None:
+        """Resolve metadata for all ids via Semantic Scholar, then arXiv for the rest.
 
-        Each provider is retried up to ``_METADATA_ATTEMPTS`` times on a transient
-        failure (429 / timeout / 5xx) with a short linear backoff, so a momentary
-        rate-limit doesn't strand the reference as a bare URL.
+        Each source is queried in ONE batched, EXACT-id request (chunked) — far
+        gentler on rate limits than per-id lookups, and exact ids avoid the wrong-
+        paper hits a fuzzy text search produces.
         """
-        if await self._resolve_from(
-            ref,
-            lambda: self._s2.search(f"arXiv:{arxiv_id}", limit=1) if self._s2 else _none(),
-            year_of=lambda p: str(p.year) if p.year else "",
-            label="S2",
-            arxiv_id=arxiv_id,
-        ):
-            return
-        if await self._resolve_from(
-            ref,
-            lambda: self._arxiv.search(f"id:{arxiv_id}", max_results=1) if self._arxiv else _none(),
-            year_of=lambda p: p.published[:4] if p.published else "",
-            label="arXiv",
-            arxiv_id=arxiv_id,
-        ):
-            return
+        ids = list(id_to_refs)
 
-        # Both lookups failed — reference stays URL-only. The aggregate count is
-        # already reported (as a CITATION_GROUNDING quality note) in build_references,
-        # so just log a debug line here rather than spamming a per-ref ERROR event.
-        logger.debug("Citation metadata unresolved for arXiv:%s (S2 + arXiv both empty)", arxiv_id)
+        # 1) Semantic Scholar batch — /paper/batch with ArXiv: ids (returns each
+        #    paper tagged with its arxiv_id, so order/nulls don't matter).
+        if self._s2 is not None:
+            for chunk in _chunked(ids, _BATCH_SIZE):
+                papers = await self._batch_call(
+                    lambda c=chunk: self._s2.get_papers_batch([f"ArXiv:{a}" for a in c]),
+                    "S2",
+                )
+                for p in papers:
+                    for ref in id_to_refs.get(_base_arxiv_id(p.arxiv_id), []):
+                        if not ref.title:
+                            _apply_paper(
+                                ref,
+                                title=p.title,
+                                authors=p.authors,
+                                year=str(p.year) if p.year else "",
+                            )
 
-    async def _resolve_from(self, ref, search, *, year_of, label, arxiv_id) -> bool:
-        """Run one provider's search with retry/backoff; populate ``ref`` if it hits."""
+        # 2) arXiv batch for whatever S2 didn't resolve.
+        missing = [a for a in ids if not id_to_refs[a][0].title]
+        if missing and self._arxiv is not None:
+            for chunk in _chunked(missing, _BATCH_SIZE):
+                papers = await self._batch_call(lambda c=chunk: self._arxiv.get_papers(c), "arXiv")
+                for p in papers:
+                    for ref in id_to_refs.get(_base_arxiv_id(p.arxiv_id), []):
+                        if not ref.title:
+                            _apply_paper(
+                                ref,
+                                title=p.title,
+                                authors=p.authors,
+                                year=p.published[:4] if p.published else "",
+                            )
+
+        still_missing = sum(1 for refs in id_to_refs.values() if not refs[0].title)
+        if still_missing:
+            logger.debug("%d/%d citations unresolved after S2+arXiv batch", still_missing, len(ids))
+
+    async def _batch_call(self, fn, label: str) -> list:
+        """Run a batched metadata fetch with one retry on a transient failure."""
         for attempt in range(_METADATA_ATTEMPTS):
             try:
-                papers = await search()
+                return await fn() or []
             except Exception as e:  # noqa: BLE001 — transient vs fatal decided below
                 if _is_transient_meta_error(e) and attempt < _METADATA_ATTEMPTS - 1:
                     await asyncio.sleep(_METADATA_BACKOFF_S * (attempt + 1))
                     continue
-                logger.debug("%s metadata fetch failed for %s: %s", label, arxiv_id, e)
-                return False
-            if not papers:
-                return False  # resolved-but-empty is not transient; don't retry
-            paper = papers[0]
-            ref.title = paper.title
-            ref.authors = ", ".join(paper.authors[:3]) + (
-                " et al." if len(paper.authors) > 3 else ""
-            )
-            ref.year = year_of(paper)
-            return True
-        return False
+                logger.debug("%s batch metadata fetch failed: %s", label, e)
+                return []
+        return []
 
     @staticmethod
     def drop_unresolved_references(

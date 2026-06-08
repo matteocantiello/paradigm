@@ -190,7 +190,7 @@ class TestBuildReferences:
 
 
 # ---------------------------------------------------------------------------
-# Metadata resolution: retry/backoff + bounded-concurrent (C2)
+# Metadata resolution: batched, exact-id, with S2->arXiv fallback (C2)
 # ---------------------------------------------------------------------------
 
 
@@ -198,77 +198,93 @@ class TestBuildReferences:
 class _FakePaper:
     title: str
     authors: list
+    arxiv_id: str = ""
     year: int = 2020
     published: str = "2020-01-01"
 
 
-class _SeqS2:
-    """S2 fake returning a scripted sequence (Exception or list[_FakePaper]) per call."""
+class _BatchS2:
+    """S2 fake: ``get_papers_batch`` maps ``ArXiv:<id>`` -> paper, or raises N times."""
 
-    def __init__(self, behaviors):
-        self._behaviors = behaviors
+    def __init__(self, mapping=None, raise_times=0, exc=None):
+        self._mapping = mapping or {}  # base arxiv id -> _FakePaper
+        self._raise_times = raise_times
+        self._exc = exc or RuntimeError("429 rate limit")
         self.calls = 0
 
-    async def search(self, query, limit=1):
-        b = self._behaviors[min(self.calls, len(self._behaviors) - 1)]
+    async def get_papers_batch(self, ids):
         self.calls += 1
-        if isinstance(b, Exception):
-            raise b
-        return b
+        if self.calls <= self._raise_times:
+            raise self._exc
+        out = []
+        for pid in ids:  # "ArXiv:2301.00001"
+            aid = pid.split(":", 1)[1]
+            p = self._mapping.get(aid)
+            if p:
+                out.append(p)
+        return out
 
 
-class _MapS2:
-    """S2 fake mapping ``arXiv:<id>`` queries to a paper (for order tests)."""
+class _BatchArxiv:
+    """arXiv fake: ``get_papers`` maps id -> paper."""
 
     def __init__(self, mapping):
         self._mapping = mapping
         self.calls = 0
 
-    async def search(self, query, limit=1):
+    async def get_papers(self, ids):
         self.calls += 1
-        aid = query.split(":", 1)[1]
-        p = self._mapping.get(aid)
-        return [p] if p else []
+        return [self._mapping[a] for a in ids if a in self._mapping]
 
 
 @pytest.mark.asyncio
 class TestMetadataResolution:
-    async def test_retries_transient_then_resolves(self):
-        s2 = _SeqS2(
-            [RuntimeError("429 Too Many Requests"), [_FakePaper("A Title", ["Smith"], 2021)]]
+    async def test_batch_resolves_and_maps_by_arxiv_id(self):
+        s2 = _BatchS2({"2301.12345": _FakePaper("A Title", ["Smith", "Doe"], "2301.12345", 2021)})
+        builder = BibliographyBuilder(s2_client=s2)
+        refs = await builder.build_references(["https://arxiv.org/abs/2301.12345v2"])
+        assert refs[0].title == "A Title"
+        assert refs[0].authors == "Smith, Doe"
+        assert refs[0].year == "2021"
+        assert s2.calls == 1  # ONE batch request, not per-ref
+
+    async def test_retries_transient_batch_then_resolves(self):
+        s2 = _BatchS2({"2301.12345": _FakePaper("T", ["A"], "2301.12345", 2021)}, raise_times=1)
+        builder = BibliographyBuilder(s2_client=s2)
+        with patch("paradigm.literature.bibliography.asyncio.sleep", new=AsyncMock()):
+            refs = await builder.build_references(["https://arxiv.org/abs/2301.12345"])
+        assert refs[0].title == "T"
+        assert s2.calls == 2  # one transient failure + one retry
+
+    async def test_falls_back_to_arxiv_when_s2_misses(self):
+        s2 = _BatchS2({})  # resolves nothing
+        arxiv = _BatchArxiv(
+            {
+                "2301.00009": _FakePaper(
+                    "Arxiv One", ["A", "B", "C", "D"], "2301.00009", published="2019-05-05"
+                )
+            }
+        )
+        builder = BibliographyBuilder(arxiv_client=arxiv, s2_client=s2)
+        refs = await builder.build_references(["https://arxiv.org/abs/2301.00009"])
+        assert refs[0].title == "Arxiv One"
+        assert refs[0].authors == "A, B, C et al."  # >3 -> et al.
+        assert refs[0].year == "2019"
+        assert arxiv.calls == 1
+
+    async def test_order_preserved_and_unresolved_stays_url_only(self):
+        s2 = _BatchS2(
+            {
+                "2301.00001": _FakePaper("First", ["A"], "2301.00001", 2001),
+                "2301.00003": _FakePaper("Third", ["C"], "2301.00003", 2003),
+            }
         )
         builder = BibliographyBuilder(s2_client=s2)
-        with patch("paradigm.literature.bibliography.asyncio.sleep", new=AsyncMock()):
-            refs = await builder.build_references(["https://arxiv.org/abs/2301.12345"])
-        assert refs[0].title == "A Title"
-        assert refs[0].year == "2021"
-        assert s2.calls == 2  # retried the transient 429 once
-
-    async def test_non_transient_does_not_retry(self):
-        s2 = _SeqS2([ValueError("malformed json")])
-        builder = BibliographyBuilder(s2_client=s2)
-        with patch("paradigm.literature.bibliography.asyncio.sleep", new=AsyncMock()):
-            refs = await builder.build_references(["https://arxiv.org/abs/2301.12345"])
-        assert s2.calls == 1  # a non-transient error is not retried
-        assert refs[0].title == ""  # stays URL-only
-
-    async def test_gives_up_after_max_attempts(self):
-        s2 = _SeqS2([RuntimeError("503 unavailable")])  # always transient-fails
-        builder = BibliographyBuilder(s2_client=s2)
-        with patch("paradigm.literature.bibliography.asyncio.sleep", new=AsyncMock()):
-            refs = await builder.build_references(["https://arxiv.org/abs/2301.12345"])
-        assert s2.calls == 3  # _METADATA_ATTEMPTS
-        assert refs[0].title == ""
-
-    async def test_concurrent_resolution_preserves_order(self):
-        mapping = {
-            "2301.00001": _FakePaper("First", ["A"], 2001),
-            "2301.00002": _FakePaper("Second", ["B"], 2002),
-            "2301.00003": _FakePaper("Third", ["C"], 2003),
-        }
-        s2 = _MapS2(mapping)
-        builder = BibliographyBuilder(s2_client=s2)
-        urls = [f"https://arxiv.org/abs/{aid}" for aid in mapping]
+        urls = [
+            "https://arxiv.org/abs/2301.00001",
+            "https://arxiv.org/abs/2301.00002",  # not in mapping -> URL-only
+            "https://arxiv.org/abs/2301.00003",
+        ]
         refs = await builder.build_references(urls)
-        assert [r.title for r in refs] == ["First", "Second", "Third"]
         assert [r.index for r in refs] == [1, 2, 3]
+        assert [r.title for r in refs] == ["First", "", "Third"]
