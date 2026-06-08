@@ -29,12 +29,31 @@ class LatexPreset:
 
     name: str
     documentclass: str = r"\documentclass[11pt]{article}"
+    # Essentials are unconditional (present in every TeX install). The
+    # quality-of-life packages are wrapped in \IfFileExists so a *minimal* TeX
+    # install (or a partial texlive) still compiles — missing cosmetic packages
+    # are skipped, and missing booktabs falls back to \hline rules so tables
+    # still render. (Full installs / tectonic get the nice versions.)
     packages: tuple[str, ...] = (
         r"\usepackage[utf8]{inputenc}",
+        r"\usepackage[T1]{fontenc}",
         r"\usepackage{amsmath,amssymb}",
         r"\usepackage{graphicx}",
         r"\usepackage[margin=1in]{geometry}",
-        r"\usepackage{hyperref}",
+        # Tables: booktabs if available, else emulate its rules with \hline.
+        (
+            r"\IfFileExists{booktabs.sty}{\usepackage{booktabs}}{"
+            r"\providecommand{\toprule}{\hline}"
+            r"\providecommand{\midrule}{\hline}"
+            r"\providecommand{\bottomrule}{\hline}}"
+        ),
+        # Cosmetic-only — load if present, skip silently otherwise.
+        r"\IfFileExists{microtype.sty}{\usepackage{microtype}}{}",
+        r"\IfFileExists{caption.sty}{\usepackage{caption}}{}",
+        r"\IfFileExists{float.sty}{\usepackage{float}}{}",
+        r"\IfFileExists{enumitem.sty}{\usepackage{enumitem}}{}",
+        r"\IfFileExists{xcolor.sty}{\usepackage{xcolor}}{}",
+        r"\usepackage{hyperref}",  # keep last; present in every install
     )
 
 
@@ -129,30 +148,51 @@ def _convert_body_block(lines: list[str]) -> str:
             out.append(r"\end{enumerate}")
             in_enumerate = False
 
-    for raw in lines:
-        line = raw.rstrip()
-        stripped = line.strip()
+    n = len(lines)
+    i = 0
+    while i < n:
+        stripped = lines[i].rstrip().strip()
+
+        # Table: a `| ... |` row followed by a `|---|` separator line.
+        if (
+            _looks_like_table_row(stripped)
+            and i + 1 < n
+            and _TABLE_SEP_RE.match(lines[i + 1].strip())
+        ):
+            _close_lists()
+            header = _split_table_row(stripped)
+            sep_cells = _split_table_row(lines[i + 1].strip())
+            body_rows: list[list[str]] = []
+            j = i + 2
+            while j < n and _looks_like_table_row(lines[j].strip()):
+                body_rows.append(_split_table_row(lines[j].strip()))
+                j += 1
+            out.append(_convert_table(header, sep_cells, body_rows))
+            i = j
+            continue
 
         img = _IMAGE_RE.search(stripped)
         if img:
             _close_lists()
             alt, path = img.group(1), img.group(2).split()[0].strip('"')
-            out.append(r"\begin{figure}[ht]")
+            out.append(r"\begin{figure}[htbp]")
             out.append(r"\centering")
             out.append(rf"\includegraphics[width=0.8\linewidth]{{{path}}}")
             if alt:
                 out.append(rf"\caption{{{_convert_inline(alt)}}}")
             out.append(r"\end{figure}")
+            i += 1
             continue
 
-        bullet = re.match(r"^[-*+]\s+(.*)$", stripped)
-        number = re.match(r"^\d+[.)]\s+(.*)$", stripped)
+        bullet = _BULLET_RE.match(stripped)
+        number = _NUMBER_RE.match(stripped)
         if bullet:
             if not in_itemize:
                 _close_lists()
                 out.append(r"\begin{itemize}")
                 in_itemize = True
             out.append(rf"\item {_convert_inline(bullet.group(1))}")
+            i += 1
             continue
         if number:
             if not in_enumerate:
@@ -160,17 +200,89 @@ def _convert_body_block(lines: list[str]) -> str:
                 out.append(r"\begin{enumerate}")
                 in_enumerate = True
             out.append(rf"\item {_convert_inline(number.group(1))}")
+            i += 1
             continue
 
         if not stripped:
+            # A blank line inside a list does NOT end it if the next content line is
+            # another list item — markdown "loose lists" stay one list, so numbering
+            # keeps counting (1,2,3) instead of resetting (1,1,1).
+            if in_itemize or in_enumerate:
+                k = i + 1
+                while k < n and not lines[k].strip():
+                    k += 1
+                nxt = lines[k].strip() if k < n else ""
+                if _BULLET_RE.match(nxt) or _NUMBER_RE.match(nxt):
+                    i += 1
+                    continue
             _close_lists()
             out.append("")
+            i += 1
             continue
 
         _close_lists()
         out.append(_convert_inline(stripped))
+        i += 1
 
     _close_lists()
+    return "\n".join(out)
+
+
+# --- Markdown tables -------------------------------------------------------
+# A GitHub-flavored table is a row of ``| a | b |`` immediately followed by a
+# separator ``|---|:--:|`` line. Without this, a table fell through to prose and
+# rendered as literal pipe-garbage (the "bad table formatting" symptom).
+_BULLET_RE = re.compile(r"^[-*+]\s+(.*)$")
+_NUMBER_RE = re.compile(r"^\d+[.)]\s+(.*)$")
+_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$")
+
+
+def _looks_like_table_row(stripped: str) -> bool:
+    return stripped.startswith("|") and stripped.count("|") >= 2
+
+
+def _split_table_row(stripped: str) -> list[str]:
+    s = stripped.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+def _column_spec(sep_cells: list[str], ncols: int) -> str:
+    """Map markdown alignment cells (``:--``/``:-:``/``--:``) to an l/c/r spec."""
+    spec = []
+    for c in sep_cells:
+        c = c.strip()
+        left, right = c.startswith(":"), c.endswith(":")
+        spec.append("c" if left and right else "r" if right else "l")
+    spec += ["l"] * (ncols - len(spec))
+    return "".join(spec[:ncols]) or "l"
+
+
+def _convert_table(header: list[str], sep_cells: list[str], body_rows: list[list[str]]) -> str:
+    """Render a parsed markdown table as a booktabs ``tabular`` inside a ``table``."""
+    ncols = len(header)
+    for r in body_rows:
+        ncols = max(ncols, len(r))
+    ncols = max(ncols, 1)
+    spec = _column_spec(sep_cells, ncols)
+
+    def _row(cells: list[str]) -> str:
+        padded = cells + [""] * (ncols - len(cells))
+        return " & ".join(_convert_inline(c) for c in padded[:ncols]) + r" \\"
+
+    out = [
+        r"\begin{table}[htbp]",
+        r"\centering",
+        rf"\begin{{tabular}}{{{spec}}}",
+        r"\toprule",
+        _row(header),
+        r"\midrule",
+    ]
+    out.extend(_row(r) for r in body_rows)
+    out.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
     return "\n".join(out)
 
 
@@ -237,9 +349,14 @@ def markdown_to_latex(body: str, preset: LatexPreset, title: str | None = None) 
             parts.append(r"\section*{References}")
             parts.append(r"\begingroup")
             parts.append(r"\small")
-            # Keep each reference line as its own paragraph (preserves [N] numbering).
+            # Flush-left, hanging-indent entries (every reference starts at the
+            # margin; continuation lines indent under it). Without this, the 2nd+
+            # references picked up a stray paragraph indent and looked ragged.
+            parts.append(r"\setlength{\parindent}{0pt}")
+            parts.append(r"\setlength{\parskip}{3pt}")
             for raw in sec.lines:
                 if raw.strip():
+                    parts.append(r"\hangindent=1.5em\hangafter=1")
                     parts.append(_convert_inline(raw.strip()) + r"\par")
             parts.append(r"\endgroup")
         else:

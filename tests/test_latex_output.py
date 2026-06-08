@@ -90,6 +90,56 @@ class TestMarkdownToLatex:
         assert r"\section*{References}" in out
         assert "[1] Smith" in out
 
+    # --- tables (A1) -------------------------------------------------------
+    def test_markdown_table_becomes_booktabs_tabular(self):
+        md = (
+            "# T\n\n## Results\n"
+            "| Mass | Luminosity |\n"
+            "|------|-----------:|\n"
+            "| 1.0  | 1.0        |\n"
+            "| 2.0  | 11.0       |\n"
+        )
+        out = _tex(md)
+        assert r"\begin{table}" in out and r"\end{table}" in out
+        assert r"\begin{tabular}{lr}" in out  # 2nd col right-aligned (`---:`)
+        assert r"\toprule" in out and r"\midrule" in out and r"\bottomrule" in out
+        assert r"Mass & Luminosity \\" in out
+        assert r"1.0 & 1.0 \\" in out
+        # no raw pipe-garbage leaked into prose
+        assert "|------" not in out
+
+    def test_table_alignment_spec(self):
+        md = "# T\n\n## S\n| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |\n"
+        assert r"\begin{tabular}{lcr}" in _tex(md)
+
+    def test_table_cell_escaping_and_math(self):
+        md = "# T\n\n## S\n| q | v |\n|---|---|\n| 50% rise | $x^2$ |\n"
+        out = _tex(md)
+        assert r"50\% rise & $x^2$ \\" in out
+
+    # --- loose-list numbering (A2) ----------------------------------------
+    def test_blank_separated_numbered_list_is_one_enumerate(self):
+        # Items separated by blank lines must stay ONE enumerate (1,2,3),
+        # not three enumerates each restarting at 1.
+        md = "# T\n\n## S\n1. first\n\n2. second\n\n3. third\n"
+        out = _tex(md)
+        assert out.count(r"\begin{enumerate}") == 1
+        assert out.count(r"\end{enumerate}") == 1
+        assert out.count(r"\item") == 3
+
+    def test_blank_separated_bullets_stay_one_itemize(self):
+        md = "# T\n\n## S\n- a\n\n- b\n\n- c\n"
+        out = _tex(md)
+        assert out.count(r"\begin{itemize}") == 1
+        assert out.count(r"\item") == 3
+
+    def test_list_closes_before_following_paragraph(self):
+        md = "# T\n\n## S\n1. one\n2. two\n\nA new paragraph.\n"
+        out = _tex(md)
+        assert out.count(r"\begin{enumerate}") == 1
+        assert r"\end{enumerate}" in out
+        assert "A new paragraph." in out
+
 
 class TestPresets:
     def test_known_preset(self):
