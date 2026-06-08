@@ -894,11 +894,12 @@ _MODE_WRITING_OVERRIDES: dict[str, dict[str, str]] = {
             "$\\alpha_0$, $\\nu_{{\\text{{char}}}}$, $R^2$, $\\log(L/L_\\odot)$. "
             "NEVER use Unicode characters outside of math mode. "
             "Inline math uses single $, display math uses $$."
-            "\n\n**Conceptual figures:** You MAY reference up to 3 conceptual "
-            "figures (e.g., 'as shown in Figure 1') for diagrams that would "
-            "help readers — flow charts, taxonomies, annotated curves, concept "
-            "maps, etc. Use 'Figure N' references naturally in the text. "
-            "These will be auto-generated as matplotlib schematics after assembly."
+            "\n\n**Conceptual figures:** Include at least ONE conceptual figure "
+            "(up to 3) — a schematic, taxonomy, flow chart, annotated curve, or "
+            "concept map that synthesizes a key relationship for the reader. A good "
+            "review almost always has one. Reference each as 'Figure N' naturally in "
+            "the text (e.g., 'as shown in Figure 1') and describe what it should "
+            "depict. These are auto-generated as matplotlib schematics after assembly."
         ),
         "assembly": (
             "You are assembling a literature review paper from section drafts.\n"
