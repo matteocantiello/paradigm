@@ -56,27 +56,19 @@ def _format_rule_bound(rule: PredictionRule) -> str:
 
 
 def _truncate_code_for_retry(code: str, error_lineno: int | None, context_lines: int = 10) -> str:
-    """Truncate code for retry prompt, showing only the error region.
+    """Return the failed code for the retry prompt — IN FULL.
 
-    If error line is known, show ±context_lines around it.
-    If code is short (< 40 lines), return it unchanged.
+    The model's retry response REPLACES the entire script, so it must see the whole
+    program to return a complete, runnable fix. Previously this showed only an
+    'error region' slice (±context_lines) of any script over 40 lines; the model
+    then returned just that slice, dropping every function/variable definition
+    elsewhere and turning one bug into a cascade of NameErrors (which made any
+    multi-step experiment unrecoverable). The error location is conveyed separately
+    via the error feedback, so no truncation is needed here. Args kept for
+    backwards-compatible call sites.
     """
-    lines = code.split("\n")
-    if len(lines) <= 40 or error_lineno is None:
-        return code
-
-    start = max(0, error_lineno - context_lines - 1)
-    end = min(len(lines), error_lineno + context_lines)
-
-    snippet_lines: list[str] = []
-    if start > 0:
-        snippet_lines.append(f"# ... ({start} lines above) ...")
-    for i, line in enumerate(lines[start:end], start + 1):
-        snippet_lines.append(f"{line}  # line {i}")
-    if end < len(lines):
-        snippet_lines.append(f"# ... ({len(lines) - end} lines below) ...")
-
-    return "\n".join(snippet_lines)
+    _ = (error_lineno, context_lines)  # intentionally unused — see docstring
+    return code
 
 
 class SprintStopReason(Enum):

@@ -23,6 +23,7 @@ from paradigm.orchestrator.experimentation import (
     _categorize_failure,
     _peek_csv_schema,
     _peek_json_schema,
+    _truncate_code_for_retry,
 )
 from paradigm.sandbox.models import (
     ExecutionRequest,
@@ -2299,3 +2300,21 @@ class TestPeekCsvSchema:
         result = _peek_csv_schema(binary_file)
         # Should not crash — returns empty or a parsed line
         assert isinstance(result, str)
+
+
+class TestRetryCodeIsFull:
+    """The retry prompt must show the FULL failed script. Truncating it to an
+    'error region' made the model return only that slice, dropping definitions
+    elsewhere and cascading into NameErrors (unrecoverable multi-step experiments)."""
+
+    def test_long_code_returned_in_full(self):
+        # A >40-line script with a known error line must NOT be truncated.
+        code = "def helper():\n    return 1\n" + "\n".join(f"x{i} = {i}" for i in range(60))
+        out = _truncate_code_for_retry(code, error_lineno=55)
+        assert out == code
+        assert "def helper()" in out  # the definition the snippet would have dropped
+        assert "lines above" not in out  # no truncation placeholder
+
+    def test_short_code_returned_in_full(self):
+        code = "print('hi')\nprint('bye')"
+        assert _truncate_code_for_retry(code, error_lineno=None) == code
