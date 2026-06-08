@@ -27,9 +27,13 @@ Autonomous multi-hour effort. Ground every fix in real generated artifacts; veri
 - [ ] Production-lineup cycle (verify-production.yaml) — strong models, publish path (= task 2).
 
 ## Offered follow-ups
-- [ ] **(1)** Cover review's conceptual-figure branch (force figure references).
-- [ ] **(2)** Real production-lineup batch (strong models, publish path) — config ready.
+- [x] **(1)** Cover review's conceptual-figure branch — review prompt now asks for ≥1 figure (0760a29); review cycle generated styled schematics, PDF compiled with one figure failing (guard).
+- [x] **(2)** Real production-lineup batch — verify-production.yaml → PUBLISHED, 0 preflight swaps, publication-quality PDF.
 - [x] **(3)** Wire `selftest.py` into a pre-push smoke check — `.githooks/pre-push` (dcfc3dc), validated.
 
+## Prompt 174 follow-on (same session)
+- [x] **Completed-cycle routing** (9aaf884) — finished cycles open the paper (or terminal summary), not a dead reconnecting socket. `lib/cycleStatus.ts` central router + socket guard.
+- [x] **gpt-5.x preflight 429 retry** (b2a0c70) — burst-induced rate-limit 429s retried before swapping; genuine quota still swaps.
+
 ## Review
-(to be filled in)
+Verification-driven, real-artifact discipline paid off: the first cycle's PDF surfaced 3 bugs the unit tests couldn't (hallucinated-figure crash, duplicate references, garbage URLs), and the production cycle surfaced the bare-URL resolution issue (fixed via batch+exact-id → 41/41). Net: tables/lists/figures/captions now publication-quality (verified in 2 real PDFs + a PUBLISHED paper), citations complete + correctly formatted, PDF robust to hallucinated figures, completed-cycle navigation fixed, preflight no longer false-swaps gpt-5.x. ~11 commits, full suite 1600, both branches synced. NOTE: production.yaml on the VM has citation grounding OFF — enable it (+ PERPLEXITY_API_KEY) to get the citation improvements.
