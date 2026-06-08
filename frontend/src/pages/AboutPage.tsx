@@ -65,7 +65,9 @@ export function AboutPage() {
       <header className="flex flex-col items-center gap-5 pt-6 text-center">
         <ObservatoryMark />
         <div>
-          <h1 className="font-display text-4xl font-semibold tracking-tight bg-gradient-to-br from-foreground via-foreground to-primary/70 bg-clip-text text-transparent">
+          {/* leading + pb give the serif "g" descender room — bg-clip-text clips the
+              gradient to the line box, which the tight text-4xl line-height cuts off. */}
+          <h1 className="font-display text-4xl font-semibold tracking-tight leading-[1.3] pb-1 bg-gradient-to-br from-foreground via-foreground to-primary/70 bg-clip-text text-transparent">
             Paradigm
           </h1>
           <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.24em] text-muted-foreground/70">
