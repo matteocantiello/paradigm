@@ -14,7 +14,7 @@ from paradigm.knowledge.hypothesis_tournament import (
     MatchupResult,
 )
 from paradigm.knowledge.models import Hypothesis
-from paradigm.knowledge.tournament_handler import TournamentHandler
+from paradigm.knowledge.tournament_handler import TournamentHandler, _first_json_object
 from paradigm.knowledge.world_model import WorldModel
 from paradigm.logging.events import EventLogger
 from paradigm.orchestrator.engine import OrchestrationEngine
@@ -440,3 +440,30 @@ class TestBackwardCompatibility:
         )
         assert config.knowledge.enable_hypothesis_tournament
         assert config.knowledge.tournament_population_size == 4
+
+
+class TestRobustJudgeParse:
+    """The matchup judge must survive fences + chatty preamble — a brittle parse
+    silently dropped every verdict and froze the whole tournament at Elo 1500."""
+
+    def test_clean_json(self):
+        assert _first_json_object('{"winner": "A", "margin": 0.7}') == {
+            "winner": "A",
+            "margin": 0.7,
+        }
+
+    def test_code_fenced(self):
+        raw = '```json\n{\n  "winner": "B",\n  "margin": 0.6\n}\n```'
+        assert _first_json_object(raw) == {"winner": "B", "margin": 0.6}
+
+    def test_chatty_preamble(self):
+        raw = 'Here is my verdict:\n{"winner": "B", "reasoning": "stronger", "margin": 0.8}\nDone.'
+        out = _first_json_object(raw)
+        assert out is not None and out["winner"] == "B"
+
+    def test_garbage_returns_none(self):
+        assert _first_json_object("the winner is A, clearly") is None
+        assert _first_json_object("") is None
+
+    def test_non_object_returns_none(self):
+        assert _first_json_object("[1, 2, 3]") is None

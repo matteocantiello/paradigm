@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import TYPE_CHECKING
 
 from paradigm.knowledge.hypothesis_tournament import (
@@ -16,6 +17,25 @@ if TYPE_CHECKING:
     from typing import Any
 
     from paradigm.orchestrator.engine import OrchestrationEngine
+
+_JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _first_json_object(text: str) -> dict | None:
+    """Pull the first JSON object out of a model response.
+
+    Robust to code fences AND chatty preamble ("Here is my verdict: {...}") — the
+    brittle 'must start with a fence' parsing silently returned None for every
+    matchup, leaving the whole tournament stuck at the 1500 starting Elo.
+    """
+    m = _JSON_OBJ_RE.search(text or "")
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, dict) else None
 
 
 class TournamentHandler:
@@ -80,6 +100,20 @@ class TournamentHandler:
         # Store for external access
         self._last_population = population
         self._last_matchup_results = matchup_results
+
+        # Surface judging failures — otherwise an all-failed tournament looks
+        # "complete" with every hypothesis stuck at the 1500 starting Elo and an
+        # arbitrary tie-break "winner".
+        if len(matchup_results) < len(matchups):
+            note = f"tournament: only {len(matchup_results)}/{len(matchups)} matchups were judged"
+            if not matchup_results:
+                note += " — Elo rankings are NOT meaningful (every judge call failed; check the judge model)"
+            self._engine._logger.log_error(
+                RuntimeError(note),
+                thread_id=self._engine.state.thread_id,
+                metadata_key="tournament",
+            )
+            display.info(note)
 
         # Step 4: Select winners
         winners = population.select_winners(n=config.tournament_winners)
@@ -226,23 +260,28 @@ class TournamentHandler:
                 thread_id=self._engine.state.thread_id,
             )
 
-            # Parse JSON response
-            text = response_text.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[-1]
-                if text.endswith("```"):
-                    text = text[:-3]
-                text = text.strip()
-
-            data = json.loads(text)
-            winner_label = data.get("winner", "A")
-            winner_id = hypothesis_a.id if winner_label == "A" else hypothesis_b.id
+            # Parse JSON response (robust to fences + preamble).
+            data = _first_json_object(response_text)
+            if data is None:
+                self._engine._logger.log_error(
+                    ValueError(f"tournament judge: unparseable response: {response_text[:160]!r}"),
+                    thread_id=self._engine.state.thread_id,
+                    metadata_key="tournament",
+                )
+                return None
+            # Lenient winner parse: "A" / "a" / "Hypothesis A" all map to A.
+            winner_label = str(data.get("winner", "A")).strip().upper()
+            winner_id = hypothesis_a.id if winner_label.startswith("A") else hypothesis_b.id
+            try:
+                margin = float(data.get("margin", 0.5))
+            except (TypeError, ValueError):
+                margin = 0.5
             return MatchupResult(
                 hypothesis_a_id=hypothesis_a.id,
                 hypothesis_b_id=hypothesis_b.id,
                 winner_id=winner_id,
-                judge_reasoning=data.get("reasoning", ""),
-                margin=float(data.get("margin", 0.5)),
+                judge_reasoning=str(data.get("reasoning", "")),
+                margin=margin,
             )
 
         except Exception as e:
