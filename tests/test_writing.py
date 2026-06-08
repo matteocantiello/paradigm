@@ -20,7 +20,7 @@ from paradigm.journal.paper import (
     strip_agent_scaffolding,
 )
 from paradigm.orchestrator.engine import OrchestrationEngine
-from paradigm.orchestrator.writing import _humanize_figure_name
+from paradigm.orchestrator.writing import _humanize_figure_name, _strip_missing_figure_refs
 
 
 # --- Figure caption humanization (B2) ---
@@ -37,6 +37,30 @@ class TestHumanizeFigureName:
     def test_empty_when_only_generic_words(self):
         assert _humanize_figure_name("figure") == ""
         assert _humanize_figure_name("") == ""
+
+
+# --- Strip references to figures that were never generated (PDF robustness) ---
+class TestStripMissingFigureRefs:
+    def test_strips_missing_keeps_present(self, tmp_path):
+        (tmp_path / "figures").mkdir()
+        (tmp_path / "figures" / "real.png").write_bytes(b"x")
+        body = (
+            "# Paper\n\n"
+            "![Graphical abstract for paper summary](figures/ghost.png)\n\n"
+            "Intro text.\n\n"
+            "![Figure 1: Real](figures/real.png)\n\n"
+            "End.\n"
+        )
+        out = _strip_missing_figure_refs(body, tmp_path)
+        assert "figures/ghost.png" not in out  # hallucinated/missing → stripped
+        assert "![Figure 1: Real](figures/real.png)" in out  # present → kept
+        assert "Intro text." in out and "End." in out
+
+    def test_no_figures_dir_strips_all_figure_refs(self, tmp_path):
+        body = "# P\n\n![Graphical abstract](figures/ghost.png)\n\nText."
+        out = _strip_missing_figure_refs(body, tmp_path)
+        assert "figures/ghost.png" not in out
+        assert "Text." in out
 
 
 # --- Paper Model Tests ---

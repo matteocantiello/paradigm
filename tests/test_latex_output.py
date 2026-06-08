@@ -91,6 +91,14 @@ class TestMarkdownToLatex:
         out = _tex("# T\n\n## R\n![Figure 1](figures/x.png)")
         assert r"\caption{}" in out
 
+    def test_includegraphics_guarded_against_missing_file(self):
+        # A missing image must not abort the whole PDF — \includegraphics is wrapped
+        # in \IfFileExists with a placeholder fallback.
+        out = _tex("# T\n\n## R\n![Figure 1: x](figures/foo.png)")
+        assert r"\IfFileExists{figures/foo.png}" in out
+        assert r"\includegraphics[width=0.8\linewidth]{figures/foo.png}" in out
+        assert "[Figure unavailable]" in out
+
     def test_itemize_and_enumerate(self):
         out = _tex("# T\n\n## S\n- a\n- b\n\n1. one\n2. two")
         assert r"\begin{itemize}" in out and r"\end{itemize}" in out

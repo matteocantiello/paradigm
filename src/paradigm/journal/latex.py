@@ -178,7 +178,15 @@ def _convert_body_block(lines: list[str]) -> str:
             caption = _FIG_LABEL_RE.sub("", alt).strip()  # drop redundant "Figure N:"
             out.append(r"\begin{figure}[htbp]")
             out.append(r"\centering")
-            out.append(rf"\includegraphics[width=0.8\linewidth]{{{path}}}")
+            # Guard against a referenced-but-MISSING image (e.g. a writer-hallucinated
+            # "graphical abstract" that was never generated). A bare \includegraphics
+            # on a missing file aborts the ENTIRE PDF compile; \IfFileExists degrades
+            # it to a placeholder so the rest of the paper still renders.
+            out.append(
+                rf"\IfFileExists{{{path}}}"
+                rf"{{\includegraphics[width=0.8\linewidth]{{{path}}}}}"
+                rf"{{\textit{{[Figure unavailable]}}}}"
+            )
             # Always emit \caption (keeps the auto-numbered "Figure N" label that
             # the prose refers to); include the description when one survives.
             out.append(rf"\caption{{{_convert_inline(caption)}}}" if caption else r"\caption{}")

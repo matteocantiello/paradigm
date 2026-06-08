@@ -51,6 +51,26 @@ def _humanize_figure_name(exp_name: str) -> str:
     return name[0].upper() + name[1:] if name else ""
 
 
+_FIGURE_IMG_RE = re.compile(r"!\[[^\]]*\]\(figures/([^)]+)\)[ \t]*\n?")
+
+
+def _strip_missing_figure_refs(body: str, paper_dir: Path) -> str:
+    """Remove ``![...](figures/X)`` tags whose file isn't present in ``paper_dir``.
+
+    Writers sometimes reference a figure that was never generated (a hallucinated
+    "graphical abstract", a wrong filename). Such a tag leaves an empty float and —
+    worse — makes \\includegraphics abort the whole PDF compile. Call this AFTER the
+    real figures are copied into ``paper_dir/figures`` so only genuinely-missing
+    references are dropped.
+    """
+    figures_dir = paper_dir / "figures"
+
+    def _keep(m: re.Match) -> str:
+        return m.group(0) if (figures_dir / m.group(1)).exists() else ""
+
+    return _FIGURE_IMG_RE.sub(_keep, body)
+
+
 class WritingHandler:
     """Encapsulates writing-phase logic extracted from OrchestrationEngine."""
 
@@ -1250,9 +1270,13 @@ class WritingHandler:
         body = self.embed_figures_inline(body)
         # Convert any remaining Unicode math to LaTeX
         body = sanitize_unicode_math(body)
-        path.write_text(body)
+        # Populate figures/ FIRST, then drop image tags pointing at a figure file
+        # that isn't actually there (e.g. a writer-invented "graphical abstract").
+        # A missing image otherwise leaves an empty float and aborts PDF compilation.
         if self._engine.state.execution_figures:
             self.copy_figures_to_paper_dir(paper_id)
+        body = _strip_missing_figure_refs(body, paper_dir)
+        path.write_text(body)
 
         # Optional journal-ready LaTeX/PDF output (Phase 2, default-off toggle).
         journal_cfg = self._engine._config.journal
