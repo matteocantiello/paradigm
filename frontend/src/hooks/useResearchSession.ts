@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useSessionStore } from "@/stores/sessionStore";
 
-export function useResearchSession(sessionId: string | undefined) {
+export function useResearchSession(sessionId: string | undefined, shouldConnect = true) {
   const connect = useSessionStore((s) => s.connect);
   const disconnect = useSessionStore((s) => s.disconnect);
   const connectionStatus = useSessionStore((s) => s.connectionStatus);
@@ -28,11 +28,14 @@ export function useResearchSession(sessionId: string | undefined) {
   const pendingApproval = useSessionStore((s) => s.pendingApproval);
 
   useEffect(() => {
-    if (sessionId) {
+    // Never open a socket for a finished cycle — the in-memory session is gone and
+    // it would just spin on "reconnecting". The caller passes shouldConnect=false
+    // once it knows the cycle is terminal.
+    if (sessionId && shouldConnect) {
       connect(sessionId);
       return () => disconnect();
     }
-  }, [sessionId, connect, disconnect]);
+  }, [sessionId, shouldConnect, connect, disconnect]);
 
   return {
     connectionStatus,

@@ -4,36 +4,46 @@ import { useQuery } from "@tanstack/react-query";
 import { useResearchSession } from "@/hooks/useResearchSession";
 import { SessionView } from "@/components/session/SessionView";
 import { listCycles } from "@/api/client";
-
-const TERMINAL_STATUSES = new Set(["completed", "failed", "aborted"]);
-const TERMINAL_PHASES = new Set(["published", "rejected"]);
+import { isCycleTerminal, isTerminalStatus, isTerminalPhase } from "@/lib/cycleStatus";
 
 export function SessionPage() {
   const { id } = useParams<{ id: string }>();
-  const session = useResearchSession(id);
 
-  // Fetch cycles to find the paper_id + cycle_id for this session.
+  // Fetch cycles to find this session's cycle (status, paper_id, phase). We need
+  // its status BEFORE deciding whether to open the live WebSocket.
   const { data: cycles, refetch } = useQuery({
     queryKey: ["cycles"],
     queryFn: () => listCycles(0, 100),
   });
   const cycle = cycles?.items.find((c) => c.session_id === id);
 
-  // The cycle's paper_id is enriched from the thread's draft. Refetch when the
-  // session ends — OR as soon as a terminal phase (published/rejected) arrives,
-  // since the terminal screen now renders then (before the backend finalizes) and
-  // needs paper_id for its "View paper" button. Works for rejected papers too.
-  const phaseTerminal = session.currentPhase != null && TERMINAL_PHASES.has(session.currentPhase);
+  // A finished cycle's in-memory session is gone — don't open a socket (it would
+  // spin on "reconnecting"); render the terminal summary from persisted data instead.
+  const cycleTerminal = cycle ? isCycleTerminal(cycle) : false;
+  const session = useResearchSession(id, !cycleTerminal);
+
+  // Refetch the cycle (for the enriched paper_id) when a terminal status/phase
+  // arrives during a LIVE run, so the "View paper" button gets its id.
+  const phaseTerminal = isTerminalPhase(session.currentPhase);
   useEffect(() => {
-    if (TERMINAL_STATUSES.has(session.status) || phaseTerminal) {
+    if (isTerminalStatus(session.status) || phaseTerminal) {
       void refetch();
     }
   }, [session.status, phaseTerminal, refetch]);
+
+  // When terminal (no live socket), drive the view from the persisted cycle record
+  // so the TerminalScreen still renders its outcome + "View paper".
+  const status = cycleTerminal ? (cycle?.status ?? session.status) : session.status;
+  const currentPhase = cycleTerminal
+    ? (cycle?.current_phase ?? session.currentPhase)
+    : session.currentPhase;
 
   return (
     <div className="h-[calc(100vh-5rem)]">
       <SessionView
         {...session}
+        status={status}
+        currentPhase={currentPhase}
         paperId={cycle?.paper_id ?? undefined}
         cycleId={cycle?.cycle_id}
         topic={cycle?.seed_prompt}

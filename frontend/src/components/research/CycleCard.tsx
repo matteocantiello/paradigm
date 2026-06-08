@@ -4,6 +4,7 @@ import { Trash2, RotateCcw } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { TopicBadges } from "@/components/shared/TopicBadges";
 import { truncate } from "@/lib/utils";
+import { cycleDestination } from "@/lib/cycleStatus";
 import { resumeCycle, type ResearchCycleResponse } from "@/api/client";
 
 interface CycleCardProps {
@@ -17,7 +18,10 @@ const RESUMABLE = new Set(["interrupted", "failed", "aborted", "completed"]);
 export function CycleCard({ cycle, onDelete }: CycleCardProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const isClickable = !!cycle.session_id;
+  // Route by status: a finished cycle with a paper goes to the paper (not a dead
+  // WebSocket session), a running one to the live view. See cycleDestination.
+  const destination = cycleDestination(cycle);
+  const isClickable = destination != null;
   const canResume = RESUMABLE.has(cycle.status);
 
   const resume = useMutation({
@@ -29,8 +33,8 @@ export function CycleCard({ cycle, onDelete }: CycleCardProps) {
   });
 
   function handleCardClick() {
-    if (isClickable) {
-      navigate(`/session/${cycle.session_id}`);
+    if (destination) {
+      navigate(destination);
     }
   }
 
