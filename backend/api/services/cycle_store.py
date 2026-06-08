@@ -46,6 +46,7 @@ class CycleStore:
             paper_id=row.get("paper_id"),
             current_phase=row.get("current_phase"),
             resumed_from=row.get("resumed_from"),
+            status_detail=row.get("status_detail"),
             created_at=row["created_at"],
             updated_at=row.get("updated_at"),
         )

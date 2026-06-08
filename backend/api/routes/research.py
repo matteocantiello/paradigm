@@ -105,6 +105,7 @@ def _enrich_cycle(cycle: ResearchCycleResponse, request: Request) -> ResearchCyc
                     pass  # e.g. "starting" has no CycleStatus — keep prior
                 cycle.thread_id = state.thread_id or cycle.thread_id
                 cycle.current_phase = state.current_phase or cycle.current_phase
+                cycle.status_detail = getattr(state, "status_detail", None) or cycle.status_detail
         db = getattr(request.app.state, "database", None)
         if db is not None and cycle.thread_id:
             thread = db.get_thread(cycle.thread_id)

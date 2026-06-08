@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, AlertTriangle, OctagonX, FileText, RotateCcw, ArrowRight } from "lucide-react";
+import { CheckCircle2, AlertTriangle, OctagonX, FileText, RotateCcw, ArrowRight, Copy, Check, Repeat } from "lucide-react";
 import { PHASE_LABELS } from "@/lib/constants";
 import { resumeCycle } from "@/api/client";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,8 @@ interface TerminalScreenProps {
   totalTokens: number;
   papersFound: number;
   elapsedSeconds: number;
+  statusDetail?: string | null; // concrete reason for a failed/aborted run
+  seedPrompt?: string; // enables "Copy prompt" / "Retry with this prompt"
 }
 
 function fmtDuration(secs: number): string {
@@ -46,12 +48,31 @@ export function TerminalScreen({
   totalTokens,
   papersFound,
   elapsedSeconds,
+  statusDetail,
+  seedPrompt,
 }: TerminalScreenProps) {
   const navigate = useNavigate();
   const [resuming, setResuming] = useState(false);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function copyPrompt() {
+    if (!seedPrompt) return;
+    try {
+      await navigator.clipboard.writeText(seedPrompt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — non-critical */
+    }
+  }
+
+  // Start a fresh run pre-filled with this prompt, so the user can tweak and retry.
+  function retryWithPrompt() {
+    navigate("/research?new=1", { state: { prefillPrompt: seedPrompt } });
+  }
 
   async function doResume() {
     if (!cycleId || busy) return;
@@ -114,6 +135,10 @@ export function TerminalScreen({
     line = `Stopped during the ${phaseLabel} phase.`;
   }
   const t = TONES[tone];
+  // For a failed/aborted run, the persisted reason is more useful than the
+  // generic phase line — show it when we have it.
+  const reasonLine =
+    statusDetail && (status === "failed" || status === "aborted") ? statusDetail : line;
 
   return (
     <div className={cn("border-y px-4 py-3", t.wrap)}>
@@ -121,7 +146,7 @@ export function TerminalScreen({
         <Icon className={cn("mt-0.5 h-5 w-5 shrink-0", t.icon)} />
         <div className="min-w-0 flex-1">
           <h2 className={cn("text-sm font-semibold", t.title)}>{title}</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">{line}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{reasonLine}</p>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] tabular-nums text-muted-foreground/80">
             <span>Reached: <span className="text-foreground/80">{phaseLabel}</span></span>
             {roundNum > 0 && <span>Rounds: <span className="text-foreground/80">{roundNum}</span></span>}
@@ -164,6 +189,25 @@ export function TerminalScreen({
                 : converged
                   ? "Continue research"
                   : "Resume"}
+            </button>
+          )}
+          {seedPrompt && !converged && (
+            <button
+              onClick={retryWithPrompt}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-primary/40"
+              title="Start a fresh run pre-filled with this prompt — tweak it and try again"
+            >
+              <Repeat className="h-3.5 w-3.5" />
+              Retry with this prompt
+            </button>
+          )}
+          {seedPrompt && (
+            <button
+              onClick={copyPrompt}
+              className="flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? "Copied" : "Copy prompt"}
             </button>
           )}
           <button

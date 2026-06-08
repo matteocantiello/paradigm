@@ -113,13 +113,20 @@ literature:
   max_citation_results: 10
   max_reference_results: 20
   mcp:
-    # alphaXiv via cached OAuth token (fast, rich per-paper breakdowns). ENABLED.
-    # If the token is missing/expired it now degrades CLEANLY — one warning, then
-    # it's skipped for the run and arXiv + the other providers carry the
-    # literature (no retry spam, cycle unaffected). Keep it working: run
-    # `paradigm mcp-login` on a browser machine, then
+    # alphaXiv via Clerk OAuth (rich per-paper breakdowns). DISABLED by default.
+    #
+    # Why off: alphaXiv has NO static API key — only a browser OAuth token that
+    # expires, so keeping it on means periodically re-running `paradigm mcp-login`
+    # and re-copying the token to the server (and a noisy "OAuth flow error"
+    # traceback from the MCP client when it lapses). It is optional + additive:
+    # arXiv, Semantic Scholar, and Perplexity carry the literature without it, and
+    # a missing token already degrades cleanly (the cycle is unaffected). So unless
+    # you actively want alphaXiv's enrichment, leaving it off avoids the upkeep.
+    #
+    # To re-enable: set `enabled: true`, run `paradigm mcp-login` on a machine with
+    # a browser, then copy the token to a persistent path on the server:
     #   scp -r ~/.paradigm/mcp/ root@<vm>:/root/.paradigm/   and restart.
-    enabled: true
+    enabled: false
 
 storage:
   data_dir: "./data"  # overridden by PARADIGM_DATA_DIR -> a persistent, backed-up volume

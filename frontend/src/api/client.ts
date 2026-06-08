@@ -40,6 +40,8 @@ export interface ResearchCycleResponse {
   thread_id?: string | null;
   paper_id?: string | null;
   current_phase?: string | null;
+  /** Short human reason for a terminal failed/aborted cycle. */
+  status_detail?: string | null;
   topics?: string[] | null;
   resumed_from?: string | null;
   total_tokens?: number | null;

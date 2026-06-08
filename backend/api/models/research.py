@@ -49,6 +49,9 @@ class ResearchCycleResponse(BaseModel):
     thread_id: str | None = None
     paper_id: str | None = None
     current_phase: str | None = None
+    # Short human-readable reason for a terminal failed/aborted cycle (e.g. the
+    # error summary, or "stopped before completion"), shown in the research tab.
+    status_detail: str | None = None
     # Broad arXiv-style field tags (cross-pollination → multiple), classified by an
     # agent from the prompt and refreshed from the finished paper.
     topics: list[str] | None = None

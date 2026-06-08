@@ -18,11 +18,12 @@ const ALL_ROLES: string[] = [...SELECTABLE_TEAM_ROLES];
 
 interface SetupWizardProps {
   onClose: () => void;
+  initialPrompt?: string;
 }
 
-export function SetupWizard({ onClose }: SetupWizardProps) {
+export function SetupWizard({ onClose, initialPrompt }: SetupWizardProps) {
   const [step, setStep] = useState<Step>("Prompt");
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(initialPrompt ?? "");
   const [mode, setMode] = useState("directed");
   const [roles, setRoles] = useState<string[]>([...ALL_ROLES]);
 

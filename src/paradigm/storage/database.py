@@ -138,12 +138,17 @@ class Database:
                 paper_id TEXT,
                 current_phase TEXT,
                 resumed_from TEXT,
+                status_detail TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Added idempotently for cycles tables created before resume existed.
-        self._add_columns_if_missing(cursor, "cycles", {"resumed_from": "TEXT"})
+        # Added idempotently so existing databases pick up new columns without a
+        # migration framework. status_detail = a short human reason for a terminal
+        # (failed/aborted) cycle, surfaced in the research-tab UI.
+        self._add_columns_if_missing(
+            cursor, "cycles", {"resumed_from": "TEXT", "status_detail": "TEXT"}
+        )
 
         # Graveyard table (failed research)
         cursor.execute("""

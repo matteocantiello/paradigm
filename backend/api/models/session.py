@@ -32,6 +32,9 @@ class SessionState(BaseModel):
     cycle_id: str
     status: SessionStatus
     current_phase: str | None = None
+    # Short human reason for a terminal failed/aborted run (error summary or a
+    # "stopped before completion" note), persisted onto the cycle for the UI.
+    status_detail: str | None = None
     round_num: int = 0
     max_rounds: int = 0
     thread_id: str | None = None

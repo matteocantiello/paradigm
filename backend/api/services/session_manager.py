@@ -26,6 +26,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _summarize_failure(exc: BaseException, phase: str | None) -> str:
+    """A short, user-facing reason for a failed cycle.
+
+    The full traceback is logged separately; this is the one-line gist the
+    research tab shows so an aborted run isn't a dead end. Keeps the exception
+    type + its first line (bounded), prefixed with the phase it died in.
+    """
+    detail = str(exc).strip().splitlines()
+    first = detail[0] if detail else exc.__class__.__name__
+    msg = f"{exc.__class__.__name__}: {first}" if first else exc.__class__.__name__
+    if len(msg) > 280:
+        msg = msg[:277] + "…"
+    where = f" during the {phase} phase" if phase else ""
+    return f"The run hit an error{where} — {msg}"
+
+
 class SessionManager:
     """Manages all running research sessions.
 
@@ -267,18 +283,25 @@ class SessionManager:
 
         except asyncio.CancelledError:
             state.status = SessionStatus.ABORTED
+            state.status_detail = (
+                "Stopped before completion — usually because the run was stopped "
+                "manually or the server restarted (e.g. a deploy). Your work up to "
+                "the last checkpoint is saved; you can resume or retry."
+            )
             state.updated_at = datetime.now(timezone.utc)
             logger.info("Session %s cancelled", session_id)
 
-        except Exception:
+        except Exception as exc:
             state.status = SessionStatus.FAILED
+            state.status_detail = _summarize_failure(exc, state.current_phase)
             state.updated_at = datetime.now(timezone.utc)
             logger.exception("Session %s failed", session_id)
             await self._broadcast(
                 session_id,
                 ErrorMsg(
                     code="session_failed",
-                    message="Session failed due to an internal error",
+                    # Surface the concrete reason so the UI isn't a dead end.
+                    message=f"Session failed: {state.status_detail}",
                     recoverable=False,
                 ),
             )
@@ -305,6 +328,8 @@ class SessionManager:
                         getattr(engine, "state", None), "thread_id", None
                     )
                     fields: dict[str, Any] = {"status": state.status.value}
+                    if state.status_detail:
+                        fields["status_detail"] = state.status_detail
                     if thread_id:
                         fields["thread_id"] = thread_id
                         if self._db is not None:

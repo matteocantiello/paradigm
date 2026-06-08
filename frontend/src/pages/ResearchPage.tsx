@@ -1,12 +1,18 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useLocation } from "react-router-dom";
 import { CycleList } from "@/components/research/CycleList";
 import { SetupWizard } from "@/components/research/SetupWizard";
 import { Plus } from "lucide-react";
 
 export function ResearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [showWizard, setShowWizard] = useState(searchParams.get("new") === "1");
+  const location = useLocation();
+  // "Retry with this prompt" from a finished cycle navigates here with the prompt
+  // in router state; open the wizard pre-filled.
+  const prefillPrompt = (location.state as { prefillPrompt?: string } | null)?.prefillPrompt;
+  const [showWizard, setShowWizard] = useState(
+    searchParams.get("new") === "1" || !!prefillPrompt
+  );
 
   const handleOpenWizard = () => {
     setShowWizard(true);
@@ -31,7 +37,9 @@ export function ResearchPage() {
         </button>
       </div>
       <CycleList />
-      {showWizard && <SetupWizard onClose={() => setShowWizard(false)} />}
+      {showWizard && (
+        <SetupWizard onClose={() => setShowWizard(false)} initialPrompt={prefillPrompt} />
+      )}
     </div>
   );
 }
