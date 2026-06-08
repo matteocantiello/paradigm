@@ -1,5 +1,6 @@
 """Tests for the Perplexity citation grounding module."""
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import httpx
@@ -12,9 +13,78 @@ from paradigm.literature.perplexity import (
     _build_discovery_prompt,
     _describe_exc,
     _extract_arxiv_urls,
+    _rate_limit_backoff,
     _split_into_paragraphs,
     _strip_think_tags,
+    _transient_backoff,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_sleep(monkeypatch):
+    """Make retry backoff instant so tests don't actually wait seconds."""
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+
+def _resp(status: int, *, json=None):
+    req = httpx.Request("POST", "https://api.perplexity.ai/chat/completions")
+    return httpx.Response(status, request=req, json=json or {})
+
+
+# ---------------------------------------------------------------------------
+# Backoff helpers + 429 handling
+# ---------------------------------------------------------------------------
+
+
+class TestBackoff:
+    def test_rate_limit_backoff_honors_retry_after(self):
+        resp = _resp(429)
+        resp.headers["Retry-After"] = "5"
+        assert _rate_limit_backoff(resp, 0) == 5.0
+
+    def test_rate_limit_backoff_caps_retry_after(self):
+        resp = _resp(429)
+        resp.headers["Retry-After"] = "9999"
+        assert _rate_limit_backoff(resp, 0) == 60.0
+
+    def test_rate_limit_backoff_exponential_without_header(self):
+        # No Retry-After → ~10s, ~20s, ~40s (with light jitter).
+        assert 10.0 <= _rate_limit_backoff(_resp(429), 0) < 11.5
+        assert 20.0 <= _rate_limit_backoff(_resp(429), 1) < 23.0
+
+    def test_transient_backoff_grows(self):
+        assert 2.0 <= _transient_backoff(0) < 3.0
+        assert _transient_backoff(2) > _transient_backoff(0)
+
+    @pytest.mark.asyncio
+    async def test_retries_then_succeeds_on_429(self):
+        """A 429 backs off and retries rather than giving up."""
+        success = _resp(
+            200,
+            json={
+                "choices": [{"message": {"content": "Text [1]."}}],
+                "citations": ["https://arxiv.org/abs/2301.00001"],
+            },
+        )
+        client = PerplexityClient(api_key="k", max_retries=3)
+        client._client = AsyncMock()
+        client._client.post = AsyncMock(side_effect=[_resp(429), success])
+
+        result = await client.cite_paragraph("Some paragraph text to ground.")
+        assert result is not None
+        assert "[1]" in result.cited_text
+        assert client._client.post.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_gives_up_immediately_on_401(self):
+        """A 401 (bad key) is not retried — it won't fix on retry."""
+        client = PerplexityClient(api_key="bad", max_retries=4)
+        client._client = AsyncMock()
+        client._client.post = AsyncMock(return_value=_resp(401, json={"error": "bad key"}))
+
+        result = await client.cite_paragraph("Some paragraph text to ground.")
+        assert result is None
+        assert client._client.post.await_count == 1  # no retry storm on auth errors
 
 
 class TestApiKeyHygiene:

@@ -125,6 +125,45 @@ class TestParsePeerReview:
         assert review.scores.get("clarity") == 8
         assert "rigor" not in review.scores
 
+    def test_scores_without_out_of_ten(self):
+        """Bare 'Category: N' (no /10) must parse — gemini reviews often drop it."""
+        text = "## Scores\nNovelty: 8\nRigor: 6\nClarity: 9\nSignificance: 7\n"
+        review = parse_peer_review("r-0", text)
+        assert review.scores == {"novelty": 8, "rigor": 6, "clarity": 9, "significance": 7}
+
+    def test_scores_bold_and_dash_and_out_of_ten(self):
+        text = "## Scores\n**Novelty** — 8/10\n**Rigor**: 7 out of 10\nClarity – 9\n"
+        review = parse_peer_review("r-0", text)
+        assert review.scores.get("novelty") == 8
+        assert review.scores.get("rigor") == 7
+        assert review.scores.get("clarity") == 9
+
+    def test_scores_in_markdown_table(self):
+        text = "## Scores\n| Category | Score |\n| --- | --- |\n| Novelty | 7 |\n| Rigor | 8 |\n"
+        review = parse_peer_review("r-0", text)
+        assert review.scores.get("novelty") == 7
+        assert review.scores.get("rigor") == 8
+
+    def test_bold_section_headers(self):
+        """Reviewers that use **Header** instead of '## Header' must still parse."""
+        text = (
+            "**Summary**\nA strong classical baseline.\n\n"
+            "**Scores**\nNovelty: 7/10\nRigor: 8/10\n\n"
+            "**Recommendation**\naccept\n"
+        )
+        review = parse_peer_review("r-0", text)
+        assert "strong classical baseline" in review.summary.lower()
+        assert review.scores.get("rigor") == 8
+        assert review.recommendation == "accept"
+
+    def test_h3_and_synonym_headers(self):
+        """Deeper heading levels and header synonyms (Rating/Decision) resolve."""
+        text = "### Rating\nNovelty: 6/10\nSignificance: 7/10\n\n### Decision\nminor_revision\n"
+        review = parse_peer_review("r-0", text)
+        assert review.scores.get("novelty") == 6
+        assert review.scores.get("significance") == 7
+        assert review.recommendation == "minor_revision"
+
     def test_score_clamping(self):
         text = "## Scores\nNovelty: 15/10\nRigor: 0/10\n"
         review = parse_peer_review("r-0", text)
@@ -224,9 +263,25 @@ class TestSynthesizeDecision:
         ]
         assert synthesize_decision(reviews) == "reject"
 
-    def test_no_scores_no_reject(self):
+    def test_no_scores_honors_recommendation(self):
+        """When scores don't parse, honor the reviewer's recommendation rather
+        than blindly forcing major_revision (the old bug that buried good papers)."""
         reviews = [
             PeerReview(reviewer_id="r-0", recommendation="minor_revision"),
+        ]
+        assert synthesize_decision(reviews) == "minor_revision"
+
+    def test_no_scores_all_accept(self):
+        reviews = [
+            PeerReview(reviewer_id="r-0", recommendation="accept"),
+            PeerReview(reviewer_id="r-1", recommendation="accept"),
+        ]
+        assert synthesize_decision(reviews) == "accept"
+
+    def test_no_scores_with_major_revision_stays_major(self):
+        reviews = [
+            PeerReview(reviewer_id="r-0", recommendation="accept"),
+            PeerReview(reviewer_id="r-1", recommendation="major_revision"),
         ]
         assert synthesize_decision(reviews) == "major_revision"
 

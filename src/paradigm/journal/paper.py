@@ -111,18 +111,66 @@ class PaperDraft(BaseModel):
         return "\n\n".join(parts)
 
 
+# First-person agent meta-text that a formal paper never contains — it uses
+# "we", never "I'll" / "Let me". A standalone line opening this way in an
+# assembled manuscript is leaked agent reasoning (e.g. a citation-checking note
+# "Need to inspect [1]/[9] before citing" that surfaced mid-Introduction in a
+# real run and drew a major-revision), not prose. Anchored at line start, after
+# an optional bullet/quote/bold marker. High precision over recall: missing a
+# note is recoverable (the referee catches it); deleting real prose is not.
+_INLINE_SCAFFOLD_RE = re.compile(
+    r"""^\s*(?:[-*>]\s*)?(?:\*\*|__|_)?\s*
+        (?:
+            I['’]ll | I\ will | I\ am\ going\ to | I['’]m\ going\ to | Let\ me |
+            I\ need\ to | I\ should | I\ have\ now | I['’]ve\ now | I\ will\ now |
+            Need\ to\ (?:inspect|check|verify|confirm|add|review|fix|remove|update) |
+            Here\ (?:is|are|'s|’s)\ (?:the\ )?
+                (?:revised|complete|completed|updated|final|corrected)\
+                (?:paper|manuscript|version|draft|text|review) |
+            Note\ to\ self | TODO\b | To-?do\b | Reminder:
+        )
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_inline_scaffolding(text: str) -> str:
+    """Drop standalone leaked-agent-reasoning lines from within a paper body.
+
+    ``strip_agent_scaffolding`` only removes the preamble *before* the first
+    heading; reasoning notes that leak *inside* a section (past a heading) sail
+    through. This removes those lines while leaving headings, tables, images,
+    math, and code fences untouched.
+    """
+    kept: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.lstrip()
+        # Never touch structural lines: headings, tables, images, math, fences.
+        if stripped.startswith(("#", "|", "![", "$$", "```")):
+            kept.append(line)
+            continue
+        if _INLINE_SCAFFOLD_RE.match(line):
+            continue
+        kept.append(line)
+    cleaned = "\n".join(kept)
+    # Collapse any 3+ blank-line gaps the removals opened up.
+    return re.sub(r"\n{3,}", "\n\n", cleaned)
+
+
 def strip_agent_scaffolding(text: str) -> str:
     """Remove agent meta-text (planning notes, XML tool calls) from paper content.
 
     Agent responses often include preamble ("I'll revise the paper..."),
-    XML function call blocks, and commentary before the actual paper.
-    Papers always start with a markdown heading (# or ##).
+    XML function call blocks, and commentary before the actual paper, and
+    sometimes leak first-person reasoning *inside* the body. Papers always
+    start with a markdown heading (# or ##) and speak in "we", never "I".
 
     Args:
         text: Raw agent response that should be a paper body.
 
     Returns:
-        Cleaned text starting from the first markdown heading.
+        Cleaned text starting from the first markdown heading, with inline
+        agent meta-text lines removed.
     """
     if not text:
         return text
@@ -141,6 +189,9 @@ def strip_agent_scaffolding(text: str) -> str:
     match = re.search(r"^(#{1,2}\s+\S)", cleaned, flags=re.MULTILINE)
     if match:
         cleaned = cleaned[match.start() :]
+
+    # Strip leaked first-person reasoning that survived *inside* the body.
+    cleaned = _strip_inline_scaffolding(cleaned)
 
     return cleaned.strip()
 

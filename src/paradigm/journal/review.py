@@ -1,9 +1,12 @@
 """Peer review models, parsing, and decision synthesis."""
 
+import logging
 import re
 from pathlib import Path
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 # Score categories for peer review
 SCORE_CATEGORIES = ["novelty", "rigor", "clarity", "significance"]
@@ -95,7 +98,14 @@ def _extract_list(content: str) -> list[str]:
 
 
 def _parse_scores(content: str, categories: list[str] | None = None) -> dict[str, int]:
-    """Parse score lines like 'Novelty: 7/10' from text.
+    """Parse a per-category score from text, tolerating real-world formatting.
+
+    The old pattern demanded the exact ``Category: N/10`` form; reviewers wrote
+    ``**Rigor**: 8``, ``Rigor — 8/10``, ``Rigor: 8 out of 10``, or a markdown
+    table row ``| Rigor | 8 |``, all of which parsed to nothing → empty scores →
+    ``synthesize_decision`` silently forcing major_revision. Match the category
+    name, skip any separator/markup, and read the first integer (optionally
+    ``/10`` or ``out of 10``).
 
     Args:
         content: Text containing score lines.
@@ -108,10 +118,16 @@ def _parse_scores(content: str, categories: list[str] | None = None) -> dict[str
         categories = SCORE_CATEGORIES
     scores: dict[str, int] = {}
     for category in categories:
-        pattern = rf"{category}\s*:\s*(\d+)\s*/\s*10"
+        # category, then any run of colon/dash/pipe/asterisk/space (in any order,
+        # so "**Novelty** — 8" works), then the number, with an optional "/10" or
+        # "out of 10" suffix.
+        pattern = (
+            rf"{re.escape(category)}[:\-–—|*_\s]*"
+            rf"(\d+(?:\.\d+)?)\s*(?:/\s*10|out\s+of\s+10)?"
+        )
         match = re.search(pattern, content, re.IGNORECASE)
         if match:
-            score = int(match.group(1))
+            score = round(float(match.group(1)))
             scores[category] = max(1, min(10, score))
     return scores
 
@@ -148,23 +164,33 @@ def parse_peer_review(
     Returns:
         Parsed PeerReview.
     """
-    # Split on ## headers
+    # Split on section headers. Accept any markdown heading level (#..######) or
+    # a bold-only line (**Scores**) — reviewers don't reliably use "## ".
     sections: dict[str, str] = {}
-    pattern = r"^##\s+(.+?)$"
-    parts = re.split(pattern, text, flags=re.MULTILINE)
+    header_re = re.compile(r"^(?:#{1,6}\s+(?P<h>.+?)|\*\*(?P<b>.+?)\*\*)\s*:?\s*$", re.MULTILINE)
+    matches = list(header_re.finditer(text))
+    for idx, m in enumerate(matches):
+        header = (m.group("h") or m.group("b") or "").strip().lower()
+        start = m.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        sections[header] = text[start:end].strip()
 
-    for i in range(1, len(parts) - 1, 2):
-        header = parts[i].strip().lower()
-        content = parts[i + 1].strip()
-        sections[header] = content
+    def _section(*keys: str) -> str:
+        """First section whose header contains any of these keywords."""
+        for header, content in sections.items():
+            if any(key in header for key in keys):
+                return content
+        return ""
 
-    summary = sections.get("summary", "")
-    strengths = _extract_list(sections.get("strengths", ""))
-    weaknesses = _extract_list(sections.get("weaknesses", ""))
-    questions = _extract_list(sections.get("questions", ""))
-    suggestions = _extract_list(sections.get("suggestions", ""))
-    scores = _parse_scores(sections.get("scores", ""), categories=categories)
-    recommendation = _parse_recommendation(sections.get("recommendation", ""))
+    summary = _section("summary")
+    strengths = _extract_list(_section("strength"))
+    weaknesses = _extract_list(_section("weakness"))
+    questions = _extract_list(_section("question"))
+    suggestions = _extract_list(_section("suggestion"))
+    scores = _parse_scores(_section("score", "rating", "assessment"), categories=categories)
+    recommendation = _parse_recommendation(
+        _section("recommendation", "decision", "verdict", "overall")
+    )
 
     return PeerReview(
         reviewer_id=reviewer_id,
@@ -205,9 +231,24 @@ def synthesize_decision(reviews: list[PeerReview]) -> str:
         all_scores.extend(review.scores.values())
 
     if not all_scores:
-        # No numeric scores — fall back to recommendation consensus
+        # No numeric scores parsed — decide on the reviewers' recommendations
+        # alone rather than blindly defaulting to major_revision (which used to
+        # sink accept-worthy papers whenever score parsing missed). Log it: a
+        # silent parse gap here is exactly how a strong paper gets buried.
+        recs = [r.recommendation for r in reviews]
+        logger.warning(
+            "No numeric scores parsed from %d review(s); deciding on recommendations alone: %s",
+            len(reviews),
+            recs,
+        )
         if any_reject:
             return "reject"
+        if all(r == "accept" for r in recs):
+            return "accept"
+        if any(r in ("accept", "minor_revision") for r in recs) and not any(
+            r == "major_revision" for r in recs
+        ):
+            return "minor_revision"
         return "major_revision"
 
     avg_score = sum(all_scores) / len(all_scores)

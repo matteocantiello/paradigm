@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from dataclasses import dataclass, field
 
@@ -193,6 +194,31 @@ def _describe_exc(e: Exception) -> str:
     return str(e)
 
 
+def _transient_backoff(attempt: int) -> float:
+    """Jittered exponential backoff for transient network errors (~2s, 4s, 8s)."""
+    base = 2.0 * 2**attempt
+    return base + random.uniform(0.0, base * 0.25)
+
+
+def _rate_limit_backoff(response: httpx.Response | None, attempt: int) -> float:
+    """Seconds to wait after a 429, honoring Retry-After when present.
+
+    Grounding fires one Perplexity call per paragraph; with no backoff a busy
+    paper hammered the API into a 429 storm (105 rate-limit errors in one run)
+    that degraded the references reviewers then flagged. Mirror the arXiv client:
+    honor Retry-After, else exponential 10s/20s/40s with light jitter.
+    """
+    if response is not None:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(float(retry_after), 60.0)
+            except ValueError:
+                pass  # Non-numeric (HTTP-date) Retry-After — fall back to backoff.
+    base = 10.0 * 2**attempt  # 10s, 20s, 40s
+    return base + random.uniform(0.0, base * 0.1)
+
+
 class PerplexityClient:
     """Async client for Perplexity citation grounding."""
 
@@ -203,7 +229,8 @@ class PerplexityClient:
         api_key: str,
         event_logger: EventLogger | None = None,
         timeout: float = 120.0,
-        max_retries: int = 2,
+        max_retries: int = 4,
+        max_concurrency: int = 4,
     ) -> None:
         # Strip whitespace/newlines: a trailing space or CR (very common when the
         # key is pasted into an env file with vi / on a CRLF system) makes the
@@ -212,6 +239,10 @@ class PerplexityClient:
         self._api_key = (api_key or "").strip()
         self._event_logger = event_logger
         self._max_retries = max_retries
+        # Cap simultaneous in-flight requests. cite_section() grounds every
+        # paragraph concurrently (and the engine may ground multiple sections at
+        # once); without a ceiling that fan-out is what triggered the 429 storm.
+        self._sem = asyncio.Semaphore(max(1, max_concurrency))
         self._client = httpx.AsyncClient(
             timeout=timeout,
             headers={
@@ -219,6 +250,59 @@ class PerplexityClient:
                 "Content-Type": "application/json",
             },
         )
+
+    async def _request(self, payload: dict, metadata_key: str) -> dict | None:
+        """POST to Perplexity with bounded concurrency + backoff on 429/transient.
+
+        Returns the parsed JSON body, or None once retries are exhausted. A 429
+        backs off (honoring Retry-After); a 5xx / network blip uses a shorter
+        transient backoff; any other 4xx (e.g. 401 bad key) won't fix on retry,
+        so we stop immediately. The semaphore is held across backoff sleeps, which
+        naturally throttles the whole fan-out the moment the API pushes back.
+        """
+        async with self._sem:
+            for attempt in range(self._max_retries):
+                last_response: httpx.Response | None = None
+                try:
+                    response = await self._client.post(self.PERPLEXITY_URL, json=payload)
+                    response.raise_for_status()
+                    return response.json()
+                except httpx.HTTPStatusError as e:
+                    last_response = e.response
+                    status = e.response.status_code
+                    logger.warning(
+                        "Perplexity %s attempt %d failed: %s",
+                        metadata_key,
+                        attempt + 1,
+                        _describe_exc(e),
+                    )
+                    if self._event_logger:
+                        self._event_logger.log_error(
+                            e, metadata_key=metadata_key, attempt=attempt + 1
+                        )
+                    if status != 429 and status < 500:
+                        return None  # 401/403/400 etc. — retrying won't help.
+                    if attempt < self._max_retries - 1:
+                        delay = (
+                            _rate_limit_backoff(last_response, attempt)
+                            if status == 429
+                            else _transient_backoff(attempt)
+                        )
+                        await asyncio.sleep(delay)
+                except Exception as e:  # noqa: BLE001 — network/timeout/JSON errors
+                    logger.warning(
+                        "Perplexity %s attempt %d failed: %s",
+                        metadata_key,
+                        attempt + 1,
+                        _describe_exc(e),
+                    )
+                    if self._event_logger:
+                        self._event_logger.log_error(
+                            e, metadata_key=metadata_key, attempt=attempt + 1
+                        )
+                    if attempt < self._max_retries - 1:
+                        await asyncio.sleep(_transient_backoff(attempt))
+        return None
 
     async def discover_papers(self, topic: str) -> list[str]:
         """Query Perplexity to discover foundational arXiv papers on a topic.
@@ -243,29 +327,16 @@ class PerplexityClient:
             "search_domain_filter": ["arxiv.org"],
         }
 
-        for attempt in range(self._max_retries):
-            try:
-                response = await self._client.post(self.PERPLEXITY_URL, json=payload)
-                response.raise_for_status()
-                data = response.json()
-
-                content = data["choices"][0]["message"]["content"]
-                citations = data.get("citations", [])
-                cleaned = _strip_think_tags(content)
-
-                return _extract_arxiv_urls(cleaned, citations)
-            except Exception as e:
-                logger.warning(
-                    "Perplexity discover_papers attempt %d failed: %s",
-                    attempt + 1,
-                    _describe_exc(e),
-                )
-                if self._event_logger:
-                    self._event_logger.log_error(
-                        e, metadata_key="perplexity_discovery", attempt=attempt + 1
-                    )
-
-        return []
+        data = await self._request(payload, metadata_key="perplexity_discovery")
+        if data is None:
+            return []
+        try:
+            content = data["choices"][0]["message"]["content"]
+            citations = data.get("citations", [])
+        except (KeyError, IndexError, TypeError):
+            return []
+        cleaned = _strip_think_tags(content)
+        return _extract_arxiv_urls(cleaned, citations)
 
     async def cite_paragraph(self, paragraph: str) -> CitedParagraph | None:
         """Send a single paragraph to Perplexity for citation grounding.
@@ -290,29 +361,20 @@ class PerplexityClient:
             "search_domain_filter": ["arxiv.org"],
         }
 
-        for attempt in range(self._max_retries):
-            try:
-                response = await self._client.post(self.PERPLEXITY_URL, json=payload)
-                response.raise_for_status()
-                data = response.json()
-
-                content = data["choices"][0]["message"]["content"]
-                citations = data.get("citations", [])
-                cleaned = _strip_think_tags(content)
-
-                return CitedParagraph(
-                    original_text=paragraph,
-                    cited_text=cleaned,
-                    citation_urls=citations,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Perplexity cite_paragraph attempt %d failed: %s", attempt + 1, _describe_exc(e)
-                )
-                if self._event_logger:
-                    self._event_logger.log_error(e, metadata_key="perplexity", attempt=attempt + 1)
-
-        return None
+        data = await self._request(payload, metadata_key="perplexity")
+        if data is None:
+            return None
+        try:
+            content = data["choices"][0]["message"]["content"]
+            citations = data.get("citations", [])
+        except (KeyError, IndexError, TypeError):
+            return None
+        cleaned = _strip_think_tags(content)
+        return CitedParagraph(
+            original_text=paragraph,
+            cited_text=cleaned,
+            citation_urls=citations,
+        )
 
     async def cite_section(
         self, section_text: str, section_name: str = ""

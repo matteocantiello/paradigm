@@ -220,6 +220,45 @@ class TestStripAgentScaffolding:
         result = strip_agent_scaffolding(text)
         assert result == text
 
+    def test_removes_inline_citation_inspection_note(self):
+        """A leaked 'Need to inspect [1]/[9]...' note *inside* a section (the real
+        bug that drew a major-revision) must be removed, not just preamble."""
+        text = (
+            "# Paper\n\n## Introduction\n\n"
+            "Stellar convection drives observable variability in massive stars.\n\n"
+            "Need to inspect [1]/[9] before citing — confirm they support the claim.\n\n"
+            "We address this with a classical pipeline."
+        )
+        result = strip_agent_scaffolding(text)
+        assert "Need to inspect" not in result
+        assert "Stellar convection drives" in result
+        assert "We address this" in result
+
+    def test_removes_inline_first_person_lines(self):
+        text = (
+            "# Paper\n\n## Methods\n\n"
+            "Let me tighten this section before finalizing.\n\n"
+            "We trained a LinearSVC on TF-IDF features.\n\n"
+            "I'll add the confusion matrix here.\n"
+        )
+        result = strip_agent_scaffolding(text)
+        assert "Let me tighten" not in result
+        assert "I'll add" not in result
+        assert "We trained a LinearSVC" in result
+
+    def test_preserves_legitimate_prose_with_inspect_and_we(self):
+        """Formal prose ('we ... inspect', 'Here are the results', tables) must survive."""
+        text = (
+            "# Paper\n\n## Results\n\n"
+            "We manually inspect the 20 hardest cases and compare against Smith et al. [1].\n\n"
+            "Here are the results of the held-out evaluation.\n\n"
+            "| Model | Accuracy |\n| --- | --- |\n| SVC | 0.78 |\n"
+        )
+        result = strip_agent_scaffolding(text)
+        assert "We manually inspect" in result
+        assert "Here are the results" in result
+        assert "| SVC | 0.78 |" in result
+
     def test_handles_h2_start(self):
         text = "Some commentary.\n\n## Abstract\n\nContent."
         result = strip_agent_scaffolding(text)
