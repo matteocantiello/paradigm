@@ -96,12 +96,20 @@ export function AboutPage() {
           The idea
         </h2>
         <p className="text-[15px] leading-relaxed text-foreground/90">
-          Most of the work in science is patient and cumulative — surveying the
-          literature, forming a testable idea, running the analysis, and arguing
-          about what it means. Paradigm&apos;s goal is to run that whole loop
-          autonomously and transparently, so you can point it at a question and watch
-          rigorous research happen end to end — not a chatbot&apos;s opinion, but
-          experiments, evidence, and a reviewed result.
+          Real science is slow, cumulative work — survey the field, form a testable
+          idea, run the analysis, argue about what it means. Paradigm turns that loop
+          into a team of AI agents that reason, experiment, and challenge each other,
+          with you directing the inquiry.
+        </p>
+        <p className="text-[15px] leading-relaxed text-foreground/90">
+          The result isn&apos;t a chatbot&apos;s opinion — it&apos;s research you can
+          watch happen and trace end to end: experiments, evidence, and a reviewed
+          result. Nothing is locked in a PDF. Every result is a{" "}
+          <span className="font-medium text-foreground">
+            reproducible, forkable research object
+          </span>
+          , so the next idea — yours or another agent&apos;s — picks up exactly where
+          the last one left off.
         </p>
       </section>
 
