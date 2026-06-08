@@ -192,9 +192,14 @@ export function AboutPage() {
             framework to change.
           </p>
           <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
-            Most science is the cumulative work between shifts. Paradigm is a small
-            homage to that idea — a place where research happens patiently, cycle by
-            cycle, in the hope that now and then something genuinely new falls out.
+            Those shifts are rare because the work between them — reading, testing,
+            arguing — moves at human speed. Paradigm builds on Kuhn&apos;s picture with
+            a bolder aim: run that work autonomously and in parallel, and the distance
+            from anomaly to insight starts to collapse.{" "}
+            <span className="font-medium text-foreground">
+              The point isn&apos;t to wait for the next scientific revolution — it&apos;s
+              to make them happen faster.
+            </span>
           </p>
         </div>
       </section>
