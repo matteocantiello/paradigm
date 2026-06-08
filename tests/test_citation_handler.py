@@ -9,8 +9,57 @@ import pytest
 from paradigm.config import Config
 from paradigm.journal.paper import PaperDraft
 from paradigm.literature.arxiv import ArxivPaper
-from paradigm.orchestrator.citation_handler import CitationHandler
+from paradigm.orchestrator.citation_handler import (
+    CitationHandler,
+    _filter_section_citations,
+    _is_citable_url,
+    _strip_references_section,
+)
 from paradigm.orchestrator.literature import LiteratureHandler
+
+
+# --- Citation-quality helpers (D1 dup-references, D2 garbage URLs) ---
+class TestCitationQualityHelpers:
+    def test_is_citable_rejects_arxiv_listing_pages(self):
+        assert not _is_citable_url("https://arxiv.org/list/cs.LG/recent")
+        assert not _is_citable_url("https://www.arxiv.org/list/cs.LG/2025-01?skip=2050&show=1000")
+        assert not _is_citable_url("https://www.arxiv.org/list/cs/new?skip=150&show=500")
+
+    def test_is_citable_keeps_paper_urls_and_non_arxiv(self):
+        assert _is_citable_url("https://arxiv.org/abs/2301.12345")
+        assert _is_citable_url("https://arxiv.org/html/2402.07947v1")
+        assert _is_citable_url("https://doi.org/10.1000/xyz")
+
+    def test_filter_section_drops_garbage_and_remaps_markers(self):
+        # [1]=paper, [2]=listing(garbage), [3]=paper  ->  keep 1,3 -> remap to [1],[2]
+        text = "Claim A [1]. Claim B [2]. Claim C [3]."
+        urls = [
+            "https://arxiv.org/abs/2301.00001",
+            "https://arxiv.org/list/cs.LG/recent",
+            "https://arxiv.org/abs/2301.00002",
+        ]
+        new_text, new_urls = _filter_section_citations(text, urls)
+        assert new_urls == [
+            "https://arxiv.org/abs/2301.00001",
+            "https://arxiv.org/abs/2301.00002",
+        ]
+        assert new_text == "Claim A [1]. Claim B . Claim C [2]."
+
+    def test_filter_section_noop_when_all_citable(self):
+        text = "A [1] B [2]."
+        urls = ["https://arxiv.org/abs/2301.00001", "https://arxiv.org/abs/2301.00002"]
+        assert _filter_section_citations(text, urls) == (text, urls)
+
+    def test_strip_references_section_removes_trailing_refs(self):
+        body = "# T\n\n## Intro\n\nText [1].\n\n## References\n\n[1] Old writer ref. arXiv:1\n"
+        out = _strip_references_section(body)
+        assert "## References" not in out
+        assert "Old writer ref" not in out
+        assert "## Intro" in out and "Text [1]." in out
+
+    def test_strip_references_section_noop_without_refs(self):
+        body = "# T\n\n## Intro\n\nNo refs here."
+        assert _strip_references_section(body) == body
 
 
 def _make_draft_with_body() -> PaperDraft:

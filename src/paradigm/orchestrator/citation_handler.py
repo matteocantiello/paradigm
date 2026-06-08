@@ -8,7 +8,7 @@ import re
 from typing import TYPE_CHECKING
 
 from paradigm.journal.paper import PaperDraft, parse_sections_from_markdown
-from paradigm.literature.bibliography import BibliographyBuilder
+from paradigm.literature.bibliography import BibliographyBuilder, extract_arxiv_id_from_url
 from paradigm.literature.novelty import (
     NoveltyResult,
     check_novelty_futurehouse,
@@ -24,6 +24,48 @@ if TYPE_CHECKING:
 # best-effort enhancement — if Perplexity is slow/rate-limited past this, leave the
 # paper ungrounded rather than stall the cycle.
 _GROUNDING_BUDGET_S = 240.0
+
+_MARKER_RE = re.compile(r"\[(\d+)\]")
+# An existing References / Bibliography section (writer-authored) conventionally
+# ends the paper; the grounded bibliography replaces it (the inline [N] markers are
+# the grounded numbering, so a leftover writer section would mismatch + duplicate).
+_REFS_SECTION_RE = re.compile(
+    r"\n#{1,3}\s*(references|bibliography|works\s+cited)\b.*\Z",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_citable_url(url: str) -> bool:
+    """Reject arXiv listing/browse pages (``/list/``, ``/recent``, ``?skip=``, …)
+    that Perplexity sometimes returns — they aren't papers. Keep specific arXiv
+    paper URLs and any non-arXiv URL (e.g. a DOI)."""
+    u = (url or "").lower().strip()
+    if not u:
+        return False
+    if "arxiv.org" in u:
+        return bool(extract_arxiv_id_from_url(url))  # only a concrete paper id
+    return True
+
+
+def _filter_section_citations(cited_text: str, urls: list[str]) -> tuple[str, list[str]]:
+    """Drop non-citable URLs from one section and remap its local ``[N]`` markers
+    so none dangle. Runs BEFORE global renumbering."""
+    keep = [i for i, u in enumerate(urls) if _is_citable_url(u)]
+    if len(keep) == len(urls):
+        return cited_text, urls
+    remap = {old + 1: new + 1 for new, old in enumerate(keep)}  # 1-based local indices
+    new_urls = [urls[i] for i in keep]
+
+    def _sub(m: re.Match) -> str:
+        n = int(m.group(1))
+        return f"[{remap[n]}]" if n in remap else ""
+
+    return _MARKER_RE.sub(_sub, cited_text), new_urls
+
+
+def _strip_references_section(body: str) -> str:
+    """Remove a trailing writer-authored References/Bibliography section."""
+    return _REFS_SECTION_RE.sub("", body).rstrip()
 
 
 class CitationHandler:
@@ -110,6 +152,16 @@ class CitationHandler:
             self._engine._display.citation_grounding_complete(0)
             return draft
 
+        # Drop non-paper "citations" (arXiv listing/browse pages) per section, remapping
+        # each section's local [N] markers, BEFORE global renumbering.
+        filtered_texts: list[str] = []
+        filtered_urls: list[list[str]] = []
+        for text, urls in zip(section_texts, section_url_lists, strict=True):
+            ft, fu = _filter_section_citations(text, urls)
+            filtered_texts.append(ft)
+            filtered_urls.append(fu)
+        section_texts, section_url_lists = filtered_texts, filtered_urls
+
         # Renumber citations globally
         _, global_urls = BibliographyBuilder.renumber_citations(section_texts, section_url_lists)
 
@@ -163,9 +215,11 @@ class CitationHandler:
             updated_body = BibliographyBuilder.remap_citation_markers(updated_body, remap)
         bibliography = BibliographyBuilder.format_bibliography_markdown(references)
 
-        # Append references section to body
+        # Append the grounded References section, REPLACING any writer-authored one
+        # (the inline [N] markers now use the grounded numbering, so a leftover
+        # writer-written References section would both duplicate and mismatch).
         if bibliography:
-            updated_body = updated_body.rstrip() + "\n\n" + bibliography
+            updated_body = _strip_references_section(updated_body) + "\n\n" + bibliography
 
         # Update draft
         draft.assembled_body = updated_body
