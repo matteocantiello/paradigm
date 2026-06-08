@@ -71,17 +71,23 @@ def _run_cycle(prompt: str, mode: str, config: Path, timeout: int) -> dict:
         rc, out, err = proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as e:
         timed_out = True
-        rc, out, err = 124, (e.stdout or ""), (e.stderr or "")
+        rc, out, err = 124, e.stdout, e.stderr  # may be bytes on timeout — coerce below
     return {
         "prompt": prompt,
         "mode": mode,
         "data_dir": data_dir,
         "returncode": rc,
-        "stdout": out or "",
-        "stderr": err or "",
+        "stdout": _as_text(out),
+        "stderr": _as_text(err),
         "timed_out": timed_out,
         "elapsed": time.monotonic() - started,
     }
+
+
+def _as_text(x) -> str:
+    if isinstance(x, bytes):
+        return x.decode("utf-8", "replace")
+    return x or ""
 
 
 def _read_events(data_dir: Path) -> list[dict]:
@@ -157,6 +163,15 @@ _TRANSIENT_HINTS = (
     "temporarily",
     "overloaded",
     "provider_search",
+    # transient network/stream blips (provider dropped a streamed response)
+    "incomplete chunked read",
+    "peer closed connection",
+    "connection reset",
+    "remoteprotocolerror",
+    "connection error",
+    "read error",
+    "502",
+    "504",
 )
 
 

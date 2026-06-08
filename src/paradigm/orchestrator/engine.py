@@ -1018,14 +1018,24 @@ class OrchestrationEngine:
                 thread_id=self.state.thread_id,
             )
 
-            # Process any [SEARCH: ...] requests in the agent's response
-            await self._literature.process_search_requests(agent_id, response.content, phase)
-
-            # Process any [FOLLOW:], [CITED_BY:], [READ:] requests
-            await self._literature.process_literature_actions(agent_id, response.content, phase)
-
-            # Process any [DATA: url] requests (pre-stage datasets for sandbox)
-            await self._literature.process_data_requests(agent_id, response.content, phase)
+            # Literature actions are BEST-EFFORT and must never abort the cycle: a
+            # flaky provider, a malformed paper URL (e.g. httpx "Invalid IPv6 URL"
+            # from a bracketed id), or a CHAIN/FOLLOW/READ hiccup should degrade, not
+            # crash. (corpus.search/fetch guard themselves, but the FOLLOW/CHAIN/DATA
+            # entry points can still surface an uncaught error here.)
+            try:
+                # [SEARCH: ...]
+                await self._literature.process_search_requests(agent_id, response.content, phase)
+                # [FOLLOW:], [CITED_BY:], [READ:], [CHAIN:]
+                await self._literature.process_literature_actions(agent_id, response.content, phase)
+                # [DATA: url] — pre-stage datasets for the sandbox
+                await self._literature.process_data_requests(agent_id, response.content, phase)
+            except asyncio.CancelledError:
+                raise  # a genuine cycle cancellation must propagate
+            except BaseException as e:  # noqa: BLE001 — literature must never be fatal
+                self._logger.log_error(
+                    e, agent_id=agent_id, thread_id=self.state.thread_id, metadata_key="literature"
+                )
 
             # Process any [CHAIN: id depth=N direction=...] multi-hop graph walks
             await self._literature.process_chain_requests(agent_id, response.content, phase)
