@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from paradigm.literature.prompt_utils import parse_challenge_requests
@@ -172,8 +173,18 @@ class DebateHandler:
         """
         phase_key = str(phase)
         max_exchanges = self._engine._config.orchestrator.max_debate_exchanges
+        debate_id = f"debate-{uuid.uuid4().hex[:8]}"
 
         self._engine._display.debate_start(challenger_id, defender_id, debate_topic)
+        self._engine.emit_event(
+            "debate.started",
+            {
+                "debate_id": debate_id,
+                "challenger": challenger_id,
+                "defender": defender_id,
+                "topic": debate_topic[:2000],
+            },
+        )
 
         self._engine._logger.log(
             EventType.DEBATE_TRIGGERED,
@@ -221,6 +232,11 @@ class DebateHandler:
                 defender_id, defender_response, phase, "debate_defense"
             )
             transcript.append({"agent": defender_id, "content": defender_response.content})
+            self._engine.emit_event(
+                "debate.turn",
+                {"debate_id": debate_id, "summary": defender_response.content[:200]},
+                agent=defender_id,
+            )
 
             # Check for resolution tags
             resolved_match = _RESOLVED_RE.search(defender_response.content)
@@ -262,6 +278,11 @@ class DebateHandler:
                 challenger_id, challenger_response, phase, "debate_challenge"
             )
             transcript.append({"agent": challenger_id, "content": challenger_response.content})
+            self._engine.emit_event(
+                "debate.turn",
+                {"debate_id": debate_id, "summary": challenger_response.content[:200]},
+                agent=challenger_id,
+            )
             last_challenger_arg = challenger_response.content
 
             # Check for resolution tags
@@ -319,6 +340,20 @@ class DebateHandler:
             },
             thread_id=self._engine.state.thread_id,
             phase=phase_key,
+        )
+
+        # concede_defender = the DEFENDER conceded (challenger prevails) and vice versa
+        winner = {"concede_defender": challenger_id, "concede_challenger": defender_id}.get(
+            resolution_type
+        )
+        self._engine.emit_event(
+            "debate.resolved",
+            {
+                "debate_id": debate_id,
+                "outcome": resolution_type,
+                "winner": winner,
+                "n_turns": len(transcript),
+            },
         )
 
         self.debate_counts[phase_key] = self.debate_counts.get(phase_key, 0) + 1

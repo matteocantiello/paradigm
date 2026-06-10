@@ -644,6 +644,16 @@ class WritingHandler:
         if papers_dir is not None:
             paper_path = str(papers_dir / paper_id / f"{paper_id}.md")
         self._engine._display.paper_saved(paper_id, paper_path=paper_path)
+        self._engine.emit_event(
+            "paper.assembled",
+            {
+                "paper_id": paper_id,
+                "title": draft.title or "",
+                "word_count": len(draft.assembled_body.split()),
+                "n_figures": len(self._engine.state.execution_figures),
+                "n_sections": len(draft.sections),
+            },
+        )
         return draft
 
     async def run_section_drafting(self, draft: PaperDraft) -> None:
@@ -815,6 +825,11 @@ class WritingHandler:
                         content,
                         agent_id,
                         "drafted",
+                    )
+                    self._engine.emit_event(
+                        "section.drafted",
+                        {"section": section_name, "word_count": len(content.split())},
+                        agent=agent_id,
                     )
 
             self._engine._log_agent_response(

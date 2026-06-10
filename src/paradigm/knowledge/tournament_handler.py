@@ -68,6 +68,11 @@ class TournamentHandler:
 
         # Step 1: Extract hypotheses from discussion
         hypotheses = await self._extract_hypotheses_from_discussion()
+        for h in hypotheses:
+            self._engine.emit_event(
+                "hypothesis.created",
+                {"hypothesis_id": h.id, "statement": h.statement, "rationale": h.rationale[:2000]},
+            )
         if len(hypotheses) < 2:
             return hypotheses  # Can't tournament with < 2
 
@@ -101,6 +106,16 @@ class TournamentHandler:
         self._last_population = population
         self._last_matchup_results = matchup_results
 
+        self._engine.emit_event(
+            "tournament.round",
+            {
+                "matchups": [
+                    [r.hypothesis_a_id, r.hypothesis_b_id, r.winner_id] for r in matchup_results
+                ],
+                "rationales": [r.judge_reasoning[:300] for r in matchup_results],
+            },
+        )
+
         # Surface judging failures — otherwise an all-failed tournament looks
         # "complete" with every hypothesis stuck at the 1500 starting Elo and an
         # arbitrary tie-break "winner".
@@ -124,8 +139,16 @@ class TournamentHandler:
             for h in hypotheses:
                 h.status = HypothesisStatus.UNDER_INVESTIGATION
                 wm.add_hypothesis(h)
+                self._engine.emit_event(
+                    "hypothesis.updated",
+                    {"hypothesis_id": h.id, "status": str(h.status), "elo": round(h.elo_rating, 1)},
+                )
             for w in winners:
                 w.status = HypothesisStatus.SUPPORTED
+                self._engine.emit_event(
+                    "hypothesis.updated",
+                    {"hypothesis_id": w.id, "status": str(w.status), "selected": True},
+                )
 
         display.info(
             "Tournament complete. Winners: "

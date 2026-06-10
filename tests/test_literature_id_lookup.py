@@ -59,6 +59,7 @@ def _handler(read_paper_return):
         _logger=MagicMock(),
         _display=MagicMock(),
         state=SimpleNamespace(thread_id="t1"),
+        emit_event=MagicMock(),
     )
     return LiteratureHandler(engine), corpus, engine
 

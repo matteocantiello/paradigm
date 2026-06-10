@@ -325,6 +325,10 @@ class LiteratureHandler:
             },
             thread_id=self._engine.state.thread_id,
         )
+        self._engine.emit_event(
+            "search.performed",
+            {"query": "[seed discovery]", "n_results": len(urls), "n_new": len(papers)},
+        )
 
         return len(papers)
 
@@ -384,6 +388,11 @@ class LiteratureHandler:
             # Check per-round budget
             if self.search_count_this_round >= max_searches:
                 self._engine._display.search_budget_exhausted(max_searches, query)
+                self._engine.emit_event(
+                    "warning.emitted",
+                    {"kind": "cap_reached", "message": f"search budget ({max_searches}) reached"},
+                    agent=agent_id,
+                )
                 break
 
             # Check per-agent cap
@@ -484,6 +493,11 @@ class LiteratureHandler:
                 papers=paper_dicts,
                 phase=str(phase),
             )
+            self._engine.emit_event(
+                "search.performed",
+                {"query": display_query, "n_results": len(papers), "n_new": len(new_papers)},
+                agent=agent_id,
+            )
 
             log_content: dict[str, Any] = {
                 "query": query,
@@ -557,6 +571,11 @@ class LiteratureHandler:
             self._append_to_context(format_read_result(arxiv_id, title, extracted_text))
             self.seen_paper_ids.add(arxiv_id)
             self._engine._display.read_result(agent_id, arxiv_id, title, len(extracted_text))
+            self._engine.emit_event(
+                "paper.read",
+                {"paper_id": arxiv_id, "title": title, "chars_read": len(extracted_text)},
+                agent=agent_id,
+            )
         else:
             self._engine._display.read_not_found(arxiv_id)
 
@@ -653,6 +672,16 @@ class LiteratureHandler:
             )
 
             self._engine._display.follow_result(agent_id, arxiv_id, len(papers))
+            self._engine.emit_event(
+                "citation.followed",
+                {
+                    "source_paper_id": arxiv_id,
+                    "direction": "refs",
+                    "n_found": len(papers),
+                    "paper_ids": [p.id for p in papers if p.id],
+                },
+                agent=agent_id,
+            )
 
             self._engine._logger.log(
                 EventType.LITERATURE_FOLLOW,
@@ -722,6 +751,16 @@ class LiteratureHandler:
             )
 
             self._engine._display.cited_by_result(agent_id, arxiv_id, len(papers))
+            self._engine.emit_event(
+                "citation.followed",
+                {
+                    "source_paper_id": arxiv_id,
+                    "direction": "cited_by",
+                    "n_found": len(papers),
+                    "paper_ids": [p.id for p in papers if p.id],
+                },
+                agent=agent_id,
+            )
 
             self._engine._logger.log(
                 EventType.LITERATURE_CITED_BY,
@@ -771,6 +810,11 @@ class LiteratureHandler:
             self.read_paper_ids.add(arxiv_id)
 
             self._engine._display.read_result(agent_id, arxiv_id, title, len(extracted_text))
+            self._engine.emit_event(
+                "paper.read",
+                {"paper_id": arxiv_id, "title": title, "chars_read": len(extracted_text)},
+                agent=agent_id,
+            )
 
             self._engine._logger.log(
                 EventType.LITERATURE_READ,
@@ -849,6 +893,17 @@ class LiteratureHandler:
             formatted = format_chain_results(req.paper_id, papers, req.direction, req.depth)
             self._append_to_context(formatted)
 
+            self._engine.emit_event(
+                "citation.followed",
+                {
+                    "source_paper_id": req.paper_id,
+                    "direction": req.direction,
+                    "n_found": len(papers),
+                    "paper_ids": [p.id for p in papers if p.id],
+                    "depth": req.depth,
+                },
+                agent=agent_id,
+            )
             self._engine._logger.log(
                 EventType.LITERATURE_SEARCH,
                 content={

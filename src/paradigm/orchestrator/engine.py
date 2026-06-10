@@ -27,6 +27,7 @@ from paradigm.literature.resources import (
     resolve_resource,
 )
 from paradigm.logging.events import EventLogger, EventType
+from paradigm.logging.stream import ResearchEventStream
 from paradigm.orchestrator.citation_handler import CitationHandler
 from paradigm.orchestrator.constants import (
     _CHALLENGE_INSTRUCTION,
@@ -134,6 +135,9 @@ class OrchestrationEngine:
         # Per-cycle mutable state (reset at start of each research cycle)
         self.state = ResearchState()
 
+        # Per-thread dashboard event stream (opened once the thread exists)
+        self._events: ResearchEventStream | None = None
+
         # Handler delegates
         self._literature = LiteratureHandler(self)
         self._debate = DebateHandler(self)
@@ -186,6 +190,68 @@ class OrchestrationEngine:
 
         self._display.knowledge_updated(**kwargs)
 
+    # ------------------------------------------------------------------
+    # Dashboard event stream (per-thread, seq-ordered events.jsonl)
+    # ------------------------------------------------------------------
+
+    def emit_event(
+        self,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        agent: str | None = None,
+    ) -> None:
+        """Append an event to the per-thread dashboard stream (no-op pre-thread)."""
+        if self._events is not None:
+            self._events.emit(event_type, payload, agent=agent)
+
+    def _open_event_stream(self, thread_id: str) -> None:
+        """Open the per-thread event stream (best-effort, never breaks a run)."""
+        try:
+            if self._events is not None:
+                self._events.close()
+            path = self._config.storage.threads_dir / thread_id / "events.jsonl"
+            self._events = ResearchEventStream(path)
+            self._events.set_context(phase=str(ResearchPhase.SEEDING), round_num=None)
+        except Exception as e:
+            self._logger.log_error(e, thread_id=thread_id, metadata_key="event_stream")
+            self._events = None
+
+    def _emit_run_completed(self) -> None:
+        """Emit run.completed with final status + totals, then close the stream.
+
+        Called from the run_research_cycle finally block so EVERY terminal path
+        (published, rejected, aborted, failed, cancelled) closes the record.
+        """
+        if self._events is None:
+            return
+        try:
+            thread = self._db.get_thread(self.state.thread_id) if self.state.thread_id else None
+        except Exception:
+            thread = None
+        status = (thread or {}).get("status") or "failed"
+        try:
+            tokens = self._get_token_summary().get("total_tokens", 0)
+        except Exception:
+            tokens = 0
+        self.emit_event(
+            "run.completed",
+            {
+                "status": status,
+                "paper_id": (thread or {}).get("current_draft_id"),
+                "duration_s": round(time.monotonic() - self.state.start_time, 1),
+                "totals": {
+                    "searches": len(self._literature.search_log),
+                    "papers_read": len(self._literature.read_paper_ids),
+                    "experiments": len(self.state.experiment_metadata),
+                    "debates": sum(self._debate.debate_counts.values()),
+                    "tokens": tokens,
+                },
+            },
+        )
+        self._events.close()
+        self._events = None
+
     def _get_phase_active_roles(self, phase: ResearchPhase) -> set[str] | None:
         """Get the set of active roles for a given phase.
 
@@ -222,6 +288,23 @@ class OrchestrationEngine:
         Returns:
             Thread ID of the completed cycle.
         """
+        try:
+            return await self._run_cycle_impl(seed_prompt, mode, team_roles)
+        finally:
+            # Close the dashboard record on EVERY terminal path, including
+            # cancellation and crashes (run.completed carries the final status).
+            try:
+                self._emit_run_completed()
+            except Exception as e:
+                self._logger.log_error(e, thread_id=self.state.thread_id)
+
+    async def _run_cycle_impl(
+        self,
+        seed_prompt: str,
+        mode: str,
+        team_roles: list[str] | None,
+    ) -> str:
+        """The research cycle body (see run_research_cycle)."""
         self.state = ResearchState(seed_prompt=seed_prompt, mode=mode)
         # Treat an empty list the same as None — otherwise a caller passing
         # team_roles=[] (e.g. the GUI with no roles selected) yields a team of
@@ -337,7 +420,9 @@ class OrchestrationEngine:
             return self.state.thread_id
 
         self.state.phase_manager.transition_to(ResearchPhase.IDEATION)
-        self._log_phase_transition(ResearchPhase.SEEDING, ResearchPhase.IDEATION)
+        self._log_phase_transition(
+            ResearchPhase.SEEDING, ResearchPhase.IDEATION, rounds_planned=max_rounds
+        )
         active_ideation = self._get_phase_active_roles(ResearchPhase.IDEATION)
         active_ideation_count = (
             sum(1 for a in self.state.agents.values() if a.skill_profile in active_ideation)
@@ -395,7 +480,9 @@ class OrchestrationEngine:
             return self.state.thread_id
 
         self.state.phase_manager.transition_to(ResearchPhase.PLANNING)
-        self._log_phase_transition(ResearchPhase.IDEATION, ResearchPhase.PLANNING)
+        self._log_phase_transition(
+            ResearchPhase.IDEATION, ResearchPhase.PLANNING, rounds_planned=max_rounds
+        )
         self.state.messages = []  # Reset messages for new phase
         active_planning = self._get_phase_active_roles(ResearchPhase.PLANNING)
         active_planning_count = (
@@ -534,7 +621,11 @@ class OrchestrationEngine:
             and self._config.orchestrator.enable_post_execution_discussion
         ):
             self.state.phase_manager.transition_to(ResearchPhase.POST_EXECUTION)
-            self._log_phase_transition(ResearchPhase.EXECUTION, ResearchPhase.POST_EXECUTION)
+            self._log_phase_transition(
+                ResearchPhase.EXECUTION,
+                ResearchPhase.POST_EXECUTION,
+                rounds_planned=min(2, max_rounds),
+            )
             self.state.messages = []
             # Shorter discussion: cap at 2 rounds
             post_exec_rounds = min(2, max_rounds)
@@ -626,6 +717,7 @@ class OrchestrationEngine:
             thread = self._db.get_thread(self.state.thread_id)
             review_status = thread.get("status") if thread else None
             if review_status in ("review_rejected", "revision_exhausted"):
+                self.emit_event("review.final", {"outcome": review_status, "stage": "internal"})
                 self._display.writing_failed_review_exhausted(review_status)
                 # Surface a terminal REJECTED outcome to the live UI (the tracker +
                 # terminal screen key off the broadcast phase + a paper_rejected
@@ -675,6 +767,7 @@ class OrchestrationEngine:
                         # if corpus ingestion lags. Without this the run looked
                         # stuck on "Peer Review" after the decision was made.
                         self._display.phase_transition(ResearchPhase.PUBLISHED)
+                        self.emit_event("review.final", {"outcome": "accepted", "stage": "peer"})
                         await publish_paper(paper_id, self._db, self._corpus, self._logger, reviews)
                         self._db.update_thread(self.state.thread_id, status="published")
                         self._display.paper_published()
@@ -682,11 +775,15 @@ class OrchestrationEngine:
                         from paradigm.journal.publication import reject_paper
 
                         self._display.phase_transition(ResearchPhase.REJECTED)
+                        self.emit_event("review.final", {"outcome": "rejected", "stage": "peer"})
                         reject_paper(paper_id, self._db, reviews, self._logger)
                         self._db.update_thread(self.state.thread_id, status="rejected")
                         self._display.paper_rejected()
                 else:
                     # Desk rejected
+                    self.emit_event(
+                        "review.final", {"outcome": "desk_rejected", "stage": "submission"}
+                    )
                     self._db.update_thread(self.state.thread_id, status="rejected")
                     self._display.paper_rejected()
             else:
@@ -733,6 +830,21 @@ class OrchestrationEngine:
         # Set initial hypothesis from seed prompt
         self._db.update_thread(thread_id, hypothesis=seed_prompt)
 
+        # Open the per-thread dashboard event stream now that the thread exists
+        self._open_event_stream(thread_id)
+        self.emit_event(
+            "run.started",
+            {
+                "thread_id": thread_id,
+                "prompt": seed_prompt[:500],
+                "config": {
+                    "rounds": self._config.orchestrator.max_rounds_per_phase,
+                    "mode": mode,
+                    "agents": participants,
+                },
+            },
+        )
+
         self._logger.log(
             EventType.PHASE_TRANSITION,
             content={"phase": "seeding", "seed_prompt": seed_prompt, "mode": mode},
@@ -755,6 +867,10 @@ class OrchestrationEngine:
                     paper = await self._corpus.fetch_and_ingest_url(url)
                     if paper:
                         self._display.resource_ingested(paper.title)
+                        self.emit_event(
+                            "resource.ingested",
+                            {"url": url, "kind": "paper", "title": paper.title, "saved_pdf": True},
+                        )
                         # Also save raw PDF to sandbox so experimentalist can parse it
                         await self._save_pdf_for_sandbox(url)
                     else:
@@ -769,6 +885,15 @@ class OrchestrationEngine:
                     self._display.resource_error(resource.error)
                 else:
                     self._display.resource_resolved(resource.name, rtype.value)
+                    self.emit_event(
+                        "resource.ingested",
+                        {
+                            "url": url,
+                            "kind": rtype.value,
+                            "title": resource.name,
+                            "saved_pdf": False,
+                        },
+                    )
                 resolved.append(resource)
 
         self.state.resolved_resources = resolved
@@ -844,6 +969,7 @@ class OrchestrationEngine:
             await self._drain_guidance(phase, round_num)
             self._display.round_start(round_num, max_rounds)
             await self._run_round(phase, round_num, scheduler)
+            self.emit_event("round.completed", {"round": round_num})
             # Guidance applied this round is now embedded in agent responses /
             # thread history — clear the buffer so it isn't re-injected forever.
             self._pending_guidance.clear()
@@ -896,6 +1022,7 @@ class OrchestrationEngine:
                 previous_checkpoint=self.state.checkpoint,
             )
             self._display.checkpoint_saved(label)
+            self.emit_event("checkpoint.saved", {"phase": str(phase), "label": label})
         except Exception as e:
             self._logger.log_error(e, thread_id=self.state.thread_id)
             self._display.checkpoint_error(e)
@@ -951,6 +1078,10 @@ class OrchestrationEngine:
                 aid for aid in speaker_order if self.state.agents[aid].skill_profile in active_roles
             ]
 
+        if self._events is not None:
+            self._events.set_context(round_num=round_num)
+        self.emit_event("round.started", {"round": round_num, "active_agents": speaker_order})
+
         for agent_id in speaker_order:
             agent = self.state.agents[agent_id]
             prompt = self._build_agent_prompt(agent, phase, round_num)
@@ -960,6 +1091,11 @@ class OrchestrationEngine:
             except Exception as e:
                 self._logger.log_error(e, agent_id=agent_id, thread_id=self.state.thread_id)
                 self._display.agent_error(agent_id, e)
+                self.emit_event(
+                    "warning.emitted",
+                    {"kind": "api_error", "message": f"{agent_id}: {e}"[:300]},
+                    agent=agent_id,
+                )
                 continue  # Skip this agent for this round
 
             # Create structured message
@@ -1803,7 +1939,13 @@ class OrchestrationEngine:
 
         return is_converged, rationale
 
-    def _log_phase_transition(self, from_phase: ResearchPhase, to_phase: ResearchPhase) -> None:
+    def _log_phase_transition(
+        self,
+        from_phase: ResearchPhase,
+        to_phase: ResearchPhase,
+        *,
+        rounds_planned: int | None = None,
+    ) -> None:
         """Log a phase transition event."""
         self._logger.log(
             EventType.PHASE_TRANSITION,
@@ -1811,6 +1953,10 @@ class OrchestrationEngine:
             thread_id=self.state.thread_id,
             phase=str(to_phase),
         )
+        self.emit_event("phase.completed", {"phase": str(from_phase)})
+        if self._events is not None:
+            self._events.set_context(phase=str(to_phase), round_num=None)
+        self.emit_event("phase.started", {"phase": str(to_phase), "rounds_planned": rounds_planned})
         self._db.update_thread(self.state.thread_id, current_phase=str(to_phase))
 
     async def _classify(self, text: str, *, max_topics: int) -> list[str] | None:

@@ -380,6 +380,15 @@ class ReviewHandler:
             self._engine._display.review_recommendation(
                 feedback.recommendation, len(feedback.required_changes)
             )
+            self._engine.emit_event(
+                "review.iteration",
+                {
+                    "iteration": iteration,
+                    "recommendation": feedback.recommendation,
+                    "n_required_changes": len(feedback.required_changes),
+                    "stage": "internal",
+                },
+            )
 
             if feedback.recommendation == "reject":
                 # Paper fundamentally flawed — stop immediately
@@ -692,6 +701,15 @@ class ReviewHandler:
             }
         )
         self._engine._display.peer_review_decision(decision)
+        self._engine.emit_event(
+            "review.iteration",
+            {
+                "recommendation": decision,
+                "n_required_changes": None,
+                "stage": "peer",
+                "n_reviewers": len(reviews),
+            },
+        )
 
         return decision, reviews
 

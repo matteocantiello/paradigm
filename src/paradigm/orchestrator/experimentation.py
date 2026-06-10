@@ -182,6 +182,24 @@ def _build_workspace_manifest(workspace_dir: Path) -> str:
     return "\n".join(lines)
 
 
+def _artifact_kind(filename: str) -> str:
+    """Classify an experiment output file for dashboard artifact events."""
+    if filename.endswith((".png", ".pdf", ".svg", ".jpg", ".jpeg")):
+        return "figure"
+    if filename.endswith((".csv", ".tsv")):
+        return "table"
+    return "data"
+
+
+def _artifact_rel_path(engine: OrchestrationEngine, path: str | Path) -> str:
+    """Path relative to the data dir, so the dashboard server can serve the file."""
+    try:
+        data_dir = engine._config.storage.data_dir.resolve()
+        return str(Path(path).resolve().relative_to(data_dir))
+    except (ValueError, OSError):
+        return str(path)
+
+
 def _build_auto_search_query(seed_prompt: str, error_text: str) -> str:
     """Build a focused search query from seed prompt and error context.
 
@@ -608,6 +626,11 @@ class ExperimentationHandler:
                                 )
 
                         engine._display.experiment_running(block.name)
+                        engine.emit_event(
+                            "experiment.started",
+                            {"experiment_id": block.name, "title": block.name},
+                            agent=experimenter.agent_id if experimenter else None,
+                        )
                         # Phase C: stream the experiment to the live panel (code now,
                         # stdout + parsed RESULT[...] once it finishes below).
                         engine._display.experiment_update(
@@ -686,13 +709,29 @@ class ExperimentationHandler:
                         if any(p in stderr_text for p in _NETWORK_ERROR_PATTERNS):
                             _had_network_error = True
 
-                        # Track output figures
+                        # Track output figures + dashboard artifacts
+                        exp_artifacts: list[dict[str, str]] = []
                         for output_file in result.output_files:
+                            kind = _artifact_kind(output_file.filename)
+                            rel = _artifact_rel_path(engine, output_file.path)
+                            exp_artifacts.append({"path": rel, "kind": kind})
                             if output_file.filename.endswith((".png", ".pdf")):
                                 execution_figures.append((block.name, Path(output_file.path)))
+                                engine.emit_event(
+                                    "artifact.created",
+                                    {"path": rel, "kind": "figure", "experiment_id": block.name},
+                                )
 
                         status_str = result.status.value
                         engine._display.experiment_result(block.name, status_str)
+                        engine.emit_event(
+                            "experiment.completed",
+                            {
+                                "experiment_id": block.name,
+                                "status": status_str,
+                                "artifacts": exp_artifacts,
+                            },
+                        )
 
                         # Build metadata entry for the execution fact sheet
                         stdout_preview = (result.stdout or "")[:200]

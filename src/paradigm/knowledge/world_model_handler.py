@@ -126,6 +126,11 @@ class WorldModelHandler:
             statement = match.group(1).strip()
             hyp = Hypothesis(statement=statement)
             wm.add_hypothesis(hyp)
+            self._engine.emit_event(
+                "hypothesis.created",
+                {"hypothesis_id": hyp.id, "statement": statement},
+                agent=agent_id,
+            )
 
         # Parse evidence
         for match in _EVIDENCE_TAG_RE.finditer(content):
@@ -144,6 +149,14 @@ class WorldModelHandler:
                 confidence=ConfidenceLevel.MODERATE,
             )
             wm.add_evidence(ev)
+            self._engine.emit_event(
+                "claim.extracted",
+                {"claim_id": ev.id, "statement": ev_content[:2000], "source": source.value},
+                agent=agent_id,
+            )
+            # TODO(evidence.linked): nothing in the orchestrator calls
+            # WorldModel.link_evidence_to_hypothesis yet, so claim→hypothesis
+            # links never form; emit evidence.linked here when linking lands.
 
     # ------------------------------------------------------------------
     # Persistence

@@ -124,6 +124,7 @@ class StorageConfig(BaseModel):
     vector_db_path: Path | None = None
     papers_dir: Path | None = None
     log_path: Path | None = None
+    threads_dir: Path | None = None
 
     @field_validator("data_dir", mode="before")
     @classmethod
@@ -146,6 +147,10 @@ class StorageConfig(BaseModel):
         self.papers_dir.mkdir(parents=True, exist_ok=True)
         if self.log_path is None:
             self.log_path = self.data_dir / "events.jsonl"
+        if self.threads_dir is None:
+            # Per-thread research record (dashboard event streams). NOT the
+            # sandbox-mounted workspaces dir — the sandbox must not see this.
+            self.threads_dir = self.data_dir / "threads"
 
 
 class OrchestratorConfig(BaseModel):
