@@ -1,10 +1,19 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Playback } from "../replay";
 import type { Ev } from "../types";
 
 const SPEEDS = [1, 5, 20, 60];
 
-export function Scrubber({ events, playback }: { events: Ev[]; playback: Playback }) {
+export function Scrubber({
+  events,
+  playback,
+  shareable,
+}: {
+  events: Ev[];
+  playback: Playback;
+  shareable?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
   const marks = useMemo(() => {
     const out: { idx: number; kind: "phase" | "debate" }[] = [];
     events.forEach((e, i) => {
@@ -58,6 +67,24 @@ export function Scrubber({ events, playback }: { events: Ev[]; playback: Playbac
       <span className="scrub-pos">
         {cur ? `seq ${cur.seq}` : "start"} / {events.length}
       </span>
+      {shareable && (
+        <button
+          className="scrub-btn"
+          style={{ width: "auto", padding: "0 10px" }}
+          title="Copy a link to this exact moment"
+          onClick={() => {
+            const url = new URL(window.location.href);
+            if (cur) url.searchParams.set("t", String(cur.seq));
+            else url.searchParams.delete("t");
+            window.history.replaceState({}, "", url);
+            navigator.clipboard?.writeText(url.toString()).catch(() => {});
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? "✓ copied" : "🔗 share"}
+        </button>
+      )}
     </footer>
   );
 }

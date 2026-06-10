@@ -89,12 +89,16 @@ function SessionShell({
   live,
   cursor,
   fastMode,
+  onBack,
+  onToggleTheme,
 }: {
   threadId: string;
   events: Ev[];
   live: boolean;
   cursor: number;
   fastMode: boolean;
+  onBack: () => void;
+  onToggleTheme: () => void;
 }) {
   const [pinnedTab, setPinnedTab] = useState<TabKey | null>(null);
   const state = useReplayState(events, cursor);
@@ -103,7 +107,7 @@ function SessionShell({
 
   return (
     <>
-      <StatusBar state={state} live={live} />
+      <StatusBar state={state} live={live} onBack={onBack} onToggleTheme={onToggleTheme} />
       <main className="canvas">
         <div className="tabbar">
           {TABS.map((t) => (
@@ -131,7 +135,15 @@ function SessionShell({
   );
 }
 
-function ReplaySession({ threadId }: { threadId: string }) {
+function ReplaySession({
+  threadId,
+  onBack,
+  onToggleTheme,
+}: {
+  threadId: string;
+  onBack: () => void;
+  onToggleTheme: () => void;
+}) {
   const [events, setEvents] = useState<Ev[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -163,13 +175,23 @@ function ReplaySession({ threadId }: { threadId: string }) {
         live={false}
         cursor={playback.cursor}
         fastMode={fastMode}
+        onBack={onBack}
+        onToggleTheme={onToggleTheme}
       />
-      <Scrubber events={loaded} playback={playback} />
+      <Scrubber events={loaded} playback={playback} shareable />
     </div>
   );
 }
 
-function LiveSession({ threadId }: { threadId: string }) {
+function LiveSession({
+  threadId,
+  onBack,
+  onToggleTheme,
+}: {
+  threadId: string;
+  onBack: () => void;
+  onToggleTheme: () => void;
+}) {
   const { events, conn } = useLiveEvents(threadId);
   const [following, setFollowing] = useState(true);
   const [cursor, setCursor] = useState(0);
@@ -210,6 +232,8 @@ function LiveSession({ threadId }: { threadId: string }) {
         live={conn === "live" && following}
         cursor={cursor}
         fastMode={false}
+        onBack={onBack}
+        onToggleTheme={onToggleTheme}
       />
       <div style={{ position: "relative" }}>
         {!following && (
@@ -229,17 +253,40 @@ function LiveSession({ threadId }: { threadId: string }) {
   );
 }
 
+function applyTheme(light: boolean) {
+  document.body.classList.toggle("light", light);
+}
+
 export default function App() {
   const [search, setSearch] = useState(() => window.location.search);
   const params = new URLSearchParams(search);
   const threadId = params.get("thread");
   const live = params.get("live") === "1";
 
+  useEffect(() => {
+    applyTheme(localStorage.getItem("pd-theme") === "light");
+  }, []);
+
+  const toggleTheme = () => {
+    const next = !document.body.classList.contains("light");
+    applyTheme(next);
+    localStorage.setItem("pd-theme", next ? "light" : "dark");
+  };
+
   const pick = (id: string, isLive: boolean) => {
     const url = new URL(window.location.href);
     url.searchParams.set("thread", id);
     if (isLive) url.searchParams.set("live", "1");
     else url.searchParams.delete("live");
+    window.history.pushState({}, "", url);
+    setSearch(url.search);
+  };
+
+  const goHome = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("thread");
+    url.searchParams.delete("live");
+    url.searchParams.delete("t");
     window.history.pushState({}, "", url);
     setSearch(url.search);
   };
@@ -252,8 +299,8 @@ export default function App() {
 
   if (!threadId) return <Landing onPick={pick} />;
   return live ? (
-    <LiveSession threadId={threadId} key={threadId} />
+    <LiveSession threadId={threadId} key={threadId} onBack={goHome} onToggleTheme={toggleTheme} />
   ) : (
-    <ReplaySession threadId={threadId} key={threadId} />
+    <ReplaySession threadId={threadId} key={threadId} onBack={goHome} onToggleTheme={toggleTheme} />
   );
 }

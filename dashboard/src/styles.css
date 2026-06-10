@@ -536,3 +536,32 @@ body {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 .jump-live:hover { filter: brightness(1.1); }
+
+/* ---------- polish: nav buttons + light theme ---------- */
+.back-btn, .theme-btn {
+  background: var(--bg-card);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 26px;
+  height: 24px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+.back-btn:hover, .theme-btn:hover { color: var(--text); border-color: var(--accent); }
+.theme-btn { margin-left: 6px; }
+
+body.light {
+  --bg: #f5f6fa;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --border: #d9dde8;
+  --border-soft: #e7eaf2;
+  --text: #1a1f2e;
+  --text-dim: #545b6e;
+  --text-faint: #888fa0;
+}
+body.light .lit-counter { background: rgba(255, 255, 255, 0.8); }
+body.light .lightbox { background: rgba(40, 44, 55, 0.7); }

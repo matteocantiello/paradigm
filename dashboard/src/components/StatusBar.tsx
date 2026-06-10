@@ -11,7 +11,17 @@ function fmtElapsed(state: DashboardState, lastTs: string | null): string {
   return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
 }
 
-export function StatusBar({ state, live }: { state: DashboardState; live: boolean }) {
+export function StatusBar({
+  state,
+  live,
+  onBack,
+  onToggleTheme,
+}: {
+  state: DashboardState;
+  live: boolean;
+  onBack?: () => void;
+  onToggleTheme?: () => void;
+}) {
   const aliveHyps = [...state.hypotheses.values()].filter(
     (h) => !["contradicted", "abandoned"].includes(h.status),
   ).length;
@@ -27,6 +37,11 @@ export function StatusBar({ state, live }: { state: DashboardState; live: boolea
 
   return (
     <header className="statusbar">
+      {onBack && (
+        <button className="back-btn" onClick={onBack} title="Back to all threads">
+          ‹
+        </button>
+      )}
       <span className="brand">Paradigm</span>
       <span className="thread-id">{state.run.threadId || "—"}</span>
       <span className={`status-chip ${chipClass}`}>
@@ -63,6 +78,11 @@ export function StatusBar({ state, live }: { state: DashboardState; live: boolea
         <span className="counter">
           experiments <b>{state.stats.experimentsDone}</b>
         </span>
+        {onToggleTheme && (
+          <button className="theme-btn" onClick={onToggleTheme} title="Toggle light / dark">
+            ◐
+          </button>
+        )}
       </div>
     </header>
   );
