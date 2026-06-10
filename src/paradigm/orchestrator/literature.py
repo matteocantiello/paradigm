@@ -495,7 +495,15 @@ class LiteratureHandler:
             )
             self._engine.emit_event(
                 "search.performed",
-                {"query": display_query, "n_results": len(papers), "n_new": len(new_papers)},
+                {
+                    "query": display_query,
+                    "n_results": len(papers),
+                    "n_new": len(new_papers),
+                    # Carry the newly-found papers (bounded) so the dashboard's
+                    # constellation can show what the system DISCOVERED, not only
+                    # what it explicitly [READ]. Many runs search but rarely read.
+                    "papers": [{"id": p.id, "title": p.title} for p in new_papers[:12] if p.id],
+                },
                 agent=agent_id,
             )
 

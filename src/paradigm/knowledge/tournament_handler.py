@@ -19,6 +19,13 @@ if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
 
 _JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
+# Tolerant field extractors — survive TRUNCATED JSON (the judge response getting
+# cut off mid-"reasoning" at max_tokens left no closing brace, so full JSON parse
+# failed and every matchup scored None → all Elos stuck at 1500).
+_WINNER_RE = re.compile(
+    r'"?winner"?\s*(?:is\s+|[:=]\s*)"?\s*(hypothesis\s*)?([ABab12])', re.IGNORECASE
+)
+_MARGIN_RE = re.compile(r'"?margin"?\s*[:=]\s*"?\s*(\d*\.?\d+)', re.IGNORECASE)
 
 
 def _first_json_object(text: str) -> dict | None:
@@ -36,6 +43,32 @@ def _first_json_object(text: str) -> dict | None:
     except json.JSONDecodeError:
         return None
     return obj if isinstance(obj, dict) else None
+
+
+def parse_judge_verdict(text: str) -> dict | None:
+    """Parse a judge response into {winner, margin, reasoning}, tolerant of
+    truncation. Tries full JSON first; falls back to regex-extracting just the
+    ``winner`` (the only field the tournament needs) so a verbose model whose
+    JSON gets cut off still produces a usable verdict instead of a dead matchup.
+    Returns None only when no winner can be found at all.
+    """
+    obj = _first_json_object(text)
+    if obj is not None and "winner" in obj:
+        return obj
+    if not text:
+        return None
+    wm = _WINNER_RE.search(text)
+    if wm is None:
+        return None
+    winner = wm.group(2).upper().replace("1", "A").replace("2", "B")
+    mm = _MARGIN_RE.search(text)
+    margin = 0.5
+    if mm is not None:
+        try:
+            margin = float(mm.group(1))
+        except ValueError:
+            margin = 0.5
+    return {"winner": winner, "margin": margin, "reasoning": ""}
 
 
 class TournamentHandler:
@@ -272,7 +305,10 @@ class TournamentHandler:
                 model=model,
                 system="You are an impartial hypothesis judge.",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=512,
+                # Headroom so the JSON verdict isn't truncated mid-"reasoning"
+                # (truncation left no closing brace → every matchup scored None
+                # → all Elos stuck at 1500). The tolerant parser is the backstop.
+                max_tokens=1500,
                 extra_body=extra_body,
             )
 
@@ -283,8 +319,8 @@ class TournamentHandler:
                 thread_id=self._engine.state.thread_id,
             )
 
-            # Parse JSON response (robust to fences + preamble).
-            data = _first_json_object(response_text)
+            # Parse JSON response (robust to fences, preamble, AND truncation).
+            data = parse_judge_verdict(response_text)
             if data is None:
                 self._engine._logger.log_error(
                     ValueError(f"tournament judge: unparseable response: {response_text[:160]!r}"),

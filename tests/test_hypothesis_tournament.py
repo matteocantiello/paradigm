@@ -14,8 +14,39 @@ from paradigm.knowledge.hypothesis_tournament import (
     MatchupResult,
 )
 from paradigm.knowledge.models import Hypothesis
-from paradigm.knowledge.tournament_handler import TournamentHandler, _first_json_object
+from paradigm.knowledge.tournament_handler import (
+    TournamentHandler,
+    _first_json_object,
+    parse_judge_verdict,
+)
 from paradigm.knowledge.world_model import WorldModel
+
+
+class TestParseJudgeVerdict:
+    """The judge verdict must survive truncation — a response cut off mid-JSON
+    (max_tokens) previously scored None for every matchup → all Elos stuck 1500."""
+
+    def test_truncated_json_recovers_winner(self) -> None:
+        truncated = '```json\n{\n  "winner": "A",\n  "reasoning": "Hypothesis A is better because'
+        v = parse_judge_verdict(truncated)
+        assert v is not None and v["winner"] == "A"
+
+    def test_clean_fenced_json(self) -> None:
+        v = parse_judge_verdict('```json\n{"winner":"B","margin":0.7,"reasoning":"x"}\n```')
+        assert v == {"winner": "B", "margin": 0.7, "reasoning": "x"}
+
+    def test_prose_winner(self) -> None:
+        v = parse_judge_verdict("After analysis, the winner is Hypothesis B by a clear margin.")
+        assert v is not None and v["winner"] == "B"
+
+    def test_numeric_winner_maps_to_letter_via_fallback(self) -> None:
+        # Non-JSON prose with a numeric winner exercises the regex fallback,
+        # which normalizes 1->A / 2->B.
+        assert parse_judge_verdict("winner: 2 — the second hypothesis wins")["winner"] == "B"
+
+    def test_unparseable_returns_none(self) -> None:
+        assert parse_judge_verdict("I cannot decide between them.") is None
+        assert parse_judge_verdict("") is None
 from paradigm.logging.events import EventLogger
 from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.storage.database import Database

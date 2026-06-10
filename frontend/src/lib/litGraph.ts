@@ -5,7 +5,7 @@ export interface LitNode {
   id: string;
   title: string;
   read: boolean;
-  via: "read" | "citation" | "seed";
+  via: "read" | "citation" | "seed" | "search";
   firstSeq: number;
 }
 
@@ -49,6 +49,11 @@ export function buildLitGraph(events: ThreadEvent[]): LitGraph {
     switch (e.type) {
       case "search.performed":
         scanned += (p.n_results as number) ?? 0;
+        // Papers surfaced by a search become "discovered" stars (the system is
+        // aware of them) even if no agent explicitly [READ] them.
+        for (const paper of (p.papers as { id: string; title?: string }[]) ?? []) {
+          note(paper.id, "search", e.seq, paper.title);
+        }
         break;
       case "paper.read": {
         const id = (p.paper_id as string) ?? "";
