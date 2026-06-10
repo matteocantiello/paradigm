@@ -86,7 +86,9 @@ _MODE_PROMPT_OVERRIDES: dict[str, dict[str, str]] = {
             "3. Define quality criteria for including/excluding papers\n"
             "4. Propose a strategy for ensuring comprehensive coverage\n"
             "5. Identify potential sources of bias in the literature\n\n"
-            "Use [SEARCH:], [FOLLOW:], and [CITED_BY:] extensively."
+            "Use [SEARCH:], [FOLLOW:], and [CITED_BY:] to find papers — then "
+            "[READ:] the most important ones in full. Do not summarize a paper "
+            "you have only seen as a search snippet."
         ),
         "planning_later_rounds": (
             "You are refining the literature gathering plan.\n"
@@ -96,6 +98,8 @@ _MODE_PROMPT_OVERRIDES: dict[str, dict[str, str]] = {
             "This is a LITERATURE REVIEW — focus on literature gathering.\n\n"
             "Continue gathering and analyzing the literature:\n"
             "- Use [FOLLOW:] and [CITED_BY:] to expand the citation network\n"
+            "- [READ:] the most important papers in full before drawing "
+            "conclusions about what they found\n"
             "- Identify emerging themes and patterns across papers\n"
             "- Note conflicting findings and methodological differences\n"
             "- Flag gaps where important work may be missing\n\n"
