@@ -74,3 +74,4 @@ deploy/.env.production
 # Dashboard frontend (committed dist/ so `paradigm dashboard` works without npm)
 dashboard/node_modules/
 !dashboard/dist/
+dashboard/tsconfig.tsbuildinfo
