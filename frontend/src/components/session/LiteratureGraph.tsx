@@ -18,12 +18,29 @@ interface SimNode extends SimulationNodeDatum {
   via: string;
   degree: number;
   title: string;
+  author: string;
+  year: string;
 }
 type SimLink = SimulationLinkDatum<SimNode> & { id: string };
 
 const W = 1000;
 const H = 700;
 const EMPTY: LitGraph = { nodes: [], edges: [], scanned: 0, read: 0 };
+
+const ARXIV_RE = /^(\d{4}\.\d{4,5}|[a-z-]+\/\d{7})(v\d+)?$/i;
+
+/** A direct PDF link for a paper, from its url or a constructed arXiv link. */
+function pdfHref(node: { id: string; url: string }): string | null {
+  if (node.url) return node.url.includes("/abs/") ? node.url.replace("/abs/", "/pdf/") : node.url;
+  if (ARXIV_RE.test(node.id)) return `https://arxiv.org/pdf/${node.id}`;
+  return null;
+}
+
+/** "First Author (Year)" provenance line, omitting blanks. */
+function provenance(node: { author: string; year: string }): string {
+  if (node.author && node.year) return `${node.author} · ${node.year}`;
+  return node.author || node.year || "";
+}
 
 /**
  * Literature as a constellation: papers are stars (read = gold w/ halo, unread
@@ -104,6 +121,8 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
           via: p.via,
           degree: 0,
           title: p.title,
+          author: p.author,
+          year: p.year,
           x: W / 2 + (Math.random() - 0.5) * 120,
           y: H / 2 + (Math.random() - 0.5) * 120,
         });
@@ -111,6 +130,8 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
       } else {
         existing.read = p.read;
         if (p.title) existing.title = p.title;
+        if (p.author) existing.author = p.author;
+        if (p.year) existing.year = p.year;
       }
     }
     for (const e of graph.edges) {
@@ -195,6 +216,10 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
                   setSelected(n.id);
                 }}
               >
+                {/* native hover tooltip: title + provenance */}
+                <title>
+                  {[n.title || n.id, provenance(n)].filter(Boolean).join("\n")}
+                </title>
                 {n.via === "seed" && (
                   <circle r={r + 5} fill="none" stroke="var(--primary)" strokeOpacity={0.5} />
                 )}
@@ -260,9 +285,24 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
         >
           <div className="text-[11px] text-accent-cyan">{sel.id}</div>
           <div className="mt-1 text-[13px] leading-snug">{sel.title || "(title unknown)"}</div>
-          <div className="mt-1.5 text-[11px] text-muted-foreground">
-            via {sel.via}
-            {sel.read ? " · read" : " · not read"}
+          {provenance(sel) && (
+            <div className="mt-1 text-[12px] text-foreground/90">{provenance(sel)}</div>
+          )}
+          <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span>
+              via {sel.via}
+              {sel.read ? " · read" : " · not read"}
+            </span>
+            {pdfHref(sel) && (
+              <a
+                href={pdfHref(sel)!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-auto rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary hover:bg-primary/20"
+              >
+                PDF ↗
+              </a>
+            )}
           </div>
           <button
             className="absolute right-2 top-2 rounded-md border border-border px-1.5 text-[11px] text-muted-foreground hover:text-foreground"

@@ -90,6 +90,24 @@ def _extract_arxiv_id_query(query: str) -> str | None:
     return match.group("id") if match else None
 
 
+def _paper_brief(p: Any) -> dict[str, str]:
+    """Compact, dashboard-friendly paper card: id, title, first author, year, url.
+
+    Used to enrich literature events so the constellation can show provenance
+    (first author + year on hover/click) and link out to the paper.
+    """
+    authors = getattr(p, "authors", None) or []
+    date = getattr(p, "date", None)
+    year = date.strftime("%Y") if hasattr(date, "strftime") else (str(date)[:4] if date else "")
+    return {
+        "id": p.id,
+        "title": p.title,
+        "author": authors[0] if authors else "",
+        "year": year,
+        "url": getattr(p, "url", "") or "",
+    }
+
+
 class LiteratureHandler:
     """Handles literature search, follow, cited-by, and read actions.
 
@@ -502,7 +520,7 @@ class LiteratureHandler:
                     # Carry the newly-found papers (bounded) so the dashboard's
                     # constellation can show what the system DISCOVERED, not only
                     # what it explicitly [READ]. Many runs search but rarely read.
-                    "papers": [{"id": p.id, "title": p.title} for p in new_papers[:12] if p.id],
+                    "papers": [_paper_brief(p) for p in new_papers[:12] if p.id],
                 },
                 agent=agent_id,
             )
@@ -687,6 +705,7 @@ class LiteratureHandler:
                     "direction": "refs",
                     "n_found": len(papers),
                     "paper_ids": [p.id for p in papers if p.id],
+                    "papers": [_paper_brief(p) for p in papers[:20] if p.id],
                 },
                 agent=agent_id,
             )
@@ -766,6 +785,7 @@ class LiteratureHandler:
                     "direction": "cited_by",
                     "n_found": len(papers),
                     "paper_ids": [p.id for p in papers if p.id],
+                    "papers": [_paper_brief(p) for p in papers[:20] if p.id],
                 },
                 agent=agent_id,
             )
@@ -908,6 +928,7 @@ class LiteratureHandler:
                     "direction": req.direction,
                     "n_found": len(papers),
                     "paper_ids": [p.id for p in papers if p.id],
+                    "papers": [_paper_brief(p) for p in papers[:20] if p.id],
                     "depth": req.depth,
                 },
                 agent=agent_id,

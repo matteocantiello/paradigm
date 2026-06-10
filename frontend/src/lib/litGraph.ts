@@ -4,9 +4,19 @@ import type { ThreadEvent } from "@/api/client";
 export interface LitNode {
   id: string;
   title: string;
+  author: string;
+  year: string;
+  url: string;
   read: boolean;
   via: "read" | "citation" | "seed" | "search";
   firstSeq: number;
+}
+
+interface PaperMeta {
+  title?: string;
+  author?: string;
+  year?: string;
+  url?: string;
 }
 
 export interface LitEdge {
@@ -34,14 +44,28 @@ export function buildLitGraph(events: ThreadEvent[]): LitGraph {
   let scanned = 0;
   let read = 0;
 
-  const note = (id: string, via: LitNode["via"], seq: number, title?: string) => {
+  const note = (id: string, via: LitNode["via"], seq: number, meta?: PaperMeta) => {
     if (!id) return;
     const existing = nodes.get(id);
     if (existing) {
-      if (title && !existing.title) existing.title = title;
+      // Fill any metadata we didn't have yet (e.g. a paper first seen as a bare
+      // citation id, later enriched by a search/follow that carries its card).
+      if (meta?.title && !existing.title) existing.title = meta.title;
+      if (meta?.author && !existing.author) existing.author = meta.author;
+      if (meta?.year && !existing.year) existing.year = meta.year;
+      if (meta?.url && !existing.url) existing.url = meta.url;
       return;
     }
-    nodes.set(id, { id, title: title ?? "", read: false, via, firstSeq: seq });
+    nodes.set(id, {
+      id,
+      title: meta?.title ?? "",
+      author: meta?.author ?? "",
+      year: meta?.year ?? "",
+      url: meta?.url ?? "",
+      read: false,
+      via,
+      firstSeq: seq,
+    });
   };
 
   for (const e of events) {
@@ -51,13 +75,13 @@ export function buildLitGraph(events: ThreadEvent[]): LitGraph {
         scanned += (p.n_results as number) ?? 0;
         // Papers surfaced by a search become "discovered" stars (the system is
         // aware of them) even if no agent explicitly [READ] them.
-        for (const paper of (p.papers as { id: string; title?: string }[]) ?? []) {
-          note(paper.id, "search", e.seq, paper.title);
+        for (const paper of (p.papers as (PaperMeta & { id: string })[]) ?? []) {
+          note(paper.id, "search", e.seq, paper);
         }
         break;
       case "paper.read": {
         const id = (p.paper_id as string) ?? "";
-        note(id, "read", e.seq, p.title as string);
+        note(id, "read", e.seq, { title: p.title as string });
         const n = nodes.get(id);
         if (n) {
           n.read = true;
@@ -69,6 +93,10 @@ export function buildLitGraph(events: ThreadEvent[]): LitGraph {
       case "citation.followed": {
         const src = (p.source_paper_id as string) ?? "";
         note(src, "citation", e.seq);
+        // Metadata cards for the cited papers (when carried).
+        for (const paper of (p.papers as (PaperMeta & { id: string })[]) ?? []) {
+          note(paper.id, "citation", e.seq, paper);
+        }
         for (const target of (p.paper_ids as string[]) ?? []) {
           note(target, "citation", e.seq);
           const key = `${src}->${target}`;
@@ -80,7 +108,12 @@ export function buildLitGraph(events: ThreadEvent[]): LitGraph {
         break;
       }
       case "resource.ingested":
-        if (p.kind === "paper") note((p.url as string) ?? "", "seed", e.seq, p.title as string);
+        if (p.kind === "paper") {
+          note((p.url as string) ?? "", "seed", e.seq, {
+            title: p.title as string,
+            url: p.url as string,
+          });
+        }
         break;
     }
   }
