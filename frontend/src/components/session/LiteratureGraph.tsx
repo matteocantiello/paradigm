@@ -36,47 +36,26 @@ function pdfHref(node: { id: string; url: string }): string | null {
   return null;
 }
 
-/** "First Author (Year)" provenance line, omitting blanks. */
+/** "First Author · Year" provenance line, omitting blanks. */
 function provenance(node: { author: string; year: string }): string {
   if (node.author && node.year) return `${node.author} · ${node.year}`;
   return node.author || node.year || "";
 }
 
 /**
- * Literature as a constellation: papers are stars (read = gold w/ halo, unread
- * = cyan), citations are light-lines. Fed by the durable per-thread event
- * stream so it carries the citation edges the live WS snapshot lacks. Polls
- * while the run is in progress; settles when run.completed arrives.
+ * Presentational literature constellation: papers are stars (read = gold w/ halo,
+ * unread = cyan), citations are light-lines. Pure function of the `graph` it's
+ * given — used both live (polled) and in replay (rebuilt at the scrub cursor).
+ * Handles node ADDITION (forward) and REMOVAL (backward scrub) against the sim.
  */
-export function LiteratureGraph({ sessionId }: { sessionId: string }) {
-  const [graph, setGraph] = useState<LitGraph>(EMPTY);
-  const [loaded, setLoaded] = useState(false);
+export function LiteratureConstellation({
+  graph,
+  showEmpty = true,
+}: {
+  graph: LitGraph;
+  showEmpty?: boolean;
+}) {
   const [selected, setSelected] = useState<string | null>(null);
-
-  // Poll the event stream until the run completes.
-  useEffect(() => {
-    let alive = true;
-    let timer: number | undefined;
-    const tick = async () => {
-      try {
-        const { events } = await getSessionEventStream(sessionId);
-        if (!alive) return;
-        setGraph(buildLitGraph(events));
-        setLoaded(true);
-        const done = events.some((e: ThreadEvent) => e.type === "run.completed");
-        if (!done) timer = window.setTimeout(tick, 4000);
-      } catch {
-        if (alive) timer = window.setTimeout(tick, 6000);
-      }
-    };
-    void tick();
-    return () => {
-      alive = false;
-      if (timer) clearTimeout(timer);
-    };
-  }, [sessionId]);
-
-  // d3-force simulation, synced to the graph projection.
   const simRef = useRef<Simulation<SimNode, SimLink> | null>(null);
   const nodesRef = useRef<Map<string, SimNode>>(new Map());
   const linksRef = useRef<Map<string, SimLink>>(new Map());
@@ -112,6 +91,24 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
     const nodes = nodesRef.current;
     const links = linksRef.current;
     let changed = false;
+    const wanted = new Set(graph.nodes.map((p) => p.id));
+
+    // Remove nodes/links no longer present (backward scrub).
+    for (const id of [...nodes.keys()]) {
+      if (!wanted.has(id)) {
+        nodes.delete(id);
+        changed = true;
+      }
+    }
+    for (const [key, l] of [...links.entries()]) {
+      const s = (l.source as SimNode).id ?? (l.source as unknown as string);
+      const t = (l.target as SimNode).id ?? (l.target as unknown as string);
+      if (!wanted.has(s) || !wanted.has(t)) {
+        links.delete(key);
+        changed = true;
+      }
+    }
+
     for (const p of graph.nodes) {
       const existing = nodes.get(p.id);
       if (!existing) {
@@ -216,10 +213,7 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
                   setSelected(n.id);
                 }}
               >
-                {/* native hover tooltip: title + provenance */}
-                <title>
-                  {[n.title || n.id, provenance(n)].filter(Boolean).join("\n")}
-                </title>
+                <title>{[n.title || n.id, provenance(n)].filter(Boolean).join("\n")}</title>
                 {n.via === "seed" && (
                   <circle r={r + 5} fill="none" stroke="var(--primary)" strokeOpacity={0.5} />
                 )}
@@ -231,12 +225,7 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
                   strokeWidth={1.5}
                 />
                 {showLabel && (
-                  <text
-                    x={r + 5}
-                    y={3.5}
-                    className="fill-muted-foreground"
-                    style={{ fontSize: 9.5 }}
-                  >
+                  <text x={r + 5} y={3.5} className="fill-muted-foreground" style={{ fontSize: 9.5 }}>
                     {n.id.length > 16 ? n.id.slice(0, 16) + "…" : n.id}
                   </text>
                 )}
@@ -246,7 +235,6 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
         </g>
       </svg>
 
-      {/* HUD */}
       <div className="absolute left-3 top-3 rounded-lg border border-border bg-background/70 px-3 py-2 text-[10.5px] text-muted-foreground backdrop-blur">
         <div>
           <span className="text-primary tabular-nums">{graph.scanned}</span> scanned ·{" "}
@@ -268,7 +256,7 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
-      {loaded && nodes.length === 0 && (
+      {showEmpty && nodes.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="max-w-xs text-center text-xs leading-relaxed text-muted-foreground">
             <div className="mb-2 font-serif text-lg text-foreground">An empty sky</div>
@@ -314,4 +302,37 @@ export function LiteratureGraph({ sessionId }: { sessionId: string }) {
       )}
     </div>
   );
+}
+
+/**
+ * Live literature constellation for the session view: polls the durable event
+ * stream until the run completes, then renders the constellation.
+ */
+export function LiteratureGraph({ sessionId }: { sessionId: string }) {
+  const [graph, setGraph] = useState<LitGraph>(EMPTY);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: number | undefined;
+    const tick = async () => {
+      try {
+        const { events } = await getSessionEventStream(sessionId);
+        if (!alive) return;
+        setGraph(buildLitGraph(events));
+        setLoaded(true);
+        const done = events.some((e: ThreadEvent) => e.type === "run.completed");
+        if (!done) timer = window.setTimeout(tick, 4000);
+      } catch {
+        if (alive) timer = window.setTimeout(tick, 6000);
+      }
+    };
+    void tick();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [sessionId]);
+
+  return <LiteratureConstellation graph={graph} showEmpty={loaded} />;
 }

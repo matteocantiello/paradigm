@@ -5,6 +5,7 @@ import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
 import { Dashboard } from "@/pages/Dashboard";
 import { ResearchPage } from "@/pages/ResearchPage";
 import { SessionPage } from "@/pages/SessionPage";
+import ReplayPage from "@/pages/ReplayPage";
 import { PapersPage } from "@/pages/PapersPage";
 import { AgentsPage } from "@/pages/AgentsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -29,6 +30,7 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="research" element={<ResearchPage />} />
               <Route path="session/:id" element={<SessionPage />} />
+              <Route path="replay/:id" element={<ReplayPage />} />
               <Route path="papers" element={<PapersPage />} />
               <Route path="agents" element={<AgentsPage />} />
               <Route path="about" element={<AboutPage />} />

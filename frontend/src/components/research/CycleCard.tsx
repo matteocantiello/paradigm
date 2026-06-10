@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Trash2, RotateCcw } from "lucide-react";
+import { Trash2, RotateCcw, Play } from "lucide-react";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { TopicBadges } from "@/components/shared/TopicBadges";
 import { truncate } from "@/lib/utils";
@@ -23,6 +23,9 @@ export function CycleCard({ cycle, onDelete }: CycleCardProps) {
   const destination = cycleDestination(cycle);
   const isClickable = destination != null;
   const canResume = RESUMABLE.has(cycle.status);
+  // Replay is available for any cycle that started a session (its durable event
+  // stream is on disk, even after the live session is gone).
+  const canReplay = Boolean(cycle.session_id);
 
   const resume = useMutation({
     mutationFn: () => resumeCycle(cycle.cycle_id),
@@ -64,6 +67,19 @@ export function CycleCard({ cycle, onDelete }: CycleCardProps) {
           {cycle.current_phase ? ` · ${cycle.current_phase.replace(/_/g, " ")}` : ""}
         </span>
         <div className="flex items-center gap-1">
+          {canReplay && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/replay/${cycle.session_id}`);
+              }}
+              className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-primary/80 opacity-0 transition-all hover:bg-primary/10 hover:text-primary group-hover:opacity-100"
+              title="Replay how this run unfolded"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Replay
+            </button>
+          )}
           {canResume && (
             <button
               onClick={(e) => {
