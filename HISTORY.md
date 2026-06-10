@@ -4581,3 +4581,16 @@ FIXES + slick pass (invoked frontend-design skill; committed an "observatory ins
 - Landing reworked ("Paradigm Observatory" + tagline, staggered rows), StatusBar brand + live ticker dot.
 - **Demo enriched** to 22 papers / 54 citation edges (135 events) so the constellation is a real showcase.
 VERIFIED: tsc strict + build clean, server serves new bundle + fonts, demo reaches client (22 reads / 17 follows), event-stream tests green. NOTE: real runs still need a literature-heavy config (production, not selftest) to populate the graph — the sparse selftest runs will still look near-empty. NOT browser-verified by me (no headless browser) — user is the visual check.
+
+## Prompt 193 — Integration discussion: how to fold the dashboard visuals into the platform
+
+> Let's talk integration with paradigm. Given the current status of the platform, how do you think some of this visual information should be folded in?
+
+Discussion turn (assessment, no code). Grounded in current frontend: existing LiteraturePanel = LIST in a drawer (no graph); KnowledgePanel = collapsible LISTS of hypotheses/entities/evidence (no graph); transport = WebSocket live snapshots (api/websocket.ts); NO replay/time-travel anywhere (only a live EventLog); routes = Dashboard/research/session:id/papers/agents/about/settings. Recommendation: converge on the event stream (already written in-platform for every run) + fold the net-new visuals (constellation, evidence graph, scrubber/replay) into frontend/, retire the standalone dashboard/server.py. Surfaced product decisions via AskUserQuestion.
+
+### Prompt 193 — result: fold-in begins — literature constellation in the Observatory
+
+User chose (AskUserQuestion): destination = **fold into the Observatory** (one app, retire standalone); first move = **constellation literature graph**. Implemented the first slice + the first paving stone of the data fold-in:
+- **Backend:** new `GET /api/v1/sessions/{session_id}/event-stream` in routes/sessions.py — resolves session→thread via live state OR cycle_store (works for finished/evicted sessions too) and returns the durable per-thread events.jsonl. This puts the event stream behind the REAL backend (toward retiring dashboard/server.py).
+- **Frontend (existing Observatory app):** `lib/litGraph.ts` (pure events→{nodes,edges,scanned,read} projection — the citation edges the live WS snapshot lacks), `components/session/LiteratureGraph.tsx` (d3-force SVG constellation themed to the Observatory tokens: read=--primary gold w/ glow, unread=--accent-cyan, edges=cyan; polls the event-stream every 4s until run.completed; HUD + legend + click-inspect + "empty sky" state), new **"Literature" tab** in RightPanel (uiStore RightPanelTab += "literature"), sessionId threaded SessionPage→SessionView→RightPanel. Added d3-force dep.
+VERIFIED: frontend build clean (tsc -b), backend ruff clean + app imports + route registered, Python suite 1642 green, and a TestClient e2e seeding a thread+cycle confirmed session→thread resolution (live + finished via update()) + correct 3-node/2-edge graph projection. NOT browser-verified (no headless browser). NOTE: real selftest runs still read few papers → sparse graph; production-config runs populate it. Next fold-in steps (deferred): evidence graph + replay surface; then retire the standalone dashboard.

@@ -1,5 +1,6 @@
 import { EventLog } from "./EventLog";
 import { KnowledgePanel } from "./KnowledgePanel";
+import { LiteratureGraph } from "./LiteratureGraph";
 import { DraftPanel } from "./DraftPanel";
 import { ExperimentPanel } from "./ExperimentPanel";
 import { useUiStore, type RightPanelTab } from "@/stores/uiStore";
@@ -18,6 +19,7 @@ interface RightPanelProps {
   knowledge: KnowledgeState;
   draft: LiveDraft;
   experiments: ExperimentRun[];
+  sessionId?: string;
 }
 
 function TabButton({
@@ -59,6 +61,7 @@ export function RightPanel({
   knowledge,
   draft,
   experiments,
+  sessionId,
 }: RightPanelProps) {
   const tab = useUiStore((s) => s.rightPanelTab);
   const setTab = useUiStore((s) => s.setRightPanelTab);
@@ -73,6 +76,12 @@ export function RightPanel({
           label="Knowledge"
           count={knowledge.hypotheses.length}
           active={tab === "knowledge"}
+          onClick={setTab}
+        />
+        <TabButton
+          id="literature"
+          label="Literature"
+          active={tab === "literature"}
           onClick={setTab}
         />
         <TabButton
@@ -97,6 +106,12 @@ export function RightPanel({
           <EventLog activityEvents={activityEvents} notifications={notifications} />
         )}
         {tab === "knowledge" && <KnowledgePanel knowledge={knowledge} />}
+        {tab === "literature" &&
+          (sessionId ? (
+            <LiteratureGraph sessionId={sessionId} />
+          ) : (
+            <div className="p-6 text-xs text-muted-foreground">Literature graph unavailable.</div>
+          ))}
         {tab === "draft" && <DraftPanel draft={draft} />}
         {tab === "experiments" && <ExperimentPanel experiments={experiments} />}
       </div>

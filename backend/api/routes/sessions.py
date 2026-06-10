@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.api.middleware.auth import verify_api_key
@@ -140,6 +142,47 @@ async def get_session_history(
         ]
 
     return {"session_id": session_id, "events": events, "total": len(events)}
+
+
+@router.get(
+    "/api/v1/sessions/{session_id}/event-stream",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_session_event_stream(session_id: str, request: Request) -> dict:
+    """Return the per-thread, seq-ordered dashboard event stream for this session.
+
+    This is the durable record the orchestrator writes to
+    ``data/threads/<thread_id>/events.jsonl`` — the source for the epistemic
+    graphs (literature constellation, evidence, replay). Works for live sessions
+    (thread id from the in-memory state) and finished ones (resolved via the
+    cycle store, since the session may have been evicted).
+    """
+    manager = request.app.state.session_manager
+    state = manager.get_state(session_id)
+    thread_id = state.thread_id if state is not None else None
+    if not thread_id:
+        store = request.app.state.cycle_store
+        for cycle in store.list():
+            if cycle.session_id == session_id and cycle.thread_id:
+                thread_id = cycle.thread_id
+                break
+    if not thread_id:
+        return {"thread_id": None, "events": []}
+
+    config = request.app.state.config
+    path = config.storage.threads_dir / thread_id / "events.jsonl"
+    events: list[dict] = []
+    if path.is_file():
+        with path.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    return {"thread_id": thread_id, "events": events}
 
 
 @router.get(

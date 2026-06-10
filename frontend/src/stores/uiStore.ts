@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type RightPanelTab = "events" | "knowledge" | "draft" | "experiments";
+export type RightPanelTab = "events" | "knowledge" | "literature" | "draft" | "experiments";
 
 interface UiState {
   sidebarOpen: boolean;

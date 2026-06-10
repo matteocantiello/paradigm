@@ -58,6 +58,7 @@ export function SessionPage() {
         {...session}
         paperId={cycle?.paper_id ?? undefined}
         cycleId={cycle?.cycle_id}
+        sessionId={id}
         topic={cycle?.seed_prompt}
       />
     </div>

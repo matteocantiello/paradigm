@@ -448,3 +448,21 @@ export function paperFigureUrl(paperId: string, filename: string) {
 export function paperPdfUrl(paperId: string) {
   return `${BASE}/api/v1/papers/${paperId}/pdf`;
 }
+
+// --- Dashboard event stream (durable, seq-ordered per-thread record) ---
+
+export interface ThreadEvent {
+  seq: number;
+  ts: string;
+  type: string;
+  phase: string | null;
+  round: number | null;
+  agent: string | null;
+  payload: Record<string, unknown>;
+}
+
+export function getSessionEventStream(sessionId: string) {
+  return request<{ thread_id: string | null; events: ThreadEvent[] }>(
+    `/api/v1/sessions/${sessionId}/event-stream`
+  );
+}

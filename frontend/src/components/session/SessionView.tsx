@@ -59,6 +59,7 @@ interface SessionViewProps {
   pendingApproval: ApprovalRequestMsg | null;
   paperId?: string;
   cycleId?: string;
+  sessionId?: string;
   topic?: string;
 }
 
@@ -149,6 +150,7 @@ export function SessionView(props: SessionViewProps) {
             knowledge={props.knowledge}
             draft={props.draft}
             experiments={props.experiments}
+            sessionId={props.sessionId}
           />
         </div>
       </div>
