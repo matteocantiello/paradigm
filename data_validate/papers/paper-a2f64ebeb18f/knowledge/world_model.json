@@ -1,0 +1,481 @@
+{
+  "entities": {
+    "0aec7c4b": {
+      "id": "0aec7c4b",
+      "name": "true standard error",
+      "entity_type": "quantity",
+      "description": "Deterministic population-level identity \u03c3/\u221an; exact for all finite n given finite \u03c3\u00b2",
+      "properties": {},
+      "created_by": "synthesizer-3"
+    },
+    "1c49b6cb": {
+      "id": "1c49b6cb",
+      "name": "estimated standard error",
+      "entity_type": "quantity",
+      "description": "Random sample estimator s/\u221an where s\u00b2 = \u03a3(x\u1d62\u2212x\u0304)\u00b2/(n\u22121); distributed as \u03c3\u00b7\u03c7_{n\u22121}/\u221a(n(n\u22121))",
+      "properties": {},
+      "created_by": "synthesizer-3"
+    },
+    "62bc2e1b": {
+      "id": "62bc2e1b",
+      "name": "simulation_plan",
+      "entity_type": "concept",
+      "description": "Computational experiment to validate closed-form MSE formula for estimated standard error s/\u221an using Monte Carlo draws from N(0,1).",
+      "properties": {},
+      "created_by": "experimentalist-2"
+    },
+    "2e37edcc": {
+      "id": "2e37edcc",
+      "name": "sample_sizes",
+      "entity_type": "quantity",
+      "description": "n \u2208 {2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 30, 50, 100, 200, 500, 1000} covering small-n bias regime and large-n asymptotics.",
+      "properties": {},
+      "created_by": "experimentalist-2"
+    },
+    "cdba3118": {
+      "id": "cdba3118",
+      "name": "replicates",
+      "entity_type": "quantity",
+      "description": "M = 2\u00d710^7 per n for sufficient precision of empirical MSE (target relative SE of MSE estimate < 1%).",
+      "properties": {},
+      "created_by": "experimentalist-2"
+    },
+    "489319bb": {
+      "id": "489319bb",
+      "name": "code_architecture",
+      "entity_type": "method",
+      "description": "numpy + pandas, script with functions: generate_samples(n, M), compute_se(samples), accumulate_stats, save to HDF5; seed fixed at 42 for reproducibility; test suite comparing empirical bias(\u015d\u2099/\u221an) vs exact c\u2084(n) and empirical MSE vs 2\u03c3\u00b2(1\u2212c\u2084(n))/n.",
+      "properties": {},
+      "created_by": "experimentalist-2"
+    },
+    "99d8cff2": {
+      "id": "99d8cff2",
+      "name": "MSE_estimator_precision",
+      "entity_type": "quantity",
+      "description": "Unverified claim that M=2\u00d710^7 replicates yields relative SE < 1% for empirical MSE across all sample sizes, especially n=2 where fourth moments of half-normal inflate variance of the MSE estimator",
+      "properties": {},
+      "created_by": "skeptic-4"
+    },
+    "fcc5959f": {
+      "id": "fcc5959f",
+      "name": "true_standard_error",
+      "entity_type": "concept",
+      "description": "Deterministic population-level identity \u03c3/\u221an; exact for all finite n given \u03c3",
+      "properties": {},
+      "created_by": "theorist-0"
+    },
+    "bff7d129": {
+      "id": "bff7d129",
+      "name": "estimated_standard_error",
+      "entity_type": "concept",
+      "description": "Random sample estimator s/\u221an where s\u00b2 = \u03a3(x\u1d62\u2212x\u0304)\u00b2/(n\u22121) for normal data",
+      "properties": {},
+      "created_by": "theorist-0"
+    },
+    "8215bc48": {
+      "id": "8215bc48",
+      "name": "exact_mse_formula",
+      "entity_type": "result",
+      "description": "Closed-form MSE for estimated SE, derived from chi-distribution moments",
+      "properties": {},
+      "created_by": "theorist-0"
+    },
+    "5b7962b1": {
+      "id": "5b7962b1",
+      "name": "confirmationally_designed_experiment",
+      "entity_type": "method",
+      "description": "Monte Carlo verification framework that tests computational infrastructure rather than statistical theory",
+      "properties": {},
+      "created_by": "theorist-0"
+    },
+    "5a84e0ad": {
+      "id": "5a84e0ad",
+      "name": "numerical_verification_framework",
+      "entity_type": "method",
+      "description": "Test suite for statistical software using known closed-form MSE",
+      "properties": {},
+      "created_by": "theorist-0"
+    },
+    "7f4cfc78": {
+      "id": "7f4cfc78",
+      "name": "exact_MSE_expression",
+      "entity_type": "concept",
+      "description": "Closed-form formula for MSE of the estimated standard error: (2\u03c3^2(1\u2011c\u2084(n)))/n, derived from chi-distribution of s",
+      "properties": {},
+      "created_by": "theorist-0"
+    },
+    "bf0d45da": {
+      "id": "bf0d45da",
+      "name": "c4_n_function",
+      "entity_type": "quantity",
+      "description": "Unbiasing constant c\u2084(n)=\u221a(2/(n\u20111))\u00b7\u0393(n/2)/\u0393((n\u20111)/2) that corrects the bias of s\u2192s/\u221an",
+      "properties": {},
+      "created_by": "theorist-0"
+    },
+    "e928cb0a": {
+      "id": "e928cb0a",
+      "name": "simulation_code",
+      "entity_type": "method",
+      "description": "Python script performing Monte Carlo of N(0,1) with M=200k, estimating SE bias and MSE; called efficient_simulation",
+      "properties": {},
+      "created_by": "theorist-0"
+    },
+    "34f6ea0d": {
+      "id": "34f6ea0d",
+      "name": "analytical_prep",
+      "entity_type": "method",
+      "description": "Pre\u2011computation of c\u2084 and analytical MSE using \u0393\u2011functions; currently breaks for n\u2265500 due to NaN",
+      "properties": {},
+      "created_by": "theorist-0"
+    },
+    "a29d4378": {
+      "id": "a29d4378",
+      "name": "PRNG bias",
+      "entity_type": "concept",
+      "description": "MT19937 may introduce small biases in tail moments that are measurable only with very large-sample (M>10^9) simulations",
+      "properties": {},
+      "created_by": "experimentalist-2"
+    },
+    "0828631c": {
+      "id": "0828631c",
+      "name": "empirical SEM scaling exponent",
+      "entity_type": "result",
+      "description": "Log-log slope $-0.50021$ from `efficient_simulation`, consistent with exact finite-sample $1/\\sqrt{n}$ scaling",
+      "properties": {},
+      "created_by": "synthesizer-3"
+    },
+    "ca838726": {
+      "id": "ca838726",
+      "name": "c\u2084 bias factor",
+      "entity_type": "quantity",
+      "description": "Exact chi-distribution underestimation factor validated at $n=5,10,50,100$ within $<0.33\\%$ relative MSE error",
+      "properties": {},
+      "created_by": "synthesizer-3"
+    },
+    "db0377d4": {
+      "id": "db0377d4",
+      "name": "protocol deviation replicate count",
+      "entity_type": "quantity",
+      "description": "Executed $M=2\\times 10^{5}$ versus planned $2\\times 10^{7}$, degrading Monte Carlo precision by a factor of $10$ in standard error and $100$ in computational cost",
+      "properties": {},
+      "created_by": "synthesizer-3"
+    },
+    "bdad9e34": {
+      "id": "bdad9e34",
+      "name": "analytical MSE NaN",
+      "entity_type": "result",
+      "description": "Numerical failure in `analytical_prep` at $n=500$, indicating gamma-function overflow/underflow in the exact closed form",
+      "properties": {},
+      "created_by": "synthesizer-3"
+    },
+    "c6d2058b": {
+      "id": "c6d2058b",
+      "name": "replicate_count_deficit",
+      "entity_type": "quantity",
+      "description": "M=200,000 used versus M=2\u00d710\u2077 planned; 100\u00d7 reduction in statistical power, placing MSE agreement at noise floor",
+      "properties": {},
+      "created_by": "skeptic-4"
+    },
+    "f8df6e7d": {
+      "id": "f8df6e7d",
+      "name": "Gamma_overflow_bug",
+      "entity_type": "method",
+      "description": "NaN in analytical MSE at n\u2265500 caused by direct computation of \u0393(n/2)/\u0393((n\u22121)/2) instead of log-\u0393 difference; planned mitigation was not implemented",
+      "properties": {},
+      "created_by": "skeptic-4"
+    },
+    "a460af4c": {
+      "id": "a460af4c",
+      "name": "MC noise floor for MSE estimator",
+      "entity_type": "quantity",
+      "description": "Approximate relative standard error of empirical MSE under exact \u03c7 distribution; ~0.4 % at n=100 for M=2\u00d710\u2075",
+      "properties": {},
+      "created_by": "analyst-1"
+    },
+    "755d1ddc": {
+      "id": "755d1ddc",
+      "name": "TOST for MSE equivalence",
+      "entity_type": "method",
+      "description": "Two one-sided t-tests on log-MSE or ratio to bound discrepancy within equivalence margin \u03b4",
+      "properties": {},
+      "created_by": "analyst-1"
+    },
+    "4ef1c0e0": {
+      "id": "4ef1c0e0",
+      "name": "PRNG cross-validation",
+      "entity_type": "method",
+      "description": "Replication of MSE audit with independent generator stream (PCG64/cryptographic) to isolate stream-specific bias",
+      "properties": {},
+      "created_by": "analyst-1"
+    },
+    "0424123b": {
+      "id": "0424123b",
+      "name": "cross-n correlation structure",
+      "entity_type": "concept",
+      "description": "The covariance between empirical SEM estimates at different sample sizes n\u2081 and n\u2082 induced by shared random draws in a cumulative-sum simulation architecture",
+      "properties": {},
+      "created_by": "skeptic-4"
+    }
+  },
+  "relationships": {},
+  "hypotheses": {
+    "8e509056": {
+      "id": "8e509056",
+      "statement": "The mean squared error of the estimated standard error s/\u221an scales as O(1/n), and its expectation underestimates \u03c3/\u221an by the exact chi-distribution bias factor c\u2084(n) = \u221a(2/(n\u22121)) \u00b7 \u0393(n/2)/\u0393((n\u22121)/2)",
+      "rationale": "",
+      "status": "supported",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    },
+    "409dcc30": {
+      "id": "409dcc30",
+      "statement": "Any discrepancy between the simulated MSE and the closed-form theoretical MSE is attributable solely to implementation error or numerical precision artifacts, not to scientific novelty \u2014 meaning the experiment has zero scientific content beyond debugging.",
+      "rationale": "",
+      "status": "supported",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    },
+    "efe91adc": {
+      "id": "efe91adc",
+      "statement": "Any deviation between simulated and theoretical MSE beyond purely statistical sampling error indicates a bug in the simulation code or RNG",
+      "rationale": "",
+      "status": "proposed",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    },
+    "4f84c715": {
+      "id": "4f84c715",
+      "statement": "The proposed experiment can be treated as a computational benchmark that yields a p\u2011value for the hypothesis \u201cthe simulation is correctly implemented\u201d based on a chi\u2011squared aggregate test",
+      "rationale": "",
+      "status": "proposed",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    },
+    "0ad3f900": {
+      "id": "0ad3f900",
+      "statement": "The confirmatory simulation can validate the analytical derivation of MSE only after the NaN bug is fixed and Monte Carlo precision is improved | theoretical",
+      "rationale": "",
+      "status": "proposed",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    },
+    "b5fc85f5": {
+      "id": "b5fc85f5",
+      "statement": "The claimed 1/\u221an law is an exact finite\u2011n consequence of the variance of the sample mean, not just asymptotic; the simulation verifies computational implementation, not theory | theoretical",
+      "rationale": "",
+      "status": "proposed",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    },
+    "473d3bd2": {
+      "id": "473d3bd2",
+      "statement": "Discrepancies between simulated and theoretical MSE indicate implementation error, not scientific novelty",
+      "rationale": "",
+      "status": "proposed",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    },
+    "1ccbca99": {
+      "id": "1ccbca99",
+      "statement": "The reported MSE agreement of ~0.3% is statistically indistinguishable from the Monte Carlo sampling noise floor given M=200,000",
+      "rationale": "",
+      "status": "proposed",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    },
+    "51f3aa4b": {
+      "id": "51f3aa4b",
+      "statement": "The negative MSE ratio at n=100 could indicate systematic downward bias in numpy's variance computation for large-n samples, possibly from floating-point accumulator rounding \u2014 this should be tested with compensated summation",
+      "rationale": "",
+      "status": "proposed",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    },
+    "dfaed526": {
+      "id": "dfaed526",
+      "statement": "The simulation uses a cumulative-sum or pre-generated-matrix architecture that creates positive cross-n correlation in the empirical SEM values, inflating the apparent precision of the log-log slope estimate",
+      "rationale": "",
+      "status": "proposed",
+      "confidence": "speculative",
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "elo_rating": 1500.0,
+      "prediction_rule_id": null,
+      "verdict": "unregistered"
+    }
+  },
+  "evidence": {
+    "743a8fcd": {
+      "id": "743a8fcd",
+      "content": "For normal data, (n\u22121)s\u00b2/\u03c3\u00b2 \u223c \u03c7\u00b2_{n\u22121} exactly by Cochran\u2019s theorem; therefore s/\u03c3 \u223c \u03c7_{n\u22121}/\u221a(n\u22121) with E[s",
+      "source": "agent_reasoning",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "9378e0a8": {
+      "id": "9378e0a8",
+      "content": "The bias correction factor c\u2084(n) provides an exact closed-form expression for the expected value of the sample standard error estimator. Monte\u2011Carlo experiments with sufficient replication can verify this formula to any desired precision, thereby empirically confirming that the MSE prediction derived from chi distribution holds for finite n.",
+      "source": "agent_reasoning",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "af9f6b8d": {
+      "id": "af9f6b8d",
+      "content": "Known exact distribution of sample variance for normal data allows computation of exact moments of Y",
+      "source": "literature",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "c1ad05e9": {
+      "id": "c1ad05e9",
+      "content": "Cochran's theorem yields exact distribution of (n-1)s\u00b2/\u03c3\u00b2 ~ \u03c7\u00b2_{n-1}",
+      "source": "literature",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "67cee2f8": {
+      "id": "67cee2f8",
+      "content": "Empirical SE agrees with 1/\u221an within 0.2% log-log slope",
+      "source": "experiment",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "06e020ab": {
+      "id": "06e020ab",
+      "content": "Analytical MSE computations match manual derivation for n=5,10,50,100",
+      "source": "experiment",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "655208de": {
+      "id": "655208de",
+      "content": "For n>100 no analytical reference is available because of NaN bug",
+      "source": "experiment",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "eea20a41": {
+      "id": "eea20a41",
+      "content": "c4(n) NaN for n=500",
+      "source": "experiment",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "ccfa3a36": {
+      "id": "ccfa3a36",
+      "content": "slope=-0.50021",
+      "source": "experiment",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "781ef774": {
+      "id": "781ef774",
+      "content": "NaN for analytical MSE at $n=500$",
+      "source": "experiment",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "2d983562": {
+      "id": "2d983562",
+      "content": "Log-log slope $-0.50021$ without reported confidence interval or intercept",
+      "source": "experiment",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "1b1e71c5": {
+      "id": "1b1e71c5",
+      "content": "Execution-phase keyword search returned no relevant statistical literature",
+      "source": "experiment",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "f6c0a48d": {
+      "id": "f6c0a48d",
+      "content": "analytical_prep omits n=500 despite efficient_simulation producing mse_est_n500",
+      "source": "experiment",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    },
+    "636abc11": {
+      "id": "636abc11",
+      "content": "Relative MC precision ~0.4 % dominates observed 0.256 % deviation at n=100",
+      "source": "agent_reasoning",
+      "source_ref": "",
+      "confidence": "moderate",
+      "supports_hypothesis_ids": [],
+      "contradicts_hypothesis_ids": []
+    }
+  },
+  "open_questions": {},
+  "research_goals": {
+    "efc969fa": {
+      "id": "efc969fa",
+      "description": "Quantify how the standard error of the sample mean scales with sample size n for samples drawn from a standard normal distribution, and test whether it follows the 1/sqrt(n) law.",
+      "success_criteria": "Complete a research cycle producing a publishable paper.",
+      "status": "proposed",
+      "related_hypothesis_ids": []
+    }
+  }
+}

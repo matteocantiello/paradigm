@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useUiStore } from "@/stores/uiStore";
 import { PhaseTracker } from "./PhaseTracker";
 import { NowPlaying } from "./NowPlaying";
 import { StatsBar } from "./StatsBar";
@@ -8,7 +8,6 @@ import { RightPanel } from "./RightPanel";
 import { InteractionBar } from "./InteractionBar";
 import { ApprovalDialog } from "./ApprovalDialog";
 import { ConnectionIndicator } from "./ConnectionIndicator";
-import { LiteraturePanel } from "./LiteraturePanel";
 import { StatusPill } from "./StatusPill";
 import { TerminalScreen } from "./TerminalScreen";
 import { SessionControls } from "./SessionControls";
@@ -64,7 +63,7 @@ interface SessionViewProps {
 }
 
 export function SessionView(props: SessionViewProps) {
-  const [showLiterature, setShowLiterature] = useState(false);
+  const setRightPanelTab = useUiStore((s) => s.setRightPanelTab);
 
   return (
     <div className="flex h-full flex-col">
@@ -115,7 +114,7 @@ export function SessionView(props: SessionViewProps) {
         totalSearches={props.totalSearches}
         totalTokens={props.totalTokens}
         elapsedSeconds={props.elapsedSeconds}
-        onPapersClick={() => setShowLiterature(true)}
+        onPapersClick={() => setRightPanelTab("literature")}
       />
 
       {/* Terminal screen — a clear end-of-run action (View paper / summary).
@@ -160,16 +159,6 @@ export function SessionView(props: SessionViewProps) {
 
       {/* Approval dialog overlay */}
       {props.pendingApproval && <ApprovalDialog approval={props.pendingApproval} />}
-
-      {/* Literature panel overlay */}
-      {showLiterature && (
-        <LiteraturePanel
-          paperId={props.paperId}
-          papersFound={props.papersFound}
-          liveLiterature={props.literature}
-          onClose={() => setShowLiterature(false)}
-        />
-      )}
     </div>
   );
 }

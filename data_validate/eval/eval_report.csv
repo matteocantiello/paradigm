@@ -1,0 +1,2 @@
+paper_id,title,outcome,outcome_score,deterministic_score,judge_mean,quality_score,body_chars,num_sections,figures_present,figures_referenced,bare_url_references,total_references,citation_quality,total_tokens
+paper-a2f64ebeb18f,Confirming the $1/\sqrt{n}$ Scaling Law for the Standard Error of the Sample Mean: Analytical Derivation and Monte Carlo Verification,revision_exhausted,0.3,0.65,,65.0,23718,12,2,2,0,17,1.0,852948

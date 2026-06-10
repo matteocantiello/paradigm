@@ -245,18 +245,6 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     default=False,
     help="Start with an empty internal corpus (avoids cross-domain contamination)",
 )
-@click.option(
-    "--dashboard",
-    is_flag=True,
-    default=False,
-    help="Launch the live web dashboard alongside the run and print its URL",
-)
-@click.option(
-    "--dashboard-port",
-    default=8060,
-    type=int,
-    help="Port for the --dashboard server (default: 8060)",
-)
 @click.pass_obj
 def run(
     config: Config,
@@ -270,8 +258,6 @@ def run(
     verbose: bool,
     network_access: bool,
     fresh_corpus: bool,
-    dashboard: bool,
-    dashboard_port: int,
 ) -> None:
     """Run a research cycle.
 
@@ -309,21 +295,6 @@ def run(
 
     seed_prompt = prompt or topic or ""
 
-    # Live dashboard: start the server BEFORE the cycle so the thread's event
-    # stream is watchable the moment seeding creates it. The landing page links
-    # running threads straight into live mode.
-    if dashboard:
-        try:
-            from paradigm.dashboard.server import start_server_in_background
-
-            start_server_in_background(config.storage.data_dir, port=dashboard_port)
-            click.echo(
-                f"\n  Dashboard:  http://127.0.0.1:{dashboard_port}/"
-                "  (open it, then click the running thread)\n"
-            )
-        except Exception as e:  # never let the dashboard block a real run
-            click.echo(f"  (dashboard failed to start: {e})", err=True)
-
     display.starting_cycle(mode)
     if network_access:
         display.network_access_warning()
@@ -358,36 +329,6 @@ def status(config: Config) -> None:
         click.echo(f"  Output tokens: {usage['output_tokens']:,}")
     finally:
         database.close()
-
-
-@cli.command()
-@click.argument("thread", required=False)
-@click.option("--host", default="127.0.0.1", help="Bind address (default: localhost only)")
-@click.option("--port", default=8060, type=int, help="Port (default: 8060)")
-@click.pass_obj
-def dashboard(config: Config, thread: str | None, host: str, port: int) -> None:
-    """Serve the research dashboard (replay finished threads, watch live ones).
-
-    THREAD is an optional thread id (or path to a thread folder) to print a
-    direct link for; the dashboard always lists every thread it can find.
-    """
-    try:
-        from paradigm.dashboard.server import run_server
-    except ImportError as e:
-        raise click.ClickException(str(e)) from e
-
-    data_dir = config.storage.data_dir
-    threads_dir = config.storage.threads_dir
-    if thread:
-        candidate = Path(thread)
-        if candidate.is_dir() and (candidate / "events.jsonl").is_file():
-            # A path to a thread folder (possibly outside data_dir): serve its parent
-            threads_dir = candidate.parent.resolve()
-            thread = candidate.name
-        click.echo(f"Dashboard: http://{host}:{port}/?thread={thread}")
-    else:
-        click.echo(f"Dashboard: http://{host}:{port}/")
-    run_server(data_dir, host=host, port=port, threads_dir=threads_dir)
 
 
 @cli.command()
