@@ -1,27 +1,48 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchEvents, fetchThreads, type ThreadSummary } from "./api";
+import { DebateOverlay } from "./components/DebateOverlay";
+import { EvidenceView } from "./components/EvidenceView";
 import { ExperimentsView } from "./components/ExperimentsView";
 import { HypothesesView } from "./components/HypothesesView";
+import { LiteratureView } from "./components/LiteratureView";
+import { PaperView } from "./components/PaperView";
 import { Scrubber } from "./components/Scrubber";
 import { StatusBar } from "./components/StatusBar";
 import { Ticker } from "./components/Ticker";
 import { usePlayback, useReplayState } from "./replay";
-import type { Ev } from "./types";
+import type { DashboardState, Ev } from "./types";
 
-type TabKey = "hypotheses" | "experiments";
+type TabKey = "hypotheses" | "literature" | "evidence" | "experiments" | "paper";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "hypotheses", label: "Hypotheses" },
+  { key: "literature", label: "Literature" },
+  { key: "evidence", label: "Evidence" },
   { key: "experiments", label: "Experiments" },
+  { key: "paper", label: "Paper" },
 ];
 
-/** Default tab follows the current phase (user pin overrides). */
-function phaseTab(phase: string | null): TabKey {
-  switch (phase) {
+const LIT_EVENTS = new Set(["search.performed", "paper.read", "citation.followed"]);
+
+/** Default tab follows the current phase; heavy searching pulls Literature forward. */
+function phaseTab(state: DashboardState): TabKey {
+  const recent = state.ticker.slice(-10);
+  if (recent.length >= 4 && recent.filter((e) => LIT_EVENTS.has(e.type)).length > 5) {
+    return "literature";
+  }
+  switch (state.run.phase) {
     case "execution":
     case "verification":
     case "post_execution":
       return "experiments";
+    case "writing":
+    case "internal":
+    case "submitted":
+    case "peer_review":
+    case "revision":
+    case "published":
+    case "rejected":
+      return "paper";
     default:
       return "hypotheses";
   }
@@ -74,7 +95,8 @@ function Session({ threadId }: { threadId: string }) {
   const loaded = events ?? [];
   const playback = usePlayback(loaded);
   const state = useReplayState(loaded, playback.cursor);
-  const tab = pinnedTab ?? phaseTab(state.run.phase);
+  const tab = pinnedTab ?? phaseTab(state);
+  const fastMode = playback.playing && playback.speed > 5;
 
   const visibleTicker = useMemo(() => state.ticker.slice(-50), [state]);
 
@@ -99,7 +121,11 @@ function Session({ threadId }: { threadId: string }) {
         </div>
         <div className="view">
           {tab === "hypotheses" && <HypothesesView state={state} />}
+          {tab === "literature" && <LiteratureView state={state} fastMode={fastMode} />}
+          {tab === "evidence" && <EvidenceView state={state} />}
           {tab === "experiments" && <ExperimentsView state={state} threadId={threadId} />}
+          {tab === "paper" && <PaperView state={state} />}
+          <DebateOverlay state={state} />
         </div>
       </main>
       <Ticker events={visibleTicker} />
