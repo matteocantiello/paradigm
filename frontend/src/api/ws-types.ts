@@ -256,6 +256,7 @@ export interface ExperimentUpdateMsg {
   status: string; // running | success | failure | timeout | error
   results: Record<string, number>;
   has_figures: boolean;
+  figures?: string[];
   phase: string;
   timestamp: string;
 }

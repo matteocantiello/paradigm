@@ -1,4 +1,4 @@
-import { getSessionEventStream } from "@/api/client";
+import { getSessionEventStream, sessionArtifactUrl } from "@/api/client";
 import { LiteratureConstellation } from "@/components/session/LiteratureGraph";
 import {
   ReplayExperiments,
@@ -119,7 +119,12 @@ export default function ReplayPage() {
       <div className="relative flex-1 overflow-hidden">
         {tab === "literature" && <LiteratureConstellation graph={litGraph} />}
         {tab === "hypotheses" && <ReplayHypotheses state={state} />}
-        {tab === "experiments" && <ReplayExperiments state={state} />}
+        {tab === "experiments" && (
+          <ReplayExperiments
+            state={state}
+            artifactUrl={(p) => (sessionId ? sessionArtifactUrl(sessionId, p) : null)}
+          />
+        )}
         {tab === "paper" && <ReplayPaper state={state} />}
         {tab === "events" && <ReplayTicker events={state.ticker} />}
       </div>

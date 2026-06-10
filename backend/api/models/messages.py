@@ -267,6 +267,7 @@ class ExperimentUpdateMsg(BaseModel):
     status: str = "running"  # running | success | failure | timeout | error
     results: dict[str, float] = Field(default_factory=dict)  # parsed RESULT[label]=value
     has_figures: bool = False
+    figures: list[str] = Field(default_factory=list)  # data-dir-relative figure paths
     phase: str = ""
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 

@@ -1,9 +1,11 @@
 import { useState } from "react";
 import type { ExperimentRun } from "@/stores/sessionStore";
+import { sessionArtifactUrl } from "@/api/client";
 import { cn } from "@/lib/utils";
 
 interface ExperimentPanelProps {
   experiments: ExperimentRun[];
+  sessionId?: string;
 }
 
 const STATUS_STYLE: Record<string, { dot: string; text: string; label: string }> = {
@@ -14,12 +16,21 @@ const STATUS_STYLE: Record<string, { dot: string; text: string; label: string }>
   error: { dot: "bg-red-400", text: "text-red-400", label: "error" },
 };
 
-function ExperimentCard({ exp }: { exp: ExperimentRun }) {
+function ExperimentCard({
+  exp,
+  sessionId,
+  onOpenFigure,
+}: {
+  exp: ExperimentRun;
+  sessionId?: string;
+  onOpenFigure: (url: string) => void;
+}) {
   const [showCode, setShowCode] = useState(false);
   const [showStdout, setShowStdout] = useState(false);
   const running = exp.status === "running";
   const style = STATUS_STYLE[exp.status] ?? STATUS_STYLE.error;
   const resultEntries = Object.entries(exp.results);
+  const figures = sessionId ? exp.figures : [];
 
   return (
     <div className="rounded border border-border/50 bg-muted/15 px-2 py-1.5">
@@ -55,6 +66,26 @@ function ExperimentCard({ exp }: { exp: ExperimentRun }) {
         </div>
       )}
 
+      {/* Figure thumbnails */}
+      {figures.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {figures.map((p) => {
+            const url = sessionArtifactUrl(sessionId!, p);
+            return (
+              <img
+                key={p}
+                src={url}
+                alt={p.split("/").pop()}
+                loading="lazy"
+                onClick={() => onOpenFigure(url)}
+                className="h-20 w-28 cursor-zoom-in rounded border border-border/60 object-cover transition-transform hover:scale-105"
+                onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+              />
+            );
+          })}
+        </div>
+      )}
+
       {/* Toggles */}
       <div className="flex items-center gap-3 mt-1.5 text-[10px]">
         {exp.code && (
@@ -73,7 +104,7 @@ function ExperimentCard({ exp }: { exp: ExperimentRun }) {
             {showStdout ? "▼" : "▶"} stdout
           </button>
         )}
-        {exp.hasFigures && <span className="text-violet-300">▣ figure</span>}
+        {exp.hasFigures && figures.length === 0 && <span className="text-violet-300">▣ figure</span>}
       </div>
 
       {showCode && exp.code && (
@@ -90,7 +121,9 @@ function ExperimentCard({ exp }: { exp: ExperimentRun }) {
   );
 }
 
-export function ExperimentPanel({ experiments }: ExperimentPanelProps) {
+export function ExperimentPanel({ experiments, sessionId }: ExperimentPanelProps) {
+  const [lightbox, setLightbox] = useState<string | null>(null);
+
   if (experiments.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground/50 text-sm font-sans">
@@ -115,9 +148,17 @@ export function ExperimentPanel({ experiments }: ExperimentPanelProps) {
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
         {[...experiments].reverse().map((e) => (
-          <ExperimentCard key={e.id} exp={e} />
+          <ExperimentCard key={e.id} exp={e} sessionId={sessionId} onOpenFigure={setLightbox} />
         ))}
       </div>
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/85 backdrop-blur-sm"
+          onClick={() => setLightbox(null)}
+        >
+          <img src={lightbox} alt="figure" className="max-h-[88vh] max-w-[92vw] rounded-lg" />
+        </div>
+      )}
     </div>
   );
 }

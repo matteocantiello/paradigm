@@ -749,6 +749,7 @@ class ExperimentationHandler:
                             stdout=stdout_full,
                             results=_extract_result_tokens(result.stdout or ""),
                             has_figures=has_figures,
+                            figures=[a["path"] for a in exp_artifacts if a["kind"] == "figure"],
                         )
                         failure_reason = ""
                         if result.status != ExecutionStatus.SUCCESS:

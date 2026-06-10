@@ -410,6 +410,7 @@ class DisplayManager:
         stdout: str = "",
         results: dict[str, float] | None = None,
         has_figures: bool = False,
+        figures: list[str] | None = None,
     ) -> None:
         """Live experiment artifact (GUI). No-op on CLI — experiment_running/
         experiment_result already cover the terminal display."""

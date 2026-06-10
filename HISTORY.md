@@ -4655,3 +4655,13 @@ Replay folded into the Observatory (frontend-only; the event-stream endpoint alr
 > elements fall outside the box and can't be dragged back (hand cursor does nothing — should drag the frame); a zoom in/out option would help
 
 The SVG had a grab cursor but NO pan/zoom handlers, and with 100+ nodes (many disconnected clusters) d3-force let components drift past the fixed viewBox → clipped + unreachable. FIX (LiteratureGraph `LiteratureConstellation`, shared by live + replay): hand-rolled pan/zoom (no new dep) — an affine `{x,y,k}` transform on an inner `<g>`; drag empty space to pan (pointer capture; guarded to background so star clicks still select), wheel to zoom-to-cursor, + on-canvas **＋ / − / ⤢ (fit-all)** buttons (fit frames every node's current bbox). Client-px→viewBox-unit mapping via the rendered scale + letterbox offset (preserveAspectRatio meet); k clamped 0.2–6. Also added gentle forceX/forceY(0.05) to corral disconnected clusters toward center so they drift less. Constellation also already removes nodes on backward scrub (replay). Frontend build clean. Deploy = frontend rebuild only.
+
+## Prompt 201 — Visual interface roadmap: figures → world-model graph → consolidation
+
+> figures first (fast, high-delight), then the world-model graph (centerpiece, with its event-emission work), then consolidation. Work step by step until done. Test and commit each phase.
+
+Executing the 3-phase plan: (A) real experiment figures inline (artifact endpoint + thumbnails/lightbox, live + replay); (B) world-model knowledge graph (emit entity/relationship/evidence-link events + graph view + Evidence in replay); (C) consolidation (retire standalone dashboard, fix tournament/world-model hypothesis-set mismatch, dedupe literature drawer vs tab, responsive polish). Commit per phase.
+
+### Prompt 201 — Phase A result: experiment figures inline (live + replay)
+
+Backend: `GET /api/v1/sessions/{id}/artifacts/{path}` serves data_dir-relative artifacts confined to data_dir + {executions,workspaces,papers,threads} roots (verify_api_key like paper figures — no-op when PARADIGM_API_KEY unset, so <img> works behind Caddy). `figures: list[str]` (data_dir-relative paths) threaded experimentation.py → DisplayManager/ws_display `experiment_update` → ExperimentUpdateMsg → ws-types → sessionStore ExperimentRun. Frontend: live ExperimentPanel + ReplayExperiments render real thumbnails (sessionArtifactUrl) with click→lightbox; falls back to the "▣ figure"/pill when no path. VERIFIED: TestClient e2e (serves png, blocks traversal/non-root/missing), frontend build clean, backend ruff clean, suite 1650. Deploy = backend restart + frontend rebuild.

@@ -599,6 +599,7 @@ class WebSocketDisplayAdapter:
         stdout: str = "",
         results: dict[str, float] | None = None,
         has_figures: bool = False,
+        figures: list[str] | None = None,
     ) -> None:
         """Stream a sandbox experiment's code/stdout/RESULT values live."""
         self._schedule(
@@ -613,6 +614,7 @@ class WebSocketDisplayAdapter:
                     status=status,
                     results=results or {},
                     has_figures=has_figures,
+                    figures=figures or [],
                     phase=self._current_phase(),
                 ),
             )

@@ -1,5 +1,6 @@
 import { agentColor, agentShort, PHASE_LABELS, STATUS_COLORS } from "@/lib/replay/colors";
 import type { DashboardState, Ev, Hypothesis } from "@/lib/replay/types";
+import { useState } from "react";
 
 /** Phase stepper + headline counters for the replay header. */
 export function ReplayStatusBar({ state }: { state: DashboardState }) {
@@ -146,6 +147,7 @@ export function ReplayExperiments({
   artifactUrl?: (path: string) => string | null;
 }) {
   const experiments = [...state.experiments.values()].sort((a, b) => a.startSeq - b.startSeq);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   if (experiments.length === 0) {
     return <Empty>No experiments yet — they run during the execution phase.</Empty>;
   }
@@ -156,7 +158,8 @@ export function ReplayExperiments({
         ? "bg-primary/15 text-primary"
         : "bg-red-500/15 text-red-400";
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 p-4">
+    <div className="h-full overflow-auto">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 p-4">
       {experiments.map((x) => {
         const figures = x.artifacts.filter((a) => a.kind === "figure");
         return (
@@ -183,7 +186,8 @@ export function ReplayExperiments({
                       src={url}
                       alt={a.path}
                       loading="lazy"
-                      className="h-20 w-28 rounded-md border border-border object-cover"
+                      onClick={() => setLightbox(url)}
+                      className="h-20 w-28 cursor-zoom-in rounded-md border border-border object-cover transition-transform hover:scale-105"
                       onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
                     />
                   ) : (
@@ -210,6 +214,15 @@ export function ReplayExperiments({
           </article>
         );
       })}
+      </div>
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/85 backdrop-blur-sm"
+          onClick={() => setLightbox(null)}
+        >
+          <img src={lightbox} alt="figure" className="max-h-[88vh] max-w-[92vw] rounded-lg" />
+        </div>
+      )}
     </div>
   );
 }

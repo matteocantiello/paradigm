@@ -466,3 +466,9 @@ export function getSessionEventStream(sessionId: string) {
     `/api/v1/sessions/${sessionId}/event-stream`
   );
 }
+
+/** URL for a run artifact (e.g. experiment figure) by its data-dir-relative path. */
+export function sessionArtifactUrl(sessionId: string, path: string): string {
+  const encoded = path.split("/").map(encodeURIComponent).join("/");
+  return `${BASE}/api/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/${encoded}`;
+}

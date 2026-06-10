@@ -113,7 +113,9 @@ export function RightPanel({
             <div className="p-6 text-xs text-muted-foreground">Literature graph unavailable.</div>
           ))}
         {tab === "draft" && <DraftPanel draft={draft} />}
-        {tab === "experiments" && <ExperimentPanel experiments={experiments} />}
+        {tab === "experiments" && (
+          <ExperimentPanel experiments={experiments} sessionId={sessionId} />
+        )}
       </div>
     </div>
   );

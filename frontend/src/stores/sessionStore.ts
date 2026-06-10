@@ -105,6 +105,7 @@ export type ExperimentRun = {
   status: string; // running | success | failure | timeout | error
   results: Record<string, number>;
   hasFigures: boolean;
+  figures: string[]; // data-dir-relative figure paths
 };
 
 const EMPTY_DRAFT: LiveDraft = { sections: [] };
@@ -582,6 +583,7 @@ function handleServerMessage(
         status: e.status,
         results: Object.keys(e.results).length ? e.results : (prev?.results ?? {}),
         hasFigures: e.has_figures || prev?.hasFigures || false,
+        figures: e.figures?.length ? e.figures : (prev?.figures ?? []),
       };
       if (idx >= 0) items[idx] = entry;
       else items.push(entry);

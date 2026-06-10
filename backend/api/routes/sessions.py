@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import FileResponse
 
 from backend.api.middleware.auth import verify_api_key
 from backend.api.models.research import CycleStatus
@@ -178,6 +180,37 @@ async def get_session_event_stream(session_id: str, request: Request) -> dict:
                 except json.JSONDecodeError:
                     continue
     return {"thread_id": thread_id, "events": events}
+
+
+# Roots under data_dir that hold servable run artifacts (experiment figures live
+# in executions/ and workspaces/<thread>/; final paper figures in papers/).
+_ARTIFACT_ROOTS = ("executions", "workspaces", "papers", "threads")
+
+
+@router.get(
+    "/api/v1/sessions/{session_id}/artifacts/{artifact_path:path}",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_session_artifact(
+    session_id: str, artifact_path: str, request: Request
+) -> FileResponse:
+    """Serve a run artifact (e.g. an experiment figure) by its data-dir-relative path.
+
+    The orchestrator records artifact paths relative to the data dir; this serves
+    them so the dashboard can show real figures. Path is resolved and confined to
+    data_dir AND a known artifact root, so it can't escape into arbitrary files.
+    """
+    data_dir = request.app.state.config.storage.data_dir.resolve()
+    target = (data_dir / artifact_path).resolve()
+    if not target.is_relative_to(data_dir):
+        raise HTTPException(status_code=404, detail="Not found")
+    parts = target.relative_to(data_dir).parts
+    if not parts or parts[0] not in _ARTIFACT_ROOTS:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    return FileResponse(target, media_type=media_type)
 
 
 @router.get(
