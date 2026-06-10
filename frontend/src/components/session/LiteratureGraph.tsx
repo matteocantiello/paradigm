@@ -6,11 +6,13 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type Simulation,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface SimNode extends SimulationNodeDatum {
   id: string;
@@ -62,11 +64,94 @@ export function LiteratureConstellation({
   const [, setTick] = useState(0);
   const tc = useRef(0);
 
+  // Pan/zoom: an affine transform {x, y, k} on the inner <g>. Hand-rolled (no
+  // extra dep), mapping client pixels → viewBox units via the rendered scale.
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [view, setView] = useState({ x: 0, y: 0, k: 1 });
+  const panRef = useRef<{ sx: number; sy: number; vx: number; vy: number } | null>(null);
+
+  // pixels-per-viewBox-unit + letterbox offset under preserveAspectRatio=meet
+  const metrics = useCallback(() => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return { s: 1, ox: 0, oy: 0, rect: null as DOMRect | null };
+    const s = Math.min(rect.width / W, rect.height / H);
+    return { s, ox: (rect.width - W * s) / 2, oy: (rect.height - H * s) / 2, rect };
+  }, []);
+
+  const zoomAt = useCallback((ux: number, uy: number, factor: number) => {
+    setView((v) => {
+      const k = Math.max(0.2, Math.min(6, v.k * factor));
+      // keep the point (ux,uy) in viewBox space fixed under the transform
+      const pgx = (ux - v.x) / v.k;
+      const pgy = (uy - v.y) / v.k;
+      return { k, x: ux - pgx * k, y: uy - pgy * k };
+    });
+  }, []);
+
+  const onWheel = useCallback(
+    (e: React.WheelEvent) => {
+      const { s, ox, oy, rect } = metrics();
+      if (!rect) return;
+      const ux = (e.clientX - rect.left - ox) / s;
+      const uy = (e.clientY - rect.top - oy) / s;
+      zoomAt(ux, uy, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+    },
+    [metrics, zoomAt],
+  );
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Only pan when grabbing empty space — let clicks on a star select it.
+      if (e.target !== e.currentTarget) return;
+      panRef.current = { sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
+      (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
+    },
+    [view.x, view.y],
+  );
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const p = panRef.current;
+      if (!p) return;
+      const { s } = metrics();
+      setView((v) => ({ ...v, x: p.vx + (e.clientX - p.sx) / s, y: p.vy + (e.clientY - p.sy) / s }));
+    },
+    [metrics],
+  );
+  const endPan = useCallback(() => {
+    panRef.current = null;
+  }, []);
+
+  /** Frame all current nodes (or reset when empty). */
+  const fit = useCallback(() => {
+    const ns = [...nodesRef.current.values()].filter((n) => n.x != null);
+    if (ns.length === 0) {
+      setView({ x: 0, y: 0, k: 1 });
+      return;
+    }
+    const xs = ns.map((n) => n.x as number);
+    const ys = ns.map((n) => n.y as number);
+    const pad = 40;
+    const minX = Math.min(...xs) - pad;
+    const maxX = Math.max(...xs) + pad;
+    const minY = Math.min(...ys) - pad;
+    const maxY = Math.max(...ys) + pad;
+    const k = Math.max(0.2, Math.min(6, Math.min(W / (maxX - minX), H / (maxY - minY))));
+    setView({
+      k,
+      x: (W - (minX + maxX) * k) / 2,
+      y: (H - (minY + maxY) * k) / 2,
+    });
+  }, []);
+
   useEffect(() => {
     const sim = forceSimulation<SimNode>([])
       .force("charge", forceManyBody().strength(-120))
       .force("center", forceCenter(W / 2, H / 2))
       .force("collide", forceCollide<SimNode>((d) => 8 + d.degree * 1.4))
+      // Gently corral disconnected clusters toward center so they don't drift
+      // off-frame (pan/zoom can still reach anything that does).
+      .force("x", forceX(W / 2).strength(0.05))
+      .force("y", forceY(H / 2).strength(0.05))
       .force(
         "link",
         forceLink<SimNode, SimLink>([])
@@ -160,10 +245,16 @@ export function LiteratureConstellation({
   return (
     <div className="relative h-full w-full overflow-hidden">
       <svg
-        className="h-full w-full cursor-grab active:cursor-grabbing"
+        ref={svgRef}
+        className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="xMidYMid meet"
         onClick={() => setSelected(null)}
+        onWheel={onWheel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endPan}
+        onPointerLeave={endPan}
       >
         <defs>
           <radialGradient id="lg-read" cx="50%" cy="50%" r="50%">
@@ -178,6 +269,7 @@ export function LiteratureConstellation({
             </feMerge>
           </filter>
         </defs>
+        <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
         <g>
           {links.map((l) => {
             const s = l.source as SimNode;
@@ -233,7 +325,29 @@ export function LiteratureConstellation({
             );
           })}
         </g>
+        </g>
       </svg>
+
+      {/* zoom / fit controls */}
+      <div className="absolute right-3 top-3 flex flex-col gap-1">
+        {[
+          { label: "+", title: "Zoom in", fn: () => zoomAt(W / 2, H / 2, 1.3) },
+          { label: "−", title: "Zoom out", fn: () => zoomAt(W / 2, H / 2, 1 / 1.3) },
+          { label: "⤢", title: "Fit all to view", fn: fit },
+        ].map((b) => (
+          <button
+            key={b.label}
+            title={b.title}
+            onClick={(e) => {
+              e.stopPropagation();
+              b.fn();
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background/70 text-sm text-muted-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary"
+          >
+            {b.label}
+          </button>
+        ))}
+      </div>
 
       <div className="absolute left-3 top-3 rounded-lg border border-border bg-background/70 px-3 py-2 text-[10.5px] text-muted-foreground backdrop-blur">
         <div>
