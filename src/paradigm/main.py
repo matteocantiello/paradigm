@@ -331,6 +331,36 @@ def status(config: Config) -> None:
 
 
 @cli.command()
+@click.argument("thread", required=False)
+@click.option("--host", default="127.0.0.1", help="Bind address (default: localhost only)")
+@click.option("--port", default=8060, type=int, help="Port (default: 8060)")
+@click.pass_obj
+def dashboard(config: Config, thread: str | None, host: str, port: int) -> None:
+    """Serve the research dashboard (replay finished threads, watch live ones).
+
+    THREAD is an optional thread id (or path to a thread folder) to print a
+    direct link for; the dashboard always lists every thread it can find.
+    """
+    try:
+        from paradigm.dashboard.server import run_server
+    except ImportError as e:
+        raise click.ClickException(str(e)) from e
+
+    data_dir = config.storage.data_dir
+    threads_dir = config.storage.threads_dir
+    if thread:
+        candidate = Path(thread)
+        if candidate.is_dir() and (candidate / "events.jsonl").is_file():
+            # A path to a thread folder (possibly outside data_dir): serve its parent
+            threads_dir = candidate.parent.resolve()
+            thread = candidate.name
+        click.echo(f"Dashboard: http://{host}:{port}/?thread={thread}")
+    else:
+        click.echo(f"Dashboard: http://{host}:{port}/")
+    run_server(data_dir, host=host, port=port, threads_dir=threads_dir)
+
+
+@cli.command()
 @click.option(
     "--thread",
     type=str,

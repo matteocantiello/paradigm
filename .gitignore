@@ -70,3 +70,7 @@ deploy/.env.production
 # re-include it (constants.ts/utils.ts live here and MUST be tracked).
 !frontend/src/lib/
 !frontend/src/lib/**
+
+# Dashboard frontend (committed dist/ so `paradigm dashboard` works without npm)
+dashboard/node_modules/
+!dashboard/dist/
