@@ -136,6 +136,9 @@ class LiteratureHandler:
         # Compact index of all discovered papers (not subject to context truncation)
         self.discovered_papers: list[tuple[str, str, str]] = []  # (arxiv_id, title, first_author)
         self._discovered_ids: set[str] = set()  # Fast lookup to avoid duplicates
+        # id -> (title, abstract) captured from search/traversal results, so a
+        # [READ:] can fall back to the abstract when the source has no full text.
+        self.discovered_abstracts: dict[str, tuple[str, str]] = {}
         self.read_paper_ids: set[str] = set()  # Papers already read (cross-round dedup)
         self.followed_paper_ids: set[str] = set()  # Papers whose refs already fetched
         self.cited_by_paper_ids: set[str] = set()  # Papers whose citations already fetched
@@ -180,6 +183,7 @@ class LiteratureHandler:
         self.literature_context = ""
         self.discovered_papers = []
         self._discovered_ids = set()
+        self.discovered_abstracts = {}
         self.read_paper_ids = set()
         self.followed_paper_ids = set()
         self.cited_by_paper_ids = set()
@@ -221,9 +225,18 @@ class LiteratureHandler:
     # Paper index (compact reference list for agent prompts)
     # ------------------------------------------------------------------
 
-    def _track_paper(self, arxiv_id: str, title: str, first_author: str) -> None:
-        """Record a discovered paper in the compact index (idempotent)."""
-        if not arxiv_id or arxiv_id in self._discovered_ids:
+    def _track_paper(self, arxiv_id: str, title: str, first_author: str, summary: str = "") -> None:
+        """Record a discovered paper in the compact index (idempotent).
+
+        Also caches the paper's abstract when one is available, so a later
+        [READ:] can fall back to it for sources that expose NO full text
+        (Semantic Scholar, PubMed, …) instead of the read silently dying.
+        """
+        if not arxiv_id:
+            return
+        if summary and summary.strip() and arxiv_id not in self.discovered_abstracts:
+            self.discovered_abstracts[arxiv_id] = (title, summary.strip())
+        if arxiv_id in self._discovered_ids:
             return
         self._discovered_ids.add(arxiv_id)
         self.discovered_papers.append((arxiv_id, title, first_author))
@@ -317,7 +330,12 @@ class LiteratureHandler:
                 if pid:
                     self.seen_paper_ids.add(pid)
                     first_author = paper.authors[0] if paper.authors else "Unknown"
-                    self._track_paper(pid, paper.title, first_author)
+                    self._track_paper(
+                        pid,
+                        paper.title,
+                        first_author,
+                        getattr(paper, "abstract", "") or getattr(paper, "summary", ""),
+                    )
                 papers.append(paper)
             except Exception as e:
                 _logger.warning(
@@ -480,7 +498,12 @@ class LiteratureHandler:
             for p in new_papers:
                 self.seen_paper_ids.add(p.id)
                 first_author = p.authors[0] if p.authors else "Unknown"
-                self._track_paper(p.id, p.title, first_author)
+                self._track_paper(
+                    p.id,
+                    p.title,
+                    first_author,
+                    getattr(p, "summary", "") or getattr(p, "abstract", ""),
+                )
 
             if new_papers:
                 consecutive_stale = 0
@@ -671,7 +694,12 @@ class LiteratureHandler:
                 if p.id:
                     self.seen_paper_ids.add(p.id)
                     first_author = p.authors[0] if p.authors else "Unknown"
-                    self._track_paper(p.id, p.title, first_author)
+                    self._track_paper(
+                        p.id,
+                        p.title,
+                        first_author,
+                        getattr(p, "summary", "") or getattr(p, "abstract", ""),
+                    )
 
             formatted = format_follow_results(
                 arxiv_id, papers, max_papers=lit_config.max_reference_results
@@ -751,7 +779,12 @@ class LiteratureHandler:
                 if p.id:
                     self.seen_paper_ids.add(p.id)
                     first_author = p.authors[0] if p.authors else "Unknown"
-                    self._track_paper(p.id, p.title, first_author)
+                    self._track_paper(
+                        p.id,
+                        p.title,
+                        first_author,
+                        getattr(p, "summary", "") or getattr(p, "abstract", ""),
+                    )
 
             formatted = format_cited_by_results(
                 arxiv_id, papers, max_papers=lit_config.max_citation_results
@@ -827,7 +860,27 @@ class LiteratureHandler:
                 continue
 
             if result is None:
+                # No full text from any provider (e.g. Semantic Scholar / PubMed) —
+                # fall back to the abstract captured at discovery time so a [READ:]
+                # returns the best available content instead of silently dying.
+                cached = self.discovered_abstracts.get(arxiv_id)
+                if cached and cached[1].strip():
+                    title, abstract = cached
+                    result = (title, f"(Abstract only — no full text available)\n\n{abstract}")
+
+            if result is None:
                 self._engine._display.read_not_found(arxiv_id)
+                # Surface the failure (it was previously silent — no event at all,
+                # which is why "0 read" was inexplicable).
+                self._engine.emit_event(
+                    "warning.emitted",
+                    {
+                        "kind": "read_failed",
+                        "message": f"[READ: {arxiv_id}] returned no text "
+                        "(no full text and no cached abstract)",
+                    },
+                    agent=agent_id,
+                )
                 continue
 
             title, extracted_text = result
@@ -916,7 +969,12 @@ class LiteratureHandler:
                 if p.id:
                     self.seen_paper_ids.add(p.id)
                     first_author = p.authors[0] if p.authors else "Unknown"
-                    self._track_paper(p.id, p.title, first_author)
+                    self._track_paper(
+                        p.id,
+                        p.title,
+                        first_author,
+                        getattr(p, "summary", "") or getattr(p, "abstract", ""),
+                    )
 
             formatted = format_chain_results(req.paper_id, papers, req.direction, req.depth)
             self._append_to_context(formatted)

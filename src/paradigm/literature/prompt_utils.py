@@ -285,6 +285,35 @@ def _normalize_arxiv_id(raw_id: str) -> str:
     return cleaned
 
 
+# Non-arXiv paper identifiers our providers actually return: PubMed PMIDs,
+# DOIs (bioRxiv/medRxiv/journals), Semantic Scholar 40-char hashes.
+_DOI_RE = re.compile(r"^10\.\d{4,9}/\S+$")
+_PMID_RE = re.compile(r"^\d{5,9}$")
+_S2_HASH_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
+
+
+def _normalize_paper_id(raw_id: str) -> str:
+    """Normalize a paper id for a graph action ([READ:]/[FOLLOW:]/[CITED_BY:]).
+
+    Accepts arXiv IDs (normalized as before) AND the non-arXiv forms our
+    providers return — PMIDs, DOIs, Semantic Scholar hashes — so a biomedical
+    run (PubMed/S2/bioRxiv) isn't silently blocked. Returns "" for URLs, prose,
+    or junk. The discovered-id gate (act only on IDs a real search returned) is
+    what blocks invented IDs, so being permissive here is safe.
+    """
+    arxiv = _normalize_arxiv_id(raw_id)
+    if arxiv:
+        return arxiv
+    cleaned = raw_id.strip()
+    if not cleaned or " " in cleaned or "\t" in cleaned:
+        return ""
+    if cleaned.startswith(("http://", "https://", "www.")):
+        return ""
+    if _DOI_RE.match(cleaned) or _PMID_RE.match(cleaned) or _S2_HASH_RE.match(cleaned):
+        return cleaned
+    return ""
+
+
 def parse_follow_requests(text: str) -> list[str]:
     """Extract [FOLLOW: arxiv_id] markers from agent text.
 
@@ -300,7 +329,7 @@ def parse_follow_requests(text: str) -> list[str]:
     seen: set[str] = set()
     ids: list[str] = []
     for match in matches:
-        arxiv_id = _normalize_arxiv_id(match)
+        arxiv_id = _normalize_paper_id(match)
         if not arxiv_id:
             continue
         if arxiv_id not in seen:
@@ -324,7 +353,7 @@ def parse_cited_by_requests(text: str) -> list[str]:
     seen: set[str] = set()
     ids: list[str] = []
     for match in matches:
-        arxiv_id = _normalize_arxiv_id(match)
+        arxiv_id = _normalize_paper_id(match)
         if not arxiv_id:
             continue
         if arxiv_id not in seen:
@@ -348,7 +377,7 @@ def parse_read_requests(text: str) -> list[str]:
     seen: set[str] = set()
     ids: list[str] = []
     for match in matches:
-        arxiv_id = _normalize_arxiv_id(match)
+        arxiv_id = _normalize_paper_id(match)
         if not arxiv_id:
             continue
         if arxiv_id not in seen:

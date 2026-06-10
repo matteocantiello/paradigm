@@ -64,6 +64,64 @@ def _handler(read_paper_return):
     return LiteratureHandler(engine), corpus, engine
 
 
+def _read_handler(read_paper_return):
+    """Handler wired for the [READ:] path (no-full-text sources return None)."""
+    corpus = SimpleNamespace(read_paper=AsyncMock(return_value=read_paper_return))
+    lit = SimpleNamespace(
+        max_read_chars=8000,
+        read_budget_per_round=5,
+        follow_budget_per_round=3,
+        cited_by_budget_per_round=2,
+        max_reference_results=10,
+        max_citation_results=10,
+    )
+    engine = SimpleNamespace(
+        _config=SimpleNamespace(literature=lit),
+        _corpus=corpus,
+        _logger=MagicMock(),
+        _display=MagicMock(),
+        state=SimpleNamespace(thread_id="t1"),
+        emit_event=MagicMock(),
+    )
+    return LiteratureHandler(engine), engine
+
+
+class TestReadAbstractFallback:
+    """A [READ:] on a source with no full text (Semantic Scholar / PubMed) falls
+    back to the abstract captured at discovery — instead of silently failing."""
+
+    async def test_track_paper_caches_abstract(self):
+        handler, _ = _read_handler(None)
+        handler._track_paper("36588717", "BPC-157 review", "Smith", "The abstract text.")
+        assert handler.discovered_abstracts["36588717"] == ("BPC-157 review", "The abstract text.")
+        # empty summary is not cached, but the paper is still indexed
+        handler._track_paper("99999999", "No abstract", "Doe", "")
+        assert "99999999" not in handler.discovered_abstracts
+        assert ("99999999", "No abstract", "Doe") in handler.discovered_papers
+
+    async def test_read_falls_back_to_cached_abstract(self):
+        handler, engine = _read_handler(None)  # corpus.read_paper -> None (no full text)
+        handler.seen_paper_ids.add("36588717")
+        handler.discovered_abstracts["36588717"] = ("BPC-157 review", "Promotes healing via …")
+        await handler.process_literature_actions(
+            "agent-1", "[READ: 36588717]", ResearchPhase.IDEATION
+        )
+        assert "36588717" in handler.read_paper_ids
+        assert "Abstract only" in handler.literature_context
+        kinds = [c.args[0] for c in engine.emit_event.call_args_list]
+        assert "paper.read" in kinds
+
+    async def test_read_with_no_text_and_no_abstract_warns(self):
+        handler, engine = _read_handler(None)
+        handler.seen_paper_ids.add("36588717")  # discovered but no cached abstract
+        await handler.process_literature_actions(
+            "agent-1", "[READ: 36588717]", ResearchPhase.IDEATION
+        )
+        assert "36588717" not in handler.read_paper_ids
+        events = [(c.args[0], c.args[1]) for c in engine.emit_event.call_args_list]
+        assert any(t == "warning.emitted" and p.get("kind") == "read_failed" for t, p in events)
+
+
 class TestResolveIdQuery:
     async def test_found_appends_context_and_tracks(self):
         handler, corpus, engine = _handler(("A Great Paper", "full text body"))
