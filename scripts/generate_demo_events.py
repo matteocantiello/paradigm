@@ -57,6 +57,20 @@ PAPERS = [
     ("2012.08534", "Overtone Pulsators in Large Photometric Surveys"),
     ("1011.4909", "Nonlinear Pulsation Models of Cepheids"),
     ("1502.01589", "Dust Around Long-Period Cepheids: Infrared Excesses"),
+    ("1903.08128", "The Hubble Constant from Cepheids and Type Ia Supernovae"),
+    ("2012.01533", "A 1% Determination of the Local Distance Scale"),
+    ("1707.01350", "Period-Wesenheit Relations for Magellanic Cepheids"),
+    ("0905.0689", "Convection and the Red Edge of the Instability Strip"),
+    ("2106.12173", "Gaia EDR3 Parallaxes of Galactic Cepheids"),
+    ("1611.03257", "The Leavitt Law at Mid-Infrared Wavelengths"),
+    ("1310.0814", "Pulsation Driving and the Kappa Mechanism in Cepheids"),
+    ("2001.09213", "Mode Identification in Double-Mode Cepheids"),
+    ("0809.4742", "Helium Ionization and the Cepheid Strip Width"),
+    ("1804.07262", "Cepheid Light-Curve Morphology and the Hertzsprung Progression"),
+    ("2204.11139", "Rotation and Mass Loss in Classical Cepheids"),
+    ("1209.1781", "The Baade-Wesselink Method for Cepheid Distances"),
+    ("1505.05878", "Reddening Laws Toward the Magellanic Clouds"),
+    ("2110.05755", "A Theoretical Period-Age Relation for Cepheids"),
 ]
 
 EXPERIMENTS = [
@@ -136,19 +150,22 @@ def main() -> None:
         s.round = rnd
         s.emit("round.started", {"round": rnd, "active_agents": AGENTS[:5]})
         for agent in AGENTS[:5]:
-            if rng.random() < 0.7 and paper_pool:
-                n = rng.randint(3, 12)
+            if rng.random() < 0.8 and paper_pool:
+                n = rng.randint(4, 18)
                 s.emit(
                     "search.performed",
-                    {"query": f"cepheid {rng.choice(['instability strip', 'metallicity', 'pulsation models', 'PL slope', 'overtone'])}",
+                    {"query": f"cepheid {rng.choice(['instability strip', 'metallicity', 'pulsation models', 'PL slope', 'overtone', 'distance ladder', 'Wesenheit', 'kappa mechanism'])}",
                      "n_results": n, "n_new": max(0, n - rng.randint(0, 4))},
                     agent=agent,
                 )
-            if rng.random() < 0.45 and paper_pool:
+            # read 1-2 papers per active agent so the constellation fills in
+            for _ in range(rng.randint(1, 2)):
+                if not paper_pool:
+                    break
                 pid, title = paper_pool.pop(0)
                 s.emit("paper.read", {"paper_id": pid, "title": title, "chars_read": rng.randint(8000, 30000)}, agent=agent)
-                if rng.random() < 0.5:
-                    refs = [p[0] for p in rng.sample(PAPERS, k=3)]
+                if rng.random() < 0.7:
+                    refs = [p[0] for p in rng.sample(PAPERS, k=rng.randint(2, 4))]
                     s.emit(
                         "citation.followed",
                         {"source_paper_id": pid, "direction": rng.choice(["refs", "cited_by"]), "n_found": len(refs), "paper_ids": refs},

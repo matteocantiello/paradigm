@@ -4563,3 +4563,21 @@ Executing paradigm_dashboard.md Phases 1-5: (1) per-thread seq-ordered events.js
 **Phase 5 result:** Polish. (a) `?t=<seq>` shareable deep-link — replay Scrubber gains a "🔗 share" button that writes the current seq to the URL + copies it; ReplaySession reads `?t=` on load and jumps there. (b) Back-to-threads nav (‹) in the StatusBar + a goHome that clears thread/live/t params. (c) Light/dark theme toggle (◐) persisted in localStorage via a `body.light` CSS-var override. (d) `dashboard/README.md` documents install (`pip install -e .[dashboard]`), `paradigm dashboard` / `--dashboard`, the npm build step, the demo generator, and the event schema. Thread-picker landing already shipped in Phase 2. SKIPPED (honest): PNG export — needs html2canvas for the DOM views, contrary to the lean-deps constraint (plan marked it "only if time permits"). VERIFIED: build clean, tsc strict OK, ruff clean, Python suite 1642, deep-link route + endpoints smoke-tested with the final bundle.
 
 **Dashboard plan COMPLETE** — all 5 phases of paradigm_dashboard.md shipped, one commit each (b56310e events, d327974 replay+skeleton, 2279ea9 graphs, 31baf1b live, + Phase 5). Built ON the existing engine (per Prompt 189): the durable event-sourced layer the live WS dashboard lacked. NOT pushed (local commits only, per instruction).
+
+## Prompt 192 — Dashboard: surface literature graph + make it extremely slick/visual
+
+> I think the goal is to provide the user with a broad understanding of the evolution of the research process. So visually exposing the world model and the evidence and experiments feels right. It would be good to also show the literature graph, but currently I don't see it. Overall this should be extremely slick and visual
+
+Goal restated: broad understanding of the EVOLUTION of the research process; world-model + evidence + experiments visualization is right; literature graph should show (user doesn't see it currently); overall must be extremely slick/visual. Investigating the literature-graph gap, then a visual pass.
+
+### Prompt 192 — result: literature-graph fix + "observatory" visual pass
+
+DIAGNOSIS of "I don't see the literature graph": it was DATA, not (only) a bug — the graph is fed by paper.read/citation.followed, and the real runs viewed (Flash-Lite selftest, experiments off) read 0–1 papers → 0–1 nodes (invisible). Only the demo had a real graph, and Literature wasn't the default tab for a finished run.
+
+FIXES + slick pass (invoked frontend-design skill; committed an "observatory instrument" aesthetic):
+- **Literature rebuilt as an SVG constellation** (was canvas — declarative SVG reliably paints + glows; canvas was the unverifiable-render risk). Papers = stars (read = gold w/ halo via radial-gradient + drop-shadow, unread = dim blue, seed = ringed), citations = light-lines; d3-force layout, opacity/scale pop-in (fixed a real bug: CSS transform on a <g> with a translate ATTR snaps nodes to origin → animate circle scale w/ transform-box:fill-box + group opacity instead), HUD (scanned/on-graph/read + legend), click→inspect panel, graceful "An empty sky" overlay when 0 nodes.
+- **Tab counts** on every tab (Hypotheses 5 / Literature 22 / …) so empty views are obvious at a glance — this alone explains "I don't see it" (Literature 0). Default tab now picks the richest NON-EMPTY view (never opens on an empty tab).
+- **Design system** (styles.css full rewrite): deep-ink layered surfaces + overhead glow + grain; Instrument Serif display + IBM Plex Mono readouts (Google Fonts, system fallbacks); gold signature + blue/green/red signal; depth (gradient cards, shadows), motion (staggered rise, phase "breathe", live pulse, belief-change flash), glowing agent dots, refined scrollbars; light-theme var overrides kept.
+- Landing reworked ("Paradigm Observatory" + tagline, staggered rows), StatusBar brand + live ticker dot.
+- **Demo enriched** to 22 papers / 54 citation edges (135 events) so the constellation is a real showcase.
+VERIFIED: tsc strict + build clean, server serves new bundle + fonts, demo reaches client (22 reads / 17 follows), event-stream tests green. NOTE: real runs still need a literature-heavy config (production, not selftest) to populate the graph — the sparse selftest runs will still look near-empty. NOT browser-verified by me (no headless browser) — user is the visual check.

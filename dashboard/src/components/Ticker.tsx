@@ -36,7 +36,7 @@ function tickLine(e: Ev): string {
   }
 }
 
-export function Ticker({ events }: { events: Ev[] }) {
+export function Ticker({ events, live }: { events: Ev[]; live?: boolean }) {
   const [collapsed, setCollapsed] = useState(false);
   const [hover, setHover] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -50,7 +50,14 @@ export function Ticker({ events }: { events: Ev[] }) {
   return (
     <aside className={`ticker ${collapsed ? "collapsed" : ""}`}>
       <div className="ticker-head" onClick={() => setCollapsed(!collapsed)}>
-        {collapsed ? "‹" : "Event feed ›"}
+        {collapsed ? (
+          "‹"
+        ) : (
+          <>
+            {live && <span className="live-dot" />}
+            Event feed ›
+          </>
+        )}
       </div>
       {!collapsed && (
         <div

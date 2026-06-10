@@ -25,17 +25,35 @@ const TABS: { key: TabKey; label: string }[] = [
 
 const LIT_EVENTS = new Set(["search.performed", "paper.read", "citation.followed"]);
 
-/** Default tab follows the current phase; heavy searching pulls Literature forward. */
+/** Per-tab item counts — shown on the tab and used to avoid defaulting to an empty view. */
+function tabCounts(state: DashboardState): Record<TabKey, number> {
+  return {
+    hypotheses: state.hypotheses.size,
+    literature: state.papers.size,
+    evidence: state.hypotheses.size + state.claims.size,
+    experiments: state.experiments.size,
+    paper: state.paper.sections.length + state.review.iterations.length + (state.paper.id ? 1 : 0),
+  };
+}
+
+/**
+ * Default tab follows the current phase, but never lands on an empty view — if
+ * the phase-appropriate tab has nothing yet, fall through to the richest one
+ * that does. This is why a thread always opens on something worth seeing.
+ */
 function phaseTab(state: DashboardState): TabKey {
+  const counts = tabCounts(state);
   const recent = state.ticker.slice(-10);
+  const preferred: TabKey[] = [];
   if (recent.length >= 4 && recent.filter((e) => LIT_EVENTS.has(e.type)).length > 5) {
-    return "literature";
+    preferred.push("literature");
   }
   switch (state.run.phase) {
     case "execution":
     case "verification":
     case "post_execution":
-      return "experiments";
+      preferred.push("experiments", "evidence", "hypotheses");
+      break;
     case "writing":
     case "internal":
     case "submitted":
@@ -43,10 +61,15 @@ function phaseTab(state: DashboardState): TabKey {
     case "revision":
     case "published":
     case "rejected":
-      return "paper";
+      preferred.push("paper", "experiments", "evidence", "hypotheses");
+      break;
     default:
-      return "hypotheses";
+      preferred.push("hypotheses", "literature");
   }
+  for (const t of preferred) if (counts[t] > 0) return t;
+  // Fall back to whichever tab has the most content.
+  const richest = (Object.keys(counts) as TabKey[]).sort((a, b) => counts[b] - counts[a])[0];
+  return counts[richest] > 0 ? richest : "hypotheses";
 }
 
 function Landing({ onPick }: { onPick: (id: string, live: boolean) => void }) {
@@ -57,19 +80,27 @@ function Landing({ onPick }: { onPick: (id: string, live: boolean) => void }) {
   }, []);
   return (
     <div className="landing">
-      <h1>
-        <span>Paradigm</span> — research run dashboard
-      </h1>
+      <div className="landing-head">
+        <h1>
+          <span className="accent">Paradigm</span> Observatory
+        </h1>
+        <div className="tag">the evolution of a research run, as it happens</div>
+      </div>
       {error && <div className="empty-note">{error}</div>}
       {threads && threads.length === 0 && (
         <div className="empty-note">
-          No event streams found. Run a research cycle (the orchestrator writes
-          data/threads/&lt;id&gt;/events.jsonl) or generate a demo:
-          <code> python scripts/generate_demo_events.py</code>
+          <span className="big">No runs yet</span>
+          The orchestrator writes <code>data/threads/&lt;id&gt;/events.jsonl</code> for every
+          run. Generate a demo to explore: <code>python scripts/generate_demo_events.py</code>
         </div>
       )}
-      {threads?.map((t) => (
-        <a className="thread-row" key={t.id} onClick={() => onPick(t.id, t.status === "running")}>
+      {threads?.map((t, i) => (
+        <a
+          className="thread-row"
+          key={t.id}
+          style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}
+          onClick={() => onPick(t.id, t.status === "running")}
+        >
           <span className="title">{t.title}</span>
           <span className={`status-chip ${t.status === "published" ? "published" : t.status === "running" ? "live" : "other"}`}>
             {t.status === "running" ? "● live" : t.status}
@@ -103,6 +134,7 @@ function SessionShell({
   const [pinnedTab, setPinnedTab] = useState<TabKey | null>(null);
   const state = useReplayState(events, cursor);
   const tab = pinnedTab ?? phaseTab(state);
+  const counts = tabCounts(state);
   const visibleTicker = useMemo(() => state.ticker.slice(-50), [state]);
 
   return (
@@ -115,8 +147,10 @@ function SessionShell({
               key={t.key}
               className={`tab ${tab === t.key ? "active" : ""}`}
               onClick={() => setPinnedTab(pinnedTab === t.key ? null : t.key)}
+              title={pinnedTab === t.key ? "Unpin (auto-follow phase)" : "Pin this tab"}
             >
               {t.label}
+              <span className={`count ${counts[t.key] === 0 ? "zero" : ""}`}>{counts[t.key]}</span>
               {pinnedTab === t.key && <span className="pin">●</span>}
             </button>
           ))}
@@ -130,7 +164,7 @@ function SessionShell({
           <DebateOverlay state={state} />
         </div>
       </main>
-      <Ticker events={visibleTicker} />
+      <Ticker events={visibleTicker} live={live} />
     </>
   );
 }

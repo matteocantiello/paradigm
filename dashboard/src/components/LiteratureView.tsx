@@ -9,7 +9,7 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { useEffect, useRef, useState } from "react";
-import type { DashboardState, PaperNode } from "../types";
+import type { DashboardState } from "../types";
 
 interface SimNode extends SimulationNodeDatum {
   id: string;
@@ -17,228 +17,228 @@ interface SimNode extends SimulationNodeDatum {
   via: string;
   degree: number;
   title: string;
+  bornAt: number;
 }
-type SimLink = SimulationLinkDatum<SimNode>;
+type SimLink = SimulationLinkDatum<SimNode> & { id: string };
 
-const NODE_BASE = 4;
-const STAGGER_MS = 100;
+const W = 1200;
+const H = 800;
 
 /**
- * Force-directed citation graph on canvas. Nodes appear on paper.read /
- * citation.followed (never on raw search hits — those only feed the scanned
- * counter). Insertions are queued and staggered with a gentle alpha reheat;
- * at high replay speed the stagger collapses to batch adds.
+ * Literature as a constellation: papers are stars (read = bright gold with a
+ * halo, unread = dim blue), citations are light-lines. Rendered as SVG so it
+ * reliably paints and glows; d3-force lays it out. New stars pop in with a
+ * gentle reheat. Degrades gracefully to a single star or an empty sky.
  */
-export function LiteratureView({
-  state,
-  fastMode,
-}: {
-  state: DashboardState;
-  fastMode: boolean;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export function LiteratureView({ state }: { state: DashboardState; fastMode?: boolean }) {
   const simRef = useRef<Simulation<SimNode, SimLink> | null>(null);
   const nodesRef = useRef<Map<string, SimNode>>(new Map());
-  const linksRef = useRef<SimLink[]>([]);
-  const linkKeysRef = useRef<Set<string>>(new Set());
-  const queueRef = useRef<PaperNode[]>([]);
-  const queueTimerRef = useRef<number | null>(null);
-  const hoverRef = useRef<SimNode | null>(null);
-  const [selected, setSelected] = useState<SimNode | null>(null);
+  const linksRef = useRef<Map<string, SimLink>>(new Map());
+  const [, setTick] = useState(0);
+  const [selected, setSelected] = useState<string | null>(null);
+  const tickCounter = useRef(0);
 
-  // Keep the simulation in sync with reducer state
+  // One persistent simulation
   useEffect(() => {
+    const sim = forceSimulation<SimNode>([])
+      .force("charge", forceManyBody().strength(-130))
+      .force("center", forceCenter(W / 2, H / 2))
+      .force("collide", forceCollide<SimNode>((d) => 8 + d.degree * 1.5))
+      .force(
+        "link",
+        forceLink<SimNode, SimLink>([])
+          .id((d) => d.id)
+          .distance(80)
+          .strength(0.35),
+      )
+      .on("tick", () => {
+        // throttle React re-render to ~30fps
+        tickCounter.current += 1;
+        if (tickCounter.current % 2 === 0) setTick((t) => t + 1);
+      });
+    simRef.current = sim;
+    return () => {
+      sim.stop();
+      simRef.current = null;
+    };
+  }, []);
+
+  // Sync graph with reducer state
+  useEffect(() => {
+    const sim = simRef.current;
+    if (!sim) return;
     const nodes = nodesRef.current;
-    // queue new papers (insertion order = firstSeq order)
-    const incoming = [...state.papers.values()]
-      .filter((p) => !nodes.has(p.id) && !queueRef.current.some((q) => q.id === p.id))
-      .sort((a, b) => a.firstSeq - b.firstSeq);
-    queueRef.current.push(...incoming);
+    const links = linksRef.current;
+    let changed = false;
 
-    // update read flags on existing nodes
-    for (const p of state.papers.values()) {
-      const n = nodes.get(p.id);
-      if (n) {
-        n.read = p.read;
-        if (p.title) n.title = p.title;
-      }
-    }
-
-    const drainOne = () => {
-      const sim = simRef.current;
-      if (!sim) return;
-      const batch = fastMode ? queueRef.current.splice(0) : queueRef.current.splice(0, 1);
-      if (batch.length === 0) return;
-      for (const p of batch) {
-        const node: SimNode = {
+    const sorted = [...state.papers.values()].sort((a, b) => a.firstSeq - b.firstSeq);
+    for (const p of sorted) {
+      const existing = nodes.get(p.id);
+      if (!existing) {
+        nodes.set(p.id, {
           id: p.id,
           read: p.read,
           via: p.discoveredVia,
           degree: 0,
           title: p.title,
-          x: (canvasRef.current?.width ?? 600) / 2 + (Math.random() - 0.5) * 80,
-          y: (canvasRef.current?.height ?? 400) / 2 + (Math.random() - 0.5) * 80,
-        };
-        nodes.set(p.id, node);
+          bornAt: performance.now(),
+          x: W / 2 + (Math.random() - 0.5) * 120,
+          y: H / 2 + (Math.random() - 0.5) * 120,
+        });
+        changed = true;
+      } else {
+        existing.read = p.read;
+        if (p.title) existing.title = p.title;
       }
-      // add any links whose endpoints now exist
-      for (const e of state.citationEdges) {
-        const key = `${e.source}->${e.target}`;
-        if (linkKeysRef.current.has(key)) continue;
-        const s = nodes.get(e.source);
-        const t = nodes.get(e.target);
-        if (s && t) {
-          linkKeysRef.current.add(key);
-          linksRef.current.push({ source: s, target: t });
-          s.degree += 1;
-          t.degree += 1;
-        }
+    }
+    for (const e of state.citationEdges) {
+      const key = `${e.source}->${e.target}`;
+      if (links.has(key)) continue;
+      const s = nodes.get(e.source);
+      const t = nodes.get(e.target);
+      if (s && t) {
+        links.set(key, { id: key, source: s, target: t });
+        s.degree += 1;
+        t.degree += 1;
+        changed = true;
+      }
+    }
+    // Drop nodes that no longer exist (scrub backward)
+    for (const id of [...nodes.keys()]) {
+      if (!state.papers.has(id)) {
+        nodes.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      for (const id of [...links.keys()]) {
+        const [s, t] = id.split("->");
+        if (!nodes.has(s) || !nodes.has(t)) links.delete(id);
       }
       sim.nodes([...nodes.values()]);
-      (sim.force("link") as any)?.links(linksRef.current);
-      sim.alphaTarget(0.25).restart();
-      window.setTimeout(() => sim.alphaTarget(0), 350);
-      if (queueRef.current.length > 0) {
-        queueTimerRef.current = window.setTimeout(drainOne, fastMode ? 0 : STAGGER_MS);
-      }
-    };
-
-    if (queueTimerRef.current == null && queueRef.current.length > 0) {
-      drainOne();
+      (sim.force("link") as any)?.links([...links.values()]);
+      sim.alpha(0.6).restart();
+      setTick((t) => t + 1);
     }
-    return () => {
-      if (queueTimerRef.current != null) {
-        clearTimeout(queueTimerRef.current);
-        queueTimerRef.current = null;
-      }
-    };
-  }, [state, fastMode]);
+  }, [state]);
 
-  // Simulation + canvas lifecycle
-  useEffect(() => {
-    const canvas = canvasRef.current!;
-    const parent = canvas.parentElement!;
-    const resize = () => {
-      canvas.width = parent.clientWidth;
-      canvas.height = parent.clientHeight;
-    };
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(parent);
-
-    const sim = forceSimulation<SimNode>([...nodesRef.current.values()])
-      .force("charge", forceManyBody().strength(-60))
-      .force("center", forceCenter(canvas.width / 2, canvas.height / 2))
-      .force("collide", forceCollide<SimNode>((d) => NODE_BASE + d.degree + 3))
-      .force(
-        "link",
-        forceLink<SimNode, SimLink>(linksRef.current).id((d) => d.id).distance(60).strength(0.4),
-      );
-    simRef.current = sim;
-
-    let raf = 0;
-    const draw = () => {
-      const ctx = canvas.getContext("2d")!;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      // edges
-      ctx.strokeStyle = "rgba(107, 163, 248, 0.18)";
-      ctx.lineWidth = 1;
-      for (const l of linksRef.current) {
-        const s = l.source as SimNode;
-        const t = l.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x!, s.y!);
-        ctx.lineTo(t.x!, t.y!);
-        ctx.stroke();
-      }
-      // nodes
-      const showLabels = nodesRef.current.size <= 40;
-      for (const n of nodesRef.current.values()) {
-        if (n.x == null) continue;
-        const r = NODE_BASE + Math.min(n.degree, 10);
-        if (n.via === "seed") {
-          ctx.beginPath();
-          ctx.arc(n.x!, n.y!, r + 3, 0, Math.PI * 2);
-          ctx.strokeStyle = "rgba(227, 196, 85, 0.6)";
-          ctx.stroke();
-        }
-        ctx.beginPath();
-        ctx.arc(n.x!, n.y!, r, 0, Math.PI * 2);
-        ctx.fillStyle = n.read ? "#6ba3f8" : "rgba(107, 163, 248, 0.25)";
-        ctx.fill();
-        ctx.strokeStyle = "#39435f";
-        ctx.stroke();
-        const hovered = hoverRef.current === n;
-        if (showLabels || hovered || n === selected) {
-          ctx.fillStyle = hovered || n === selected ? "#e7eaf3" : "#9aa1b4";
-          ctx.font = "10px ui-monospace, monospace";
-          ctx.fillText(n.id.slice(0, 14), n.x! + r + 4, n.y! + 3);
-        }
-      }
-      raf = requestAnimationFrame(draw);
-    };
-    raf = requestAnimationFrame(draw);
-
-    const hit = (mx: number, my: number): SimNode | null => {
-      let best: SimNode | null = null;
-      let bestD = 14 * 14;
-      for (const n of nodesRef.current.values()) {
-        if (n.x == null) continue;
-        const d = (n.x! - mx) ** 2 + (n.y! - my) ** 2;
-        if (d < bestD) {
-          bestD = d;
-          best = n;
-        }
-      }
-      return best;
-    };
-    const onMove = (ev: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      hoverRef.current = hit(ev.clientX - rect.left, ev.clientY - rect.top);
-      canvas.style.cursor = hoverRef.current ? "pointer" : "default";
-    };
-    const onClick = (ev: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      setSelected(hit(ev.clientX - rect.left, ev.clientY - rect.top));
-    };
-    canvas.addEventListener("mousemove", onMove);
-    canvas.addEventListener("click", onClick);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      canvas.removeEventListener("mousemove", onMove);
-      canvas.removeEventListener("click", onClick);
-      ro.disconnect();
-      sim.stop();
-      simRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const selectedPaper = selected ? state.papers.get(selected.id) : null;
+  const nodes = [...nodesRef.current.values()];
+  const links = [...linksRef.current.values()];
+  const sel = selected ? state.papers.get(selected) : null;
+  const now = performance.now();
 
   return (
     <div className="lit-wrap">
-      <canvas ref={canvasRef} className="lit-canvas" />
-      <div className="lit-counter">
-        {state.stats.resultsScanned} results scanned · {state.papers.size} papers on graph ·{" "}
-        {state.stats.papersRead} read
+      <svg
+        className="lit-svg"
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="xMidYMid meet"
+        onClick={() => setSelected(null)}
+      >
+        <defs>
+          <radialGradient id="star-read" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#fbe9b8" />
+            <stop offset="100%" stopColor="#e9c977" />
+          </radialGradient>
+          <radialGradient id="star-unread" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#7fb0fb" />
+            <stop offset="100%" stopColor="#3f6dc4" />
+          </radialGradient>
+        </defs>
+        <g>
+          {links.map((l) => {
+            const s = l.source as SimNode;
+            const t = l.target as SimNode;
+            if (s.x == null || t.x == null) return null;
+            return (
+              <line
+                key={l.id}
+                className="lit-edge"
+                x1={s.x}
+                y1={s.y}
+                x2={t.x}
+                y2={t.y}
+              />
+            );
+          })}
+        </g>
+        <g>
+          {nodes.map((n) => {
+            if (n.x == null) return null;
+            const r = 5 + Math.min(n.degree, 8) * 1.4;
+            const showLabel = nodes.length <= 36 || n.id === selected;
+            const fresh = now - n.bornAt < 600;
+            return (
+              <g
+                key={n.id}
+                className={`lit-node ${n.read ? "lit-node-read" : ""} ${n.id === selected ? "sel" : ""} ${fresh ? "lit-node-enter" : ""}`}
+                transform={`translate(${n.x} ${n.y})`}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  setSelected(n.id);
+                }}
+                style={{ cursor: "pointer" }}
+              >
+                {n.via === "seed" && (
+                  <circle r={r + 5} fill="none" stroke="rgba(233,201,119,0.5)" strokeWidth={1} />
+                )}
+                <circle
+                  r={r}
+                  fill={n.read ? "url(#star-read)" : "url(#star-unread)"}
+                  stroke={n.read ? "#fff2cf" : "#5a83cf"}
+                  strokeWidth={0.6}
+                  strokeOpacity={0.5}
+                />
+                {showLabel && (
+                  <text x={r + 5} y={3.5}>
+                    {n.id.length > 16 ? n.id.slice(0, 16) + "…" : n.id}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+
+      <div className="lit-hud">
+        <div>
+          <span className="n">{state.stats.resultsScanned}</span> scanned ·{" "}
+          <span className="n">{nodes.length}</span> on graph ·{" "}
+          <span className="n">{state.stats.papersRead}</span> read
+        </div>
+        <div className="lit-legend">
+          <span>
+            <i style={{ background: "#e9c977", boxShadow: "0 0 6px #e9c977" }} />
+            read
+          </span>
+          <span>
+            <i style={{ background: "#3f6dc4" }} />
+            discovered
+          </span>
+          <span>
+            <i style={{ background: "transparent", boxShadow: "0 0 0 1px #e9c977" }} />
+            seed
+          </span>
+        </div>
       </div>
-      {state.papers.size === 0 && (
-        <div className="empty-note lit-empty">
-          The citation graph grows as agents read papers and follow references.
+
+      {nodes.length === 0 && (
+        <div className="lit-empty-overlay">
+          <div className="empty-note">
+            <span className="big">An empty sky</span>
+            No papers have entered the graph yet. Stars appear as agents read papers
+            and follow citations during ideation &amp; planning.
+          </div>
         </div>
       )}
-      {selectedPaper && (
-        <aside className="lit-panel">
-          <div className="lit-panel-id">{selectedPaper.id}</div>
-          <div className="lit-panel-title">{selectedPaper.title || "(title unknown)"}</div>
-          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-            discovered via {selectedPaper.discoveredVia}
-            {selectedPaper.read
-              ? ` · read (${((selectedPaper.charsRead ?? 0) / 1000).toFixed(0)}k chars)`
-              : " · not read"}
+
+      {sel && (
+        <aside className="lit-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="lit-panel-id">{sel.id}</div>
+          <div className="lit-panel-title">{sel.title || "(title unknown)"}</div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 7 }}>
+            via {sel.discoveredVia}
+            {sel.read ? ` · read (${((sel.charsRead ?? 0) / 1000).toFixed(0)}k chars)` : " · not read"}
           </div>
           <button className="scrub-btn lit-close" onClick={() => setSelected(null)}>
             ✕

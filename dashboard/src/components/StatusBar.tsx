@@ -42,7 +42,9 @@ export function StatusBar({
           ‹
         </button>
       )}
-      <span className="brand">Paradigm</span>
+      <span className="brand">
+        Paradigm<span className="dot">.</span>
+      </span>
       <span className="thread-id">{state.run.threadId || "—"}</span>
       <span className={`status-chip ${chipClass}`}>
         {finished ? state.run.status : live ? "live" : "replay"}
