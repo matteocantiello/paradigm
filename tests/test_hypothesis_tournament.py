@@ -20,6 +20,9 @@ from paradigm.knowledge.tournament_handler import (
     parse_judge_verdict,
 )
 from paradigm.knowledge.world_model import WorldModel
+from paradigm.logging.events import EventLogger
+from paradigm.orchestrator.engine import OrchestrationEngine
+from paradigm.storage.database import Database
 
 
 class TestParseJudgeVerdict:
@@ -47,9 +50,7 @@ class TestParseJudgeVerdict:
     def test_unparseable_returns_none(self) -> None:
         assert parse_judge_verdict("I cannot decide between them.") is None
         assert parse_judge_verdict("") is None
-from paradigm.logging.events import EventLogger
-from paradigm.orchestrator.engine import OrchestrationEngine
-from paradigm.storage.database import Database
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
