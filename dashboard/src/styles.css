@@ -517,3 +517,22 @@ body {
   gap: 6px;
   z-index: 10;
 }
+
+/* ---------- live ---------- */
+.jump-live {
+  position: absolute;
+  right: 16px;
+  top: -38px;
+  background: var(--gold);
+  color: #1a1408;
+  border: none;
+  border-radius: 99px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.jump-live:hover { filter: brightness(1.1); }

@@ -9,6 +9,7 @@ import { PaperView } from "./components/PaperView";
 import { Scrubber } from "./components/Scrubber";
 import { StatusBar } from "./components/StatusBar";
 import { Ticker } from "./components/Ticker";
+import { useLiveEvents } from "./live";
 import { usePlayback, useReplayState } from "./replay";
 import type { DashboardState, Ev } from "./types";
 
@@ -48,7 +49,7 @@ function phaseTab(state: DashboardState): TabKey {
   }
 }
 
-function Landing({ onPick }: { onPick: (id: string) => void }) {
+function Landing({ onPick }: { onPick: (id: string, live: boolean) => void }) {
   const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -68,10 +69,10 @@ function Landing({ onPick }: { onPick: (id: string) => void }) {
         </div>
       )}
       {threads?.map((t) => (
-        <a className="thread-row" key={t.id} onClick={() => onPick(t.id)}>
+        <a className="thread-row" key={t.id} onClick={() => onPick(t.id, t.status === "running")}>
           <span className="title">{t.title}</span>
-          <span className={`status-chip ${t.status === "published" ? "published" : t.status === "running" ? "running" : "other"}`}>
-            {t.status}
+          <span className={`status-chip ${t.status === "published" ? "published" : t.status === "running" ? "live" : "other"}`}>
+            {t.status === "running" ? "● live" : t.status}
           </span>
           <span className="meta">
             {t.id} · {t.n_events} events · {t.date?.slice(0, 10) ?? ""}
@@ -82,30 +83,27 @@ function Landing({ onPick }: { onPick: (id: string) => void }) {
   );
 }
 
-function Session({ threadId }: { threadId: string }) {
-  const [events, setEvents] = useState<Ev[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function SessionShell({
+  threadId,
+  events,
+  live,
+  cursor,
+  fastMode,
+}: {
+  threadId: string;
+  events: Ev[];
+  live: boolean;
+  cursor: number;
+  fastMode: boolean;
+}) {
   const [pinnedTab, setPinnedTab] = useState<TabKey | null>(null);
-
-  useEffect(() => {
-    setEvents(null);
-    fetchEvents(threadId).then(setEvents).catch((e) => setError(String(e)));
-  }, [threadId]);
-
-  const loaded = events ?? [];
-  const playback = usePlayback(loaded);
-  const state = useReplayState(loaded, playback.cursor);
+  const state = useReplayState(events, cursor);
   const tab = pinnedTab ?? phaseTab(state);
-  const fastMode = playback.playing && playback.speed > 5;
-
   const visibleTicker = useMemo(() => state.ticker.slice(-50), [state]);
 
-  if (error) return <div className="empty-note">{error}</div>;
-  if (events === null) return <div className="empty-note">loading {threadId}…</div>;
-
   return (
-    <div className="app">
-      <StatusBar state={state} live={false} />
+    <>
+      <StatusBar state={state} live={live} />
       <main className="canvas">
         <div className="tabbar">
           {TABS.map((t) => (
@@ -129,30 +127,133 @@ function Session({ threadId }: { threadId: string }) {
         </div>
       </main>
       <Ticker events={visibleTicker} />
+    </>
+  );
+}
+
+function ReplaySession({ threadId }: { threadId: string }) {
+  const [events, setEvents] = useState<Ev[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEvents(null);
+    fetchEvents(threadId).then(setEvents).catch((e) => setError(String(e)));
+  }, [threadId]);
+
+  const loaded = events ?? [];
+  const initialCursor = useMemo(() => {
+    const t = new URLSearchParams(window.location.search).get("t");
+    if (t === null) return undefined;
+    const targetSeq = Number(t);
+    const idx = loaded.findIndex((e) => e.seq > targetSeq);
+    return idx < 0 ? loaded.length : idx;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
+  const playback = usePlayback(loaded, initialCursor);
+  const fastMode = playback.playing && playback.speed > 5;
+
+  if (error) return <div className="empty-note">{error}</div>;
+  if (events === null) return <div className="empty-note">loading {threadId}…</div>;
+
+  return (
+    <div className="app">
+      <SessionShell
+        threadId={threadId}
+        events={loaded}
+        live={false}
+        cursor={playback.cursor}
+        fastMode={fastMode}
+      />
       <Scrubber events={loaded} playback={playback} />
     </div>
   );
 }
 
-export default function App() {
-  const [threadId, setThreadId] = useState<string | null>(
-    () => new URLSearchParams(window.location.search).get("thread"),
-  );
+function LiveSession({ threadId }: { threadId: string }) {
+  const { events, conn } = useLiveEvents(threadId);
+  const [following, setFollowing] = useState(true);
+  const [cursor, setCursor] = useState(0);
 
-  const pick = (id: string) => {
+  // Follow the head as events arrive, unless the user scrubbed back.
+  useEffect(() => {
+    if (following) setCursor(events.length);
+  }, [events.length, following]);
+
+  // A finished live run is just a replay from here on.
+  const fakePlayback = {
+    cursor,
+    playing: false,
+    speed: 1,
+    atEnd: cursor >= events.length,
+    play: () => setFollowing(true),
+    pause: () => {},
+    setSpeed: () => {},
+    seek: (c: number) => {
+      setCursor(Math.max(0, Math.min(c, events.length)));
+      setFollowing(c >= events.length);
+    },
+  };
+
+  if (events.length === 0) {
+    return (
+      <div className="empty-note">
+        {conn === "error" ? "connection error" : `waiting for events from ${threadId}…`}
+      </div>
+    );
+  }
+
+  return (
+    <div className="app">
+      <SessionShell
+        threadId={threadId}
+        events={events}
+        live={conn === "live" && following}
+        cursor={cursor}
+        fastMode={false}
+      />
+      <div style={{ position: "relative" }}>
+        {!following && (
+          <button
+            className="jump-live"
+            onClick={() => {
+              setFollowing(true);
+              setCursor(events.length);
+            }}
+          >
+            ● Jump to live
+          </button>
+        )}
+        <Scrubber events={events} playback={fakePlayback} />
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const [search, setSearch] = useState(() => window.location.search);
+  const params = new URLSearchParams(search);
+  const threadId = params.get("thread");
+  const live = params.get("live") === "1";
+
+  const pick = (id: string, isLive: boolean) => {
     const url = new URL(window.location.href);
     url.searchParams.set("thread", id);
+    if (isLive) url.searchParams.set("live", "1");
+    else url.searchParams.delete("live");
     window.history.pushState({}, "", url);
-    setThreadId(id);
+    setSearch(url.search);
   };
 
   useEffect(() => {
-    const onPop = () =>
-      setThreadId(new URLSearchParams(window.location.search).get("thread"));
+    const onPop = () => setSearch(window.location.search);
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   if (!threadId) return <Landing onPick={pick} />;
-  return <Session threadId={threadId} key={threadId} />;
+  return live ? (
+    <LiveSession threadId={threadId} key={threadId} />
+  ) : (
+    <ReplaySession threadId={threadId} key={threadId} />
+  );
 }

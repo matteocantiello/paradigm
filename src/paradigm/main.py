@@ -245,6 +245,18 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     default=False,
     help="Start with an empty internal corpus (avoids cross-domain contamination)",
 )
+@click.option(
+    "--dashboard",
+    is_flag=True,
+    default=False,
+    help="Launch the live web dashboard alongside the run and print its URL",
+)
+@click.option(
+    "--dashboard-port",
+    default=8060,
+    type=int,
+    help="Port for the --dashboard server (default: 8060)",
+)
 @click.pass_obj
 def run(
     config: Config,
@@ -258,6 +270,8 @@ def run(
     verbose: bool,
     network_access: bool,
     fresh_corpus: bool,
+    dashboard: bool,
+    dashboard_port: int,
 ) -> None:
     """Run a research cycle.
 
@@ -294,6 +308,22 @@ def run(
         config.sandbox.network_mode = "bridge"
 
     seed_prompt = prompt or topic or ""
+
+    # Live dashboard: start the server BEFORE the cycle so the thread's event
+    # stream is watchable the moment seeding creates it. The landing page links
+    # running threads straight into live mode.
+    if dashboard:
+        try:
+            from paradigm.dashboard.server import start_server_in_background
+
+            start_server_in_background(config.storage.data_dir, port=dashboard_port)
+            click.echo(
+                f"\n  Dashboard:  http://127.0.0.1:{dashboard_port}/"
+                "  (open it, then click the running thread)\n"
+            )
+        except Exception as e:  # never let the dashboard block a real run
+            click.echo(f"  (dashboard failed to start: {e})", err=True)
+
     display.starting_cycle(mode)
     if network_access:
         display.network_access_warning()
