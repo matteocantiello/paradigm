@@ -158,14 +158,9 @@ async def get_session_event_stream(session_id: str, request: Request) -> dict:
     cycle store, since the session may have been evicted).
     """
     manager = request.app.state.session_manager
-    state = manager.get_state(session_id)
-    thread_id = state.thread_id if state is not None else None
-    if not thread_id:
-        store = request.app.state.cycle_store
-        for cycle in store.list():
-            if cycle.session_id == session_id and cycle.thread_id:
-                thread_id = cycle.thread_id
-                break
+    # Resolve through the manager so it works DURING a live run (the engine knows
+    # its thread from seeding; SessionState.thread_id is only set on completion).
+    thread_id = manager.resolve_thread_id(session_id)
     if not thread_id:
         return {"thread_id": None, "events": []}
 

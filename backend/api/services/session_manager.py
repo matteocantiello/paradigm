@@ -74,6 +74,11 @@ class SessionManager:
         # Knowledge snapshot cache (latest per session, for reconnect)
         self._knowledge_snapshots: dict[str, KnowledgeUpdateMsg] = {}
 
+        # Live engine refs, so callers can resolve a session's thread_id WHILE it
+        # runs (SessionState.thread_id is only assigned after the cycle returns;
+        # the engine knows its thread from seeding onward).
+        self._engines: dict[str, Any] = {}
+
         # Message replay buffer: last N messages per session for reconnect catch-up
         self._message_buffers: dict[str, deque[str]] = {}
         # Per-session resume gate: set = running, cleared = paused. The engine
@@ -259,6 +264,8 @@ class SessionManager:
                 is_paused=lambda ev=resume_event: not ev.is_set(),
                 guidance_provider=self._make_guidance_provider(session_id),
             )
+            # Expose the engine so live callers can resolve thread_id mid-run.
+            self._engines[session_id] = engine
 
             # Run the cycle
             thread_id = await engine.run_research_cycle(
@@ -354,6 +361,29 @@ class SessionManager:
             self._cycle_metadata.pop(session_id, None)
             self._resume_events.pop(session_id, None)
             self._guidance.pop(session_id, None)
+            self._engines.pop(session_id, None)
+
+    def resolve_thread_id(self, session_id: str) -> str | None:
+        """Best-effort thread_id for a session, working DURING a live run.
+
+        Order: the live SessionState (set after completion) → the running engine's
+        own state (set during seeding, so available mid-run) → the durable cycle
+        store (for finished/evicted sessions).
+        """
+        state = self._sessions.get(session_id)
+        if state is not None and state.thread_id:
+            return state.thread_id
+        engine = self._engines.get(session_id)
+        engine_state = getattr(engine, "state", None) if engine is not None else None
+        thread_id = getattr(engine_state, "thread_id", None)
+        if thread_id:
+            return thread_id
+        store = self.cycle_store
+        if store is not None:
+            for cycle in store.list():
+                if cycle.session_id == session_id and cycle.thread_id:
+                    return cycle.thread_id
+        return None
 
     def _make_intervention_hook(self, session_id: str):
         """Create a synchronous intervention hook that bridges to async WS approval.
