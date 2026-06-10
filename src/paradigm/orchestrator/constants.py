@@ -722,13 +722,21 @@ As you analyze and reason, emit these tags to build a shared knowledge model:
 - **Evidence** — findings that support or contradict hypotheses:
   `[EVIDENCE: content | source]`
   Sources: literature, experiment, theoretical, agent_reasoning
+  To **link evidence to a hypothesis**, add a relation + a few words identifying it:
+  `[EVIDENCE: content | source | supports | <key words from the hypothesis>]`
+  (use `contradicts` for refuting evidence). This is what draws the belief graph.
+
+- **Relations** — how two entities connect (builds the knowledge graph):
+  `[RELATION: Entity A | relation_type | Entity B]`
+  Types: causes, correlates_with, part_of, instance_of, depends_on, produces, measured_by
 
 Examples:
   [ENTITY: Little Red Dots | object | Compact red sources at z>4 found by JWST]
   [HYPOTHESIS: LRDs are dust-reddened AGN with Compton-thick obscuration]
-  [EVIDENCE: X-ray stacking shows 23x weakness factor | literature]
+  [EVIDENCE: X-ray stacking shows 23x weakness factor | literature | supports | dust-reddened AGN]
+  [RELATION: Compton-thick obscuration | causes | X-ray weakness]
 
-Emit tags inline as you discover entities, form hypotheses, and evaluate evidence. These tags are parsed automatically — do not omit them.
+Emit tags inline as you discover entities, form hypotheses, and evaluate evidence. Link evidence to the hypothesis it bears on and relate entities — that is what turns the world model into a graph. These tags are parsed automatically — do not omit them.
 """
 
 _ADVISORY_PROMPT_TEMPLATE = (

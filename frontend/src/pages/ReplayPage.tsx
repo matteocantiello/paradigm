@@ -1,5 +1,7 @@
 import { getSessionEventStream, sessionArtifactUrl } from "@/api/client";
 import { LiteratureConstellation } from "@/components/session/LiteratureGraph";
+import { KnowledgeGraph } from "@/components/session/KnowledgeGraph";
+import { buildKnowledgeGraph } from "@/lib/knowledgeGraph";
 import {
   ReplayExperiments,
   ReplayHypotheses,
@@ -14,7 +16,7 @@ import type { Ev } from "@/lib/replay/types";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-type Tab = "literature" | "hypotheses" | "experiments" | "paper" | "events";
+type Tab = "literature" | "knowledge" | "hypotheses" | "experiments" | "paper" | "events";
 
 export default function ReplayPage() {
   const { id: sessionId } = useParams<{ id: string }>();
@@ -41,9 +43,14 @@ export default function ReplayPage() {
     () => buildLitGraph(loaded.slice(0, playback.cursor) as never),
     [loaded, playback.cursor],
   );
+  const knowGraph = useMemo(
+    () => buildKnowledgeGraph(loaded.slice(0, playback.cursor) as never),
+    [loaded, playback.cursor],
+  );
 
   const counts: Record<Tab, number> = {
     literature: litGraph.nodes.length,
+    knowledge: knowGraph.counts.hypotheses + knowGraph.counts.entities,
     hypotheses: state.hypotheses.size,
     experiments: state.experiments.size,
     paper: state.paper.sections.length + state.review.iterations.length,
@@ -51,6 +58,7 @@ export default function ReplayPage() {
   };
   const TABS: { key: Tab; label: string }[] = [
     { key: "literature", label: "Literature" },
+    { key: "knowledge", label: "World model" },
     { key: "hypotheses", label: "Hypotheses" },
     { key: "experiments", label: "Experiments" },
     { key: "paper", label: "Paper" },
@@ -118,6 +126,7 @@ export default function ReplayPage() {
 
       <div className="relative flex-1 overflow-hidden">
         {tab === "literature" && <LiteratureConstellation graph={litGraph} />}
+        {tab === "knowledge" && <KnowledgeGraph graph={knowGraph} />}
         {tab === "hypotheses" && <ReplayHypotheses state={state} />}
         {tab === "experiments" && (
           <ReplayExperiments

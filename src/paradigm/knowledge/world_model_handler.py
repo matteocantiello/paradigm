@@ -14,6 +14,8 @@ from paradigm.knowledge.models import (
     Evidence,
     EvidenceSource,
     Hypothesis,
+    Relationship,
+    RelationshipType,
     ResearchGoal,
 )
 from paradigm.knowledge.world_model import WorldModel
@@ -35,6 +37,10 @@ _HYPOTHESIS_TAG_RE = re.compile(
 )
 _EVIDENCE_TAG_RE = re.compile(
     r"\[EVIDENCE:\s*([^\]]+?)\]",
+    re.IGNORECASE,
+)
+_RELATION_TAG_RE = re.compile(
+    r"\[RELATION:\s*([^\]]+?)\]",
     re.IGNORECASE,
 )
 
@@ -120,6 +126,11 @@ class WorldModelHandler:
                 created_by=agent_id,
             )
             wm.add_entity(entity)
+            self._engine.emit_event(
+                "entity.added",
+                {"entity_id": entity.id, "name": name, "entity_type": etype.value},
+                agent=agent_id,
+            )
 
         # Parse hypotheses
         for match in _HYPOTHESIS_TAG_RE.finditer(content):
@@ -154,9 +165,78 @@ class WorldModelHandler:
                 {"claim_id": ev.id, "statement": ev_content[:2000], "source": source.value},
                 agent=agent_id,
             )
-            # TODO(evidence.linked): nothing in the orchestrator calls
-            # WorldModel.link_evidence_to_hypothesis yet, so claim→hypothesis
-            # links never form; emit evidence.linked here when linking lands.
+            # Optional link to a hypothesis:
+            # [EVIDENCE: content | source | supports|contradicts | <hypothesis keyword>]
+            if len(parts) >= 4:
+                relation = parts[2].lower()
+                supports = relation.startswith("support")
+                contradicts = relation.startswith("contradic") or relation.startswith("refut")
+                hyp_id = self._match_hypothesis(parts[3])
+                if hyp_id and (supports or contradicts):
+                    wm.link_evidence_to_hypothesis(ev.id, hyp_id, supports=supports)
+                    self._engine.emit_event(
+                        "evidence.linked",
+                        {
+                            "claim_id": ev.id,
+                            "hypothesis_id": hyp_id,
+                            "relation": "supports" if supports else "contradicts",
+                        },
+                        agent=agent_id,
+                    )
+
+        # Parse entity relationships: [RELATION: A | relation_type | B]
+        for match in _RELATION_TAG_RE.finditer(content):
+            parts = [p.strip() for p in match.group(1).split("|")]
+            if len(parts) < 3 or not parts[0] or not parts[2]:
+                continue
+            src_id = self._find_or_create_entity(parts[0], agent_id)
+            tgt_id = self._find_or_create_entity(parts[2], agent_id)
+            try:
+                rtype = RelationshipType(parts[1].lower().replace(" ", "_"))
+            except ValueError:
+                rtype = RelationshipType.CORRELATES_WITH
+            rel = Relationship(source_id=src_id, target_id=tgt_id, relationship_type=rtype)
+            wm.add_relationship(rel)
+            self._engine.emit_event(
+                "relationship.added",
+                {"source_id": src_id, "target_id": tgt_id, "relation": rtype.value},
+                agent=agent_id,
+            )
+
+    def _find_or_create_entity(self, name: str, agent_id: str) -> str:
+        """Return the id of an existing entity matching ``name`` (case-insensitive),
+        creating a CONCEPT entity if none exists. Lets [RELATION:] reference
+        entities by name without the agent knowing internal ids."""
+        wm = self._engine.state.world_model
+        key = name.strip().lower()
+        for e in wm.entities.values():
+            if e.name.strip().lower() == key:
+                return e.id
+        entity = Entity(name=name.strip(), entity_type=EntityType.CONCEPT, created_by=agent_id)
+        wm.add_entity(entity)
+        self._engine.emit_event(
+            "entity.added",
+            {"entity_id": entity.id, "name": entity.name, "entity_type": "concept"},
+            agent=agent_id,
+        )
+        return entity.id
+
+    def _match_hypothesis(self, ref: str) -> str | None:
+        """Match a free-text hypothesis reference to a world-model hypothesis by
+        case-insensitive substring (either direction). Returns the best (longest
+        shared) match, or None."""
+        wm = self._engine.state.world_model
+        ref_l = ref.strip().lower()
+        if not ref_l:
+            return None
+        best: tuple[int, str] | None = None
+        for h in wm.hypotheses.values():
+            stmt = h.statement.lower()
+            if ref_l in stmt or stmt in ref_l:
+                score = len(ref_l)
+                if best is None or score > best[0]:
+                    best = (score, h.id)
+        return best[1] if best else None
 
     # ------------------------------------------------------------------
     # Persistence

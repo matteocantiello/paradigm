@@ -7,6 +7,8 @@ import {
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { TournamentBoard } from "./TournamentBoard";
+import { KnowledgeGraph } from "./KnowledgeGraph";
+import { knowledgeGraphFromState } from "@/lib/knowledgeGraph";
 
 interface KnowledgePanelProps {
   knowledge: KnowledgeState;
@@ -67,6 +69,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function KnowledgePanel({ knowledge }: KnowledgePanelProps) {
+  const [view, setView] = useState<"list" | "graph">("list");
+
   if (!knowledge.lastUpdated) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground/50 text-sm font-sans">
@@ -76,8 +80,38 @@ export function KnowledgePanel({ knowledge }: KnowledgePanelProps) {
     );
   }
 
+  const toggle = (
+    <div className="flex shrink-0 justify-end gap-1 border-b border-border/50 px-2 py-1">
+      {(["list", "graph"] as const).map((v) => (
+        <button
+          key={v}
+          onClick={() => setView(v)}
+          className={cn(
+            "rounded px-2 py-0.5 text-[10px] uppercase tracking-wide transition-colors",
+            view === v ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {v}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (view === "graph") {
+    return (
+      <div className="flex h-full flex-col">
+        {toggle}
+        <div className="relative flex-1 overflow-hidden">
+          <KnowledgeGraph graph={knowledgeGraphFromState(knowledge)} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-0.5 overflow-y-auto p-2 h-full font-mono">
+    <div className="flex h-full flex-col">
+      {toggle}
+      <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2 font-mono">
       {/* Research Goals */}
       <CollapsibleSection
         title="Research Goals"
@@ -221,6 +255,7 @@ export function KnowledgePanel({ knowledge }: KnowledgePanelProps) {
           </div>
         ))}
       </CollapsibleSection>
+      </div>
     </div>
   );
 }
