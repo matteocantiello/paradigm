@@ -277,6 +277,11 @@ class KnowledgeConfig(BaseModel):
     tournament_population_size: int = 8
     tournament_winners: int = 2
     tournament_k_factor: float = 32.0
+    # World-model ↔ tournament unification (C2). When True, the tournament ranks the
+    # canonical world-model hypotheses (the [HYPOTHESIS:] tag set) by reference instead
+    # of re-extracting a fresh ≤N set from the discussion, so Elo/status mutate the same
+    # objects the rest of the world model references. Off by default (opt-in / A/B).
+    unified_hypotheses: bool = False
     # Pre-registration / falsifiability (Phase 1A). Off by default.
     enable_preregistration: bool = False
     prereg_require_refutation: bool = True  # reject hypotheses lacking a refutation condition

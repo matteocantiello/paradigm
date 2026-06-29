@@ -28,6 +28,16 @@ _WINNER_RE = re.compile(
 _MARGIN_RE = re.compile(r'"?margin"?\s*[:=]\s*"?\s*(\d*\.?\d+)', re.IGNORECASE)
 
 
+def _normalize_statement(statement: str) -> str:
+    """Normalize a hypothesis statement for light de-duplication.
+
+    Lowercase + whitespace-collapse — catches literal restatements (the bulk of
+    the ~100-per-cycle hypothesis explosion). Semantic/paraphrase dedup is a later
+    step (creation-time, behind a pluggable matcher).
+    """
+    return " ".join(statement.lower().split())
+
+
 def _first_json_object(text: str) -> dict | None:
     """Pull the first JSON object out of a model response.
 
@@ -89,6 +99,40 @@ class TournamentHandler:
         self._last_population: HypothesisPopulation | None = None
         self._last_matchup_results: list[MatchupResult] = []
 
+    def _select_canonical_population(self) -> list[Hypothesis]:
+        """Select tournament competitors from the canonical world-model hypotheses.
+
+        Replaces the fresh LLM re-extraction (which minted new-id hypotheses): ranks
+        the existing ``wm.hypotheses`` by evidence support, then recency, applies a
+        light normalized-statement de-dup (until creation-time dedup lands in step 3),
+        and returns up to ``tournament_population_size`` of the SAME objects (by
+        reference) so the tournament mutates the canonical hypotheses directly.
+        """
+        wm = self._engine.state.world_model
+        if wm is None:
+            return []
+        size = self._engine._config.knowledge.tournament_population_size
+        # Newest first as the base order, then a STABLE sort by evidence count desc so
+        # the most-developed hypotheses lead and recency breaks ties.
+        candidates = list(wm.hypotheses.values())[::-1]
+        candidates.sort(
+            key=lambda h: len(h.supporting_evidence_ids) + len(h.contradicting_evidence_ids),
+            reverse=True,
+        )
+        seen: set[str] = set()
+        selected: list[Hypothesis] = []
+        for h in candidates:
+            if not h.statement.strip():
+                continue
+            key = _normalize_statement(h.statement)
+            if key in seen:
+                continue
+            seen.add(key)
+            selected.append(h)
+            if len(selected) >= size:
+                break
+        return selected
+
     async def run_tournament(self) -> list[Hypothesis]:
         """Run a full hypothesis tournament.
 
@@ -99,17 +143,28 @@ class TournamentHandler:
         config = self._engine._config.knowledge
         display = self._engine._display
 
-        # Step 1: Extract hypotheses from discussion
-        hypotheses = await self._extract_hypotheses_from_discussion()
-        for h in hypotheses:
-            self._engine.emit_event(
-                "hypothesis.created",
-                {"hypothesis_id": h.id, "statement": h.statement, "rationale": h.rationale[:2000]},
-            )
+        # Step 1: Choose the competing hypotheses.
+        if config.unified_hypotheses:
+            # Unified (C2): rank the canonical world-model hypotheses by reference, so
+            # Elo/status mutate the SAME objects the rest of the model references. These
+            # were already emitted as hypothesis.created at [HYPOTHESIS:] tag-parse time.
+            hypotheses = self._select_canonical_population()
+        else:
+            # Legacy: re-extract a fresh ≤N set from the discussion (new ids).
+            hypotheses = await self._extract_hypotheses_from_discussion()
+            for h in hypotheses:
+                self._engine.emit_event(
+                    "hypothesis.created",
+                    {
+                        "hypothesis_id": h.id,
+                        "statement": h.statement,
+                        "rationale": h.rationale[:2000],
+                    },
+                )
         if len(hypotheses) < 2:
             return hypotheses  # Can't tournament with < 2
 
-        # Limit population size
+        # Limit population size (legacy path; the canonical selector already caps).
         hypotheses = hypotheses[: config.tournament_population_size]
 
         display.info(

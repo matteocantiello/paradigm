@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from helpers import patch_config_provider
@@ -512,3 +512,121 @@ class TestRobustJudgeParse:
 
     def test_non_object_returns_none(self):
         assert _first_json_object("[1, 2, 3]") is None
+
+
+# ===========================================================================
+# C2 step 2 — tournament ranks the canonical world-model hypotheses
+# ===========================================================================
+
+
+class TestCanonicalPopulation:
+    """_select_canonical_population: rank/dedup the canonical wm.hypotheses."""
+
+    def _handler(self, mock_config, tmp_db, tmp_logger, mock_corpus, *, size=8):
+        engine = _build_engine(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine._config.knowledge.tournament_population_size = size
+        engine.state.world_model = WorldModel()
+        return engine, TournamentHandler(engine)
+
+    def test_selects_canonical_objects_by_reference(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        engine, handler = self._handler(mock_config, tmp_db, tmp_logger, mock_corpus)
+        a = Hypothesis(statement="Alpha causes beta")
+        b = Hypothesis(statement="Gamma inhibits delta")
+        engine.state.world_model.add_hypothesis(a)
+        engine.state.world_model.add_hypothesis(b)
+
+        pop = handler._select_canonical_population()
+        assert len(pop) == 2
+        # The SAME objects (identity), not copies — so Elo/status mutate canonically.
+        assert any(h is a for h in pop)
+        assert any(h is b for h in pop)
+
+    def test_dedups_normalized_restatements(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler = self._handler(mock_config, tmp_db, tmp_logger, mock_corpus)
+        wm = engine.state.world_model
+        wm.add_hypothesis(Hypothesis(statement="X drives Y"))
+        wm.add_hypothesis(Hypothesis(statement="  x   DRIVES  y  "))  # same normalized
+        wm.add_hypothesis(Hypothesis(statement="Z blocks W"))
+
+        pop = handler._select_canonical_population()
+        assert len(pop) == 2  # one X-drives-Y survives + Z-blocks-W
+
+    def test_ranks_by_evidence_then_caps(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler = self._handler(mock_config, tmp_db, tmp_logger, mock_corpus, size=2)
+        wm = engine.state.world_model
+        h_poor = Hypothesis(statement="poorly supported")
+        h_mid = Hypothesis(statement="mid supported")
+        h_rich = Hypothesis(statement="well supported")
+        wm.add_hypothesis(h_poor)
+        wm.add_hypothesis(h_mid)
+        wm.add_hypothesis(h_rich)
+        h_rich.supporting_evidence_ids = ["e1", "e2"]
+        h_mid.contradicting_evidence_ids = ["e3"]
+
+        pop = handler._select_canonical_population()
+        assert pop[0] is h_rich  # most evidence leads
+        assert h_poor not in pop  # poorest dropped by the size-2 cap
+
+    def test_skips_blank_statements(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler = self._handler(mock_config, tmp_db, tmp_logger, mock_corpus)
+        wm = engine.state.world_model
+        wm.add_hypothesis(Hypothesis(statement="a real hypothesis"))
+        wm.add_hypothesis(Hypothesis(statement="   "))
+
+        pop = handler._select_canonical_population()
+        assert len(pop) == 1
+
+    def test_empty_world_model_returns_empty(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler = self._handler(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine.state.world_model = None
+        assert handler._select_canonical_population() == []
+
+
+class TestUnifiedTournament:
+    """run_tournament with knowledge.unified_hypotheses=True."""
+
+    @pytest.mark.asyncio
+    async def test_ranks_canonical_set_without_re_extracting(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        engine = _build_engine(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine._config.knowledge.unified_hypotheses = True
+        handler = TournamentHandler(engine)
+
+        wm = WorldModel()
+        engine.state.world_model = wm
+        a = Hypothesis(statement="Alpha")
+        b = Hypothesis(statement="Beta")
+        c = Hypothesis(statement="Gamma")
+        for h in (a, b, c):
+            wm.add_hypothesis(h)
+
+        # Re-extraction must NOT run in unified mode.
+        handler._extract_hypotheses_from_discussion = AsyncMock()
+
+        # Judge always picks A.
+        mock_provider = MagicMock()
+        mock_provider.complete = MagicMock(
+            return_value=(
+                json.dumps({"winner": "A", "reasoning": "A wins", "margin": 0.6}),
+                50,
+                30,
+            )
+        )
+        object.__setattr__(
+            engine._config,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "test-model", None)),
+        )
+
+        winners = await handler.run_tournament()
+
+        handler._extract_hypotheses_from_discussion.assert_not_called()
+        # No NEW hypotheses minted — the canonical 3 are ranked in place.
+        assert len(wm.hypotheses) == 3
+        # Canonical objects were mutated by reference (Elo moved off the 1500 start).
+        assert any(h.elo_rating != 1500.0 for h in (a, b, c))
+        # Winners come from the canonical set.
+        assert winners and all(w in (a, b, c) for w in winners)

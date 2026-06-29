@@ -4737,3 +4737,15 @@ Added `WorldModelHandler.revise_hypothesis(hyp_id, *, status, elo, confidence, r
 > Yes, commit this (step 1), then move to step 2 — making the tournament rank the canonical wm.hypotheses set instead of re-extracting, gated behind the new knowledge.unified_hypotheses flag?
 
 Committing C2 step 1, then building step 2: add `knowledge.unified_hypotheses` flag (default off); when on, `run_tournament` selects its population from the canonical `wm.hypotheses` (tag-parsed set) by reference — Elo/status mutate the SAME objects — instead of the fresh LLM re-extraction (≤4 new-id hypotheses). Flag off = current behavior unchanged. Verify + A/B against a real data_vm thread.
+
+### Prompt 207 — result: C2 step 2 built + verified
+
+Added `knowledge.unified_hypotheses: bool = False` (config.py). When True, `run_tournament` builds its population from `_select_canonical_population()` — ranks the canonical `wm.hypotheses` by evidence count then recency, light normalized-statement dedup, caps at `tournament_population_size`, returns the SAME objects by reference (so Elo/status mutate the canonical hypotheses; the step-1 write-back already revises them in place). Flag OFF = unchanged legacy re-extraction (the existing `test_full_tournament` etc. still pass). +6 tests: `_select_canonical_population` (by-reference identity, normalized dedup, evidence-rank+cap, blank-skip, empty-wm) and `run_tournament` unified (does NOT call `_extract_hypotheses_from_discussion`, mints no new hypotheses — 3 stay 3, canonical objects' Elo moves, winners ⊂ canonical set). VERIFIED: tournament suite 34 pass, ruff clean, full suite **1666 passed** (same 7 env-only failures).
+
+**A/B on real data_vm threads** (hypothesis.created statements → normalized dedup): 73→73, 106→83, 67→65, 92→64, 107→96 distinct. KEY FINDING: literal restatements are a MINORITY — most of the ~100/cycle are PARAPHRASES, which normalized dedup doesn't catch. So step 2's evidence+recency selection (cap 8) is what really controls the population, and meaningful dedup needs the SEMANTIC/embedding tier (deferred to step 3's pluggable matcher) — this validates making the matcher pluggable. Also implies early-cycle ranking falls back to recency (most hypotheses have no evidence yet), so the population quality improves once step 4's evidence-driven revision lands. NOT committed.
+
+## Prompt 208 — Commit step 2, then build C2 step 3
+
+> Yes
+
+Committing C2 step 2, then building step 3: dedup-at-creation in `world_model_handler.update_from_agent_response` — when a `[HYPOTHESIS:]` tag matches an existing hypothesis (via a PLUGGABLE matcher, normalized-statement first), don't mint a new one; emit `hypothesis.merged` instead of `hypothesis.created`. Per the step-2 A/B finding, normalized matching only catches literal restatements (the minority), so the pluggable interface is what lets the semantic tier drop in later. Gated behind `knowledge.unified_hypotheses`.
