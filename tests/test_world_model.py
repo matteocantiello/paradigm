@@ -17,6 +17,7 @@ from paradigm.knowledge.models import (
     Hypothesis,
     HypothesisStatus,
     OpenQuestion,
+    PredictionVerdict,
     Relationship,
     RelationshipType,
     ResearchGoal,
@@ -631,3 +632,130 @@ class TestDedupAtCreation:
         # A distinct statement still folds because the stub matcher always matches.
         handler.update_from_agent_response("a", "[HYPOTHESIS: totally unrelated]", "ideation")
         assert len(engine.state.world_model.hypotheses) == 1
+
+
+class TestEvidenceDrivenRevision:
+    """C2 step 4: hypothesis status flips from accumulated evidence (flag-gated)."""
+
+    def _setup(self, mock_config, tmp_db, tmp_logger, mock_corpus, *, flag):
+        engine = _build_engine(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine._config.knowledge.unified_hypotheses = flag
+        handler = WorldModelHandler(engine)
+        wm = WorldModel()
+        engine.state.world_model = wm
+        engine.emit_event = MagicMock()
+        return engine, handler, wm
+
+    def test_flag_off_no_revision(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler, wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus, flag=False)
+        h = Hypothesis(statement="X")
+        h.contradicting_evidence_ids = ["e1", "e2", "e3"]
+        wm.add_hypothesis(h)
+        handler._maybe_revise_from_evidence(h.id)
+        assert h.status == HypothesisStatus.PROPOSED
+        engine.emit_event.assert_not_called()
+
+    def test_contradicted_when_contra_dominates(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler, wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus, flag=True)
+        h = Hypothesis(statement="X")
+        h.contradicting_evidence_ids = ["c1", "c2"]
+        h.supporting_evidence_ids = ["s1"]
+        wm.add_hypothesis(h)
+        handler._maybe_revise_from_evidence(h.id)
+        assert h.status == HypothesisStatus.CONTRADICTED
+        payload = engine.emit_event.call_args.args[1]
+        assert payload["source"] == "evidence"
+
+    def test_supported_when_support_dominates(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler, wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus, flag=True)
+        h = Hypothesis(statement="X")
+        h.supporting_evidence_ids = ["s1", "s2", "s3"]
+        wm.add_hypothesis(h)
+        handler._maybe_revise_from_evidence(h.id)
+        assert h.status == HypothesisStatus.SUPPORTED
+        assert h.confidence == ConfidenceLevel.HIGH
+
+    def test_below_threshold_no_change(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler, wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus, flag=True)
+        h = Hypothesis(statement="X")
+        h.supporting_evidence_ids = ["s1", "s2"]  # 2 < support_min 3
+        h.contradicting_evidence_ids = ["c1"]  # 1 < contradict_min 2
+        wm.add_hypothesis(h)
+        handler._maybe_revise_from_evidence(h.id)
+        assert h.status == HypothesisStatus.PROPOSED
+        engine.emit_event.assert_not_called()
+
+    def test_integration_evidence_tags_flip_to_contradicted(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        engine, handler, wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus, flag=True)
+        handler.update_from_agent_response(
+            "a", "[HYPOTHESIS: copper accumulation drives toxicity]", "ideation"
+        )
+        for _ in range(2):
+            handler.update_from_agent_response(
+                "a",
+                "[EVIDENCE: a null result | literature | contradicts | "
+                "copper accumulation drives toxicity]",
+                "ideation",
+            )
+        hyp = next(iter(wm.hypotheses.values()))
+        assert hyp.status == HypothesisStatus.CONTRADICTED
+
+
+class TestPreregVerdictRevision:
+    """C2 step 4: frozen pre-registration verdicts revise hypothesis status."""
+
+    def _setup(self, mock_config, tmp_db, tmp_logger, mock_corpus, *, flag):
+        engine = _build_engine(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine._config.knowledge.unified_hypotheses = flag
+        handler = WorldModelHandler(engine)
+        wm = WorldModel()
+        engine.state.world_model = wm
+        engine.emit_event = MagicMock()
+        h = Hypothesis(id="h1", statement="X")
+        wm.add_hypothesis(h)
+        return engine, handler, wm, h
+
+    def test_flag_off_no_revision(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler, _wm, h = self._setup(
+            mock_config, tmp_db, tmp_logger, mock_corpus, flag=False
+        )
+        handler.revise_from_prereg_verdicts([{"hypothesis_id": "h1", "verdict": "confirmed"}])
+        assert h.status == HypothesisStatus.PROPOSED
+        engine.emit_event.assert_not_called()
+
+    def test_confirmed_to_supported(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        _e, handler, _wm, h = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus, flag=True)
+        handler.revise_from_prereg_verdicts(
+            [{"hypothesis_id": "h1", "verdict": PredictionVerdict.CONFIRMED.value}]
+        )
+        assert h.status == HypothesisStatus.SUPPORTED
+
+    def test_refuted_to_contradicted(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        _e, handler, _wm, h = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus, flag=True)
+        handler.revise_from_prereg_verdicts(
+            [{"hypothesis_id": "h1", "verdict": PredictionVerdict.REFUTED.value}]
+        )
+        assert h.status == HypothesisStatus.CONTRADICTED
+
+    def test_inconclusive_to_under_investigation(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        _e, handler, _wm, h = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus, flag=True)
+        handler.revise_from_prereg_verdicts(
+            [{"hypothesis_id": "h1", "verdict": PredictionVerdict.INCONCLUSIVE.value}]
+        )
+        assert h.status == HypothesisStatus.UNDER_INVESTIGATION
+
+    def test_unknown_verdict_and_missing_id_skipped(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        engine, handler, _wm, h = self._setup(
+            mock_config, tmp_db, tmp_logger, mock_corpus, flag=True
+        )
+        handler.revise_from_prereg_verdicts(
+            [{"hypothesis_id": "h1", "verdict": "garbage"}, {"verdict": "confirmed"}]
+        )
+        assert h.status == HypothesisStatus.PROPOSED
+        engine.emit_event.assert_not_called()

@@ -16,6 +16,7 @@ from paradigm.knowledge.models import (
     EvidenceSource,
     Hypothesis,
     HypothesisStatus,
+    PredictionVerdict,
     Relationship,
     RelationshipType,
     ResearchGoal,
@@ -203,6 +204,7 @@ class WorldModelHandler:
                         },
                         agent=agent_id,
                     )
+                    self._maybe_revise_from_evidence(hyp_id)
 
         # Parse entity relationships: [RELATION: A | relation_type | B]
         for match in _RELATION_TAG_RE.finditer(content):
@@ -326,6 +328,77 @@ class WorldModelHandler:
             payload.update(extra)
         self._engine.emit_event("hypothesis.updated", payload)
         return True
+
+    def _maybe_revise_from_evidence(self, hyp_id: str) -> None:
+        """Revise a hypothesis's status from its accumulated evidence (C2 step 4).
+
+        Active only under ``unified_hypotheses``. Flips a hypothesis to CONTRADICTED
+        when contradicting evidence dominates, or SUPPORTED (with a confidence bump)
+        when supporting evidence dominates — using the configured thresholds. Routes
+        through :meth:`revise_hypothesis` so the change is auditable and emits an
+        event. This is what makes beliefs MOVE during a cycle (not just at the
+        single tournament).
+        """
+        cfg = self._engine._config.knowledge
+        if not cfg.unified_hypotheses:
+            return
+        wm = self._engine.state.world_model
+        if wm is None:
+            return
+        hyp = wm.get_hypothesis(hyp_id)
+        if hyp is None:
+            return
+        sup = len(hyp.supporting_evidence_ids)
+        con = len(hyp.contradicting_evidence_ids)
+
+        new_status: HypothesisStatus | None = None
+        new_confidence: ConfidenceLevel | None = None
+        if con >= cfg.belief_contradict_min and con > sup:
+            new_status = HypothesisStatus.CONTRADICTED
+        elif sup >= cfg.belief_support_min and sup > 2 * con:
+            new_status = HypothesisStatus.SUPPORTED
+            new_confidence = ConfidenceLevel.HIGH
+
+        if new_status is not None and hyp.status != new_status:
+            self.revise_hypothesis(
+                hyp_id,
+                status=new_status,
+                confidence=new_confidence,
+                reason=f"evidence {sup}+/{con}-",
+                source="evidence",
+            )
+
+    _PREREG_VERDICT_TO_STATUS = {
+        PredictionVerdict.CONFIRMED: HypothesisStatus.SUPPORTED,
+        PredictionVerdict.REFUTED: HypothesisStatus.CONTRADICTED,
+        PredictionVerdict.INCONCLUSIVE: HypothesisStatus.UNDER_INVESTIGATION,
+    }
+
+    def revise_from_prereg_verdicts(self, verdicts: list[dict[str, str]]) -> None:
+        """Map frozen pre-registration verdicts onto hypothesis status (C2 step 4).
+
+        CONFIRMED→SUPPORTED, REFUTED→CONTRADICTED, INCONCLUSIVE→UNDER_INVESTIGATION.
+        Active only under ``unified_hypotheses`` (the canonical world model owns the
+        hypotheses the verdicts reference). Each maps through
+        :meth:`revise_hypothesis` with source="experiment".
+        """
+        if not self._engine._config.knowledge.unified_hypotheses:
+            return
+        for v in verdicts:
+            try:
+                verdict = PredictionVerdict(v.get("verdict", ""))
+            except ValueError:
+                continue
+            status = self._PREREG_VERDICT_TO_STATUS.get(verdict)
+            hyp_id = v.get("hypothesis_id", "")
+            if status is None or not hyp_id:
+                continue
+            self.revise_hypothesis(
+                hyp_id,
+                status=status,
+                reason=f"prereg {verdict.value}",
+                source="experiment",
+            )
 
     # ------------------------------------------------------------------
     # Persistence

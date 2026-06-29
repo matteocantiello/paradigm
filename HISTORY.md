@@ -4759,3 +4759,13 @@ New module `knowledge/hypothesis_matching.py`: `normalize_statement()` + a `Hypo
 > yes
 
 Committing C2 step 3, then building step 4: route evidence-driven + prereg-verdict status changes through `revise_hypothesis`. (a) Evidence rule — after `link_evidence_to_hypothesis`, evaluate the support/contradict counts and revise status (CONTRADICTED when contra≥2 & contra>support; SUPPORTED when support≥3 & support>2·contra) with config knobs. (b) Prereg verdict — CONFIRMED→SUPPORTED, REFUTED→CONTRADICTED, INCONCLUSIVE→UNDER_INVESTIGATION. Gated behind `knowledge.unified_hypotheses`. This is what makes beliefs MOVE during a cycle.
+
+### Prompt 209 — result: C2 step 4 built + verified
+
+Two belief-revision drivers, both routed through `revise_hypothesis`, both gated on `unified_hypotheses`. Config knobs added to `KnowledgeConfig`: `belief_support_min=3`, `belief_contradict_min=2`. (a) **Evidence rule** — new `WorldModelHandler._maybe_revise_from_evidence(hyp_id)` called right after each `link_evidence_to_hypothesis` in `update_from_agent_response`: CONTRADICTED when `contra ≥ belief_contradict_min and contra > support`; SUPPORTED (+confidence HIGH) when `support ≥ belief_support_min and support > 2·contra`; else no change (only emits on an actual status change). (b) **Prereg verdict** — new `revise_from_prereg_verdicts(verdicts)` (CONFIRMED→SUPPORTED, REFUTED→CONTRADICTED, INCONCLUSIVE→UNDER_INVESTIGATION; unknown/missing skipped), called in `engine.py` right after `self._prereg.evaluate(...)`. +10 tests (evidence: flag-off no-op, contra-dominates→CONTRADICTED w/ source, support-dominates→SUPPORTED+HIGH, below-threshold no-change, integration via [EVIDENCE:] tags flips to CONTRADICTED; prereg: flag-off no-op, confirmed/refuted/inconclusive mappings, unknown-verdict+missing-id skipped). VERIFIED: targeted 92 pass, ruff clean+formatted, full suite **1687 passed** (same 7 env-only failures). NOT committed. NEXT = step 5 (Swiss pairing + population 8 — default is already 8; production.yaml=4; main work is bounded Swiss pairing for n>4).
+
+## Prompt 210 — Commit step 4, then build C2 step 5
+
+> yes
+
+Committing C2 step 4, then building step 5: bounded **Swiss pairing** so a larger tournament population doesn't blow up judge calls. Add a Swiss mode to `HypothesisPopulation.generate_matchups` (~⌈log2 n⌉ rounds, Elo-seeded, deterministic) used for n>4; keep round-robin for n≤4. Wire the tournament to run rounds adaptively + emit per-round events. Raise production.yaml tournament_population_size 4→8 (default is already 8). Gated/safe — Swiss only triggers at larger n.

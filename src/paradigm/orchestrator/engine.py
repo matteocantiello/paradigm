@@ -560,6 +560,9 @@ class OrchestrationEngine:
             # refuted hypotheses are reported honestly (and are publishable).
             if self._config.knowledge.enable_preregistration and self.state.registered_rules:
                 verdicts = self._prereg.evaluate(exp_result.experiment_metadata)
+                # C2 step 4: a confirmed/refuted prediction revises its hypothesis's
+                # status in the canonical world model (no-op unless unified_hypotheses).
+                self._world_model.revise_from_prereg_verdicts(verdicts)
                 for v in verdicts:
                     self._display.info(f"Pre-registration verdict [{v['verdict']}]: {v['detail']}")
 

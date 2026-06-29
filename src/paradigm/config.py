@@ -282,6 +282,10 @@ class KnowledgeConfig(BaseModel):
     # of re-extracting a fresh ≤N set from the discussion, so Elo/status mutate the same
     # objects the rest of the world model references. Off by default (opt-in / A/B).
     unified_hypotheses: bool = False
+    # Evidence-driven belief revision (C2 step 4, active only under unified_hypotheses):
+    # a hypothesis flips status once its accumulated evidence crosses these thresholds.
+    belief_support_min: int = 3  # min supporting evidence to mark SUPPORTED
+    belief_contradict_min: int = 2  # min contradicting evidence to mark CONTRADICTED
     # Pre-registration / falsifiability (Phase 1A). Off by default.
     enable_preregistration: bool = False
     prereg_require_refutation: bool = True  # reject hypotheses lacking a refutation condition
