@@ -188,6 +188,34 @@ class TestBuildReferences:
         assert refs[0].arxiv_id == ""
         assert refs[0].url == "https://example.com/paper"
 
+    @pytest.mark.asyncio
+    async def test_arxiv_fallback_datetime_published_yields_year(self):
+        """The arXiv metadata fallback must extract the year from a datetime.
+
+        Regression: ArxivPaper.published is a ``datetime`` and the old code did
+        ``published[:4]``, raising ``'datetime.datetime' object is not
+        subscriptable`` once per cycle (S2 didn't resolve → arXiv fallback ran).
+        """
+        from datetime import datetime
+        from types import SimpleNamespace
+
+        paper = SimpleNamespace(
+            arxiv_id="2401.12345",
+            title="A Resolved Paper",
+            authors=["Ada Lovelace", "Alan Turing"],
+            published=datetime(2024, 3, 7),
+        )
+        mock_arxiv = AsyncMock()
+        mock_arxiv.get_papers = AsyncMock(return_value=[paper])
+
+        # s2_client=None forces the arXiv batch branch (the one that crashed).
+        builder = BibliographyBuilder(arxiv_client=mock_arxiv, s2_client=None)
+        refs = await builder.build_references(["https://arxiv.org/abs/2401.12345"])
+
+        assert len(refs) == 1
+        assert refs[0].title == "A Resolved Paper"
+        assert refs[0].year == "2024"  # would have raised TypeError before the fix
+
 
 # ---------------------------------------------------------------------------
 # Metadata resolution: batched, exact-id, with S2->arXiv fallback (C2)

@@ -73,6 +73,31 @@ class TestParseSearchRequestsTargeted:
         assert result[1] == ("specific query", "pubmed")
         assert result[2] == ("another specific", "arxiv")
 
+    def test_spaced_provider_routes(self):
+        """Agents write '[SEARCH: pubmed: q]' (space after SEARCH:) — must still route.
+
+        Regression: before the leading \\s* in the regex, the spaced form failed
+        to match the provider group, so the provider was dropped AND its name
+        leaked into the query as noise ('pubmed: gene expression').
+        """
+        result = parse_search_requests("[SEARCH: pubmed: gene expression]")
+        assert result == [("gene expression", "pubmed")]
+
+    def test_spaced_provider_semantic_scholar(self):
+        result = parse_search_requests("[SEARCH: semantic_scholar: melanopic equivalent]")
+        assert result == [("melanopic equivalent", "semantic_scholar")]
+
+    def test_spaced_provider_does_not_leak_into_query(self):
+        """The provider token must not survive in the query string."""
+        ((query, provider),) = parse_search_requests("[SEARCH: arxiv: cepheid period]")
+        assert provider == "arxiv"
+        assert "arxiv" not in query.lower()
+
+    def test_spaced_plain_query_no_false_provider(self):
+        """A spaced plain query whose first word lacks a colon stays untargeted."""
+        result = parse_search_requests("[SEARCH: eye strain late night]")
+        assert result == [("eye strain late night", None)]
+
     def test_deduplication_across_providers(self):
         """Same query text with different providers should NOT be deduped."""
         text = "[SEARCH:arxiv: cepheid] and [SEARCH:pubmed: cepheid]"

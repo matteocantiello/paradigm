@@ -28,9 +28,13 @@ _SENTENCE_END = re.compile(r"[.!?]\s")
 # Maximum query length for arXiv API
 _MAX_QUERY_LENGTH = 300
 
-# Match [SEARCH: query] or [SEARCH:provider: query] markers in agent text
+# Match [SEARCH: query] or [SEARCH: provider: query] markers in agent text.
+# Whitespace after "SEARCH:" is tolerated — agents naturally write
+# "[SEARCH: pubmed: ...]" (with a space, like every other directive). Without
+# the leading \s* the provider group never matched the spaced form, so the
+# provider name leaked into the query as noise tokens and routing was lost.
 _SEARCH_REQUEST_RE = re.compile(
-    r"\[SEARCH:(?:([a-z_]+):\s*)?([^\]]+?)\]",
+    r"\[SEARCH:\s*(?:([a-z_]+):\s*)?([^\]]+?)\]",
     re.IGNORECASE,
 )
 

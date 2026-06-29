@@ -56,6 +56,21 @@ def _chunked(items: list, size: int):
         yield items[i : i + size]
 
 
+def _year_str(published: object) -> str:
+    """Extract a 4-digit year from a ``datetime`` or an ISO date string.
+
+    ``ArxivPaper.published`` is a ``datetime`` (real provider), but some paths and
+    tests hand us an ISO string. The old ``published[:4]`` slice crashed on the
+    datetime with ``'datetime.datetime' object is not subscriptable`` once per
+    cycle in the arXiv citation-metadata fallback — handle both shapes.
+    """
+    if not published:
+        return ""
+    if hasattr(published, "strftime"):
+        return published.strftime("%Y")
+    return str(published)[:4]
+
+
 def _apply_paper(ref: Reference, *, title: str, authors: list[str], year: str) -> None:
     ref.title = title
     ref.authors = ", ".join(authors[:3]) + (" et al." if len(authors) > 3 else "")
@@ -201,7 +216,7 @@ class BibliographyBuilder:
                                 ref,
                                 title=p.title,
                                 authors=p.authors,
-                                year=p.published[:4] if p.published else "",
+                                year=_year_str(p.published),
                             )
 
         still_missing = sum(1 for refs in id_to_refs.values() if not refs[0].title)

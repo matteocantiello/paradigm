@@ -4675,3 +4675,23 @@ DATA LAYER (the world model was edge-less — relationships never created, evide
 C1 RETIRE STANDALONE: deleted `src/paradigm/dashboard/` (server) + `dashboard/` (standalone React app); removed the `paradigm dashboard` CLI command, `paradigm run --dashboard/--dashboard-port` flags, and the `dashboard` pip extra; cleaned dead .gitignore lines. The Observatory (backend :8000 + frontend) is now the single app — the durable event stream lives behind /sessions/{id}/event-stream + /artifacts. (Kept scripts/check_events.py + generate_demo_events.py as dev utilities.) C3 DEDUP LITERATURE: the live session had both the Literature constellation tab AND the old list drawer; the "papers" stat click now switches the RightPanel to the Literature tab (uiStore.setRightPanelTab) and the LiteraturePanel drawer was removed/deleted — one literature surface. C2 (tournament/world-model hypothesis-set unification): DEFERRED — the all-1500 symptom was the judge-truncation bug (fixed Prompt 198); truly merging the LLM-extracted tournament set with the tag-parsed world-model set is a research-behavior change I won't make blind. C4 polish: good empty states already added across constellation/knowledge-graph/replay. VERIFIED: CLI has no dashboard command/flag, backend+CLI import clean, ruff clean, suite 1650, frontend build clean. Deploy = backend restart + frontend rebuild.
 
 **Visual-interface 3-phase plan COMPLETE** (A figures, B world-model graph, C consolidation). All on responsive-live-progress.
+
+## Prompt 202 — Session resume: get back up to speed
+
+> Let's get back to work with paradigm. Please get back up to speed about this project first
+
+Re-orienting at the start of a new session. State of play: branch `responsive-live-progress` is in sync with origin (0 ahead/0 behind), HEAD `528f03d`. The Visual-interface 3-phase plan (A/B/C, Prompt 201) is complete and committed. Untracked scratch files present (PROMPT-*.md, configs/selftest-exp.yaml, data_validate/, paper-*.pdf) — none staged. Awaiting next direction.
+
+## Prompt 203 — Analyze VM research loops + fix the two confirmed bugs
+
+> [retrieve VM logs] ... Please do a careful analysis of the most recent research loops → Yes let's fix the two bugs first
+
+Copied `/var/lib/paradigm/data` from the VM to local `data_vm/` and analyzed the 8 most recent loops (Jun 10–24) + the 623 error events in the global `events.jsonl`. Key findings: (1) **`bibliography.py:204` `year=p.published[:4]`** subscripts a `datetime` → `TypeError` once per cycle in the arXiv citation-metadata fallback (degrades citation years/grounding); (2) **`parse_search_requests` regex** only routes `[SEARCH:provider: q]` with NO space — agents write `[SEARCH: provider: q]` (with space) → provider not routed + the literal provider name leaks into the query as noise (verified: same OLED topic got 0 vs 67 papers). Also surfaced (not fixed this prompt): S2 429 ×288 / Perplexity 401 ×38 (VM keys), team-composition-without-experimentalist → revision_exhausted (2/2), tournament rationales always empty, ~4 of 55–107 hypotheses ever enter the tournament (no consolidation), 75 LLM-JSON parse failures. FIXING the two confirmed code bugs now (with tests).
+
+### Prompt 203 — result: both bugs fixed + tested
+
+**Bug 1 (`bibliography.py`):** `year=p.published[:4]` crashed on a `datetime` once per cycle in the arXiv citation-metadata fallback. Root cause is that `published` is polymorphic — a `datetime` from the real `ArxivPaper` but an ISO string in tests/other paths — so the fix is a robust helper `_year_str()` (`strftime("%Y")` for datetimes, `str(...)[:4]` for strings, `""` for falsy) used at the call site. +1 regression test (datetime → "2024"); the existing string-based fallback test still passes.
+
+**Bug 2 (`prompt_utils.py`):** `_SEARCH_REQUEST_RE` only routed `[SEARCH:provider: q]` with NO space; agents write `[SEARCH: provider: q]` (with a space) → provider dropped + name leaked into the query. Fix = `\s*` after `SEARCH:`. +4 regression tests (spaced provider routes, no leak into query, plain spaced query stays untargeted).
+
+VERIFIED: focused suite 101 passed, ruff clean. Full suite 1648 passed; the 7 failures (test_mcp_auth/test_mcp_provider/test_model_catalog) are PRE-EXISTING and env-only (`mcp` extra not installed in this venv + model-catalog live-fetch) — confirmed identical on a clean `git stash` tree, untouched by these changes. Not yet committed.
