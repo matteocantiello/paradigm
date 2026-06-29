@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from paradigm.knowledge.conflict_detection import ConflictDetector
 from paradigm.knowledge.evidence_graph import ConflictEdge, EvidenceGraph
+from paradigm.knowledge.hypothesis_matching import HypothesisMatcher, NormalizedMatcher
 from paradigm.knowledge.models import (
     ConfidenceLevel,
     Entity,
@@ -55,6 +56,9 @@ class WorldModelHandler:
 
     def __init__(self, engine: OrchestrationEngine) -> None:
         self._engine = engine
+        # Pluggable de-dup seam (C2 step 3): the conservative normalized matcher
+        # ships first; a paraphrase-aware embedding matcher can replace it here.
+        self._hypothesis_matcher: HypothesisMatcher = NormalizedMatcher()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -134,8 +138,23 @@ class WorldModelHandler:
             )
 
         # Parse hypotheses
+        dedup = self._engine._config.knowledge.unified_hypotheses
         for match in _HYPOTHESIS_TAG_RE.finditer(content):
             statement = match.group(1).strip()
+            if not statement:
+                continue
+            # Dedup-at-creation (C2 step 3, flag-gated): fold a restatement into the
+            # existing hypothesis instead of minting a near-duplicate — this is what
+            # collapses the ~100-per-cycle explosion (legacy path: always create).
+            if dedup:
+                dup_id = self._hypothesis_matcher.find_duplicate(statement, wm.hypotheses.values())
+                if dup_id is not None:
+                    self._engine.emit_event(
+                        "hypothesis.merged",
+                        {"into_id": dup_id, "statement": statement},
+                        agent=agent_id,
+                    )
+                    continue
             hyp = Hypothesis(statement=statement)
             wm.add_hypothesis(hyp)
             self._engine.emit_event(

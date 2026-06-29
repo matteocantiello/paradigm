@@ -575,3 +575,59 @@ class TestReviseHypothesis:
         engine.state.world_model = None
         assert handler.revise_hypothesis("x", status=HypothesisStatus.SUPPORTED) is False
         engine.emit_event.assert_not_called()
+
+
+class TestDedupAtCreation:
+    """C2 step 3: dedup-at-creation in update_from_agent_response (flag-gated)."""
+
+    def _handler(self, mock_config, tmp_db, tmp_logger, mock_corpus, *, dedup):
+        engine = _build_engine(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine._config.knowledge.unified_hypotheses = dedup
+        handler = WorldModelHandler(engine)
+        engine.state.world_model = WorldModel()
+        engine.emit_event = MagicMock()
+        return engine, handler
+
+    def test_flag_off_creates_duplicates(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler = self._handler(mock_config, tmp_db, tmp_logger, mock_corpus, dedup=False)
+        handler.update_from_agent_response("a", "[HYPOTHESIS: X drives Y]", "ideation")
+        handler.update_from_agent_response("a", "[HYPOTHESIS:  x  DRIVES  y ]", "ideation")
+        # Legacy path: both created (no dedup).
+        assert len(engine.state.world_model.hypotheses) == 2
+
+    def test_flag_on_folds_restatement(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler = self._handler(mock_config, tmp_db, tmp_logger, mock_corpus, dedup=True)
+        handler.update_from_agent_response("a", "[HYPOTHESIS: X drives Y]", "ideation")
+        handler.update_from_agent_response("a", "[HYPOTHESIS:  x  DRIVES  y ]", "ideation")
+
+        # Only one hypothesis; the restatement was folded.
+        assert len(engine.state.world_model.hypotheses) == 1
+        types = [c.args[0] for c in engine.emit_event.call_args_list]
+        assert types.count("hypothesis.created") == 1
+        assert types.count("hypothesis.merged") == 1
+
+        orig_id = next(iter(engine.state.world_model.hypotheses))
+        merged_payload = next(
+            c.args[1] for c in engine.emit_event.call_args_list if c.args[0] == "hypothesis.merged"
+        )
+        assert merged_payload["into_id"] == orig_id
+
+    def test_flag_on_distinct_creates_both(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler = self._handler(mock_config, tmp_db, tmp_logger, mock_corpus, dedup=True)
+        handler.update_from_agent_response("a", "[HYPOTHESIS: X drives Y]", "ideation")
+        handler.update_from_agent_response("a", "[HYPOTHESIS: Z blocks W]", "ideation")
+        assert len(engine.state.world_model.hypotheses) == 2
+
+    def test_matcher_is_pluggable(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        """Swapping the matcher changes dedup behavior — proving the seam."""
+        engine, handler = self._handler(mock_config, tmp_db, tmp_logger, mock_corpus, dedup=True)
+
+        class _AlwaysFirst:
+            def find_duplicate(self, statement, existing):
+                return next((h.id for h in existing), None)
+
+        handler._hypothesis_matcher = _AlwaysFirst()
+        handler.update_from_agent_response("a", "[HYPOTHESIS: X drives Y]", "ideation")
+        # A distinct statement still folds because the stub matcher always matches.
+        handler.update_from_agent_response("a", "[HYPOTHESIS: totally unrelated]", "ideation")
+        assert len(engine.state.world_model.hypotheses) == 1

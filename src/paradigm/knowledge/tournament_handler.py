@@ -7,6 +7,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 
+from paradigm.knowledge.hypothesis_matching import normalize_statement
 from paradigm.knowledge.hypothesis_tournament import (
     HypothesisPopulation,
     MatchupResult,
@@ -26,16 +27,6 @@ _WINNER_RE = re.compile(
     r'"?winner"?\s*(?:is\s+|[:=]\s*)"?\s*(hypothesis\s*)?([ABab12])', re.IGNORECASE
 )
 _MARGIN_RE = re.compile(r'"?margin"?\s*[:=]\s*"?\s*(\d*\.?\d+)', re.IGNORECASE)
-
-
-def _normalize_statement(statement: str) -> str:
-    """Normalize a hypothesis statement for light de-duplication.
-
-    Lowercase + whitespace-collapse — catches literal restatements (the bulk of
-    the ~100-per-cycle hypothesis explosion). Semantic/paraphrase dedup is a later
-    step (creation-time, behind a pluggable matcher).
-    """
-    return " ".join(statement.lower().split())
 
 
 def _first_json_object(text: str) -> dict | None:
@@ -124,7 +115,7 @@ class TournamentHandler:
         for h in candidates:
             if not h.statement.strip():
                 continue
-            key = _normalize_statement(h.statement)
+            key = normalize_statement(h.statement)
             if key in seen:
                 continue
             seen.add(key)

@@ -4749,3 +4749,13 @@ Added `knowledge.unified_hypotheses: bool = False` (config.py). When True, `run_
 > Yes
 
 Committing C2 step 2, then building step 3: dedup-at-creation in `world_model_handler.update_from_agent_response` — when a `[HYPOTHESIS:]` tag matches an existing hypothesis (via a PLUGGABLE matcher, normalized-statement first), don't mint a new one; emit `hypothesis.merged` instead of `hypothesis.created`. Per the step-2 A/B finding, normalized matching only catches literal restatements (the minority), so the pluggable interface is what lets the semantic tier drop in later. Gated behind `knowledge.unified_hypotheses`.
+
+### Prompt 208 — result: C2 step 3 built + verified
+
+New module `knowledge/hypothesis_matching.py`: `normalize_statement()` + a `HypothesisMatcher` Protocol + the default `NormalizedMatcher` (exact match on normalized statement). DRY: `tournament_handler` now imports `normalize_statement` (removed its local `_normalize_statement`). `world_model_handler`: holds `self._hypothesis_matcher: HypothesisMatcher = NormalizedMatcher()` (the pluggable seam — swap in embeddings here later); in `update_from_agent_response`, when `unified_hypotheses` is ON, a `[HYPOTHESIS:]` whose statement matches an existing one emits `hypothesis.merged {into_id, statement}` instead of creating a new hypothesis (flag OFF = legacy always-create). Added an unconditional blank-statement guard (never mint an empty hypothesis). Frontend-safe: the new `hypothesis.merged` type is ignored by the reducers' switch until step 7 handles it (and the flag is off in prod). +11 tests (`test_hypothesis_matching.py`: normalize + NormalizedMatcher 5 cases; `TestDedupAtCreation`: flag-off creates dupes, flag-on folds restatement w/ correct into_id, flag-on distinct creates both, matcher-is-pluggable via a stub). VERIFIED: targeted 89 pass, ruff clean+formatted, full suite **1677 passed** (same 7 env-only failures). NOT committed. NEXT = step 4 (evidence-driven + prereg-verdict status revision through `revise_hypothesis`).
+
+## Prompt 209 — Commit step 3, then build C2 step 4
+
+> yes
+
+Committing C2 step 3, then building step 4: route evidence-driven + prereg-verdict status changes through `revise_hypothesis`. (a) Evidence rule — after `link_evidence_to_hypothesis`, evaluate the support/contradict counts and revise status (CONTRADICTED when contra≥2 & contra>support; SUPPORTED when support≥3 & support>2·contra) with config knobs. (b) Prereg verdict — CONFIRMED→SUPPORTED, REFUTED→CONTRADICTED, INCONCLUSIVE→UNDER_INVESTIGATION. Gated behind `knowledge.unified_hypotheses`. This is what makes beliefs MOVE during a cycle.
