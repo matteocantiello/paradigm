@@ -12,6 +12,7 @@ from paradigm.config import Config
 from paradigm.knowledge.hypothesis_tournament import (
     HypothesisPopulation,
     MatchupResult,
+    swiss_num_rounds,
 )
 from paradigm.knowledge.models import Hypothesis
 from paradigm.knowledge.tournament_handler import (
@@ -630,3 +631,83 @@ class TestUnifiedTournament:
         assert any(h.elo_rating != 1500.0 for h in (a, b, c))
         # Winners come from the canonical set.
         assert winners and all(w in (a, b, c) for w in winners)
+
+
+# ===========================================================================
+# C2 step 5 — Swiss pairing (bounded judge calls for a larger field)
+# ===========================================================================
+
+
+class TestSwissPairing:
+    def _pop(self, n: int) -> HypothesisPopulation:
+        return HypothesisPopulation([Hypothesis(id=f"h{i}", statement=f"H{i}") for i in range(n)])
+
+    def test_num_rounds(self):
+        assert swiss_num_rounds(1) == 0
+        assert swiss_num_rounds(2) == 1
+        assert swiss_num_rounds(3) == 2
+        assert swiss_num_rounds(4) == 2
+        assert swiss_num_rounds(5) == 3
+        assert swiss_num_rounds(8) == 3
+        assert swiss_num_rounds(9) == 4
+
+    def test_round_pairs_everyone_when_even(self):
+        pairs = self._pop(4).generate_swiss_round(set())
+        assert len(pairs) == 2
+        assert len({x for p in pairs for x in p}) == 4
+
+    def test_odd_field_gives_a_bye(self):
+        pairs = self._pop(5).generate_swiss_round(set())
+        assert len(pairs) == 2  # 2 matches, 1 competitor byed
+        assert len({x for p in pairs for x in p}) == 4
+
+    def test_avoids_rematch(self):
+        pop = self._pop(4)
+        r1 = pop.generate_swiss_round(set())
+        played = {frozenset(p) for p in r1}
+        r2 = pop.generate_swiss_round(played)
+        assert all(frozenset(p) not in played for p in r2)
+
+    def test_rematch_allowed_when_no_fresh_opponent(self):
+        pop = self._pop(2)
+        played = {frozenset(("h0", "h1"))}
+        pairs = pop.generate_swiss_round(played)
+        assert len(pairs) == 1 and set(pairs[0]) == {"h0", "h1"}
+
+    def test_deterministic(self):
+        pop = self._pop(6)
+        assert pop.generate_swiss_round(set()) == pop.generate_swiss_round(set())
+
+    @pytest.mark.asyncio
+    async def test_large_field_uses_swiss_bounded_matchups(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        engine = _build_engine(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine._config.knowledge.unified_hypotheses = True
+        engine._config.knowledge.tournament_population_size = 8
+        engine._config.knowledge.tournament_winners = 2
+        handler = TournamentHandler(engine)
+
+        wm = WorldModel()
+        engine.state.world_model = wm
+        for i in range(8):
+            wm.add_hypothesis(Hypothesis(statement=f"Hypothesis number {i}"))
+
+        mock_provider = MagicMock()
+        mock_provider.complete = MagicMock(
+            return_value=(
+                json.dumps({"winner": "A", "reasoning": "A wins", "margin": 0.6}),
+                50,
+                30,
+            )
+        )
+        object.__setattr__(
+            engine._config,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(mock_provider, "test-model", None)),
+        )
+
+        await handler.run_tournament()
+        n_matchups = len(handler.get_tournament_data()["matchup_results"])
+        # Swiss: 3 rounds x 4 = 12, far below round-robin's C(8,2) = 28.
+        assert n_matchups == 12

@@ -170,8 +170,10 @@ knowledge:
   world_model_max_context_chars: 3000
   enable_evidence_graph: true
   enable_hypothesis_tournament: true
-  tournament_population_size: 4
-  tournament_winners: 1
+  # Swiss pairing bounds the judge calls (~12 at n=8 vs round-robin's 28), so a
+  # larger field is affordable — more hypotheses actually compete (C2 step 5).
+  tournament_population_size: 8
+  tournament_winners: 2
   enable_preregistration: false
 
 journal:

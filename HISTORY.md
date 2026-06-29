@@ -4769,3 +4769,13 @@ Two belief-revision drivers, both routed through `revise_hypothesis`, both gated
 > yes
 
 Committing C2 step 4, then building step 5: bounded **Swiss pairing** so a larger tournament population doesn't blow up judge calls. Add a Swiss mode to `HypothesisPopulation.generate_matchups` (~⌈log2 n⌉ rounds, Elo-seeded, deterministic) used for n>4; keep round-robin for n≤4. Wire the tournament to run rounds adaptively + emit per-round events. Raise production.yaml tournament_population_size 4→8 (default is already 8). Gated/safe — Swiss only triggers at larger n.
+
+### Prompt 210 — result: C2 step 5 built + verified
+
+`hypothesis_tournament.py`: `swiss_num_rounds(n)` (~⌈log2 n⌉, 0 for n<2) + `HypothesisPopulation.generate_swiss_round(played)` — adjacent Elo-seeded pairing, avoids rematches (uses a `played` set of frozensets), allows a rematch only when every opponent is exhausted, byes the odd competitor out; deterministic (no RNG). `tournament_handler.run_tournament`: branches on `_ROUND_ROBIN_MAX=4` — round-robin for n≤4, Swiss for n>4 with `record_result` updating Elo BETWEEN rounds so each round pairs on current standings; extracted a `_judge_and_record` helper (DRY); failure-surfacing now counts `attempted` (round-robin len, or sum of Swiss round sizes). production.yaml: tournament_population_size 4→8, winners 1→2 (default was already 8). +7 tests (swiss_num_rounds table; even→all-paired, odd→bye, avoids-rematch, rematch-when-exhausted, deterministic; integration: 8-hypothesis unified tournament judges exactly **12** matchups = 3 rounds × 4, vs round-robin's C(8,2)=28). VERIFIED: tournament suite 41 pass, ruff clean+formatted, full suite **1694 passed** (same 7 env-only failures). NOT committed. NEXT = step 6 (judge-reasoning salvage + shared tolerant-JSON helper — fixes the always-empty tournament rationales AND the 75 JSONDecodeErrors; the highest-value remaining fix).
+
+## Prompt 211 — Commit step 5, then build C2 step 6
+
+> yes
+
+Committing C2 step 5, then building step 6: (a) extract a shared tolerant-JSON helper (`knowledge/json_utils.py`) with first-object extraction + truncation recovery; (b) make `parse_judge_verdict`'s fallback SALVAGE the reasoning (regex/prose) instead of hardcoding "" → fills the always-empty tournament rationales; (c) migrate the two fragile naive-json.loads sites (`tournament_handler` hypothesis extraction + `preregistration` rule authoring) onto the shared helper + add a `metadata_key` so failures are attributable → kills the 75 JSONDecodeErrors. Not flag-gated (pure robustness; helps the legacy path too).

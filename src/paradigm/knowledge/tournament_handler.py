@@ -11,6 +11,7 @@ from paradigm.knowledge.hypothesis_matching import normalize_statement
 from paradigm.knowledge.hypothesis_tournament import (
     HypothesisPopulation,
     MatchupResult,
+    swiss_num_rounds,
 )
 from paradigm.knowledge.models import Hypothesis, HypothesisStatus
 
@@ -27,6 +28,9 @@ _WINNER_RE = re.compile(
     r'"?winner"?\s*(?:is\s+|[:=]\s*)"?\s*(hypothesis\s*)?([ABab12])', re.IGNORECASE
 )
 _MARGIN_RE = re.compile(r'"?margin"?\s*[:=]\s*"?\s*(\d*\.?\d+)', re.IGNORECASE)
+
+# Round-robin (O(n²)) is fine for a small field; above this, switch to Swiss pairing.
+_ROUND_ROBIN_MAX = 4
 
 
 def _first_json_object(text: str) -> dict | None:
@@ -124,6 +128,22 @@ class TournamentHandler:
                 break
         return selected
 
+    async def _judge_and_record(
+        self,
+        population: HypothesisPopulation,
+        hyp_a_id: str,
+        hyp_b_id: str,
+        matchup_results: list[MatchupResult],
+    ) -> None:
+        """Judge one matchup and, if it parsed, record it (updating Elo)."""
+        result = await self._judge_matchup(
+            population.hypotheses[hyp_a_id],
+            population.hypotheses[hyp_b_id],
+        )
+        if result is not None:
+            population.record_result(result)
+            matchup_results.append(result)
+
     async def run_tournament(self) -> list[Hypothesis]:
         """Run a full hypothesis tournament.
 
@@ -169,17 +189,27 @@ class TournamentHandler:
             k_factor=config.tournament_k_factor,
         )
 
-        # Step 3: Generate matchups and judge
-        matchups = population.generate_matchups()
+        # Step 3: Judge matchups — round-robin for a small field, Swiss for a larger
+        # one (Swiss caps judge calls at ~⌈log2 n⌉·n/2 instead of round-robin's n²).
+        # record_result updates Elo between Swiss rounds, so each round pairs on the
+        # current standings.
         matchup_results: list[MatchupResult] = []
-        for hyp_a_id, hyp_b_id in matchups:
-            result = await self._judge_matchup(
-                population.hypotheses[hyp_a_id],
-                population.hypotheses[hyp_b_id],
-            )
-            if result is not None:
-                population.record_result(result)
-                matchup_results.append(result)
+        attempted = 0
+        if len(hypotheses) <= _ROUND_ROBIN_MAX:
+            pairs = population.generate_matchups()
+            attempted = len(pairs)
+            for hyp_a_id, hyp_b_id in pairs:
+                await self._judge_and_record(population, hyp_a_id, hyp_b_id, matchup_results)
+        else:
+            played: set[frozenset[str]] = set()
+            for _round in range(swiss_num_rounds(len(hypotheses))):
+                round_pairs = population.generate_swiss_round(played)
+                if not round_pairs:
+                    break
+                attempted += len(round_pairs)
+                for hyp_a_id, hyp_b_id in round_pairs:
+                    played.add(frozenset((hyp_a_id, hyp_b_id)))
+                    await self._judge_and_record(population, hyp_a_id, hyp_b_id, matchup_results)
 
         # Store for external access
         self._last_population = population
@@ -198,8 +228,8 @@ class TournamentHandler:
         # Surface judging failures — otherwise an all-failed tournament looks
         # "complete" with every hypothesis stuck at the 1500 starting Elo and an
         # arbitrary tie-break "winner".
-        if len(matchup_results) < len(matchups):
-            note = f"tournament: only {len(matchup_results)}/{len(matchups)} matchups were judged"
+        if len(matchup_results) < attempted:
+            note = f"tournament: only {len(matchup_results)}/{attempted} matchups were judged"
             if not matchup_results:
                 note += " — Elo rankings are NOT meaningful (every judge call failed; check the judge model)"
             self._engine._logger.log_error(
