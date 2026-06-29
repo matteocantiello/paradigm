@@ -46,6 +46,8 @@ htmlcov/
 # Data and logs
 data/*
 !data/.gitkeep
+data_vm/
+data_validate/
 *.db
 *.jsonl
 *.log
