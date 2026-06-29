@@ -129,6 +129,10 @@ export function buildKnowledgeGraph(events: ThreadEvent[]): KGraph {
         }
         break;
       }
+      case "hypothesis.merged":
+        // A folded restatement — intentionally no node (the target already exists),
+        // which is how the unified world model collapses the ~100/cycle explosion.
+        break;
       case "claim.extracted":
         if (p.claim_id && !nodes.has(p.claim_id)) {
           nodes.set(p.claim_id, { id: p.claim_id, kind: "claim", label: p.statement ?? p.claim_id });

@@ -137,7 +137,17 @@ export function applyEvent(state: DashboardState, e: Ev): void {
         }
         if (p.selected) h.selected = true;
         if (typeof p.elo === "number") h.elo = p.elo;
+        if (typeof p.reason === "string" && p.reason) h.lastReason = p.reason;
+        if (typeof p.source === "string" && p.source) h.lastSource = p.source;
       }
+      break;
+    }
+
+    case "hypothesis.merged": {
+      // A near-duplicate restatement was folded into an existing hypothesis at
+      // creation time — don't add a node; just count the fold on the target.
+      const h = state.hypotheses.get(p.into_id ?? "");
+      if (h) h.mergedCount = (h.mergedCount ?? 0) + 1;
       break;
     }
 

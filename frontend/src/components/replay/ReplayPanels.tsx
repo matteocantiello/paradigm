@@ -109,6 +109,17 @@ export function ReplayHypotheses({ state }: { state: DashboardState }) {
                       <span className="ml-auto tabular-nums text-primary">Elo {h.elo.toFixed(0)}</span>
                     )}
                   </div>
+                  {(h.lastSource || h.mergedCount) && (
+                    <div className="mt-1 text-[9.5px] text-muted-foreground/80">
+                      {h.lastSource && (
+                        <span>
+                          via {h.lastSource}
+                          {h.lastReason ? `: ${h.lastReason}` : ""}
+                        </span>
+                      )}
+                      {h.mergedCount ? <span className="ml-1">· {h.mergedCount}× restated</span> : null}
+                    </div>
+                  )}
                   {matchups.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {matchups.map((m, i) => {
@@ -329,7 +340,8 @@ function tickLine(e: Ev): string {
     case "paper.read": return `read ${p.paper_id}: ${String(p.title ?? "").slice(0, 44)}`;
     case "citation.followed": return `${p.direction} of ${p.source_paper_id} → ${p.n_found}`;
     case "hypothesis.created": return `hypothesis: ${String(p.statement ?? "").slice(0, 52)}…`;
-    case "hypothesis.updated": return `hypothesis → ${p.status}${p.selected ? " (selected)" : ""}`;
+    case "hypothesis.updated": return `hypothesis → ${p.status}${p.selected ? " (selected)" : ""}${p.source ? ` · ${p.source}` : ""}`;
+    case "hypothesis.merged": return "restatement folded into an existing hypothesis";
     case "tournament.round": return `tournament: ${(p.matchups ?? []).length} matchups`;
     case "claim.extracted": return `claim: ${String(p.statement ?? "").slice(0, 52)}`;
     case "debate.started": return `⚔ ${p.challenger} challenges ${p.defender}`;

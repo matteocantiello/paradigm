@@ -24,6 +24,11 @@ export interface Hypothesis {
   elo?: number;
   history: StatusChange[];
   createdSeq: number;
+  // C2: why/where the last status change came from (tournament | evidence | experiment)
+  // and how many near-duplicate restatements were folded into this hypothesis.
+  lastReason?: string;
+  lastSource?: string;
+  mergedCount?: number;
 }
 
 export interface PaperNode {
