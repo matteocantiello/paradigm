@@ -44,6 +44,32 @@ _INTERNAL_REVIEW_MAX_RETRIES = 2
 # remaining rounds on a paper that won't reach "accept".
 _REVIEW_STALL_LIMIT = 2
 
+# Injected into the internal-editor and peer-review prompts when a cycle produced no
+# experimental results (no figures, no successful code). The default review checklists
+# assume an experimental paper and demand data figures + quantitative evidence; for a
+# literature-synthesis / theoretical paper that bar is unmeetable, which drove the
+# `revision_exhausted` deaths observed on the VM. This re-frames the bar to scholarship
+# and citation quality without lowering rigor.
+_LITERATURE_PAPER_REVIEW_DIRECTIVE = (
+    "\n\n## Paper Type: Literature / Theoretical Contribution\n"
+    "This research cycle did NOT run experiments — the paper has no original "
+    "experimental data, computed quantitative results, or data figures, and is not "
+    "expected to. It is a literature-synthesis or theoretical contribution. Review it "
+    "on that basis:\n"
+    "- **Do NOT require** experimental figures, original datasets, computed statistics, "
+    "or quantitative results the cycle did not produce. Their absence is NOT a defect, "
+    "NOT a required change, and NOT grounds for a lower score.\n"
+    "- **Claim–evidence alignment** here means each major claim is grounded in CITED "
+    "LITERATURE and sound logical/theoretical argument — not original numbers. Judge the "
+    "relevance, accuracy, and sufficiency of the citations and reasoning.\n"
+    "- **Anti-confabulation / execution-fact-sheet checks are N/A** — there is no "
+    "experiment output to cross-reference, so do not penalize its absence.\n"
+    "- A **conceptual figure or schematic (or no figure) is acceptable**; only flag a "
+    "figure the text references but that does not exist.\n"
+    "Hold the paper to a high standard of scholarship, synthesis, and clarity — just not "
+    "to an experimental-results standard it was never meant to meet."
+)
+
 
 class ReviewHandler:
     """Handles internal review, submission, peer review, and revision phases."""
@@ -55,6 +81,21 @@ class ReviewHandler:
     def reset_cycle(self) -> None:
         """Reset review state for a new cycle."""
         self.review_log = []
+
+    def _is_literature_only(self) -> bool:
+        """True when this cycle produced no experimental results to defend.
+
+        A literature-synthesis / theoretical paper legitimately has no original
+        data figures or computed quantitative results, but the editor/peer
+        checklists (which assume an experimental paper) otherwise demand evidence
+        it cannot have — the failure mode behind the ``revision_exhausted`` deaths
+        on the VM. Keyed on the absence of BOTH execution figures and successful
+        experiment code (an experiments-attempted-but-empty cycle aborts before
+        WRITING via ``abort_on_execution_failure``, so reaching review with neither
+        means the paper is genuinely non-experimental).
+        """
+        state = self._engine.state
+        return not state.execution_figures and not state.successful_code
 
     def _get_review_categories(self) -> list[str] | None:
         """Get review score categories from domain profile.
@@ -261,6 +302,12 @@ class ReviewHandler:
                 seed_prompt=self._engine.state.seed_prompt,
                 current_draft=current_body[:_PAPER_CONTEXT_LIMIT],  # Truncate for context window
             )
+
+            # Literature/theory papers have no experimental results — re-frame the
+            # checklist so the editor doesn't demand figures/quantitative evidence the
+            # cycle never produced (the revision_exhausted failure mode).
+            if self._is_literature_only():
+                prompt += _LITERATURE_PAPER_REVIEW_DIRECTIVE
 
             # Inject caveats so editor verifies the paper acknowledges them
             if self._engine.state.execution_caveats:
@@ -655,6 +702,11 @@ class ReviewHandler:
                 current_draft=current_body[:_PAPER_CONTEXT_LIMIT],
                 execution_metadata=execution_metadata,
             )
+
+            # Same literature/theory re-framing for peer review, so the fix doesn't
+            # just move the bottleneck from internal review to peer review.
+            if self._is_literature_only():
+                prompt += _LITERATURE_PAPER_REVIEW_DIRECTIVE
 
             try:
                 response = await agent.generate(prompt)
