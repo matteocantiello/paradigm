@@ -182,7 +182,7 @@ pip install -e ".[openai]"
 
 **Literature Review Mode** --- The `review` mode produces comprehensive field surveys without running experiments. A dedicated document template (literature landscape, thematic analysis, critical assessment, future directions) and review-specific prompts guide systematic synthesis.
 
-**Structured Peer Review** --- Independent reviewer agents score papers on novelty, rigor, clarity, and significance (1--10). Papers can be accepted, revised, or rejected. Rejected papers go to the "graveyard" where future cycles learn from past failures.
+**Structured Peer Review** --- Independent reviewer agents score papers on novelty, rigor, clarity, and significance (1--10). Papers can be accepted, revised, or rejected. Rejected papers go to the "graveyard" where future cycles learn from past failures. For literature-synthesis / theoretical cycles that ran no experiments, the internal-editor and peer-review bar adapts — it judges evidence by cited literature and reasoning rather than demanding experimental figures and quantitative results it can't have.
 
 **Agent Memory** --- Agents build episodic memory across research cycles. Lessons, discoveries, and methodological insights persist and are retrieved via semantic search with recency decay.
 
@@ -201,6 +201,8 @@ Empirical science has no proof checker, so Paradigm manufactures proxy ones. All
 **Tree-search & Step-restart** --- Best-first ordering prefers experiments that haven't failed, and failed multi-step experiments resume from prior artifacts instead of restarting. (`orchestrator.enable_best_first_nodes` / `enable_step_restart`)
 
 **Hybrid Human Gates + Provenance** --- Configurable human checkpoints (`off` / `advisory` / `blocking`, with a no-hook deadlock guard) at problem-selection, pre-registration, and final-verification; every paper records a human-vs-agent provenance chain. (`orchestrator.human_gate_mode`)
+
+**Unified World Model** --- Makes the world model the single hypothesis ledger. Restatements de-duplicate at creation (pluggable matcher), the Elo tournament ranks the *canonical* hypotheses by reference (Swiss pairing keeps a larger field affordable), and beliefs are revised through one auditable path — driven by tournament results, an evidence support/contradict rule, and the pre-registration verdict — so a hypothesis actually moves `proposed → supported / contradicted` as evidence lands. (`knowledge.unified_hypotheses`; design in [`.planning/WORLD-MODEL-UNIFICATION.md`](.planning/WORLD-MODEL-UNIFICATION.md))
 
 ### Output Quality
 

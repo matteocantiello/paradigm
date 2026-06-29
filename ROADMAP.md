@@ -258,6 +258,12 @@
   - Round-robin matchup generation, K-factor configurable
   - Debate judge scoring, consensus selection by rating
   - Orchestrated by tournament handler during IDEATION phase
+- [x] **C2 — World-model ↔ tournament unification** (2026-06-29; opt-in via `knowledge.unified_hypotheses`, default off):
+  - Single hypothesis ledger: the tournament ranks the *canonical* `wm.hypotheses` by reference (no disjoint re-extraction); restatements de-dup at creation via a pluggable matcher (`knowledge/hypothesis_matching.py`), emitting `hypothesis.merged`
+  - Belief revision through one auditable `revise_hypothesis()` choke point — driven by tournament results, an evidence support/contradict rule (config thresholds), and the pre-registration verdict; beliefs now move `proposed → supported / contradicted` during a cycle
+  - **Swiss pairing** (`swiss_num_rounds`) bounds judge calls (~12 at population 8 vs round-robin's 28)
+  - Tolerant LLM-JSON helper (`knowledge/json_utils.py`, always-on) — truncation recovery kills the recurring `JSONDecodeError`s and salvages the judge's reasoning (tournament rationales were previously always empty)
+  - Also: a literature-only review track (the editor/peer bar drops the experimental-figure requirement when a cycle ran no experiments). See [`.planning/WORLD-MODEL-UNIFICATION.md`](.planning/WORLD-MODEL-UNIFICATION.md).
 - [x] Evidence graph (`knowledge/evidence_graph.py`) — conflict detection + resolution:
   - Conflict types: direct contradiction, methodological, scope mismatch, quantitative disagreement
   - Assumption tracking (active / invalidated / superseded)

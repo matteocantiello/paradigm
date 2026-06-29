@@ -162,3 +162,18 @@
 **Rationale**: `EmbeddingStore.__init__()` already accepted a `collection_name` parameter (used only for test isolation). Wiring it through the initialization chain is minimal work with high impact. Agent memories intentionally remain in a shared `agent_memories` collection — cross-cycle learning is their purpose.
 
 **Consequences**: Each cycle starts with an empty embedding corpus. Papers from previous cycles are still in SQLite (shared) and accessible via direct DB lookups, but don't pollute semantic search. The `vector_db/` directory will accumulate per-cycle collections over time; a future cleanup job can prune old ones.
+
+---
+
+## ADR-012: World-Model ↔ Tournament Unification + Belief Revision (C2)
+
+**Status**: Accepted (opt-in, default-off via `knowledge.unified_hypotheses`)
+**Date**: 2026-06-29
+
+**Context**: Analysis of 8 real VM research loops surfaced a structural flaw. The world model held TWO disjoint hypothesis populations: the ~55–107 `[HYPOTHESIS:]` tags parsed each round (all stuck at `elo=1500`/`proposed`, never revised) and a *separate* set of ≤4 hypotheses the tournament re-extracted from the last 15 messages with fresh ids. Only the latter got Elo/status, then was written back as additional entries — never merged. So `hypothesis.updated` was pinned at exactly `population+winners` (~5), beliefs never moved during a cycle, the round-robin tournament capped the field at 4 (O(n²) judge calls), and `WorldModel.update_hypothesis` / `load_snapshot` were dead code.
+
+**Decision**: Make the world model the single hypothesis source. Behind `knowledge.unified_hypotheses` (default off): (1) a `WorldModelHandler.revise_hypothesis()` choke point — the one auditable path for every status/Elo/confidence change, emitting `hypothesis.updated` with `reason`/`source`; (2) the tournament ranks a top-K of the canonical `wm.hypotheses` *by reference* (no re-extraction); (3) dedup-at-creation via a **pluggable** matcher (conservative normalized-statement default; embedding tier swaps in with zero caller changes), emitting `hypothesis.merged`; (4) belief revision driven by tournament results, an evidence support/contradict rule (config thresholds), and the pre-registration verdict; (5) Swiss pairing so a population of 8 costs ~12 judge calls instead of round-robin's 28. A separate, always-on robustness fix routes the fragile LLM-JSON parse sites through a shared tolerant helper (`knowledge/json_utils.py`) with truncation recovery, which also salvages the judge's reasoning (previously the tournament rationales were always empty).
+
+**Rationale**: One ledger with one id per hypothesis is the only way beliefs can accumulate (statement + Elo + status + evidence + verdict) and be revised as evidence lands — the platform's whole thesis is the taste/selector. Flag-gating + A/B replay against the captured `data_vm` threads de-risks a genuine research-behavior change. The matcher is pluggable because the A/B data showed normalized matching catches only literal restatements (a minority); the real ~100→~30 collapse needs paraphrase-aware (semantic) matching, deferred as an isolated swap.
+
+**Consequences**: With the flag on, far fewer hypotheses (deduped), each with a moving status/Elo and an auditable revision provenance surfaced in the Observatory. Cross-cycle world-model memory (resume-time snapshot load) is intentionally deferred. Full design + the 8-step build order: [`.planning/WORLD-MODEL-UNIFICATION.md`](.planning/WORLD-MODEL-UNIFICATION.md).
