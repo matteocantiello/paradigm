@@ -361,10 +361,23 @@ class TestTournamentHandler:
             MagicMock(return_value=(mock_provider, "test-model", None)),
         )
 
+        engine.emit_event = MagicMock(wraps=engine.emit_event)
+
         winners = await handler.run_tournament()
         assert len(winners) == 2
         # All hypotheses should be in world model
         assert len(engine.state.world_model.hypotheses) == 3
+
+        # C2 step 1: tournament belief updates route through revise_hypothesis,
+        # tagging each hypothesis.updated with its source (+ selected for winners).
+        updated = [
+            c.args[1]
+            for c in engine.emit_event.call_args_list
+            if c.args and c.args[0] == "hypothesis.updated"
+        ]
+        assert updated, "tournament should emit hypothesis.updated events"
+        assert all(u.get("source") == "tournament" for u in updated)
+        assert any(u.get("selected") for u in updated)  # winners are flagged
 
     @pytest.mark.asyncio
     async def test_graceful_degradation_single_hypothesis(

@@ -497,3 +497,81 @@ class TestPersistence:
         assert path.exists()
         loaded = WorldModel.from_json(path.read_text())
         assert len(loaded.entities) == 1
+
+
+class TestReviseHypothesis:
+    """C2 step 1: the revise_hypothesis belief-revision choke point."""
+
+    def _setup(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine = _build_engine(mock_config, tmp_db, tmp_logger, mock_corpus)
+        handler = WorldModelHandler(engine)
+        wm = WorldModel()
+        engine.state.world_model = wm
+        engine.emit_event = MagicMock()
+        return engine, handler, wm
+
+    def test_revises_status_elo_confidence_and_emits(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        engine, handler, wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus)
+        h = Hypothesis(statement="X causes Y")
+        wm.add_hypothesis(h)
+
+        ok = handler.revise_hypothesis(
+            h.id,
+            status=HypothesisStatus.SUPPORTED,
+            elo=1620.0,
+            confidence=ConfidenceLevel.HIGH,
+            reason="tournament winner",
+            source="tournament",
+        )
+
+        assert ok is True
+        revised = wm.get_hypothesis(h.id)
+        assert revised.status == HypothesisStatus.SUPPORTED
+        assert revised.elo_rating == 1620.0
+        assert revised.confidence == ConfidenceLevel.HIGH
+
+        engine.emit_event.assert_called_once()
+        etype, payload = engine.emit_event.call_args.args
+        assert etype == "hypothesis.updated"
+        assert payload["hypothesis_id"] == h.id
+        assert payload["status"] == str(HypothesisStatus.SUPPORTED)
+        assert payload["elo"] == 1620.0
+        assert payload["reason"] == "tournament winner"
+        assert payload["source"] == "tournament"
+
+    def test_extra_fields_merged_into_payload(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler, wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus)
+        h = Hypothesis(statement="A explains B")
+        wm.add_hypothesis(h)
+
+        handler.revise_hypothesis(
+            h.id, status=HypothesisStatus.SUPPORTED, source="tournament", extra={"selected": True}
+        )
+        payload = engine.emit_event.call_args.args[1]
+        assert payload["selected"] is True
+
+    def test_no_fields_still_emits_current_snapshot(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        engine, handler, wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus)
+        h = Hypothesis(statement="C correlates with D")
+        wm.add_hypothesis(h)
+
+        ok = handler.revise_hypothesis(h.id, reason="noted", source="evidence")
+        assert ok is True
+        payload = engine.emit_event.call_args.args[1]
+        assert payload["status"] == str(HypothesisStatus.PROPOSED)
+        assert payload["elo"] == 1500.0
+
+    def test_unknown_id_returns_false_no_event(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler, _wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus)
+        assert handler.revise_hypothesis("missing", status=HypothesisStatus.SUPPORTED) is False
+        engine.emit_event.assert_not_called()
+
+    def test_no_world_model_returns_false(self, mock_config, tmp_db, tmp_logger, mock_corpus):
+        engine, handler, _wm = self._setup(mock_config, tmp_db, tmp_logger, mock_corpus)
+        engine.state.world_model = None
+        assert handler.revise_hypothesis("x", status=HypothesisStatus.SUPPORTED) is False
+        engine.emit_event.assert_not_called()

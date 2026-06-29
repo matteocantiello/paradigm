@@ -166,21 +166,28 @@ class TournamentHandler:
         # Step 4: Select winners
         winners = population.select_winners(n=config.tournament_winners)
 
-        # Step 5: Update world model
+        # Step 5: Update world model — route every belief change through the single
+        # revise_hypothesis choke point (C2 step 1) so each update is auditable
+        # (reason/source) and goes through the canonical WorldModel.update_hypothesis.
         wm = self._engine.state.world_model
         if wm is not None:
+            wmh = self._engine._world_model
             for h in hypotheses:
-                h.status = HypothesisStatus.UNDER_INVESTIGATION
                 wm.add_hypothesis(h)
-                self._engine.emit_event(
-                    "hypothesis.updated",
-                    {"hypothesis_id": h.id, "status": str(h.status), "elo": round(h.elo_rating, 1)},
+                wmh.revise_hypothesis(
+                    h.id,
+                    status=HypothesisStatus.UNDER_INVESTIGATION,
+                    elo=h.elo_rating,
+                    reason="entered tournament",
+                    source="tournament",
                 )
             for w in winners:
-                w.status = HypothesisStatus.SUPPORTED
-                self._engine.emit_event(
-                    "hypothesis.updated",
-                    {"hypothesis_id": w.id, "status": str(w.status), "selected": True},
+                wmh.revise_hypothesis(
+                    w.id,
+                    status=HypothesisStatus.SUPPORTED,
+                    reason="tournament winner",
+                    source="tournament",
+                    extra={"selected": True},
                 )
 
         display.info(

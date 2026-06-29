@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from paradigm.knowledge.conflict_detection import ConflictDetector
 from paradigm.knowledge.evidence_graph import ConflictEdge, EvidenceGraph
@@ -14,6 +14,7 @@ from paradigm.knowledge.models import (
     Evidence,
     EvidenceSource,
     Hypothesis,
+    HypothesisStatus,
     Relationship,
     RelationshipType,
     ResearchGoal,
@@ -237,6 +238,75 @@ class WorldModelHandler:
                 if best is None or score > best[0]:
                     best = (score, h.id)
         return best[1] if best else None
+
+    # ------------------------------------------------------------------
+    # Belief revision (C2 step 1)
+    # ------------------------------------------------------------------
+
+    def revise_hypothesis(
+        self,
+        hyp_id: str,
+        *,
+        status: HypothesisStatus | None = None,
+        elo: float | None = None,
+        confidence: ConfidenceLevel | None = None,
+        reason: str = "",
+        source: str = "",
+        extra: dict[str, Any] | None = None,
+    ) -> bool:
+        """Single choke point for revising a hypothesis's belief state.
+
+        Updates the canonical world-model hypothesis in place (status / Elo /
+        confidence) via :meth:`WorldModel.update_hypothesis` and emits one
+        ``hypothesis.updated`` event carrying the ``reason`` and ``source`` of the
+        revision. ALL belief changes — tournament results, evidence linking,
+        experiment verdicts — should flow through here so the world model has a
+        single, auditable revision path (this is what finally wires the
+        previously-unused ``WorldModel.update_hypothesis``).
+
+        Args:
+            hyp_id: Id of the hypothesis to revise.
+            status: New status, if changing.
+            elo: New Elo rating, if changing.
+            confidence: New confidence level, if changing.
+            reason: Short human-readable reason (e.g. "tournament winner").
+            source: What drove the revision (e.g. "tournament", "evidence").
+            extra: Additional event-payload fields (e.g. ``{"selected": True}``).
+
+        Returns:
+            True if the hypothesis exists and was revised (event emitted); False
+            (no event) if the world model is absent or the id is unknown.
+        """
+        wm = self._engine.state.world_model
+        if wm is None:
+            return False
+        hyp = wm.get_hypothesis(hyp_id)
+        if hyp is None:
+            return False
+
+        fields: dict[str, Any] = {}
+        if status is not None:
+            fields["status"] = status
+        if elo is not None:
+            fields["elo_rating"] = elo
+        if confidence is not None:
+            fields["confidence"] = confidence
+        if fields:
+            wm.update_hypothesis(hyp_id, **fields)
+
+        payload: dict[str, Any] = {
+            "hypothesis_id": hyp_id,
+            "status": str(hyp.status),
+            "elo": round(hyp.elo_rating, 1),
+        }
+        if reason:
+            payload["reason"] = reason
+        if source:
+            payload["source"] = source
+        if extra:
+            payload.update(extra)
+        self._engine.emit_event("hypothesis.updated", payload)
+        return True
 
     # ------------------------------------------------------------------
     # Persistence
