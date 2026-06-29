@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 from typing import TYPE_CHECKING
 
@@ -13,6 +12,7 @@ from paradigm.knowledge.hypothesis_tournament import (
     MatchupResult,
     swiss_num_rounds,
 )
+from paradigm.knowledge.json_utils import first_json_array, first_json_object
 from paradigm.knowledge.models import Hypothesis, HypothesisStatus
 
 if TYPE_CHECKING:
@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 
     from paradigm.orchestrator.engine import OrchestrationEngine
 
-_JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
 # Tolerant field extractors — survive TRUNCATED JSON (the judge response getting
 # cut off mid-"reasoning" at max_tokens left no closing brace, so full JSON parse
 # failed and every matchup scored None → all Elos stuck at 1500).
@@ -28,33 +27,25 @@ _WINNER_RE = re.compile(
     r'"?winner"?\s*(?:is\s+|[:=]\s*)"?\s*(hypothesis\s*)?([ABab12])', re.IGNORECASE
 )
 _MARGIN_RE = re.compile(r'"?margin"?\s*[:=]\s*"?\s*(\d*\.?\d+)', re.IGNORECASE)
+# Salvage the reasoning even from a truncated object (no closing quote): capture
+# everything after `"reasoning": "` up to the next quote OR end of string. Without
+# this the fallback dropped the rationale → tournament.round rationales were ALWAYS
+# empty in production.
+_REASONING_RE = re.compile(r'"?reasoning"?\s*[:=]\s*"([^"]*)', re.IGNORECASE)
+
+# Reuse the shared name locally so parse_judge_verdict + the test import keep working.
+_first_json_object = first_json_object
 
 # Round-robin (O(n²)) is fine for a small field; above this, switch to Swiss pairing.
 _ROUND_ROBIN_MAX = 4
 
 
-def _first_json_object(text: str) -> dict | None:
-    """Pull the first JSON object out of a model response.
-
-    Robust to code fences AND chatty preamble ("Here is my verdict: {...}") — the
-    brittle 'must start with a fence' parsing silently returned None for every
-    matchup, leaving the whole tournament stuck at the 1500 starting Elo.
-    """
-    m = _JSON_OBJ_RE.search(text or "")
-    if not m:
-        return None
-    try:
-        obj = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    return obj if isinstance(obj, dict) else None
-
-
 def parse_judge_verdict(text: str) -> dict | None:
     """Parse a judge response into {winner, margin, reasoning}, tolerant of
-    truncation. Tries full JSON first; falls back to regex-extracting just the
-    ``winner`` (the only field the tournament needs) so a verbose model whose
-    JSON gets cut off still produces a usable verdict instead of a dead matchup.
+    truncation. Tries full JSON first; falls back to regex-extracting the
+    ``winner`` (the only field the tournament needs) AND salvaging the
+    ``reasoning`` so a verbose model whose JSON gets cut off still produces a
+    usable, *explained* verdict instead of a dead, rationale-less matchup.
     Returns None only when no winner can be found at all.
     """
     obj = _first_json_object(text)
@@ -73,7 +64,9 @@ def parse_judge_verdict(text: str) -> dict | None:
             margin = float(mm.group(1))
         except ValueError:
             margin = 0.5
-    return {"winner": winner, "margin": margin, "reasoning": ""}
+    rm = _REASONING_RE.search(text)
+    reasoning = rm.group(1).strip() if rm else ""
+    return {"winner": winner, "margin": margin, "reasoning": reasoning}
 
 
 class TournamentHandler:
@@ -336,34 +329,36 @@ class TournamentHandler:
                 output_tokens=output_tokens,
                 thread_id=self._engine.state.thread_id,
             )
-
-            # Parse JSON response
-            # Strip markdown fences if present
-            text = response_text.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[-1]
-                if text.endswith("```"):
-                    text = text[:-3]
-                text = text.strip()
-
-            data = json.loads(text)
-            hypotheses = []
-            for item in data:
-                if isinstance(item, dict) and "statement" in item:
-                    h = Hypothesis(
-                        statement=item["statement"],
-                        rationale=item.get("rationale", ""),
-                    )
-                    hypotheses.append(h)
-            return hypotheses
-
         except Exception as e:
-            self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
-            # Fallback: extract from world model if available
-            wm = self._engine.state.world_model
-            if wm is not None and wm.hypotheses:
-                return list(wm.hypotheses.values())
-            return []
+            self._engine._logger.log_error(
+                e, thread_id=self._engine.state.thread_id, metadata_key="hypothesis_extraction"
+            )
+            return self._world_model_hypotheses_fallback()
+
+        # Tolerant array parse: recovers the complete leading hypotheses even when
+        # the response is truncated mid-element at max_tokens (the "Unterminated
+        # string" JSONDecodeError family).
+        data = first_json_array(response_text)
+        if data is None:
+            self._engine._logger.log_error(
+                ValueError("hypothesis extraction: no parseable JSON array in response"),
+                thread_id=self._engine.state.thread_id,
+                metadata_key="hypothesis_extraction",
+            )
+            return self._world_model_hypotheses_fallback()
+
+        return [
+            Hypothesis(statement=item["statement"], rationale=item.get("rationale", ""))
+            for item in data
+            if isinstance(item, dict) and "statement" in item
+        ]
+
+    def _world_model_hypotheses_fallback(self) -> list[Hypothesis]:
+        """Fallback hypothesis source when LLM extraction fails: the world model."""
+        wm = self._engine.state.world_model
+        if wm is not None and wm.hypotheses:
+            return list(wm.hypotheses.values())
+        return []
 
     async def _judge_matchup(
         self,

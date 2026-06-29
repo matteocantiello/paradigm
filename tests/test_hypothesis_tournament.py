@@ -52,6 +52,15 @@ class TestParseJudgeVerdict:
         assert parse_judge_verdict("I cannot decide between them.") is None
         assert parse_judge_verdict("") is None
 
+    def test_truncated_salvages_reasoning(self) -> None:
+        # JSON cut off mid-"reasoning" (no closing quote/brace): the winner AND a
+        # (partial) reasoning are both recovered — fixes the always-empty rationales.
+        raw = '```json\n{"winner": "A", "reasoning": "Hypothesis A is better because it explains'
+        v = parse_judge_verdict(raw)
+        assert v is not None
+        assert v["winner"] == "A"
+        assert "better because" in v["reasoning"]
+
 
 # ---------------------------------------------------------------------------
 # Fixtures

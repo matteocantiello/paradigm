@@ -13,11 +13,11 @@ Plain-Python handler, mirroring ``TournamentHandler``. Default-off via
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from paradigm.knowledge.json_utils import first_json_array
 from paradigm.knowledge.models import (
     Hypothesis,
     PredictionDirection,
@@ -27,17 +27,6 @@ from paradigm.knowledge.models import (
 
 if TYPE_CHECKING:
     from paradigm.orchestrator.engine import OrchestrationEngine
-
-
-def _strip_json_fences(text: str) -> str:
-    """Strip markdown code fences from an LLM JSON response."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-    return text
 
 
 class PreRegistrationHandler:
@@ -153,11 +142,22 @@ class PreRegistrationHandler:
                 output_tokens=output_tokens,
                 thread_id=engine.state.thread_id,
             )
-            data = json.loads(_strip_json_fences(response_text))
         except Exception as e:  # noqa: BLE001 — non-fatal; freeze degrades gracefully
-            engine._logger.log_error(e, thread_id=engine.state.thread_id)
+            engine._logger.log_error(
+                e, thread_id=engine.state.thread_id, metadata_key="preregistration"
+            )
             return {}
 
+        # Tolerant array parse — recovers complete leading rules even when the
+        # response is truncated at max_tokens.
+        data = first_json_array(response_text)
+        if data is None:
+            engine._logger.log_error(
+                ValueError("pre-registration: no parseable JSON array in response"),
+                thread_id=engine.state.thread_id,
+                metadata_key="preregistration",
+            )
+            return {}
         return self._parse_rules(data, len(hypotheses))
 
     @staticmethod
