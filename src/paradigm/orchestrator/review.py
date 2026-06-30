@@ -202,21 +202,31 @@ class ReviewHandler:
 
     @staticmethod
     def _resolve_internal_recommendation(
-        recommendation: str, required_changes: int, check_failures: int
+        recommendation: str,
+        required_changes: int,
+        check_failures: int,
+        *,
+        explicit: bool = True,
     ) -> str:
         """Resolve the editor's internal-review recommendation.
 
         - "revise" with >=4 failed mandatory checks -> "reject" (revision can't fix
           fundamental issues).
-        - "revise" with no required changes -> "accept" (nothing actionable to revise;
-          lets the loop converge instead of looping on an empty revision).
+        - "revise" with no required changes -> "accept" ONLY when the recommendation
+          was explicit (a real ## Recommendation section with nothing actionable to
+          revise — lets the loop converge instead of looping on an empty revision).
+
+        When ``explicit`` is False the review was incomplete (e.g. the editor's reply
+        was truncated before its recommendation, so it defaulted to "revise"): do NOT
+        convert that to an accept — keep "revise" so the paper isn't rubber-stamped on
+        a review the editor never actually finished.
 
         Other recommendations pass through unchanged.
         """
         if recommendation == "revise":
             if check_failures >= 4:
                 return "reject"
-            if required_changes == 0:
+            if required_changes == 0 and explicit:
                 return "accept"
         return recommendation
 
@@ -456,6 +466,7 @@ class ReviewHandler:
                     feedback.recommendation,
                     len(feedback.required_changes),
                     self._count_mandatory_check_failures(response.content),
+                    explicit=feedback.recommendation_explicit,
                 )
 
             self._engine._display.review_recommendation(

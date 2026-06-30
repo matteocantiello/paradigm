@@ -378,6 +378,18 @@ class TestParseReviewFeedback:
         fb = parse_review_feedback(review)
         assert fb.recommendation == "accept"
 
+    def test_recommendation_explicit_when_section_present(self):
+        review = "## Recommendation\nAccept\n\n## Strengths\n- Good"
+        assert parse_review_feedback(review).recommendation_explicit is True
+
+    def test_recommendation_not_explicit_when_truncated(self):
+        # A review cut off mid-Strengths (no ## Recommendation) — must be flagged
+        # NOT explicit so it can't be silently accepted downstream.
+        review = "## Strengths\n- Rigorous methodology\n- Strong derivation, and the"
+        fb = parse_review_feedback(review)
+        assert fb.recommendation_explicit is False
+        assert fb.recommendation == "revise"  # defaulted, not accepted
+
     def test_revise_recommendation(self):
         review = "## Recommendation\nRevise and resubmit"
         fb = parse_review_feedback(review)

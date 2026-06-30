@@ -161,3 +161,29 @@ class TestReviewKeepGoing:
 
     def test_single_flat_within_cap_continues(self):
         assert self.KG(5, 5, 1, 5, 8, 0) == (True, 1)
+
+
+class TestResolveInternalRecommendation:
+    """The truncated-review false-accept guard (editor rubber-stamp fix)."""
+
+    R = staticmethod(ReviewHandler._resolve_internal_recommendation)
+
+    def test_explicit_revise_zero_changes_accepts(self):
+        # Genuine "revise" with nothing to revise → accept (loop converges).
+        assert self.R("revise", 0, 0, explicit=True) == "accept"
+
+    def test_truncated_revise_zero_changes_stays_revise(self):
+        # Defaulted "revise" from a truncated review (no Recommendation section) →
+        # do NOT auto-accept; keep revise so the paper isn't rubber-stamped.
+        assert self.R("revise", 0, 0, explicit=False) == "revise"
+
+    def test_revise_with_changes_unaffected(self):
+        assert self.R("revise", 5, 0, explicit=True) == "revise"
+        assert self.R("revise", 5, 0, explicit=False) == "revise"
+
+    def test_many_check_failures_reject(self):
+        assert self.R("revise", 0, 4, explicit=True) == "reject"
+        assert self.R("revise", 0, 4, explicit=False) == "reject"
+
+    def test_accept_passes_through(self):
+        assert self.R("accept", 0, 0, explicit=False) == "accept"

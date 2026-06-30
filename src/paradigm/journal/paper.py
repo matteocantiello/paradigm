@@ -62,6 +62,10 @@ class ReviewFeedback(BaseModel):
     weaknesses: list[str] = Field(default_factory=list)
     required_changes: list[str] = Field(default_factory=list)
     recommendation: str = "revise"  # "accept", "revise", or "reject"
+    # True when a ## Recommendation section was actually parsed; False when the
+    # review was incomplete (e.g. truncated before its recommendation) and the
+    # value was defaulted. An incomplete review must NOT be treated as an accept.
+    recommendation_explicit: bool = False
 
 
 class PaperDraft(BaseModel):
@@ -419,4 +423,5 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
         weaknesses=weaknesses,
         required_changes=required_changes,
         recommendation=recommendation,
+        recommendation_explicit="recommendation" in sections,
     )
