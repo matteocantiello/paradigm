@@ -251,6 +251,56 @@ class CitationHandler:
 
         return draft
 
+    async def ground_from_allowlist(
+        self, draft: PaperDraft, entries: list[tuple[str, str, str]]
+    ) -> PaperDraft:
+        """Corpus-grounded citation compilation (the ``corpus_grounded_citations`` path).
+
+        Unlike :meth:`run_citation_grounding` (post-hoc Perplexity search), this is fully
+        deterministic and offline: the writer was given ``entries`` (the cycle's discovered
+        papers) as a numbered allow-list and cited ``[N]`` markers; here we drop any
+        out-of-range/fabricated marker, renumber the survivors, and build a ``## References``
+        section from the cited allow-list entries — so every reference is a real paper.
+
+        Args:
+            draft: PaperDraft with assembled_body containing ``[N]`` markers.
+            entries: ``(arxiv_id, title, first_author)`` allow-list (same list/order shown
+                to the writer), so ``[N]`` maps back to the right paper.
+
+        Returns:
+            Updated PaperDraft with deterministic citations + references.
+        """
+        from paradigm.literature.citation_validation import compile_allowlist_citations
+
+        if not entries:
+            return draft
+
+        new_body, _refs_md, cited = compile_allowlist_citations(draft.assembled_body, entries)
+        draft.assembled_body = new_body
+        draft.references = [
+            {
+                "index": i,
+                "url": f"https://arxiv.org/abs/{arxiv_id}",
+                "arxiv_id": arxiv_id,
+                "title": title,
+                "authors": first_author,
+                "year": "",
+            }
+            for i, (arxiv_id, title, first_author) in enumerate(cited, 1)
+        ]
+
+        self._engine._logger.log(
+            EventType.CITATION_GROUNDING,
+            content={
+                "event": "corpus_grounded_citations",
+                "num_citations": len(cited),
+                "allowlist_size": len(entries),
+            },
+            thread_id=self._engine.state.thread_id,
+        )
+        self._engine._display.citation_grounding_complete(len(cited))
+        return draft
+
     async def check_novelty(self, idea_text: str, mode: str = "semantic_scholar") -> NoveltyResult:
         """Check idea novelty using configured backend.
 

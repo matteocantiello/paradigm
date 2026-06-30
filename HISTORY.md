@@ -4845,3 +4845,41 @@ Non-arXiv papers (PubMed/S2/bioRxiv) read abstract-only because `corpus.read_pap
 `review.py run_review_phase`: replaced the fixed `for iteration in range(1, max_iterations+1)` with a trajectory-aware `while iteration < hard_cap` loop. Decision extracted to a PURE static helper `_review_keep_going(prev, required, iteration, max_iterations, hard_cap, stall_count) -> (keep_going, stall_count)`: first-pass within cap; **diverging** (required > prev) breaks IMMEDIATELY (vs old: 2 consecutive `>=`); flat **plateau** stalls after `_REVIEW_STALL_LIMIT`; **strictly improving** extends past the cap up to `hard_cap`. New config `orchestrator.review_convergence_extra: int = 3` → `hard_cap = max_review_iterations + extra`. Fixes the two VM failure shapes: breast-milk (31→14→4) now keeps revising past the cap (was killed at 4 while converging); OLED (9→12→15) breaks at the first increase (was wasting iterations). Removed the old `if iteration < max_iterations:` revision guard (the budget gate now decides). +8 exhaustive helper tests (first-pass/diverge/converge-extends/hard-cap/plateau-stall/improving-resets) + fixed the Step-0 review harness to set the new knob. VERIFIED: review suites 79 pass, ruff clean, full suite **1741 passed** (same 7 env-only).
 
 **Backlog 1–4 COMPLETE.** All on responsive-live-progress, each tested + committed + pushed.
+
+## Prompt 217 — Explore OpenDraft, compare with Paradigm
+
+> I want you to look at ../opendraft -- a new opensource platform that looks pretty similar to what we developed (Paradigm). Please thoroughly explore the code base, then make a table of similarities and differences. In particular I am interested in choices that seem superior, or very different from what we adopted. It would be good to understand what Opendraft does better than paradigm and why
+
+Exploring `/Users/mcantiello/astro/opendraft` (an open-source agentic-science platform) and producing a comparison table vs Paradigm, focused on superior/divergent design choices and what OpenDraft does better.
+
+## Prompt 218 — Save comparison doc, then spike Paradigm's citation grounding
+
+> let's do a and then b
+
+(a) Save the OpenDraft↔Paradigm comparison as `.planning/OPENDRAFT-COMPARISON.md` + a memory pointer. (b) Spike: can a Paradigm writing/composition agent currently emit an *ungrounded* inline citation (a cite to a paper that was never discovered/grounded, or a raw fabricated cite string)? — the highest-payoff borrow from OpenDraft's `{cite_XXX}` ID-indirection design.
+
+### Prompt 218 — result
+
+(a) Wrote `.planning/OPENDRAFT-COMPARISON.md` (full tables + file:line evidence) + `opendraft-comparison` memory + MEMORY.md pointer. (b) Spike VERDICT: **YES — ungrounded inline citations can survive into a Paradigm final paper**, through several independent paths. Paradigm's citation system is **post-hoc, best-effort, default-OFF** — the writer free-texts a 15-40-entry References section from parametric memory (`orchestrator/constants.py:516-518`), is **never shown the discovered corpus** (`writing.py:803,1005`; WRITING absent from `_PHASE_CONTEXT_NEEDS` `constants.py:993-1009`), and an *optional* Perplexity grounding pass (default off: `config.py:249`; on only in default/production/finance) merely *adds* `[N]` markers while leaving author-year strings "unaltered" (`perplexity.py:152,166`). The a831216 discovered-ID gate protects only literature-discovery traversal, not the writing phase. `drop_unresolved_citations=False` everywhere (`config.py:250`); `BibliographyBuilder` resolves arXiv only. Smallest fix (pieces exist): (1) inject corpus as numbered allow-list + instruct cite-only-`[N]`; (2) build bibliography deterministically from that list; (3) mandatory (non-skippable) strip pass for any cite not backed by a corpus entry. Follow-up fix warranted; awaiting green-light to implement.
+
+## Prompt 219 — Plan + implement citation grounding fix; evaluate scite.ai MCP
+
+> Let's plan + implement. But at this point it would also be good to have a look at https://scite.ai/mcp https://scite.ai/home -- which is a company started by a friend that does citation search and verification among other things. I bet I could get access for free if we decide this is something to add / to improve our citation grounding
+
+Planning + implementing the citation-grounding fix (corpus allow-list injection → deterministic bibliography → mandatory strip pass), AND evaluating scite.ai (Smart Citations — supporting/contrasting/mentioning classification + its MCP server) as a citation search/verification provider to wire into Paradigm's existing MCP-client SourceProvider seam. Researching scite first to inform the plan.
+
+### Prompt 219 — result
+
+**scite.ai recon:** Smart Citations classify each citing statement as supporting / contrasting / mentioning — exactly the claim↔citation semantic layer neither OpenDraft nor Paradigm has. Two surfaces: REST API (`api.scite.ai`: `/tallies/{doi}` uncapped supporting/contradicting/mentioning counts, `/papers/{doi}`, Reference Check) and an OAuth MCP server (verified Anthropic connector; full-text search + Smart Citation data + claim verification; needs a subscription/7-day trial). ~250M articles / ~1B+ citation statements.
+
+**Plan approved** (`/Users/mcantiello/.claude/plans/peaceful-baking-horizon.md`): local fix now, scite a fast-follow; strip net always-on, allow-list flag-gated + A/B.
+
+**Implemented** (corpus-grounded citations = OpenDraft's `{cite_XXX}` invariant adapted): new `literature/citation_validation.py` (pure helpers `build_citation_allowlist` / `compile_allowlist_citations` / `validate_and_strip_citations`); `CitationConfig.corpus_grounded_citations` (default off), `max_allowlist_papers=40`, `strip_ungrounded_citations` (default true); `writing.py` builds the `[N]` allow-list from `LiteratureHandler.discovered_papers`, appends it to both WRITING prompts, then `CitationHandler.ground_from_allowlist` (deterministic corpus-backed bib, Perplexity skipped) + the always-on strip net; +17 unit tests. **Full suite 1765 passed, ruff clean.**
+
+**A/B validated** (cheap Flash-Lite, Cepheid prompt, `configs/selftest.yaml` vs `configs/selftest-cite-on.yaml`, both rc=0): **baseline** = 3 ungrounded `(Author, Year)` cites + NO references (the hole) + `citation_safety_net` logged the 3; **treatment** = 7 `[N]` cites, 0 free-text, **7/7 deterministic corpus-backed references** (real discovered arXiv papers), `corpus_grounded_citations` (7 of 9 discovered). Documented as **ADR-013** + memory `paradigm-ungrounded-citations`. Default stays off (opt-in); A/B evidence supports flipping `corpus_grounded_citations: true` in production as a follow-up. **Not yet committed** — awaiting go-ahead.
+
+## Prompt 220 — Commit the change + flip the flag in production
+
+> Let's do 1 and 2
+
+(1) Commit the corpus-grounded-citations change (scoped to the 9 related files + the production flip) on `responsive-live-progress`. (2) Flip `citation.corpus_grounded_citations: true` in `configs/production.yaml` (allow-list owns citations; Perplexity grounding is bypassed when on).

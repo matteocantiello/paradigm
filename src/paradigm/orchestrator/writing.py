@@ -19,6 +19,11 @@ from paradigm.journal.paper import (
     section_assignments_from_template,
     strip_agent_scaffolding,
 )
+from paradigm.literature.citation_validation import (
+    build_citation_allowlist,
+    validate_and_strip_citations,
+)
+from paradigm.logging.events import EventType
 from paradigm.orchestrator.constants import (
     _CODE_BLOCK_RE,
     _CONCEPTUAL_FIGURE_MAX_TOKENS,
@@ -76,6 +81,30 @@ class WritingHandler:
 
     def __init__(self, engine: OrchestrationEngine) -> None:
         self._engine = engine
+        # Corpus citation allow-list for this writing phase (populated by
+        # _build_citation_allowlist when corpus_grounded_citations is on; "" / [] otherwise).
+        self._citation_allowlist_block: str = ""
+        self._citation_allowlist_entries: list[tuple[str, str, str]] = []
+
+    def _build_citation_allowlist(self) -> None:
+        """Compute the corpus citation allow-list once per writing phase.
+
+        When ``corpus_grounded_citations`` is on, build a numbered ``[N]`` allow-list from
+        the cycle's discovered papers (``LiteratureHandler.discovered_papers``) and stash
+        both the writer-facing block (appended to every WRITING prompt) and the entries
+        (for deterministic bibliography compilation). No-op when the flag is off or no
+        papers were discovered.
+        """
+        self._citation_allowlist_block = ""
+        self._citation_allowlist_entries = []
+        if not self._engine._config.citation.corpus_grounded_citations:
+            return
+        papers = list(getattr(self._engine._literature, "discovered_papers", []) or [])
+        block, entries = build_citation_allowlist(
+            papers, self._engine._config.citation.max_allowlist_papers
+        )
+        self._citation_allowlist_block = block
+        self._citation_allowlist_entries = entries
 
     def _build_execution_fact_sheet(self) -> str:
         """Build an anti-confabulation execution fact sheet for writing prompts.
@@ -563,6 +592,10 @@ class WritingHandler:
         """
         draft = PaperDraft(section_order=self._get_section_order())
 
+        # Build the corpus citation allow-list BEFORE drafting so every writer prompt can
+        # carry it (no-op unless corpus_grounded_citations is on).
+        self._build_citation_allowlist()
+
         # Round 1: Section Drafting — each agent drafts their assigned sections
         self._engine._display.writing_section_drafting()
         await self.run_section_drafting(draft)
@@ -588,13 +621,38 @@ class WritingHandler:
         else:
             self._engine.state.forbidden_claims_violations = []
 
-        # Citation grounding (non-fatal on failure)
-        if self._engine._config.citation.enable_citation_grounding:
+        # Citations. When corpus-grounded citations are on, the writer cited only [N]
+        # markers from the injected allow-list — compile a deterministic, fully
+        # corpus-backed bibliography (no network) and SKIP the Perplexity path. Otherwise
+        # fall back to the optional post-hoc Perplexity grounding. Non-fatal on failure.
+        config = self._engine._config.citation
+        if config.corpus_grounded_citations and self._citation_allowlist_entries:
+            try:
+                draft = await self._engine._citation_handler.ground_from_allowlist(
+                    draft, self._citation_allowlist_entries
+                )
+            except Exception as e:
+                self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+                self._engine._display.citation_grounding_error(e)
+        elif config.enable_citation_grounding:
             try:
                 draft = await self._engine._citation_handler.run_citation_grounding(draft)
             except Exception as e:
                 self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
                 self._engine._display.citation_grounding_error(e)
+
+        # Always-on safety net (independent of the flag): strip fabricated inline arXiv ids
+        # (not in the cycle's corpus) and log unverifiable "(Author, Year)" cites.
+        if config.strip_ungrounded_citations:
+            valid_ids = set(getattr(self._engine._literature, "seen_paper_ids", set()) or set())
+            cleaned, stats = validate_and_strip_citations(draft.assembled_body, valid_ids)
+            draft.assembled_body = cleaned
+            if stats["fabricated_arxiv_stripped"] or stats["unverifiable_author_year"]:
+                self._engine._logger.log(
+                    EventType.CITATION_GROUNDING,
+                    content={"event": "citation_safety_net", **stats},
+                    thread_id=self._engine.state.thread_id,
+                )
 
         # Validate paper length — if all agents failed, the draft is empty
         if len(draft.assembled_body) < _MIN_PAPER_LENGTH:
@@ -689,6 +747,10 @@ class WritingHandler:
                 checkpoint_context=checkpoint_context,
                 assigned_sections=section_list,
             )
+
+            # Inject the corpus citation allow-list (cite ONLY [N]); no-op when flag off.
+            if self._citation_allowlist_block:
+                prompt += self._citation_allowlist_block
 
             # Inject execution fact sheet so writers know which experiments succeeded
             fact_sheet = self._build_execution_fact_sheet()
@@ -929,6 +991,10 @@ class WritingHandler:
             checkpoint_context=checkpoint_context,
             section_drafts=section_drafts_text,
         )
+
+        # Inject the corpus citation allow-list (cite ONLY [N]); no-op when flag off.
+        if self._citation_allowlist_block:
+            prompt += self._citation_allowlist_block
 
         # Inject execution fact sheet into assembly
         fact_sheet = self._build_execution_fact_sheet()

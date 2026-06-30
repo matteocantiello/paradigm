@@ -190,12 +190,18 @@ journal:
   compile_pdf: true
 
 citation:
-  # All three use Perplexity (needs PERPLEXITY_API_KEY in the env; without it they
-  # no-op cleanly). Seed discovery bootstraps the literature with a few foundational
-  # papers at the start of a cycle (one fast call). Citation grounding inserts [N]
-  # markers across the whole body + builds a real (batch-resolved) bibliography —
-  # the cheapest way to a publication-grade reference list, so it's ON. Novelty
-  # checking adds per-idea Perplexity calls; leave it off unless you want it.
+  # Corpus-grounded citations (ADR-013): the writer is shown the cycle's discovered
+  # papers as a numbered [N] allow-list and may cite ONLY those; the bibliography is
+  # compiled deterministically from that set — an ungrounded inline citation becomes
+  # impossible. When the cycle discovered papers this OWNS citations (Perplexity is
+  # skipped); when it discovered NONE, it falls through to Perplexity grounding below.
+  corpus_grounded_citations: true
+  # Always-on safety net: strip fabricated inline arXiv ids (not in the corpus) and log
+  # unverifiable "(Author, Year)" cites. Pure robustness — leave on.
+  strip_ungrounded_citations: true
+  # Perplexity grounding is now the FALLBACK (used only when no papers were discovered).
+  # Seed discovery bootstraps the literature with a few foundational papers at the start
+  # of a cycle (one fast call). Both need PERPLEXITY_API_KEY (no-op cleanly without it).
   enable_citation_grounding: true
   enable_novelty_check: false
   enable_seed_discovery: true

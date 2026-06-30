@@ -248,6 +248,18 @@ class CitationConfig(BaseModel):
 
     enable_citation_grounding: bool = False
     drop_unresolved_citations: bool = False  # drop refs that don't resolve (vs bare-URL)
+    # Corpus-grounded citations (the OpenDraft-style invariant): inject the cycle's
+    # discovered-paper set into the writer as a numbered [N] allow-list, tell it to cite
+    # ONLY those [N] markers (never free-text "(Author, Year)" or its own References
+    # section), and build the bibliography deterministically from that same set. Makes an
+    # ungrounded inline citation structurally impossible. Off by default (opt-in / A/B);
+    # when ON it OWNS citations and the Perplexity grounding path is skipped.
+    corpus_grounded_citations: bool = False
+    max_allowlist_papers: int = 40  # cap on the injected allow-list size (matches 15-40 refs)
+    # Always-on safety net (independent of the flag above): strip fabricated inline
+    # identifiers (arXiv ids / DOIs not in the cycle's corpus) from the assembled paper and
+    # log unverifiable "(Author, Year)" cites. Pure robustness — leave ON; kill-switch only.
+    strip_ungrounded_citations: bool = True
     perplexity_api_key_env: str = "PERPLEXITY_API_KEY"
     # Ground the whole body, not just intro+methods — results/discussion/conclusion
     # make substantive claims that need citing too (a big completeness win). Grounding

@@ -1,0 +1,92 @@
+# Paradigm SELF-TEST config — A/B TREATMENT arm for corpus-grounded citations.
+#
+# Identical to selftest.yaml except citation.corpus_grounded_citations is ON: the
+# writer is shown the cycle's discovered papers as a numbered [N] allow-list and may
+# cite ONLY those; the bibliography is compiled deterministically from that set.
+# Baseline arm = configs/selftest.yaml (flag off). Use:
+#   PARADIGM_CONFIG=configs/selftest-cite-on.yaml PARADIGM_DATA_DIR=... \
+#     conda run -n paradigm python -m paradigm.main run --mode directed --prompt "..."
+
+providers:
+  gemini:
+    type: openai_compatible
+    api_key_env: GEMINI_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    default_model: gemini-2.5-flash-lite
+
+agent:
+  default_model: "gemini-2.5-flash-lite"
+  opus_model: "gemini-2.5-flash"
+  max_tokens: 8192
+  temperature: 1.0
+  token_budget_per_thread: 1000000
+  token_budget_per_agent: 100000
+  default_provider: gemini
+  overrides:
+    writer: { provider: gemini, model: gemini-2.5-flash, max_tokens: 12288 }
+
+sandbox:
+  enabled: false
+
+literature:
+  arxiv_rate_limit: 3.0
+  max_results_per_search: 10
+  enable_pdf_fetch: false
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  follow_budget_per_round: 0
+  cited_by_budget_per_round: 0
+  read_budget_per_round: 1
+  max_read_chars: 4000
+  max_citation_results: 5
+  max_reference_results: 5
+
+storage:
+  data_dir: "./data"
+
+display:
+  stream_tokens: false
+
+orchestrator:
+  max_rounds_per_phase: 1
+  enable_checkpointing: true
+  checkpoint_interval: 5
+  enable_writing: true
+  max_review_iterations: 1
+  enable_peer_review: true
+  num_reviewers: 1
+  max_revision_rounds: 1
+  enable_experimentation: false
+  model_preflight: true
+  max_searches_per_round: 2
+  enable_debates: false
+  enable_execution_sprints: false
+  enable_verification: false
+  human_gate_mode: "off"
+  enable_multimodal_review: false
+
+skills:
+  skills_dir: "vendor/claude-scientific-skills/scientific-skills"
+  default_mode: "default"
+  max_skill_chars: null
+
+memory:
+  enabled: true
+  collection_name: "agent_memories"
+
+knowledge:
+  enable_world_model: true
+  enable_evidence_graph: true
+  enable_hypothesis_tournament: false
+  enable_preregistration: false
+
+journal:
+  enable_latex_output: false
+  latex_journal: "none"
+  compile_pdf: false
+
+citation:
+  enable_citation_grounding: false
+  corpus_grounded_citations: true     # <-- the A/B treatment
+  strip_ungrounded_citations: true
+  enable_novelty_check: false
+  enable_seed_discovery: false
