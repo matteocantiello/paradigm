@@ -54,7 +54,7 @@ agent:
   max_tokens: 8192
   temperature: 1.0
   token_budget_per_thread: 1000000
-  token_budget_per_agent: 100000
+  token_budget_per_agent: 150000   # operator tuning
   default_provider: gemini
   overrides:
     # Deliberately DIVERSE across all three providers — quality where it matters,
@@ -94,7 +94,7 @@ sandbox:
   network_mode: "none"
   cpu_limit: 2.0
   memory_limit: "2g"
-  execution_timeout: 300
+  execution_timeout: 500   # operator tuning
   max_output_size: 10485760
   pids_limit: 256
   drop_capabilities: true
@@ -106,10 +106,10 @@ literature:
   max_results_per_search: 30
   enable_pdf_fetch: true
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
-  follow_budget_per_round: 1
-  cited_by_budget_per_round: 1
+  follow_budget_per_round: 2   # operator tuning
+  cited_by_budget_per_round: 2   # operator tuning
   read_budget_per_round: 3
-  max_read_chars: 8000
+  max_read_chars: 80000   # operator tuning
   max_citation_results: 10
   max_reference_results: 20
   mcp:
@@ -136,18 +136,18 @@ display:
   stream_chunk_min_chars: 12
 
 orchestrator:
-  max_rounds_per_phase: 1   # speed: one proposal round per phase (bump to 2 for depth)
+  max_rounds_per_phase: 2   # operator tuning (depth over speed)
   enable_checkpointing: true
   checkpoint_interval: 5
   enable_writing: true
-  max_review_iterations: 2
+  max_review_iterations: 3   # operator tuning
   enable_peer_review: true
-  num_reviewers: 1
-  max_revision_rounds: 1
+  num_reviewers: 2   # operator tuning
+  max_revision_rounds: 2   # operator tuning
   enable_experimentation: true   # set false to disable all code execution
   max_searches_per_round: 3
-  enable_debates: false
-  enable_execution_sprints: false
+  enable_debates: true   # operator tuning
+  enable_execution_sprints: true   # operator tuning
   enable_verification: false
   # Unattended remote runs: no blocking gates. Steer via the interaction bar.
   human_gate_mode: "off"

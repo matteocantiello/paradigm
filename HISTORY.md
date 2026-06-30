@@ -4883,3 +4883,33 @@ Planning + implementing the citation-grounding fix (corpus allow-list injection 
 > Let's do 1 and 2
 
 (1) Commit the corpus-grounded-citations change (scoped to the 9 related files + the production flip) on `responsive-live-progress`. (2) Flip `citation.corpus_grounded_citations: true` in `configs/production.yaml` (allow-list owns citations; Perplexity grounding is bypassed when on).
+
+### Prompt 220 — result
+
+Flipped `corpus_grounded_citations: true` + `strip_ungrounded_citations: true` in `configs/production.yaml` (kept `enable_citation_grounding: true` as the no-discovery Perplexity fallback); verified it loads. Committed `97e15cc` on `responsive-live-progress` (10 files: citation_validation.py + tests, config.py, citation_handler.py, writing.py, production.yaml, selftest-cite-on.yaml, DECISIONS.md ADR-013, OPENDRAFT-COMPARISON.md, HISTORY.md). Pre-existing untracked files left alone.
+
+## Prompt 221 — Push
+
+> let's push
+
+Pushing `responsive-live-progress` (must run the pre-push hook under conda `paradigm`, not `.venv`, or the mcp-extra env-only failures block it).
+
+### Prompt 221 — result
+
+Pushed `8eb6c37..97e15cc` to `responsive-live-progress`. The `.githooks/pre-push` gate auto-selected `conda run -n paradigm` (ruff check + ruff format --check + pytest **1765 passed**); the live self-test cycle is opt-in (`PARADIGM_PREPUSH_SMOKE`, unset) so no API calls. Remaining: VM deploy (`git pull` → rebuild/restart; no new pip deps) + validate `corpus_grounded_citations` on the first real production cycle; scite Phase 2 pending access.
+
+## Prompt 222 — VM deploy: papers + old cycles disappeared
+
+> I pulled and restarted the VM, but there are no more papers and old research cycles visible :(
+
+Incident triage. My commit touches only citation logic/config (no storage/DB/migration code) → cannot delete/hide data. Leading hypothesis: the `git pull` brought in 4 other commits (ef6acf9..97e15cc) AND my commit modified `production.yaml`'s citation block, which would conflict with the VM's LOCAL operator tunings (per the C2-deploy memory, the VM's production.yaml has substantive local edits). If the pull/stash clobbered the operator's `storage.data_dir` (or the backend restarted with a different PARADIGM_DATA_DIR), the backend now reads an empty data dir — data is intact on disk, just not being read.
+
+### Prompt 222 — root cause + fix
+
+**ROOT CAUSE confirmed:** the operator's `git stash → pull → stash pop` **conflicted on `production.yaml`'s citation block** (their local tunings vs my citation-block edit) and left **unresolved conflict markers** (`<<<<<<< / ======= / >>>>>>>` at lines 193/206/213). Invalid YAML → backend logged `Could not load any config: ... in "configs/production.yaml", line 193` → it started on the **fallback config** (backend/api/config.py) pointing at an empty data dir → dashboard showed no papers/cycles. **Data 100% intact** at `/var/lib/paradigm/data` (paradigm.db 7.6MB, papers/, threads/, events.jsonl, executions/, vector_db/ all present). Not data loss, not my code (the pulled commits touched zero storage/backend files). **Fix:** resolve the conflict (replace lines 193–213 with the committed citation block; their other tunings popped cleanly and are intact), `git add` (don't commit — VM keeps config local), `git stash drop`, `systemctl restart paradigm-backend`. Lesson → memory.
+
+## Prompt 223 — Push turnkey production.yaml (tunings + citation fix)
+
+> B
+
+Chose Option B: converge the committed `configs/production.yaml` to the VM by baking in the operator tunings (last-known values from the C2-deploy record) alongside the citation fix, then push — so the VM can `git checkout origin/... -- configs/production.yaml` cleanly (no more stash/conflict dance). Values flagged as last-known; stash@{0} is the diff/safety net.
