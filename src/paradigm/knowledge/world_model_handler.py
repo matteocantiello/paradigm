@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 from paradigm.knowledge.conflict_detection import ConflictDetector
 from paradigm.knowledge.evidence_graph import ConflictEdge, EvidenceGraph
-from paradigm.knowledge.hypothesis_matching import HypothesisMatcher, NormalizedMatcher
+from paradigm.knowledge.hypothesis_matching import (
+    EmbeddingMatcher,
+    HypothesisMatcher,
+    NormalizedMatcher,
+    default_embed_fn,
+)
 from paradigm.knowledge.models import (
     ConfidenceLevel,
     Entity,
@@ -57,9 +62,31 @@ class WorldModelHandler:
 
     def __init__(self, engine: OrchestrationEngine) -> None:
         self._engine = engine
-        # Pluggable de-dup seam (C2 step 3): the conservative normalized matcher
-        # ships first; a paraphrase-aware embedding matcher can replace it here.
-        self._hypothesis_matcher: HypothesisMatcher = NormalizedMatcher()
+        # Pluggable de-dup seam (C2 step 3): normalized (exact restatements) by
+        # default; the semantic embedding matcher when configured.
+        self._hypothesis_matcher: HypothesisMatcher = self._build_matcher()
+
+    def _build_matcher(self) -> HypothesisMatcher:
+        """Pick the hypothesis de-dup matcher from config.
+
+        Only builds the (model-loading) embedding matcher when unified dedup is on
+        AND ``hypothesis_dedup == "embedding"``; degrades to the normalized matcher
+        on any construction failure so a model/load issue never breaks a cycle.
+        """
+        cfg = self._engine._config.knowledge
+        if (
+            getattr(cfg, "unified_hypotheses", False)
+            and getattr(cfg, "hypothesis_dedup", "normalized") == "embedding"
+        ):
+            try:
+                return EmbeddingMatcher(
+                    default_embed_fn(), threshold=cfg.hypothesis_dedup_threshold
+                )
+            except Exception as e:  # noqa: BLE001 — degrade, never fatal
+                self._engine._logger.log_error(
+                    e, thread_id=self._engine.state.thread_id, metadata_key="hypothesis_dedup"
+                )
+        return NormalizedMatcher()
 
     # ------------------------------------------------------------------
     # Lifecycle

@@ -286,6 +286,11 @@ class KnowledgeConfig(BaseModel):
     # a hypothesis flips status once its accumulated evidence crosses these thresholds.
     belief_support_min: int = 3  # min supporting evidence to mark SUPPORTED
     belief_contradict_min: int = 2  # min contradicting evidence to mark CONTRADICTED
+    # Hypothesis de-dup matcher (active only under unified_hypotheses). "normalized"
+    # = exact restatements only (cheap, default); "embedding" = cosine over sentence
+    # embeddings to also fold paraphrases (the real ~53→~30 collapse).
+    hypothesis_dedup: str = "normalized"  # "normalized" | "embedding"
+    hypothesis_dedup_threshold: float = 0.85  # cosine threshold for "embedding"
     # Pre-registration / falsifiability (Phase 1A). Off by default.
     enable_preregistration: bool = False
     prereg_require_refutation: bool = True  # reject hypotheses lacking a refutation condition
