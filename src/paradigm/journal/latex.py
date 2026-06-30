@@ -38,6 +38,33 @@ class LatexPreset:
         r"\usepackage[utf8]{inputenc}",
         r"\usepackage[T1]{fontenc}",
         r"\usepackage{amsmath,amssymb}",
+        # Best-effort fallbacks for common scientific-notation macros that LLM writers
+        # emit (inside $...$) but base LaTeX/amssymb doesn't define — e.g. $M_\sun$,
+        # $L_\Lsun$, \degree. Each is the classic "Undefined control sequence" that
+        # aborts the whole PDF. \providecommand only defines a macro if it's absent, so
+        # a real package (siunitx, aastex, …) still wins. Together with the lenient
+        # compile fallback in compile_pdf(), a stray undefined macro no longer kills the PDF.
+        (
+            r"\providecommand{\sun}{\ensuremath{\odot}}"
+            r"\providecommand{\Sun}{\ensuremath{\odot}}"
+            r"\providecommand{\Msun}{\ensuremath{M_{\odot}}}"
+            r"\providecommand{\msun}{\ensuremath{M_{\odot}}}"
+            r"\providecommand{\Lsun}{\ensuremath{L_{\odot}}}"
+            r"\providecommand{\lsun}{\ensuremath{L_{\odot}}}"
+            r"\providecommand{\Rsun}{\ensuremath{R_{\odot}}}"
+            r"\providecommand{\rsun}{\ensuremath{R_{\odot}}}"
+            r"\providecommand{\Zsun}{\ensuremath{Z_{\odot}}}"
+            r"\providecommand{\zsun}{\ensuremath{Z_{\odot}}}"
+            r"\providecommand{\Mdot}{\ensuremath{\dot{M}}}"
+            r"\providecommand{\Teff}{\ensuremath{T_{\mathrm{eff}}}}"
+            r"\providecommand{\logg}{\ensuremath{\log g}}"
+            r"\providecommand{\degree}{\ensuremath{^{\circ}}}"
+            r"\providecommand{\degr}{\ensuremath{^{\circ}}}"
+            r"\providecommand{\arcsec}{\ensuremath{^{\prime\prime}}}"
+            r"\providecommand{\arcmin}{\ensuremath{^{\prime}}}"
+            r"\providecommand{\micron}{\ensuremath{\mu\mathrm{m}}}"
+            r"\providecommand{\kms}{\ensuremath{\mathrm{km\,s^{-1}}}}"
+        ),
         r"\usepackage{graphicx}",
         r"\usepackage[margin=1in]{geometry}",
         # Tables: booktabs if available, else emulate its rules with \hline.
@@ -100,12 +127,54 @@ _SPECIAL = {
 }
 
 
+# Unicode punctuation that has no glyph in the default (T1/Computer Modern) font under
+# XeTeX/tectonic — a raw "—" triggers a "could not represent character" warning and can
+# render as a blank. Map to LaTeX equivalents. (Unicode *math* symbols are handled
+# upstream by sanitize_unicode_math; this covers prose punctuation it doesn't.)
+_UNICODE_PUNCT = {
+    "—": "---",  # em dash
+    "–": "--",  # en dash
+    "‒": "--",  # figure dash
+    "―": "---",  # horizontal bar
+    "‘": "`",  # left single quote
+    "’": "'",  # right single quote / apostrophe
+    "“": "``",  # left double quote
+    "”": "''",  # right double quote
+    "…": r"\ldots{}",  # ellipsis
+    "−": "$-$",  # minus sign
+    " ": "~",  # non-breaking space
+    " ": r"\,",  # thin space
+    " ": r"\,",  # narrow no-break space
+    "•": r"\textbullet{}",  # bullet
+}
+
+
 def _escape_latex(text: str) -> str:
     """Escape LaTeX special characters in plain prose (not math, not generated TeX)."""
     text = text.replace("\\", r"\textbackslash{}")
     for ch, rep in _SPECIAL.items():
         text = text.replace(ch, rep)
+    # Map unfont-able Unicode punctuation last (its replacements add $/\ that must NOT
+    # be re-escaped).
+    for ch, rep in _UNICODE_PUNCT.items():
+        text = text.replace(ch, rep)
     return text
+
+
+def _sanitize_math_span(span: str) -> str:
+    """Convert Unicode math symbols INSIDE a ``$...$`` span to LaTeX commands.
+
+    ``sanitize_unicode_math`` only fixes Unicode *outside* math; a literal ``$β$``
+    (common in arXiv reference titles) reaches XeTeX/tectonic as a raw char with no glyph
+    in the math font ("Missing character: There is no β in font cmmi10"). Map it to
+    ``\\beta``. Commands get a trailing space so ``$βCep$`` -> ``\\beta Cep`` (not the
+    undefined ``\\betaCep``)."""
+    from paradigm.journal.paper import _UNICODE_TO_LATEX
+
+    for ch, rep in _UNICODE_TO_LATEX.items():
+        if ch in span:
+            span = span.replace(ch, rep + (" " if rep.startswith("\\") else ""))
+    return span
 
 
 def _convert_inline(text: str) -> str:
@@ -114,7 +183,7 @@ def _convert_inline(text: str) -> str:
     math_spans: list[str] = []
 
     def _stash(m: re.Match) -> str:
-        math_spans.append(m.group(0))
+        math_spans.append(_sanitize_math_span(m.group(0)))
         return f"\x00MATH{len(math_spans) - 1}\x00"
 
     protected = _MATH_RE.sub(_stash, text)
@@ -408,30 +477,37 @@ def compile_pdf(tex_path: Path, timeout: int = 120) -> tuple[bool, str]:
 
     workdir = tex_path.parent
     pdf_path = tex_path.with_suffix(".pdf")
+    name = str(tex_path.name)
+
+    # Try a STRICT compile first (clean output); if it fails to produce a PDF, retry in a
+    # LENIENT mode that continues past a recoverable error (e.g. one writer-emitted
+    # undefined macro) so a single bad token can't deny the whole paper a PDF.
     if engine == "tectonic":
-        cmd = [engine, str(tex_path.name)]
-        passes = 1
+        attempts = [([engine, name], 1), ([engine, "-Z", "continue-on-errors", name], 1)]
     else:
-        cmd = [engine, "-interaction=nonstopmode", "-halt-on-error", str(tex_path.name)]
-        passes = 2  # resolve refs
+        attempts = [
+            ([engine, "-interaction=nonstopmode", "-halt-on-error", name], 2),  # resolve refs
+            ([engine, "-interaction=nonstopmode", name], 2),  # no halt → skip & continue
+        ]
 
     last_output = ""
-    for _ in range(passes):
-        try:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(workdir),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-            last_output = (proc.stdout or "") + (proc.stderr or "")
-        except (subprocess.TimeoutExpired, OSError) as e:
-            return False, f"{engine} failed: {e}"
-
-    if pdf_path.exists():
-        return True, f"compiled with {engine}"
+    for idx, (cmd, passes) in enumerate(attempts):
+        for _ in range(passes):
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(workdir),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+                last_output = (proc.stdout or "") + (proc.stderr or "")
+            except (subprocess.TimeoutExpired, OSError) as e:
+                return False, f"{engine} failed: {e}"
+        if pdf_path.exists():
+            note = "" if idx == 0 else " (lenient: skipped unrenderable markup)"
+            return True, f"compiled with {engine}{note}"
     return False, _extract_tex_errors(last_output)
 
 
