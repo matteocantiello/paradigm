@@ -80,6 +80,7 @@ def _build_review_engine(*, figures, code):
     """A MagicMock engine wired just enough to drive one internal-review iteration."""
     engine = MagicMock()
     engine._config.orchestrator.max_review_iterations = 1
+    engine._config.orchestrator.review_convergence_extra = 0
     engine._config.orchestrator.enable_multimodal_review = False
     engine.state.execution_figures = figures
     engine.state.successful_code = code
@@ -124,3 +125,39 @@ async def test_experimental_paper_review_omits_directive():
     prompt = editor.generate.call_args.args[0]
     assert _LITERATURE_PAPER_REVIEW_DIRECTIVE not in prompt
     assert "Literature / Theoretical Contribution" not in prompt
+
+
+class TestReviewKeepGoing:
+    """Trajectory-aware internal-review budget (backlog #4).
+
+    Convention in these cases: max_iterations=3, hard_cap=6, _REVIEW_STALL_LIMIT=2.
+    """
+
+    KG = staticmethod(ReviewHandler._review_keep_going)
+
+    def test_first_pass_within_cap(self):
+        assert self.KG(None, 10, 1, 3, 6, 0) == (True, 0)
+
+    def test_first_pass_at_cap_stops(self):
+        assert self.KG(None, 10, 1, 1, 4, 0)[0] is False
+
+    def test_diverging_breaks_immediately(self):
+        # required 12 > prev 9 → stop now, even mid-budget (iteration 2 of 3)
+        assert self.KG(9, 12, 2, 3, 6, 0) == (False, 0)
+
+    def test_converging_extends_past_cap(self):
+        # improving (4 < 14) at iteration == max (3) → keep going toward hard_cap
+        assert self.KG(14, 4, 3, 3, 6, 0) == (True, 0)
+
+    def test_converging_stops_at_hard_cap(self):
+        assert self.KG(4, 1, 6, 3, 6, 0) == (False, 0)
+
+    def test_plateau_stalls_after_limit(self):
+        assert self.KG(5, 5, 2, 5, 8, 0) == (True, 1)  # first flat
+        assert self.KG(5, 5, 3, 5, 8, 1) == (False, 2)  # second flat → stall limit
+
+    def test_improving_resets_stall(self):
+        assert self.KG(5, 3, 2, 5, 8, 1) == (True, 0)
+
+    def test_single_flat_within_cap_continues(self):
+        assert self.KG(5, 5, 1, 5, 8, 0) == (True, 1)

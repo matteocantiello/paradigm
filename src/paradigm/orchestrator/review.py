@@ -220,6 +220,34 @@ class ReviewHandler:
                 return "accept"
         return recommendation
 
+    @staticmethod
+    def _review_keep_going(
+        prev_required: int | None,
+        required: int,
+        iteration: int,
+        max_iterations: int,
+        hard_cap: int,
+        stall_count: int,
+    ) -> tuple[bool, int]:
+        """Decide whether internal review keeps revising, and the new stall count.
+
+        - First pass (no prior): revise within the normal cap.
+        - Diverging (``required > prev``): stop now — revisions are making it worse.
+        - Flat plateau (``required == prev``): stop after ``_REVIEW_STALL_LIMIT``
+          consecutive flat iterations, else continue within the normal cap.
+        - Strictly improving (``required < prev``): the paper is converging, so
+          extend past the normal cap up to ``hard_cap``.
+        """
+        if prev_required is None:
+            return iteration < max_iterations, stall_count
+        if required > prev_required:
+            return False, stall_count
+        if required == prev_required:
+            stall_count += 1
+            return (stall_count < _REVIEW_STALL_LIMIT and iteration < max_iterations), stall_count
+        # strictly improving — converging
+        return iteration < hard_cap, 0
+
     async def _run_figure_review(self) -> str:
         """Visually inspect the paper's figures with a vision model (P2-VLM, default-off).
 
@@ -284,10 +312,16 @@ class ReviewHandler:
         # revisions); inject findings into each editor review below.
         figure_findings = await self._run_figure_review()
 
+        # Trajectory-aware budget (backlog #4): a strictly-converging paper may run a
+        # few iterations past max_iterations (up to hard_cap); a diverging/stalled one
+        # stops early — instead of every paper dying at the same fixed cap.
+        hard_cap = max_iterations + self._engine._config.orchestrator.review_convergence_extra
         prev_required_count: int | None = None
         stall_count = 0
+        iteration = 0
 
-        for iteration in range(1, max_iterations + 1):
+        while iteration < hard_cap:
+            iteration += 1
             self._engine._display.review_iteration(iteration, max_iterations)
             self._engine._literature.search_count_this_round = 0
 
@@ -457,39 +491,40 @@ class ReviewHandler:
                     self._engine._db.update_paper(thread["current_draft_id"], status="reviewed")
                 return
 
-            # Convergence check: if the writer isn't reducing the editor's required
-            # changes across consecutive iterations, it isn't converging. Stop early
-            # rather than burning the remaining rounds (Bucket B: papers that spent all
-            # 5 iterations stuck on "Revise" and never reached "accept").
+            # Trajectory-aware budget (see _review_keep_going): extend a converging
+            # paper past the normal cap, cut a diverging/stalled one early.
             required_count = len(feedback.required_changes)
-            if prev_required_count is not None and required_count >= prev_required_count:
-                stall_count += 1
-            else:
-                stall_count = 0
+            keep_going, stall_count = self._review_keep_going(
+                prev_required_count,
+                required_count,
+                iteration,
+                max_iterations,
+                hard_cap,
+                stall_count,
+            )
             prev_required_count = required_count
-            if stall_count >= _REVIEW_STALL_LIMIT:
+            if not keep_going:
                 break
 
-            # Revision needed — writer revises
-            if iteration < max_iterations:
-                self._engine._display.review_revising()
-                current_body = await self.run_revision(current_body, response.content)
-                draft.assembled_body = current_body
+            # Revision needed — writer revises (the budget gate above already decided).
+            self._engine._display.review_revising()
+            current_body = await self.run_revision(current_body, response.content)
+            draft.assembled_body = current_body
 
-                # Update paper in database and on disk
-                thread = self._engine._db.get_thread(self._engine.state.thread_id)
-                if thread and thread.get("current_draft_id"):
-                    paper_id = thread["current_draft_id"]
-                    self._engine._db.update_paper(
-                        paper_id,
-                        body=current_body,
-                        status="revised",
-                    )
-                    # Offloaded: save_paper_file may pre-compile the PDF (LaTeX
-                    # subprocess) — keep it off the event loop so the UI never stalls.
-                    await asyncio.to_thread(
-                        self._engine._writing.save_paper_file, paper_id, current_body
-                    )
+            # Update paper in database and on disk
+            thread = self._engine._db.get_thread(self._engine.state.thread_id)
+            if thread and thread.get("current_draft_id"):
+                paper_id = thread["current_draft_id"]
+                self._engine._db.update_paper(
+                    paper_id,
+                    body=current_body,
+                    status="revised",
+                )
+                # Offloaded: save_paper_file may pre-compile the PDF (LaTeX
+                # subprocess) — keep it off the event loop so the UI never stalls.
+                await asyncio.to_thread(
+                    self._engine._writing.save_paper_file, paper_id, current_body
+                )
 
         # Loop ended without editor acceptance (max iterations or stalled revisions).
         self._engine._display.review_max_iterations()

@@ -164,6 +164,10 @@ class OrchestratorConfig(BaseModel):
     checkpoint_interval: int = Field(default=5, gt=0)  # rounds (must be >0: used in modulo)
     enable_writing: bool = True
     max_review_iterations: int = 5
+    # Internal review may run this many iterations PAST max_review_iterations while
+    # the editor's required-change count is STRICTLY falling (a converging paper),
+    # bounded by max_review_iterations + this. Diverging/stalled papers stop early.
+    review_convergence_extra: int = 3
     enable_peer_review: bool = True
     num_reviewers: int = 2
     max_revision_rounds: int = 4
