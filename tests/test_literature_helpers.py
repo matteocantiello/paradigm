@@ -1,6 +1,9 @@
 """Tests for the LiteratureHandler._append_to_context helper and search dedup."""
 
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from paradigm.literature.prompt_utils import parse_data_requests
 from paradigm.orchestrator.constants import (
@@ -11,7 +14,7 @@ from paradigm.orchestrator.constants import (
     _is_duplicate_query,
     _normalize_query_keywords,
 )
-from paradigm.orchestrator.literature import LiteratureHandler
+from paradigm.orchestrator.literature import LiteratureHandler, _oa_url
 
 
 def _make_handler() -> LiteratureHandler:
@@ -247,3 +250,51 @@ class TestFilterRelevantPapers:
         ]
         result = _filter_relevant_papers("stellar pulsation variable", papers)
         assert len(result) == 1
+
+
+class TestOpenAccessFullText:
+    """Non-arXiv full-text reads via an open-access PDF (backlog #3)."""
+
+    def test_oa_url_from_metadata(self):
+        assert _oa_url(SimpleNamespace(metadata={"oa_pdf_url": "http://x.pdf"})) == "http://x.pdf"
+
+    def test_oa_url_from_attr(self):
+        assert _oa_url(SimpleNamespace(oa_pdf_url="http://y.pdf", metadata={})) == "http://y.pdf"
+
+    def test_oa_url_none(self):
+        assert _oa_url(SimpleNamespace(metadata={})) == ""
+
+    def test_track_paper_caches_oa_url(self):
+        h = _make_handler()
+        h._track_paper("PMID1", "Title", "Author", "abstract", oa_pdf_url="http://oa/x.pdf")
+        assert h.discovered_fulltext["PMID1"] == "http://oa/x.pdf"
+
+    def test_track_paper_without_oa_url(self):
+        h = _make_handler()
+        h._track_paper("PMID1", "Title", "Author", "abstract")
+        assert "PMID1" not in h.discovered_fulltext
+
+    @pytest.mark.asyncio
+    async def test_reads_oa_pdf_truncated(self):
+        h = _make_handler()
+        h.discovered_fulltext["PMID1"] = "http://oa/x.pdf"
+        h.discovered_abstracts["PMID1"] = ("Cool Paper", "abs")
+        h._engine._corpus.fetch_pdf_text_from_url = AsyncMock(return_value="FULL BODY " * 100)
+
+        result = await h._read_external_fulltext("PMID1", max_chars=50)
+        assert result is not None
+        title, text = result
+        assert title == "Cool Paper"
+        assert len(text) == 50  # truncated to max_chars
+
+    @pytest.mark.asyncio
+    async def test_none_when_no_oa_url(self):
+        h = _make_handler()
+        assert await h._read_external_fulltext("PMID1", 100) is None
+
+    @pytest.mark.asyncio
+    async def test_none_when_fetch_empty(self):
+        h = _make_handler()
+        h.discovered_fulltext["PMID1"] = "http://oa/x.pdf"
+        h._engine._corpus.fetch_pdf_text_from_url = AsyncMock(return_value="")
+        assert await h._read_external_fulltext("PMID1", 100) is None

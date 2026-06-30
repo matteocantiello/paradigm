@@ -43,13 +43,14 @@ class SemanticPaper:
     year: int | None
     citation_count: int | None
     url: str
+    oa_pdf_url: str | None = None  # open-access PDF, when S2 has one
 
 
 class SemanticScholarClient:
     """Async Semantic Scholar API client with rate limiting."""
 
     BASE_URL = "https://api.semanticscholar.org/graph/v1"
-    FIELDS = "title,authors,abstract,externalIds,year,citationCount,url"
+    FIELDS = "title,authors,abstract,externalIds,year,citationCount,url,openAccessPdf"
 
     def __init__(
         self,
@@ -436,6 +437,8 @@ def _parse_paper(data: dict[str, Any]) -> SemanticPaper | None:
     authors_raw = data.get("authors") or []
     authors = [a.get("name", "") for a in authors_raw if a.get("name")]
 
+    oa = data.get("openAccessPdf") or {}
+
     return SemanticPaper(
         paper_id=paper_id,
         arxiv_id=arxiv_id,
@@ -445,4 +448,5 @@ def _parse_paper(data: dict[str, Any]) -> SemanticPaper | None:
         year=data.get("year"),
         citation_count=data.get("citationCount"),
         url=data.get("url") or "",
+        oa_pdf_url=oa.get("url") or None,
     )

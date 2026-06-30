@@ -614,6 +614,14 @@ class Corpus:
         """
         return self._embeddings.search(query, n_results=n_results)
 
+    async def fetch_pdf_text_from_url(self, url: str) -> str | None:
+        """Download a PDF from any URL and extract its text (e.g. an open-access
+        PDF for a non-arXiv paper). Returns None on failure. Reuses the arXiv
+        client's pymupdf-based extractor."""
+        if not url or self._arxiv is None:
+            return None
+        return await self._arxiv.fetch_pdf_from_url(url)
+
     async def get_paper(self, arxiv_id: str) -> ArxivPaper | None:
         """Get a paper, checking local storage first then arXiv.
 

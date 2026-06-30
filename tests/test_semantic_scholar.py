@@ -311,3 +311,37 @@ class TestRateLimitResilience:
         assert await client.get_papers_batch(["ArXiv:2"]) == []  # short-circuit
         assert client._client.post.call_count == n
         await client.close()
+
+
+class TestOpenAccessPdf:
+    """openAccessPdf parsing + conversion (backlog #3)."""
+
+    def test_parse_extracts_oa_pdf(self):
+        from paradigm.literature.semantic_scholar import _parse_paper
+
+        p = _parse_paper({"title": "X", "authors": [], "openAccessPdf": {"url": "http://oa/x.pdf"}})
+        assert p is not None and p.oa_pdf_url == "http://oa/x.pdf"
+
+    def test_parse_no_oa_pdf(self):
+        from paradigm.literature.semantic_scholar import _parse_paper
+
+        p = _parse_paper({"title": "X", "authors": []})
+        assert p is not None and p.oa_pdf_url is None
+
+    def test_conversion_carries_oa_pdf(self):
+        from paradigm.domains.base import semantic_paper_to_source_result
+        from paradigm.literature.semantic_scholar import SemanticPaper
+
+        sp = SemanticPaper(
+            paper_id="x",
+            arxiv_id=None,
+            title="T",
+            authors=[],
+            abstract="",
+            year=2020,
+            citation_count=0,
+            url="",
+            oa_pdf_url="http://oa.pdf",
+        )
+        sr = semantic_paper_to_source_result(sp)
+        assert sr.metadata["oa_pdf_url"] == "http://oa.pdf"

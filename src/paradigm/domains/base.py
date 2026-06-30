@@ -242,6 +242,7 @@ def semantic_paper_to_source_result(paper: object) -> SourceResult:
             "arxiv_id": paper.arxiv_id,
             "year": paper.year,
             "citation_count": paper.citation_count,
+            "oa_pdf_url": getattr(paper, "oa_pdf_url", None),
         },
     )
 

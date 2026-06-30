@@ -90,6 +90,16 @@ def _extract_arxiv_id_query(query: str) -> str | None:
     return match.group("id") if match else None
 
 
+def _oa_url(paper: Any) -> str:
+    """Open-access PDF url from a SourceResult (``metadata['oa_pdf_url']``) or a
+    raw provider paper (``.oa_pdf_url``). Empty string when none."""
+    direct = getattr(paper, "oa_pdf_url", None)
+    if direct:
+        return direct
+    meta = getattr(paper, "metadata", None) or {}
+    return meta.get("oa_pdf_url") or ""
+
+
 def _paper_brief(p: Any) -> dict[str, str]:
     """Compact, dashboard-friendly paper card: id, title, first author, year, url.
 
@@ -139,6 +149,9 @@ class LiteratureHandler:
         # id -> (title, abstract) captured from search/traversal results, so a
         # [READ:] can fall back to the abstract when the source has no full text.
         self.discovered_abstracts: dict[str, tuple[str, str]] = {}
+        # id -> open-access PDF url (e.g. Semantic Scholar openAccessPdf), so a
+        # [READ:] on a non-arXiv paper can fetch full text before the abstract fallback.
+        self.discovered_fulltext: dict[str, str] = {}
         self.read_paper_ids: set[str] = set()  # Papers already read (cross-round dedup)
         self.followed_paper_ids: set[str] = set()  # Papers whose refs already fetched
         self.cited_by_paper_ids: set[str] = set()  # Papers whose citations already fetched
@@ -184,6 +197,7 @@ class LiteratureHandler:
         self.discovered_papers = []
         self._discovered_ids = set()
         self.discovered_abstracts = {}
+        self.discovered_fulltext = {}
         self.read_paper_ids = set()
         self.followed_paper_ids = set()
         self.cited_by_paper_ids = set()
@@ -225,21 +239,55 @@ class LiteratureHandler:
     # Paper index (compact reference list for agent prompts)
     # ------------------------------------------------------------------
 
-    def _track_paper(self, arxiv_id: str, title: str, first_author: str, summary: str = "") -> None:
+    def _track_paper(
+        self,
+        arxiv_id: str,
+        title: str,
+        first_author: str,
+        summary: str = "",
+        oa_pdf_url: str = "",
+    ) -> None:
         """Record a discovered paper in the compact index (idempotent).
 
-        Also caches the paper's abstract when one is available, so a later
-        [READ:] can fall back to it for sources that expose NO full text
-        (Semantic Scholar, PubMed, …) instead of the read silently dying.
+        Also caches the paper's abstract (full-text fallback) and any open-access
+        PDF url, so a later [READ:] on a non-arXiv paper can fetch full text — and
+        otherwise fall back to the abstract — instead of silently dying.
         """
         if not arxiv_id:
             return
         if summary and summary.strip() and arxiv_id not in self.discovered_abstracts:
             self.discovered_abstracts[arxiv_id] = (title, summary.strip())
+        if oa_pdf_url and arxiv_id not in self.discovered_fulltext:
+            self.discovered_fulltext[arxiv_id] = oa_pdf_url
         if arxiv_id in self._discovered_ids:
             return
         self._discovered_ids.add(arxiv_id)
         self.discovered_papers.append((arxiv_id, title, first_author))
+
+    async def _read_external_fulltext(
+        self, paper_id: str, max_chars: int
+    ) -> tuple[str, str] | None:
+        """Fetch + extract full text from a non-arXiv paper's cached open-access PDF.
+
+        Lets a ``[READ:]`` on a PubMed/S2/bioRxiv paper return real full text (when
+        an open-access PDF exists) instead of only its abstract. Returns
+        ``(title, text)`` truncated to ``max_chars``, or None when there's no cached
+        OA url or the fetch/extraction yields nothing.
+        """
+        oa_url = self.discovered_fulltext.get(paper_id)
+        if not oa_url:
+            return None
+        try:
+            text = await self._engine._corpus.fetch_pdf_text_from_url(oa_url)
+        except Exception as e:
+            self._engine._logger.log_error(
+                e, thread_id=self._engine.state.thread_id, metadata_key="external_fulltext"
+            )
+            return None
+        if not text or not text.strip():
+            return None
+        title = self.discovered_abstracts.get(paper_id, (paper_id, ""))[0] or paper_id
+        return (title, text[:max_chars])
 
     def build_paper_index(self) -> str:
         """Render a compact reference list of all discovered papers.
@@ -335,6 +383,7 @@ class LiteratureHandler:
                         paper.title,
                         first_author,
                         getattr(paper, "abstract", "") or getattr(paper, "summary", ""),
+                        oa_pdf_url=_oa_url(paper),
                     )
                 papers.append(paper)
             except Exception as e:
@@ -503,6 +552,7 @@ class LiteratureHandler:
                     p.title,
                     first_author,
                     getattr(p, "summary", "") or getattr(p, "abstract", ""),
+                    oa_pdf_url=_oa_url(p),
                 )
 
             if new_papers:
@@ -699,6 +749,7 @@ class LiteratureHandler:
                         p.title,
                         first_author,
                         getattr(p, "summary", "") or getattr(p, "abstract", ""),
+                        oa_pdf_url=_oa_url(p),
                     )
 
             formatted = format_follow_results(
@@ -784,6 +835,7 @@ class LiteratureHandler:
                         p.title,
                         first_author,
                         getattr(p, "summary", "") or getattr(p, "abstract", ""),
+                        oa_pdf_url=_oa_url(p),
                     )
 
             formatted = format_cited_by_results(
@@ -858,6 +910,12 @@ class LiteratureHandler:
                 if not self._handle_source_failure("arXiv", agent_id, e):
                     self._engine._display.read_error(arxiv_id, e)
                 continue
+
+            if result is None:
+                # Non-arXiv paper with no full text from read_paper — try its
+                # open-access PDF (e.g. Semantic Scholar openAccessPdf) for real
+                # full text before settling for the abstract.
+                result = await self._read_external_fulltext(arxiv_id, lit_config.max_read_chars)
 
             if result is None:
                 # No full text from any provider (e.g. Semantic Scholar / PubMed) —
@@ -974,6 +1032,7 @@ class LiteratureHandler:
                         p.title,
                         first_author,
                         getattr(p, "summary", "") or getattr(p, "abstract", ""),
+                        oa_pdf_url=_oa_url(p),
                     )
 
             formatted = format_chain_results(req.paper_id, papers, req.direction, req.depth)
