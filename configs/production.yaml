@@ -178,6 +178,14 @@ knowledge:
   # canonical [HYPOTHESIS:] set, restatements dedup at creation, and beliefs revise
   # from the tournament + evidence through one auditable path.
   unified_hypotheses: true
+  # Semantic de-dup: fold paraphrased restatements (not just literal ones) so the
+  # ~100-hypotheses/cycle collapse to a tighter ranked set. 0.75 folds clear
+  # paraphrases; RAISE toward 0.85 if genuinely distinct mechanisms get merged
+  # (everything in a focused topic is somewhat similar), LOWER toward 0.70 for a
+  # more aggressive collapse. Watch hypothesis.merged vs the ranked-set diversity.
+  # Degrades to normalized (exact restatements only) if the embedder can't load.
+  hypothesis_dedup: embedding
+  hypothesis_dedup_threshold: 0.75
   enable_preregistration: false
 
 journal:
