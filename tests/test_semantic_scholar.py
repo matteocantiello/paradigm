@@ -227,3 +227,87 @@ class TestSemanticScholarClient:
         async with SemanticScholarClient(rate_limit=0.0) as client:
             assert client is not None
         # After context exit, client should be closed
+
+
+class TestRateLimitResilience:
+    """Circuit breaker + Retry-After + env-key plumbing (backlog #2)."""
+
+    def test_api_key_from_env(self, monkeypatch):
+        monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "envkey")
+        client = SemanticScholarClient()
+        assert client._api_key == "envkey"
+        assert client._client.headers.get("x-api-key") == "envkey"
+
+    def test_explicit_key_overrides_env(self, monkeypatch):
+        monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "envkey")
+        assert SemanticScholarClient(api_key="explicit")._api_key == "explicit"
+
+    @pytest.mark.asyncio
+    async def test_breaker_opens_and_short_circuits(self, monkeypatch):
+        async def _noslp(_):
+            return None
+
+        monkeypatch.setattr("asyncio.sleep", _noslp)
+        client = SemanticScholarClient(rate_limit=0.0)
+        r = _mock_response({}, status_code=429)
+        r.headers = {}
+        client._client.get = AsyncMock(return_value=r)
+
+        assert await client._get_json("u", {}) is None  # 3 internal 429s open the breaker
+        assert client._breaker_open()
+        n = client._client.get.call_count
+        assert await client._get_json("u", {}) is None  # short-circuit — no new request
+        assert client._client.get.call_count == n
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_success_resets_counter(self, monkeypatch):
+        async def _noslp(_):
+            return None
+
+        monkeypatch.setattr("asyncio.sleep", _noslp)
+        client = SemanticScholarClient(rate_limit=0.0)
+        r429 = _mock_response({}, status_code=429)
+        r429.headers = {}
+        r200 = _mock_response({"data": []}, status_code=200)
+        client._client.get = AsyncMock(side_effect=[r429, r200])
+
+        assert await client._get_json("u", {}) == {"data": []}
+        assert client._consecutive_429 == 0
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_honors_retry_after(self, monkeypatch):
+        slept: list[float] = []
+
+        async def _capture(s):
+            slept.append(s)
+
+        monkeypatch.setattr("asyncio.sleep", _capture)
+        client = SemanticScholarClient(rate_limit=0.0)
+        r429 = _mock_response({}, status_code=429)
+        r429.headers = {"Retry-After": "2"}
+        r200 = _mock_response({"data": []}, status_code=200)
+        client._client.get = AsyncMock(side_effect=[r429, r200])
+
+        await client._get_json("u", {})
+        assert 2.0 in slept
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_batch_retries_then_breaks(self, monkeypatch):
+        async def _noslp(_):
+            return None
+
+        monkeypatch.setattr("asyncio.sleep", _noslp)
+        client = SemanticScholarClient(rate_limit=0.0)
+        r = _mock_response([], status_code=429)
+        r.headers = {}
+        client._client.post = AsyncMock(return_value=r)
+
+        assert await client.get_papers_batch(["ArXiv:1"]) == []  # retries, then breaker opens
+        assert client._breaker_open()
+        n = client._client.post.call_count
+        assert await client.get_papers_batch(["ArXiv:2"]) == []  # short-circuit
+        assert client._client.post.call_count == n
+        await client.close()
