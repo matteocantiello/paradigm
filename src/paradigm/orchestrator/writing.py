@@ -700,9 +700,6 @@ class WritingHandler:
         # is instant), which must not block the event loop / stall the live UI.
         await asyncio.to_thread(self.save_paper_file, paper_id, draft.assembled_body)
 
-        # Plain-language Digest (layman summary) — best-effort, gated by config.
-        await self._generate_and_save_digest(paper_id, draft.assembled_body)
-
         paper_path = ""
         papers_dir = self._engine._config.storage.papers_dir
         if papers_dir is not None:
@@ -1420,6 +1417,16 @@ class WritingHandler:
             )
         except Exception as e:  # noqa: BLE001 — a summary artifact must never break the cycle
             self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+
+    async def finalize_digest(self, paper_id: str) -> None:
+        """Generate the Digest from the FINAL paper body (read from the DB) at cycle
+        finalization — AFTER all review/revision — so it summarizes the version the
+        reader actually sees, not the pre-review draft.
+        """
+        paper = self._engine._db.get_paper(paper_id)
+        body = (paper or {}).get("body") or ""
+        if body:
+            await self._generate_and_save_digest(paper_id, body)
 
     def copy_figures_to_paper_dir(self, paper_id: str) -> None:
         """Copy execution output figures to the paper's figures/ directory.

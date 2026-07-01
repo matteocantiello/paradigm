@@ -732,6 +732,7 @@ class OrchestrationEngine:
                 if paper_id:
                     await self._assign_final_topics(paper_id)
                     self._save_auxiliary_files(paper_id)
+                    await self._writing.finalize_digest(paper_id)
                 self._print_token_summary()
                 return self.state.thread_id
 
@@ -801,6 +802,8 @@ class OrchestrationEngine:
             # Re-tag from the finished paper (drift + cross-pollination).
             await self._assign_final_topics(paper_id)
             self._save_auxiliary_files(paper_id)
+            # Digest from the FINAL paper body — after all review/revision.
+            await self._writing.finalize_digest(paper_id)
 
         # Display token usage summary
         self._print_token_summary()

@@ -398,6 +398,25 @@ class TestGenerateDigest:
         assert not (tmp_path / "paper-abc" / "paper-abc-digest.md").exists()
         engine._logger.log_error.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_finalize_uses_final_db_body(self, tmp_path):
+        # finalize_digest must summarize the FINAL (post-review) body from the DB,
+        # not a pre-review draft — so a revised paper gets a faithful digest.
+        engine = _digest_engine(tmp_path, writer_content="Summary of the revised paper.")
+        engine._db.get_paper.return_value = {"body": "# Final\n\nFully-revised body."}
+        await WritingHandler(engine).finalize_digest("paper-abc")
+        f = tmp_path / "paper-abc" / "paper-abc-digest.md"
+        assert f.exists()
+        assert "Summary of the revised paper" in f.read_text()
+
+    @pytest.mark.asyncio
+    async def test_finalize_no_paper_body_skips(self, tmp_path):
+        engine = _digest_engine(tmp_path)
+        engine._db.get_paper.return_value = None
+        await WritingHandler(engine).finalize_digest("paper-abc")
+        assert not (tmp_path / "paper-abc" / "paper-abc-digest.md").exists()
+        engine._find_agent_by_role.assert_not_called()
+
     def test_mixed_inline_and_outside(self):
         text = r"We find α in $\beta$ and γ"
         result = sanitize_unicode_math(text)
