@@ -187,3 +187,41 @@ class TestResolveInternalRecommendation:
 
     def test_accept_passes_through(self):
         assert self.R("accept", 0, 0, explicit=False) == "accept"
+
+
+class TestCountMandatoryCheckFailures:
+    """Guard against false 'mandatory check failed' counts that wrongly reject
+    good papers (the breast-milk run: editor said Revise + 'checks passed', but a
+    spurious 5-failure count escalated it to reject)."""
+
+    CF = staticmethod(ReviewHandler._count_mandatory_check_failures)
+
+    def test_explicit_pass_returns_zero(self):
+        review = (
+            "All mandatory verification checklist items (internal consistency, data "
+            "integrity, figure references, claim-evidence alignment, anti-confabulation) "
+            "have passed. However, the LaTeX math notation violations must be fixed."
+        )
+        assert self.CF(review) == 0
+
+    def test_category_name_does_not_self_trigger(self):
+        # "anti-confabulation" (the category) must not match the "confabulat" indicator.
+        review = "The anti-confabulation review is thorough and everything checks out."
+        assert self.CF(review) == 0
+
+    def test_genuine_failures_still_counted(self):
+        review = (
+            "## Internal consistency: FAILED — the abstract contradicts the results.\n"
+            "## Data integrity: missing values throughout the tables.\n"
+            "## Figure references: figure 3 is absent."
+        )
+        assert self.CF(review) >= 3
+
+    def test_latex_violations_near_passed_categories_not_counted(self):
+        # The real failure mode: "violations" of LaTeX rules near passed category names.
+        review = (
+            "internal consistency, data integrity, figure references, claim-evidence "
+            "alignment, anti-confabulation — all pass. The identified violations of "
+            "LaTeX math mode notation rules must be addressed."
+        )
+        assert self.CF(review) == 0

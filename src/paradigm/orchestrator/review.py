@@ -173,6 +173,19 @@ class ReviewHandler:
         Returns:
             Number of failed checks (0-5).
         """
+        # Trust an explicit "the mandatory checks passed" statement. The proximity
+        # heuristic below otherwise false-positives when the review DISCUSSES the
+        # (passed) categories: the indicator "confabulat" matches the CATEGORY NAME
+        # "anti-confabulation", and words like "violations" (e.g. of LaTeX rules,
+        # not the checks) sit near a category. A single spurious count of >=4 wrongly
+        # escalates a "revise" to a "reject" — a good paper was rejected this way.
+        if re.search(
+            r"(mandatory|verification|checklist)[^.]{0,160}\bpass(?:ed|es)?\b",
+            review_text,
+            re.IGNORECASE,
+        ):
+            return 0
+
         categories = [
             r"internal\s+consistency",
             r"data\s+integrity",
@@ -180,22 +193,25 @@ class ReviewHandler:
             r"claim.evidence\s+alignment",
             r"anti.confabulation",
         ]
+        # Explicit failure verdicts only — NOT the topic nouns "confabulation" /
+        # "fabrication" (which are the category names themselves).
         failure_indicators = re.compile(
-            r"(FAIL|fail|violated|missing|not met|not found|absent|"
-            r"no evidence|cannot be traced|fabricat|confabulat)",
+            r"\b(FAIL(?:ED|S|URE)?|violated|missing|not met|not found|absent|"
+            r"no evidence|cannot be traced|fabricated|confabulated)\b",
             re.IGNORECASE,
         )
 
         failures = 0
         for cat_pattern in categories:
-            # Find the category mention and check nearby text (200 chars window)
+            # Find the category mention and check nearby text (200 chars window),
+            # excluding the matched category name so it can't self-trigger.
             cat_re = re.compile(cat_pattern, re.IGNORECASE)
             match = cat_re.search(review_text)
             if match is None:
                 continue
             start = max(0, match.start() - 50)
             end = min(len(review_text), match.end() + 200)
-            window = review_text[start:end]
+            window = review_text[start : match.start()] + review_text[match.end() : end]
             if failure_indicators.search(window):
                 failures += 1
         return failures
