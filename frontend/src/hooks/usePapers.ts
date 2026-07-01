@@ -40,6 +40,14 @@ export function usePaperReviews(paperId: string | undefined) {
   });
 }
 
+export function usePaperDigest(paperId: string | undefined) {
+  return useQuery({
+    queryKey: ["paper-digest", paperId],
+    queryFn: () => api.getPaperDigest(paperId!),
+    enabled: !!paperId,
+  });
+}
+
 export function usePaperTranscript(paperId: string | undefined) {
   return useQuery({
     queryKey: ["paper-transcript", paperId],

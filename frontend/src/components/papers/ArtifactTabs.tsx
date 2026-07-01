@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   FileText,
+  Newspaper,
   BookOpen,
   MessageSquare,
   ScrollText,
@@ -13,6 +14,7 @@ import { paperPdfUrl } from "@/api/client";
 import { PaperViewer } from "./PaperViewer";
 import { PaperTOC } from "./PaperTOC";
 import { PaperExport } from "./PaperExport";
+import { DigestTab } from "./DigestTab";
 import { LiteratureTab } from "./LiteratureTab";
 import { ReviewsTab } from "./ReviewsTab";
 import { TranscriptTab } from "./TranscriptTab";
@@ -20,7 +22,7 @@ import { CodeTab } from "./CodeTab";
 import { FiguresTab } from "./FiguresTab";
 import { cn } from "@/lib/utils";
 
-type TabId = "paper" | "literature" | "reviews" | "transcript" | "code" | "figures";
+type TabId = "paper" | "digest" | "literature" | "reviews" | "transcript" | "code" | "figures";
 
 interface TabDef {
   id: TabId;
@@ -37,6 +39,7 @@ interface ArtifactTabsProps {
 export function ArtifactTabs({ paper, artifacts }: ArtifactTabsProps) {
   const tabs: TabDef[] = [
     { id: "paper", label: "Paper", icon: FileText, available: true },
+    { id: "digest", label: "Digest", icon: Newspaper, available: artifacts.has_digest },
     { id: "literature", label: "Literature", icon: BookOpen, available: artifacts.has_literature },
     { id: "reviews", label: "Reviews", icon: MessageSquare, available: artifacts.has_reviews },
     { id: "transcript", label: "Transcript", icon: ScrollText, available: artifacts.has_transcript },
@@ -86,6 +89,7 @@ export function ArtifactTabs({ paper, artifacts }: ArtifactTabsProps) {
           <PaperViewer paper={paper} />
         </div>
       )}
+      {activeTab === "digest" && <DigestTab paperId={paper.paper_id} />}
       {activeTab === "literature" && <LiteratureTab paperId={paper.paper_id} />}
       {activeTab === "reviews" && <ReviewsTab paperId={paper.paper_id} />}
       {activeTab === "transcript" && <TranscriptTab paperId={paper.paper_id} />}

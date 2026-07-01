@@ -54,6 +54,7 @@ export function PapersPage() {
               has_experiments: false,
               has_figures: false,
               has_pdf: false,
+              has_digest: false,
               experiment_files: [],
               figure_files: [],
             }}

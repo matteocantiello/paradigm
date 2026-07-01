@@ -408,6 +408,7 @@ export interface PaperArtifactList {
   has_experiments: boolean;
   has_figures: boolean;
   has_pdf: boolean;
+  has_digest: boolean;
   experiment_files: string[];
   figure_files: string[];
 }
@@ -429,6 +430,10 @@ export function getPaperLiterature(paperId: string) {
 
 export function getPaperReviews(paperId: string) {
   return request<PaperArtifactContent>(`/api/v1/papers/${paperId}/reviews`);
+}
+
+export function getPaperDigest(paperId: string) {
+  return request<PaperArtifactContent>(`/api/v1/papers/${paperId}/digest`);
 }
 
 export function getPaperTranscript(paperId: string) {
