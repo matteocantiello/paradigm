@@ -185,7 +185,11 @@ knowledge:
   # more aggressive collapse. Watch hypothesis.merged vs the ranked-set diversity.
   # Degrades to normalized (exact restatements only) if the embedder can't load.
   hypothesis_dedup: embedding
-  hypothesis_dedup_threshold: 0.75
+  # 0.82: a local breast-milk run at 0.75 over-merged DISTINCT mechanisms
+  # (oligosaccharides / lipid droplets / EVs / immune cells folded into ~4
+  # hypotheses) — in a focused topic everything is embedding-similar. 0.82 folds
+  # clear paraphrases while protecting distinct hypotheses (merges are irreversible).
+  hypothesis_dedup_threshold: 0.82
   enable_preregistration: false
 
 journal:
