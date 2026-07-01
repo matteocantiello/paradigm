@@ -29,14 +29,26 @@ class LatexPreset:
 
     name: str
     documentclass: str = r"\documentclass[11pt]{article}"
-    # Essentials are unconditional (present in every TeX install). The
-    # quality-of-life packages are wrapped in \IfFileExists so a *minimal* TeX
-    # install (or a partial texlive) still compiles — missing cosmetic packages
-    # are skipped, and missing booktabs falls back to \hline rules so tables
-    # still render. (Full installs / tectonic get the nice versions.)
+    # The "Paradigm report" house style: a warm serif, a steel-blue accent, blue
+    # numbered headings, a shaded abstract callout, coloured/zebra tables, styled
+    # captions, and a running footer. Heavy packages (titlesec/tcolorbox/fancyhdr)
+    # are standard in full TeX Live and auto-fetched by tectonic (the production
+    # engine); booktabs still degrades to \hline on a minimal install.
     packages: tuple[str, ...] = (
-        r"\usepackage[utf8]{inputenc}",
-        r"\usepackage[T1]{fontenc}",
+        # --- Fonts: a warm Palatino-style serif on every engine. XeTeX/LuaTeX
+        # (tectonic) via fontspec + TeX Gyre Pagella; pdfTeX via newpx. Each guard
+        # falls back to the default font if the package/font is missing. ---
+        r"\usepackage{iftex}",
+        (
+            "\\ifPDFTeX\n"
+            "  \\usepackage[T1]{fontenc}\n"
+            "  \\usepackage[utf8]{inputenc}\n"
+            "  \\IfFileExists{newpxtext.sty}{\\usepackage{newpxtext}\\usepackage{newpxmath}}{}\n"
+            "\\else\n"
+            "  \\usepackage{fontspec}\n"
+            "  \\IfFontExistsTF{TeX Gyre Pagella}{\\setmainfont{TeX Gyre Pagella}}{}\n"
+            "\\fi"
+        ),
         r"\usepackage{amsmath,amssymb}",
         # Best-effort fallbacks for common scientific-notation macros that LLM writers
         # emit (inside $...$) but base LaTeX/amssymb doesn't define — e.g. $M_\sun$,
@@ -66,21 +78,61 @@ class LatexPreset:
             r"\providecommand{\kms}{\ensuremath{\mathrm{km\,s^{-1}}}}"
         ),
         r"\usepackage{graphicx}",
-        r"\usepackage[margin=1in]{geometry}",
-        # Tables: booktabs if available, else emulate its rules with \hline.
+        r"\usepackage[margin=1in,headheight=14pt]{geometry}",
+        # --- Colour palette (steel blue + muted gray + pale band). ---
+        r"\usepackage[table]{xcolor}",
         (
-            r"\IfFileExists{booktabs.sty}{\usepackage{booktabs}}{"
-            r"\providecommand{\toprule}{\hline}"
-            r"\providecommand{\midrule}{\hline}"
-            r"\providecommand{\bottomrule}{\hline}}"
+            "\\definecolor{pdgink}{HTML}{1F3A5F}\n"  # title, headings, rules
+            "\\definecolor{pdgaccent}{HTML}{2E5A8E}\n"  # links, table header fill
+            "\\definecolor{pdgband}{HTML}{EEF2F7}\n"  # abstract bg, zebra alt row
+            "\\definecolor{pdgmuted}{HTML}{5B6470}"  # byline, captions, footer
         ),
-        # Cosmetic-only — load if present, skip silently otherwise.
+        # --- Blue, bold, numbered section headings (plain default if titlesec absent). ---
+        (
+            "\\IfFileExists{titlesec.sty}{%\n"
+            "\\usepackage{titlesec}%\n"
+            "\\titleformat{\\section}{\\large\\bfseries\\color{pdgink}}{\\thesection}{0.7em}{}%\n"
+            "\\titleformat{\\subsection}{\\normalsize\\bfseries\\color{pdgink}}{\\thesubsection}{0.6em}{}%\n"
+            "\\titleformat{\\subsubsection}{\\normalsize\\bfseries\\itshape\\color{pdgink}}"
+            "{\\thesubsubsection}{0.6em}{}%\n"
+            "\\titlespacing*{\\section}{0pt}{2.0ex plus .2ex}{0.9ex}}{}"
+        ),
+        # --- Captions: bold blue "Figure N." label + muted small text. ---
+        (
+            "\\IfFileExists{caption.sty}{\\usepackage{caption}\\captionsetup{font={small,color=pdgmuted},"
+            "labelfont={bf,color=pdgink},labelsep=period,skip=6pt}}{}"
+        ),
+        # --- Tables: booktabs rules (with \hline fallback) used with zebra striping. ---
+        (
+            "\\IfFileExists{booktabs.sty}{\\usepackage{booktabs}}{"
+            "\\providecommand{\\toprule}{\\hline}\\providecommand{\\midrule}{\\hline}"
+            "\\providecommand{\\bottomrule}{\\hline}}"
+        ),
+        # --- Running footer: short title (left) + page number (right) over a thin rule. ---
+        (
+            "\\usepackage{fancyhdr}\n"
+            "\\pagestyle{fancy}\\fancyhf{}\n"
+            "\\renewcommand{\\headrulewidth}{0pt}\n"
+            "\\renewcommand{\\footrulewidth}{0.4pt}\n"
+            "\\providecommand{\\runningtitle}{}\n"
+            "\\fancyfoot[L]{\\footnotesize\\itshape\\color{pdgmuted}\\runningtitle}\n"
+            "\\fancyfoot[R]{\\footnotesize\\color{pdgmuted}p.\\,\\thepage}"
+        ),
+        # --- Shaded abstract callout with a blue left bar (plain indented block if
+        # tcolorbox absent). ---
+        (
+            "\\IfFileExists{tcolorbox.sty}{%\n"
+            "\\usepackage[most]{tcolorbox}%\n"
+            "\\newtcolorbox{pdgabstract}{breakable,boxrule=0pt,frame hidden,sharp corners,"
+            "colback=pdgband,borderline west={3pt}{0pt}{pdgink},"
+            "left=16pt,right=16pt,top=12pt,bottom=12pt,before skip=8pt,after skip=16pt}}{%\n"
+            "\\newenvironment{pdgabstract}{\\par\\smallskip\\leftskip2em\\rightskip2em\\small}"
+            "{\\par\\smallskip}}"
+        ),
         r"\IfFileExists{microtype.sty}{\usepackage{microtype}}{}",
-        r"\IfFileExists{caption.sty}{\usepackage{caption}}{}",
-        r"\IfFileExists{float.sty}{\usepackage{float}}{}",
         r"\IfFileExists{enumitem.sty}{\usepackage{enumitem}}{}",
-        r"\IfFileExists{xcolor.sty}{\usepackage{xcolor}}{}",
-        r"\usepackage{hyperref}",  # keep last; present in every install
+        r"\usepackage{hyperref}",  # keep last
+        r"\hypersetup{colorlinks=true,allcolors=pdgaccent,breaklinks=true}",
     )
 
 
@@ -344,7 +396,8 @@ def _column_spec(sep_cells: list[str], ncols: int) -> str:
 
 
 def _convert_table(header: list[str], sep_cells: list[str], body_rows: list[list[str]]) -> str:
-    """Render a parsed markdown table as a booktabs ``tabular`` inside a ``table``."""
+    """Render a parsed markdown table as a booktabs ``tabular`` with a blue header row
+    (white bold text) and zebra-striped body rows, inside a ``table``."""
     ncols = len(header)
     for r in body_rows:
         ncols = max(ncols, len(r))
@@ -355,12 +408,25 @@ def _convert_table(header: list[str], sep_cells: list[str], body_rows: list[list
         padded = cells + [""] * (ncols - len(cells))
         return " & ".join(_convert_inline(c) for c in padded[:ncols]) + r" \\"
 
+    def _header_row(cells: list[str]) -> str:
+        padded = cells + [""] * (ncols - len(cells))
+        return (
+            " & ".join(
+                r"\textcolor{white}{\textbf{" + _convert_inline(c) + "}}" for c in padded[:ncols]
+            )
+            + r" \\"
+        )
+
     out = [
         r"\begin{table}[htbp]",
         r"\centering",
+        r"\small",
+        # Zebra body rows (start striping at row 2 so the header keeps its own colour).
+        r"\rowcolors{2}{white}{pdgband}",
         rf"\begin{{tabular}}{{{spec}}}",
         r"\toprule",
-        _row(header),
+        r"\rowcolor{pdgaccent}",
+        _header_row(header),
         r"\midrule",
     ]
     out.extend(_row(r) for r in body_rows)
@@ -400,37 +466,71 @@ def _split_sections(body: str) -> tuple[str, list[_Section]]:
     return title, sections
 
 
-def markdown_to_latex(body: str, preset: LatexPreset, title: str | None = None) -> str:
+_URL_RE = re.compile(r"https?://[^\s)]+")
+
+
+def _convert_reference(text: str) -> str:
+    """Convert a reference line, wrapping any URL in ``\\url{}`` so a long arXiv/DOI link
+    breaks across lines instead of overflowing the right margin."""
+    m = _URL_RE.search(text)
+    if not m:
+        return _convert_inline(text)
+    before = _convert_inline(text[: m.start()])
+    after = _convert_inline(text[m.end() :])
+    return before + r"\url{" + m.group(0) + "}" + after
+
+
+def markdown_to_latex(
+    body: str,
+    preset: LatexPreset,
+    title: str | None = None,
+    *,
+    subtitle: str | None = None,
+    author: str = "Paradigm",
+    date: str = r"\today",
+) -> str:
     """Convert a markdown paper body into a compilable LaTeX document.
 
     Args:
         body: Paper markdown (headings, ``$math$``, ``![](figures/..)``, ``[N]`` + References).
         preset: Journal/style preset (document class + packages).
         title: Optional explicit title; otherwise the body's first ``# Title`` is used.
+        subtitle: Optional italic subtitle under the title (omitted if None).
+        author: Byline author (left of the middot).
+        date: Byline date (right of the middot); defaults to the compile date.
 
     Returns:
         A full ``\\documentclass ... \\end{document}`` LaTeX string.
     """
     parsed_title, sections = _split_sections(body)
     doc_title = title or parsed_title or "Untitled"
+    short_title = _convert_inline(doc_title)
 
     parts: list[str] = [preset.documentclass, *preset.packages, ""]
-    parts.append(rf"\title{{{_convert_inline(doc_title)}}}")
-    parts.append(r"\author{Paradigm}")
-    parts.append(r"\date{}")
+    parts.append(r"\def\runningtitle{" + short_title + "}")
     parts.append(r"\begin{document}")
-    parts.append(r"\maketitle")
+    # --- Title block: blue title, optional italic subtitle, muted byline, blue rule. ---
+    byline = _convert_inline(author) + r"\quad\textperiodcentered\quad " + date
+    parts.append(r"{\raggedright")
+    parts.append(r"\fontsize{20}{23}\selectfont\bfseries\color{pdgink} " + short_title + r"\par")
+    if subtitle:
+        parts.append(r"\vspace{3pt}{\large\itshape " + _convert_inline(subtitle) + r"\par}")
+    parts.append(r"\vspace{5pt}{\small\color{pdgmuted} " + byline + r"\par}")
+    parts.append(r"\vspace{6pt}{\color{pdgink}\rule{\linewidth}{1.2pt}}\par")
+    parts.append(r"}")
+    parts.append(r"\vspace{10pt}\par")
 
     for sec in sections:
         key = sec.title.strip().lower()
         if key == "abstract":
-            parts.append(r"\begin{abstract}")
+            parts.append(r"\begin{pdgabstract}")
+            parts.append(r"{\small\bfseries\color{pdgink}ABSTRACT}\par\vspace{5pt}")
             parts.append(_convert_body_block(sec.lines))
-            parts.append(r"\end{abstract}")
+            parts.append(r"\end{pdgabstract}")
         elif key in ("references", "bibliography", "works cited"):
             parts.append(r"\section*{References}")
             parts.append(r"\begingroup")
-            parts.append(r"\small")
+            parts.append(r"\small\sloppy")
             # Flush-left, hanging-indent entries (every reference starts at the
             # margin; continuation lines indent under it). Without this, the 2nd+
             # references picked up a stray paragraph indent and looked ragged.
@@ -439,7 +539,7 @@ def markdown_to_latex(body: str, preset: LatexPreset, title: str | None = None) 
             for raw in sec.lines:
                 if raw.strip():
                     parts.append(r"\hangindent=1.5em\hangafter=1")
-                    parts.append(_convert_inline(raw.strip()) + r"\par")
+                    parts.append(_convert_reference(raw.strip()) + r"\par")
             parts.append(r"\endgroup")
         else:
             if sec.title:

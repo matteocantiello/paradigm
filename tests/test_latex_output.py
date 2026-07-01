@@ -30,15 +30,19 @@ class TestMarkdownToLatex:
         assert out.startswith(r"\documentclass")
         assert r"\begin{document}" in out
         assert out.strip().endswith(r"\end{document}")
-        assert r"\maketitle" in out
+        # Styled title block (replaces \maketitle): running-title def + blue title.
+        assert r"\def\runningtitle{Title}" in out
+        assert r"\color{pdgink}" in out
 
     def test_title_extraction(self):
         out = _tex("# My Great Paper\n\n## S\nx")
-        assert r"\title{My Great Paper}" in out
+        assert r"\def\runningtitle{My Great Paper}" in out
+        assert "My Great Paper" in out
 
     def test_explicit_title_overrides(self):
         out = markdown_to_latex("# In-body\n\n## S\nx", _PRESET, title="Override")
-        assert r"\title{Override}" in out
+        assert r"\def\runningtitle{Override}" in out
+        assert "Override" in out
 
     def test_sections_and_subsections(self):
         out = _tex("# T\n\n## Methods\na\n\n### Detail\nb")
@@ -47,7 +51,8 @@ class TestMarkdownToLatex:
 
     def test_abstract_environment(self):
         out = _tex("# T\n\n## Abstract\nWe summarize.")
-        assert r"\begin{abstract}" in out and r"\end{abstract}" in out
+        assert r"\begin{pdgabstract}" in out and r"\end{pdgabstract}" in out
+        assert "ABSTRACT" in out
         assert "We summarize." in out
 
     def test_inline_math_preserved(self):
@@ -123,7 +128,10 @@ class TestMarkdownToLatex:
         assert r"\begin{table}" in out and r"\end{table}" in out
         assert r"\begin{tabular}{lr}" in out  # 2nd col right-aligned (`---:`)
         assert r"\toprule" in out and r"\midrule" in out and r"\bottomrule" in out
-        assert r"Mass & Luminosity \\" in out
+        # Styled header: white bold cells on the blue header fill + zebra body rows.
+        assert r"\rowcolor{pdgaccent}" in out
+        assert r"\textcolor{white}{\textbf{Mass}}" in out
+        assert r"\rowcolors{2}{white}{pdgband}" in out
         assert r"1.0 & 1.0 \\" in out
         # no raw pipe-garbage leaked into prose
         assert "|------" not in out
