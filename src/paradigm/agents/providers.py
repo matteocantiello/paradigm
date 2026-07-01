@@ -94,10 +94,11 @@ class LLMProvider(Protocol):
         ...
 
 
-# Claude Opus 4.7+ removed the sampling params — sending `temperature` (or top_p/
-# top_k) returns a 400. Omit it for these so the ping AND agent calls succeed.
-# Extend this tuple as new such models ship.
-_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
+# Claude Opus 4.7+ and Sonnet 5 removed the sampling params — sending `temperature`
+# (or top_p/top_k) at a non-default value returns a 400. Omit it for these so the
+# ping AND agent calls succeed. (Sonnet 4.6 still ACCEPTS temperature, so match the
+# exact "-5" family, not all sonnets.) Extend this tuple as new such models ship.
+_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5")
 
 
 def _accepts_temperature(model: str) -> bool:

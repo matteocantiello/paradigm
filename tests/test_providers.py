@@ -128,10 +128,11 @@ class TestAnthropicProvider:
             _, kwargs = mock_client.messages.create.call_args
             assert "extra_body" not in kwargs
 
-    def test_omits_temperature_for_opus_47_and_48(self):
-        """Opus 4.7/4.8 reject sampling params (400) — temperature must be omitted,
-        or the model is unusable and the pre-flight wrongly swaps it out."""
-        for model in ("claude-opus-4-7", "claude-opus-4-8"):
+    def test_omits_temperature_for_opus_47_48_and_sonnet_5(self):
+        """Opus 4.7/4.8 and Sonnet 5 reject non-default sampling params (400) —
+        temperature must be omitted, or the model is unusable and the pre-flight
+        wrongly swaps it out. Sonnet 4.6 still accepts it (see next test)."""
+        for model in ("claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5"):
             with patch("anthropic.Anthropic") as mock_cls:
                 mock_client = MagicMock()
                 mock_response = MagicMock()

@@ -30,7 +30,7 @@ providers:
     type: openai_compatible
     api_key_env: GEMINI_API_KEY
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    default_model: gemini-2.5-flash
+    default_model: gemini-3.5-flash
   # TogetherAI (OpenAI-compatible) — selectable per-agent from the GUI model
   # picker once TOGETHER_API_KEY is set. Hosts open models (Llama / Qwen /
   # DeepSeek / Mixtral). Unset key → it's simply hidden in the picker.
@@ -49,7 +49,7 @@ providers:
     default_model: gpt-4.1-mini
 
 agent:
-  default_model: "gemini-2.5-flash-lite"
+  default_model: "gemini-3.1-flash-lite"
   opus_model: "claude-haiku-4-5"
   max_tokens: 8192
   temperature: 1.0
@@ -64,7 +64,9 @@ agent:
     #
     # Theorist — a top OpenAI reasoning model for hypothesis quality (one notch
     # below the experimentalist's best). Reasoning models share their budget with
-    # hidden reasoning, so give it more room.
+    # hidden reasoning, so give it more room. (GPT-5.6 Sol/Terra/Luna is a
+    # restricted limited preview — not GA on our key yet — so both OpenAI roles
+    # stay on 5.4/5.5; revisit theorist→Terra and experimentalist→Sol when it opens.)
     theorist: { provider: openai, model: gpt-5.4, max_tokens: 12288 }
     # Analyst + Skeptic — top *practical* Anthropic. Sonnet 4.6 (not Opus) here:
     # they run each phase, and Sonnet 4.6 is flagship-quality reasoning at far
@@ -77,11 +79,16 @@ agent:
     # Writer — Claude Opus 4.8 for the final paper: best long-form markdown/LaTeX
     # and the most careful (fewest mistakes). Runs once + revisions → cost bounded.
     writer: { provider: anthropic, model: claude-opus-4-8, max_tokens: 16384 }
-    # Synthesizer / Editor / Reviewers — Gemini Flash: fast + capable + cheap for
-    # integration and review passes.
-    synthesizer: { provider: gemini, model: gemini-2.5-flash }
-    editor: { provider: gemini, model: gemini-2.5-flash }
-    reviewer: { provider: gemini, model: gemini-2.5-flash }
+    # Synthesizer / Reviewers — Gemini 3.5 Flash: fast + capable + cheap for
+    # integration and peer-review passes (3.5 Flash is a full generation over 2.5).
+    synthesizer: { provider: gemini, model: gemini-3.5-flash }
+    reviewer: { provider: gemini, model: gemini-3.5-flash }
+    # Editor — the internal review GATE. Claude Sonnet 5 (drop-in upgrade over
+    # Sonnet 4.6, biggest gains in coding/agentic judgment; intro pricing $2/$10 in-
+    # /out through 2026-08-31). Adaptive thinking is ON by default on Sonnet 5 and
+    # shares the max_tokens budget, so give it headroom → a truncated review can't
+    # rubber-stamp or over-reject (the parsing bugs we just fixed).
+    editor: { provider: anthropic, model: claude-sonnet-5, max_tokens: 16384 }
 
 # Code execution sandbox.
 # NOTE: experiments run real code here. It's network-isolated (network=none) and
