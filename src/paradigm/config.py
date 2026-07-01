@@ -320,6 +320,9 @@ class JournalConfig(BaseModel):
     enable_latex_output: bool = False
     latex_journal: str = "none"  # preset: none | arxiv | neurips
     compile_pdf: bool = False  # also build a PDF (requires a LaTeX engine on PATH)
+    # Plain-language "Digest": a ~200-word layman summary generated from the finished
+    # paper and written to papers/<id>/<id>-digest.md. On by default (one short call).
+    enable_digest: bool = True
 
 
 class NarrationConfig(BaseModel):

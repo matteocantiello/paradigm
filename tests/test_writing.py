@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from helpers import LONG_RESPONSE, make_mock_agent, patch_config_provider
@@ -19,8 +19,18 @@ from paradigm.journal.paper import (
     sanitize_unicode_math,
     strip_agent_scaffolding,
 )
+from paradigm.orchestrator.constants import (
+    _MODE_WRITING_OVERRIDES,
+    _PHASE_INSTRUCTIONS,
+    DIGEST_PROMPT,
+)
 from paradigm.orchestrator.engine import OrchestrationEngine
-from paradigm.orchestrator.writing import _humanize_figure_name, _strip_missing_figure_refs
+from paradigm.orchestrator.phases import ResearchPhase
+from paradigm.orchestrator.writing import (
+    WritingHandler,
+    _humanize_figure_name,
+    _strip_missing_figure_refs,
+)
 
 
 # --- Figure caption humanization (B2) ---
@@ -306,6 +316,87 @@ class TestSanitizeUnicodeMath:
         """Characters already inside $...$ should not be wrapped again."""
         text = r"The spin $\chi$ is small"
         assert sanitize_unicode_math(text) == text
+
+
+# --- Readability directive + plain-language Digest ---
+
+
+class TestReadabilityDirective:
+    """The writer's section-drafting prompts carry the digestibility directive."""
+
+    def test_default_section_drafting_has_readability(self):
+        prompt = _PHASE_INSTRUCTIONS[ResearchPhase.WRITING]["section_drafting"]
+        assert "Readability" in prompt
+        assert "plain-language sentence" in prompt
+        assert "one idea per sentence" in prompt
+
+    def test_review_override_has_readability(self):
+        prompt = _MODE_WRITING_OVERRIDES["review"]["section_drafting"]
+        assert "Readability" in prompt
+        assert "plain-language sentence" in prompt
+
+
+class TestDigestPrompt:
+    def test_prompt_is_grounded_and_plain(self):
+        assert "{paper_body}" in DIGEST_PROMPT  # grounded in the actual paper
+        assert "FAITHFUL" in DIGEST_PROMPT  # no invented claims
+        assert "NO equations" in DIGEST_PROMPT  # layman-readable
+
+
+def _digest_engine(tmp_path, *, enabled=True, writer_content="A clear, plain summary."):
+    """MagicMock engine wired just enough to drive _generate_and_save_digest."""
+    engine = MagicMock()
+    engine._config.journal.enable_digest = enabled
+    engine._config.storage.papers_dir = tmp_path
+    if writer_content is None:
+        engine._find_agent_by_role.return_value = None
+    else:
+        engine._find_agent_by_role.return_value = make_mock_agent(
+            "writer-0", "writer", content=writer_content
+        )
+    return engine
+
+
+class TestGenerateDigest:
+    @pytest.mark.asyncio
+    async def test_writes_digest_when_enabled(self, tmp_path):
+        engine = _digest_engine(tmp_path, writer_content="Breast milk carries antibodies...")
+        await WritingHandler(engine)._generate_and_save_digest("paper-abc", "# T\n\nBody.")
+        f = tmp_path / "paper-abc" / "paper-abc-digest.md"
+        assert f.exists()
+        assert "Breast milk carries antibodies" in f.read_text()
+        engine.emit_event.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_gate_off_skips_generation(self, tmp_path):
+        engine = _digest_engine(tmp_path, enabled=False)
+        await WritingHandler(engine)._generate_and_save_digest("paper-abc", "body")
+        assert not (tmp_path / "paper-abc" / "paper-abc-digest.md").exists()
+        engine._find_agent_by_role.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_output_writes_no_file(self, tmp_path):
+        engine = _digest_engine(tmp_path, writer_content="   ")
+        await WritingHandler(engine)._generate_and_save_digest("paper-abc", "body")
+        assert not (tmp_path / "paper-abc" / "paper-abc-digest.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_no_writer_agent_no_crash(self, tmp_path):
+        engine = _digest_engine(tmp_path, writer_content=None)
+        await WritingHandler(engine)._generate_and_save_digest("paper-abc", "body")
+        assert not (tmp_path / "paper-abc" / "paper-abc-digest.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_writer_error_is_swallowed(self, tmp_path):
+        engine = MagicMock()
+        engine._config.journal.enable_digest = True
+        engine._config.storage.papers_dir = tmp_path
+        writer = MagicMock()
+        writer.generate = AsyncMock(side_effect=RuntimeError("boom"))
+        engine._find_agent_by_role.return_value = writer
+        await WritingHandler(engine)._generate_and_save_digest("paper-abc", "body")
+        assert not (tmp_path / "paper-abc" / "paper-abc-digest.md").exists()
+        engine._logger.log_error.assert_called_once()
 
     def test_mixed_inline_and_outside(self):
         text = r"We find α in $\beta$ and γ"

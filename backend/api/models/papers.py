@@ -106,6 +106,7 @@ class PaperArtifactList(BaseModel):
     has_experiments: bool = False
     has_figures: bool = False
     has_pdf: bool = False
+    has_digest: bool = False
     experiment_files: list[str] = Field(default_factory=list)
     figure_files: list[str] = Field(default_factory=list)
 

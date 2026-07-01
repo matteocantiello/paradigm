@@ -16,6 +16,17 @@ def test_detects_pdf(tmp_path):
     assert scan_paper_artifacts(paper_dir).has_pdf is True
 
 
+def test_detects_digest(tmp_path):
+    """A <paper_id>-digest.md is reported as has_digest so the UI can show the Digest tab."""
+    paper_dir = tmp_path / "paper-dig"
+    paper_dir.mkdir()
+    (paper_dir / "paper-dig.md").write_text("# Title")
+    assert scan_paper_artifacts(paper_dir).has_digest is False
+
+    (paper_dir / "paper-dig-digest.md").write_text("A plain-language summary.")
+    assert scan_paper_artifacts(paper_dir).has_digest is True
+
+
 def test_detects_figures(tmp_path):
     """Figures under figures/ are listed and flip has_figures."""
     paper_dir = tmp_path / "paper-abc"

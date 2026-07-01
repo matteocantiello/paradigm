@@ -329,6 +329,7 @@ async def get_paper_artifacts(paper_id: str, request: Request) -> PaperArtifactL
         has_transcript=False,
         has_experiments=False,
         has_figures=False,
+        has_digest=bool(demo.get("digest")),
     )
 
 
@@ -382,6 +383,36 @@ async def get_paper_reviews(paper_id: str, request: Request) -> PaperArtifactCon
             content=reviews,
         )
     raise HTTPException(status_code=404, detail="Reviews not found")
+
+
+@router.get(
+    "/papers/{paper_id}/digest",
+    response_model=PaperArtifactContent,
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_paper_digest(paper_id: str, request: Request) -> PaperArtifactContent:
+    """Get the plain-language Digest (layman summary) markdown for a paper."""
+    paper_dir = _paper_dir(request, paper_id)
+    if paper_dir is not None:
+        digest_file = paper_dir / f"{paper_id}-digest.md"
+        if digest_file.exists():
+            return PaperArtifactContent(
+                paper_id=paper_id,
+                filename=f"{paper_id}-digest.md",
+                content=digest_file.read_text(),
+            )
+        raise HTTPException(status_code=404, detail="Digest not found")
+
+    # Demo mode
+    demo = _demo_papers.get(paper_id, {})
+    digest = demo.get("digest")
+    if digest is not None:
+        return PaperArtifactContent(
+            paper_id=paper_id,
+            filename=f"{paper_id}-digest.md",
+            content=digest,
+        )
+    raise HTTPException(status_code=404, detail="Digest not found")
 
 
 @router.get(

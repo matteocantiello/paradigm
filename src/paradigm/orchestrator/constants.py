@@ -484,6 +484,14 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "State each result ONCE with its evidence, then move on. Readers should "
             "learn something new in every paragraph. If a point was covered in a "
             "previous section, reference it rather than restating it."
+            # NOTE: keep this readability block in sync with the review-mode override below.
+            "\n\n**Readability (rigorous but digestible):** Open each section with a "
+            "plain-language sentence stating the takeaway BEFORE any equation or number. "
+            "Define each specialized term in one clause the first time it appears. Keep to "
+            "one idea per sentence — never stack multiple equations or numeric ranges in a "
+            "single sentence. Prefer active voice and concrete subjects, and say why a "
+            "result matters, not only what it is. Keep the academic register — clarify the "
+            "science, do not oversimplify it."
             "\n\n**Mathematical notation:** ALL mathematical symbols, Greek letters, "
             "subscripts, and superscripts MUST use LaTeX math mode: "
             "$\\alpha_0$, $\\nu_{{\\text{{char}}}}$, $R^2$, $\\log(L/L_\\odot)$. "
@@ -887,6 +895,34 @@ _MODE_SYNTHESIS_OVERRIDES: dict[str, dict[ResearchPhase, str]] = {
 }
 
 # ---------------------------------------------------------------------------
+# Plain-language Digest (layman summary of a finished paper)
+# ---------------------------------------------------------------------------
+
+# How much of the finished paper body to feed the digest writer (characters).
+DIGEST_CONTEXT_LIMIT = 60000
+# The digest is short; cap output generously for a clean 2-4 paragraph summary.
+DIGEST_MAX_TOKENS = 2048
+
+# Domain-agnostic: no field-specific wording. Grounded: summarize ONLY the paper.
+DIGEST_PROMPT = (
+    "Write a plain-language DIGEST of the research paper below — a short summary for a "
+    "curious, intelligent reader who is NOT a specialist in this field.\n\n"
+    "Requirements:\n"
+    "- 150-250 words of flowing prose (2-4 short paragraphs). No section headers, no title.\n"
+    "- NO equations, NO LaTeX, NO citations, and at most one or two numbers.\n"
+    "- Avoid jargon; if a technical term is unavoidable, define it in plain words.\n"
+    "- Cover, in order: (1) the question and why it matters, (2) what the researchers did "
+    "in everyday terms, (3) what they found, and (4) why it matters or what it changes.\n"
+    "- Be FAITHFUL to the paper: state only what it actually claims. Do NOT add findings, "
+    "implications, or certainty beyond the paper, and convey its limitations honestly.\n"
+    "- Neutral, engaging, and accurate — like a good science-news explainer, not a press "
+    "release.\n\n"
+    "Output ONLY the digest text — no title, and no preamble such as 'Here is the digest'.\n\n"
+    "--- PAPER ---\n{paper_body}\n--- END PAPER ---"
+)
+
+
+# ---------------------------------------------------------------------------
 # Mode-specific writing prompt overrides
 # ---------------------------------------------------------------------------
 
@@ -907,6 +943,14 @@ _MODE_WRITING_OVERRIDES: dict[str, dict[str, str]] = {
             "per section. A one-paragraph section is not acceptable.\n\n"
             "**Anti-repetition:** Do NOT repeat the same finding in multiple paragraphs. "
             "State each result ONCE with its evidence, then move on."
+            # NOTE: keep this readability block in sync with the default section_drafting above.
+            "\n\n**Readability (rigorous but digestible):** Open each section with a "
+            "plain-language sentence stating the takeaway BEFORE any equation or number. "
+            "Define each specialized term in one clause the first time it appears. Keep to "
+            "one idea per sentence — never stack multiple equations or numeric ranges in a "
+            "single sentence. Prefer active voice and concrete subjects, and say why a "
+            "result matters, not only what it is. Keep the academic register — clarify the "
+            "science, do not oversimplify it."
             "\n\n**Mathematical notation:** ALL mathematical symbols, Greek letters, "
             "subscripts, and superscripts MUST use LaTeX math mode: "
             "$\\alpha_0$, $\\nu_{{\\text{{char}}}}$, $R^2$, $\\log(L/L_\\odot)$. "

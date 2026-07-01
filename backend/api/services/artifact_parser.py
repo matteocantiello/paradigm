@@ -126,6 +126,7 @@ def scan_paper_artifacts(paper_dir: Path) -> PaperArtifactList:
         )
 
     has_pdf = (paper_dir / f"{paper_id}.pdf").exists() or (paper_dir / "paper.pdf").exists()
+    has_digest = (paper_dir / f"{paper_id}-digest.md").exists()
 
     return PaperArtifactList(
         paper_id=paper_id,
@@ -136,6 +137,7 @@ def scan_paper_artifacts(paper_dir: Path) -> PaperArtifactList:
         has_experiments=len(experiment_files) > 0,
         has_figures=len(figure_files) > 0,
         has_pdf=has_pdf,
+        has_digest=has_digest,
         experiment_files=experiment_files,
         figure_files=figure_files,
     )

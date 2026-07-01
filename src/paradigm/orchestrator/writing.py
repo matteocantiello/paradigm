@@ -33,6 +33,9 @@ from paradigm.orchestrator.constants import (
     _MODE_WRITING_OVERRIDES,
     _PHASE_INSTRUCTIONS,
     _WRITING_MAX_TOKENS,
+    DIGEST_CONTEXT_LIMIT,
+    DIGEST_MAX_TOKENS,
+    DIGEST_PROMPT,
 )
 from paradigm.orchestrator.phases import ResearchPhase
 
@@ -696,6 +699,9 @@ class WritingHandler:
         # shell out to a LaTeX engine to pre-compile the PDF (so the download link
         # is instant), which must not block the event loop / stall the live UI.
         await asyncio.to_thread(self.save_paper_file, paper_id, draft.assembled_body)
+
+        # Plain-language Digest (layman summary) — best-effort, gated by config.
+        await self._generate_and_save_digest(paper_id, draft.assembled_body)
 
         paper_path = ""
         papers_dir = self._engine._config.storage.papers_dir
@@ -1378,6 +1384,42 @@ class WritingHandler:
                 self._engine._display.info(msg)
             except Exception as e:  # noqa: BLE001 — an output format must never break the cycle
                 self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+
+    async def _generate_and_save_digest(self, paper_id: str, body: str) -> None:
+        """Generate a plain-language 'Digest' (layman summary) from the finished paper
+        and write it to ``papers/<id>/<id>-digest.md``.
+
+        Best-effort and config-gated (``journal.enable_digest``): a summary artifact must
+        never break or block a cycle. Grounded in the paper body, so it cannot introduce
+        claims the paper does not make.
+        """
+        if not self._engine._config.journal.enable_digest:
+            return
+        papers_dir = self._engine._config.storage.papers_dir
+        if papers_dir is None:
+            return
+        writer = self._engine._find_agent_by_role("writer")
+        if writer is None:
+            return
+        try:
+            prompt = DIGEST_PROMPT.format(paper_body=body[:DIGEST_CONTEXT_LIMIT])
+            response = await writer.generate(prompt, max_tokens=DIGEST_MAX_TOKENS)
+            self._engine._log_agent_response(
+                writer.agent_id, response, ResearchPhase.WRITING, "digest"
+            )
+            digest = strip_agent_scaffolding(response.content).strip()
+            if not digest:
+                return
+            paper_dir = papers_dir / paper_id
+            paper_dir.mkdir(parents=True, exist_ok=True)
+            (paper_dir / f"{paper_id}-digest.md").write_text(digest)
+            self._engine._display.info(f"Digest written: {paper_id}-digest.md")
+            self._engine.emit_event(
+                "paper.digest",
+                {"paper_id": paper_id, "word_count": len(digest.split())},
+            )
+        except Exception as e:  # noqa: BLE001 — a summary artifact must never break the cycle
+            self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
 
     def copy_figures_to_paper_dir(self, paper_id: str) -> None:
         """Copy execution output figures to the paper's figures/ directory.
