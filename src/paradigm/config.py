@@ -169,6 +169,11 @@ class OrchestratorConfig(BaseModel):
     enable_checkpointing: bool = True
     checkpoint_interval: int = Field(default=5, gt=0)  # rounds (must be >0: used in modulo)
     enable_writing: bool = True
+    # Extract the seed prompt's EXPLICIT deliverables once (one cheap LLM call) and
+    # hold writer + editor to them: deliver each, or state plainly why not — so a
+    # requested analysis can't silently degrade to nothing (a MIST-overlay ask
+    # vanished this way in a live run).
+    enable_requirements_checklist: bool = True
     max_review_iterations: int = 5
     # Internal review may run this many iterations PAST max_review_iterations while
     # the editor's required-change count is STRICTLY falling (a converging paper),

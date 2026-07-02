@@ -444,6 +444,10 @@ class ReviewHandler:
                     + "\nIncorporate any real figure issues above into your required changes."
                 )
 
+            # Hold the paper to the user's explicit asks: a requested deliverable
+            # must be delivered or honestly acknowledged, never silently dropped.
+            prompt += self._engine._writing.requirements_block(audience="editor")
+
             response = None
             last_error = None
             for retry in range(_INTERNAL_REVIEW_MAX_RETRIES + 1):

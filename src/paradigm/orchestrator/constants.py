@@ -700,6 +700,21 @@ _CONVERGENCE_CHECK_PROMPT = (
     '{{"converged": true/false, "confidence": 0.0-1.0, "rationale": "one sentence"}}'
 )
 
+_REQUIREMENTS_EXTRACT_PROMPT = (
+    "Extract the EXPLICIT deliverables the user requested in this research prompt.\n\n"
+    "## Research Prompt\n{seed_prompt}\n\n"
+    "Rules:\n"
+    "- Include ONLY deliverables the prompt explicitly asks for (specific analyses, "
+    "plots, comparisons, datasets to use, models to overlay, questions to answer).\n"
+    "- Do NOT include inferred good practice (citations, clarity, methodology) or "
+    "generic paper structure.\n"
+    "- Phrase each as one short imperative sentence.\n"
+    "- At most 8 items. If the prompt names no explicit deliverables, return [].\n\n"
+    "Respond with ONLY a JSON array of strings (no markdown fences, no extra text)."
+)
+
+_REQUIREMENTS_MAX_ITEMS = 8
+
 _GENERAL_LATER_ROUND_REINFORCEMENT = (
     "\n\n## Anti-Repetition Rule\n"
     "Before writing your response, review the Recent Discussion above. "

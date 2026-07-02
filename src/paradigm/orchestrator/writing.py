@@ -25,6 +25,7 @@ from paradigm.literature.citation_validation import (
     validate_and_strip_citations,
 )
 from paradigm.logging.events import EventType
+from paradigm.knowledge.json_utils import first_json_array
 from paradigm.orchestrator.constants import (
     _CODE_BLOCK_RE,
     _CONCEPTUAL_FIGURE_MAX_TOKENS,
@@ -33,6 +34,8 @@ from paradigm.orchestrator.constants import (
     _MIN_PAPER_LENGTH,
     _MODE_WRITING_OVERRIDES,
     _PHASE_INSTRUCTIONS,
+    _REQUIREMENTS_EXTRACT_PROMPT,
+    _REQUIREMENTS_MAX_ITEMS,
     _WRITING_MAX_TOKENS,
     DIGEST_CONTEXT_LIMIT,
     DIGEST_MAX_TOKENS,
@@ -92,6 +95,10 @@ class WritingHandler:
         # paper_id -> source url for NON-arXiv entries (ext-… ids), so they render
         # with a real link instead of a fabricated arXiv form.
         self._citation_allowlist_urls: dict[str, str] = {}
+        # Explicit deliverables extracted from the seed prompt (one cheap LLM call
+        # per cycle) — writer and editor are both held to this list so a requested
+        # analysis can't silently degrade to nothing.
+        self._requirements: list[str] = []
 
     def _build_citation_allowlist(self) -> None:
         """Compute the corpus citation allow-list once per writing phase.
@@ -180,6 +187,69 @@ class WritingHandler:
             except Exception as e:
                 self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
         return body
+
+    async def build_requirements_checklist(self) -> None:
+        """Extract the seed prompt's explicit deliverables (once per cycle).
+
+        Best-effort: any failure leaves the checklist empty and never breaks the
+        cycle. The result feeds :meth:`requirements_block` for writer prompts and
+        the editor review.
+        """
+        self._requirements = []
+        if not self._engine._config.orchestrator.enable_requirements_checklist:
+            return
+        try:
+            provider = self._engine._config.get_provider()
+            prompt = _REQUIREMENTS_EXTRACT_PROMPT.format(
+                seed_prompt=self._engine.state.seed_prompt[:8000]
+            )
+            raw, input_tokens, output_tokens = await asyncio.to_thread(
+                provider.complete,
+                model=provider.default_model,
+                system="You are a precise requirements extractor. Return only JSON.",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1024,
+                temperature=0.2,
+            )
+            self._engine._db.record_token_usage(
+                model=provider.default_model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                agent_id="requirements_extractor",
+                thread_id=self._engine.state.thread_id,
+            )
+            items = first_json_array(raw) or []
+            self._requirements = [
+                x.strip() for x in items if isinstance(x, str) and x.strip()
+            ][:_REQUIREMENTS_MAX_ITEMS]
+            if self._requirements:
+                self._engine.emit_event(
+                    "requirements.extracted", {"items": self._requirements}
+                )
+        except Exception as e:
+            self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+
+    def requirements_block(self, *, audience: str = "writer") -> str:
+        """The explicit-deliverables block for writer or editor prompts ("" if none)."""
+        if not self._requirements:
+            return ""
+        numbered = "\n".join(f"{i}. {r}" for i, r in enumerate(self._requirements, 1))
+        if audience == "editor":
+            return (
+                "\n\n## Explicit Deliverables Requested by the User\n"
+                "The research prompt explicitly asked for each item below. For any "
+                "item that is neither delivered in the paper nor honestly acknowledged "
+                "as not achieved (with the reason), add a Required Change telling the "
+                "writer to acknowledge it plainly. Do NOT let a requested deliverable "
+                "silently disappear.\n\n" + numbered
+            )
+        return (
+            "\n\n## Explicit Deliverables Requested by the User\n"
+            "The research prompt explicitly asked for each item below. For EVERY "
+            "item: either deliver it, or state plainly in the paper (Methods or "
+            "Limitations) that it was not achieved and why. Do NOT silently omit "
+            "any item.\n\n" + numbered
+        )
 
     def _build_execution_fact_sheet(self) -> str:
         """Build an anti-confabulation execution fact sheet for writing prompts.
@@ -671,6 +741,10 @@ class WritingHandler:
         # carry it (no-op unless corpus_grounded_citations is on).
         self._build_citation_allowlist()
 
+        # Extract the seed prompt's explicit deliverables so writer + editor prompts
+        # can hold the paper to them (no-op when disabled; best-effort).
+        await self.build_requirements_checklist()
+
         # Round 1: Section Drafting — each agent drafts their assigned sections
         self._engine._display.writing_section_drafting()
         await self.run_section_drafting(draft)
@@ -826,6 +900,9 @@ class WritingHandler:
             # Inject the corpus citation allow-list (cite ONLY [N]); no-op when flag off.
             if self._citation_allowlist_block:
                 prompt += self._citation_allowlist_block
+
+            # Hold the draft to the user's explicit asks (deliver or acknowledge).
+            prompt += self.requirements_block()
 
             # Inject execution fact sheet so writers know which experiments succeeded
             fact_sheet = self._build_execution_fact_sheet()
@@ -1070,6 +1147,9 @@ class WritingHandler:
         # Inject the corpus citation allow-list (cite ONLY [N]); no-op when flag off.
         if self._citation_allowlist_block:
             prompt += self._citation_allowlist_block
+
+        # Hold the assembled paper to the user's explicit asks (deliver or acknowledge).
+        prompt += self.requirements_block()
 
         # Inject execution fact sheet into assembly
         fact_sheet = self._build_execution_fact_sheet()

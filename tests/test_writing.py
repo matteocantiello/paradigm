@@ -1229,3 +1229,68 @@ class TestFinalizeDigestGuard:
         await WritingHandler(engine).finalize_digest("paper-abc")
         engine._logger.log_error.assert_called_once()
         engine._find_agent_by_role.assert_not_called()
+
+
+class TestRequirementsChecklist:
+    """The explicit-deliverables checklist: one cheap extraction call per cycle,
+    injected into writer + editor prompts so a requested analysis can't silently
+    degrade to nothing (a MIST-overlay ask vanished this way in a live run)."""
+
+    @staticmethod
+    def _engine(raw='["Overlay MIST tracks", "Aggregate Bowman samples"]', enabled=True):
+        engine = MagicMock()
+        engine._config.orchestrator.enable_requirements_checklist = enabled
+        engine.state.seed_prompt = "Study red noise; overlay MIST models; aggregate samples."
+        provider = MagicMock()
+        provider.default_model = "test-model"
+        provider.complete.return_value = (raw, 100, 20)
+        engine._config.get_provider.return_value = provider
+        return engine
+
+    @pytest.mark.asyncio
+    async def test_extracts_and_injects(self):
+        engine = self._engine()
+        h = WritingHandler(engine)
+        await h.build_requirements_checklist()
+        assert h._requirements == ["Overlay MIST tracks", "Aggregate Bowman samples"]
+        writer_block = h.requirements_block()
+        editor_block = h.requirements_block(audience="editor")
+        assert "1. Overlay MIST tracks" in writer_block
+        assert "not achieved and why" in writer_block
+        assert "Required Change" in editor_block
+        engine.emit_event.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_disabled_flag_skips_call(self):
+        engine = self._engine(enabled=False)
+        h = WritingHandler(engine)
+        await h.build_requirements_checklist()
+        assert h._requirements == []
+        assert h.requirements_block() == ""
+        engine._config.get_provider.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_garbage_output_leaves_empty(self):
+        engine = self._engine(raw="I could not find any requirements, sorry!")
+        h = WritingHandler(engine)
+        await h.build_requirements_checklist()
+        assert h._requirements == []
+        assert h.requirements_block() == ""
+
+    @pytest.mark.asyncio
+    async def test_fenced_and_capped(self):
+        items = [f"Task {i}" for i in range(12)]
+        raw = "```json\n" + json.dumps(items) + "\n```"
+        engine = self._engine(raw=raw)
+        h = WritingHandler(engine)
+        await h.build_requirements_checklist()
+        assert len(h._requirements) == 8  # capped at _REQUIREMENTS_MAX_ITEMS
+
+    @pytest.mark.asyncio
+    async def test_provider_error_never_breaks_cycle(self):
+        engine = self._engine()
+        engine._config.get_provider.return_value.complete.side_effect = RuntimeError("boom")
+        h = WritingHandler(engine)
+        await h.build_requirements_checklist()
+        assert h._requirements == []
+        engine._logger.log_error.assert_called_once()
