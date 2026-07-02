@@ -1476,11 +1476,15 @@ def _get_downstream_dependents(failed_name: str, blocks: list[CodeBlock]) -> set
     return visited
 
 
-def _list_shared_files(data_dir: Path) -> str:
+def _list_shared_files(data_dir: Path, cycle_start_epoch: float | None = None) -> str:
     """Scan /data/shared/ and return a concrete listing of available files.
 
     Args:
         data_dir: The base data directory (contains shared/ subdirectory).
+        cycle_start_epoch: Wall-clock start of the CURRENT cycle (epoch seconds).
+            When given, files older than it are marked pre-existing — the shared
+            workspace persists across runs, and leftovers from unrelated topics
+            (OEIS dumps, saved HTML) have wasted whole experiments before.
 
     Returns:
         Formatted string listing available files, or a "No files" message.
@@ -1490,6 +1494,12 @@ def _list_shared_files(data_dir: Path) -> str:
         return "## Available Files\nNo files are available under /data/shared/.\n"
 
     lines = ["## Available Files"]
+    if cycle_start_epoch is not None:
+        lines.append(
+            "Files marked [pre-existing] were saved by EARLIER research runs, possibly "
+            "on unrelated topics — verify a file is actually relevant to THIS topic "
+            "(inspect its header/contents) before building an analysis on it."
+        )
     found_any = False
 
     for category_dir in sorted(shared_dir.iterdir()):
@@ -1502,14 +1512,20 @@ def _list_shared_files(data_dir: Path) -> str:
         lines.append(f"\n### /data/shared/{category_dir.name}/")
         for f in files[:50]:
             rel = f.relative_to(shared_dir)
-            size = f.stat().st_size
+            stat = f.stat()
+            size = stat.st_size
             if size < 1024:
                 size_str = f"{size} B"
             elif size < 1024 * 1024:
                 size_str = f"{size / 1024:.1f} KB"
             else:
                 size_str = f"{size / (1024 * 1024):.1f} MB"
-            lines.append(f"- `/data/shared/{rel}` ({size_str})")
+            provenance = ""
+            if cycle_start_epoch is not None:
+                provenance = (
+                    " [saved this run]" if stat.st_mtime >= cycle_start_epoch else " [pre-existing]"
+                )
+            lines.append(f"- `/data/shared/{rel}` ({size_str}){provenance}")
         if len(files) > 50:
             lines.append(f"  ... and {len(files) - 50} more files")
 

@@ -2980,3 +2980,36 @@ class TestExtractPlanningActions:
 
         items = re.findall(r"^\d+\.", result, re.MULTILINE)
         assert len(items) <= 10
+
+
+class TestSharedFileProvenance:
+    """Cross-run contamination guard: the shared workspace persists across runs, and
+    leftovers from unrelated topics (OEIS dumps, saved HTML) have wasted whole
+    experiments — listings now mark pre-existing files and tell agents to verify."""
+
+    def test_pre_existing_and_current_files_tagged(self, tmp_path):
+        import os
+        import time as _time
+
+        shared = tmp_path / "shared" / "data"
+        shared.mkdir(parents=True)
+        old_file = shared / "oeis_dump.csv"
+        old_file.write_text("junk from another run")
+        past = _time.time() - 86400
+        os.utime(old_file, (past, past))
+        new_file = shared / "bowman_tables.dat"
+        new_file.write_text("fresh")
+
+        cycle_start = _time.time() - 3600
+        result = _list_shared_files(tmp_path, cycle_start)
+        assert "oeis_dump.csv` (21 B) [pre-existing]" in result
+        assert "bowman_tables.dat` (5 B) [saved this run]" in result
+        assert "verify a file is actually relevant" in result
+
+    def test_no_epoch_keeps_legacy_format(self, tmp_path):
+        shared = tmp_path / "shared" / "data"
+        shared.mkdir(parents=True)
+        (shared / "f.csv").write_text("x")
+        result = _list_shared_files(tmp_path)
+        assert "[pre-existing]" not in result
+        assert "[saved this run]" not in result

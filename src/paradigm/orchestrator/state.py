@@ -35,6 +35,9 @@ class ResearchState:
     seed_prompt: str = ""
     mode: str = "directed"
     start_time: float = field(default_factory=time.monotonic)
+    # Wall-clock cycle start (epoch seconds) — comparable to file mtimes, so shared
+    # workspace listings can tell files saved THIS run from earlier runs' leftovers.
+    wall_start_time: float = field(default_factory=time.time)
 
     # Agent team
     agents: dict[str, Agent] = field(default_factory=dict)
