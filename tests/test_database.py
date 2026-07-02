@@ -23,11 +23,16 @@ def test_database_creation(db):
     # Check that tables exist by querying them
     cursor = db.conn.cursor()
 
-    tables = ["papers", "agents", "threads", "graveyard", "events", "token_usage"]
+    tables = ["papers", "agents", "threads", "graveyard", "token_usage"]
     for table in tables:
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
         result = cursor.fetchone()
         assert result is not None, f"Table {table} should exist"
+
+    # The legacy events table was never written to — new databases must not
+    # create it (existing databases keep theirs; no migration).
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
+    assert cursor.fetchone() is None, "New databases should not create the unused events table"
 
 
 def test_create_and_get_paper(db):

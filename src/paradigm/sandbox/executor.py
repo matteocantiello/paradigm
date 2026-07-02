@@ -2,6 +2,8 @@
 
 import ast
 import logging
+import shutil
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -15,6 +17,55 @@ _logger = logging.getLogger(__name__)
 
 # Max characters of stdout/stderr to include in event logs
 _LOG_OUTPUT_LIMIT: int = 2048
+
+
+def prune_execution_dirs(executions_dir: Path, retention_days: int, keep_last: int) -> int:
+    """Prune old per-execution results dirs under ``data/executions/``.
+
+    Bounded sweep: a dir survives only if it is within the newest ``keep_last``
+    AND younger than ``retention_days``. A bound <= 0 disables that bound.
+    Per-paper experiment code is archived separately by the engine, so pruning
+    loses nothing load-bearing.
+
+    Never raises — unreadable entries and failed deletes are logged and skipped.
+
+    Returns:
+        The number of directories removed.
+    """
+    if retention_days <= 0 and keep_last <= 0:
+        return 0
+    if not executions_dir.is_dir():
+        return 0
+
+    entries: list[tuple[float, Path]] = []
+    try:
+        for path in executions_dir.iterdir():
+            try:
+                if path.is_dir():
+                    entries.append((path.stat().st_mtime, path))
+            except OSError as e:
+                _logger.warning("Skipping unreadable executions entry %s: %s", path, e)
+    except OSError as e:
+        _logger.warning("Could not scan %s for pruning: %s", executions_dir, e)
+        return 0
+
+    entries.sort(key=lambda item: item[0], reverse=True)  # newest first
+    cutoff = time.time() - retention_days * 86400 if retention_days > 0 else None
+
+    removed = 0
+    for index, (mtime, path) in enumerate(entries):
+        beyond_count = keep_last > 0 and index >= keep_last
+        too_old = cutoff is not None and mtime < cutoff
+        if not (beyond_count or too_old):
+            continue
+        try:
+            shutil.rmtree(path)
+            removed += 1
+        except Exception as e:
+            _logger.warning("Could not prune execution results dir %s: %s", path, e)
+    if removed:
+        _logger.info("Pruned %d old execution results dir(s) from %s", removed, executions_dir)
+    return removed
 
 
 def _make_sandbox_writable(path: Path) -> None:
@@ -125,6 +176,13 @@ class CodeExecutor:
         self.workspace_dir = workspace_dir
         self.scanner = SafetyScanner(SafetyConfig(network_enabled=config.network_mode != "none"))
         self.container_manager = ContainerManager(config)
+        # Bounded retention sweep at startup — executions/ otherwise grows one
+        # results dir per execution, forever (1,000+ dirs observed locally).
+        prune_execution_dirs(
+            self.data_dir / "executions",
+            config.executions_retention_days,
+            config.executions_keep_last,
+        )
 
     async def execute(
         self,
@@ -257,3 +315,8 @@ class CodeExecutor:
     async def cleanup(self) -> None:
         """Clean up resources."""
         await self.container_manager.cleanup()
+        prune_execution_dirs(
+            self.data_dir / "executions",
+            self.config.executions_retention_days,
+            self.config.executions_keep_last,
+        )

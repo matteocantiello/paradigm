@@ -181,14 +181,6 @@ class SafetyScanner:
                     if node.id in ("__import__", "exec", "eval", "compile"):
                         violations.append(f"Denied builtin reference: '{node.id}'")
 
-    def _get_call_name(self, node: ast.Call) -> str | None:
-        """Extract the function name from a Call node."""
-        if isinstance(node.func, ast.Name):
-            return node.func.id
-        if isinstance(node.func, ast.Attribute):
-            return node.func.attr
-        return None
-
     def _check_regex_patterns(self, code: str, violations: list[str]) -> None:
         """Regex fallback for patterns AST analysis might miss."""
         # Catch string-based imports like __import__('os')

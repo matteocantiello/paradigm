@@ -53,6 +53,12 @@ class SandboxConfig(BaseModel):
     drop_capabilities: bool = True  # cap_drop=ALL in the sandbox container
     no_new_privileges: bool = True  # block setuid privilege escalation
     read_only_rootfs: bool = False  # rootfs read-only (workspace stays rw)
+    # Retention sweep for per-execution results dirs (data/executions/). One dir
+    # is minted per execution and nothing else prunes them; per-paper experiment
+    # code is archived separately by the engine, so pruning loses nothing
+    # load-bearing. Set a bound <= 0 to disable it.
+    executions_retention_days: int = 30  # delete results dirs older than this
+    executions_keep_last: int = 500  # keep at most this many newest results dirs
 
 
 class MCPLiteratureConfig(BaseModel):
@@ -238,7 +244,6 @@ class MemoryConfig(BaseModel):
     enabled: bool = True
     max_memories_per_prompt: int = 5
     recency_half_life_days: float = 30.0
-    reflection_model: str = "claude-sonnet-4-5-20250929"
     collection_name: str = "agent_memories"
     max_memory_chars: int = 2000
 

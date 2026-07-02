@@ -531,3 +531,115 @@ class TestSciencePreamble:
         d.chmod(0o755)
         _make_sandbox_writable(d)
         assert stat.S_IMODE(d.stat().st_mode) == 0o777
+
+
+# ============================================================
+# executions/ retention sweep (B3)
+# ============================================================
+
+
+class TestPruneExecutionDirs:
+    """Tests for the bounded data/executions/ retention sweep."""
+
+    @staticmethod
+    def _make_dir(root: Path, name: str, age_days: float) -> Path:
+        import os
+        import time
+
+        d = root / name
+        d.mkdir(parents=True)
+        (d / "output.txt").write_text("x")
+        mtime = time.time() - age_days * 86400
+        os.utime(d, (mtime, mtime))
+        return d
+
+    def test_age_based_pruning(self, tmp_path: Path) -> None:
+        from paradigm.sandbox.executor import prune_execution_dirs
+
+        old = self._make_dir(tmp_path, "agent-old", age_days=40)
+        fresh = self._make_dir(tmp_path, "agent-fresh", age_days=1)
+
+        removed = prune_execution_dirs(tmp_path, retention_days=30, keep_last=0)
+
+        assert removed == 1
+        assert not old.exists()
+        assert fresh.exists()
+
+    def test_keep_last_n_pruning(self, tmp_path: Path) -> None:
+        from paradigm.sandbox.executor import prune_execution_dirs
+
+        dirs = [self._make_dir(tmp_path, f"agent-{i}", age_days=i) for i in range(5)]
+
+        removed = prune_execution_dirs(tmp_path, retention_days=0, keep_last=3)
+
+        assert removed == 2
+        # Newest 3 (smallest age) survive; oldest 2 are gone.
+        assert all(d.exists() for d in dirs[:3])
+        assert all(not d.exists() for d in dirs[3:])
+
+    def test_both_bounds_combine(self, tmp_path: Path) -> None:
+        from paradigm.sandbox.executor import prune_execution_dirs
+
+        stale_but_within_count = self._make_dir(tmp_path, "agent-stale", age_days=40)
+        fresh = self._make_dir(tmp_path, "agent-fresh", age_days=1)
+
+        removed = prune_execution_dirs(tmp_path, retention_days=30, keep_last=10)
+
+        assert removed == 1
+        assert not stale_but_within_count.exists()
+        assert fresh.exists()
+
+    def test_disabled_when_both_bounds_off(self, tmp_path: Path) -> None:
+        from paradigm.sandbox.executor import prune_execution_dirs
+
+        d = self._make_dir(tmp_path, "agent-old", age_days=400)
+        assert prune_execution_dirs(tmp_path, retention_days=0, keep_last=0) == 0
+        assert d.exists()
+
+    def test_missing_dir_is_noop(self, tmp_path: Path) -> None:
+        from paradigm.sandbox.executor import prune_execution_dirs
+
+        assert prune_execution_dirs(tmp_path / "nope", retention_days=30, keep_last=500) == 0
+
+    def test_plain_files_are_ignored(self, tmp_path: Path) -> None:
+        from paradigm.sandbox.executor import prune_execution_dirs
+
+        stray = tmp_path / "stray.log"
+        stray.write_text("keep me")
+        assert prune_execution_dirs(tmp_path, retention_days=30, keep_last=1) == 0
+        assert stray.exists()
+
+    def test_failed_delete_never_raises(self, tmp_path: Path) -> None:
+        from paradigm.sandbox import executor as executor_mod
+
+        doomed = self._make_dir(tmp_path, "agent-old", age_days=40)
+        with patch.object(executor_mod.shutil, "rmtree", side_effect=OSError("locked")):
+            removed = executor_mod.prune_execution_dirs(tmp_path, retention_days=30, keep_last=0)
+        assert removed == 0
+        assert doomed.exists()
+
+    def test_executor_init_prunes(self, tmp_path: Path) -> None:
+        executions = tmp_path / "data" / "executions"
+        old = self._make_dir(executions, "agent-old", age_days=40)
+        fresh = self._make_dir(executions, "agent-fresh", age_days=1)
+
+        config = SandboxConfig(enabled=True, executions_retention_days=30)
+        logger = EventLogger(tmp_path / "events.jsonl")
+        CodeExecutor(config, logger, tmp_path / "data")
+
+        assert not old.exists()
+        assert fresh.exists()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_prunes(self, tmp_path: Path) -> None:
+        config = SandboxConfig(enabled=True, executions_retention_days=30)
+        logger = EventLogger(tmp_path / "events.jsonl")
+        executor = CodeExecutor(config, logger, tmp_path / "data")
+
+        # Minted AFTER init's sweep, backdated past retention.
+        old = self._make_dir(tmp_path / "data" / "executions", "agent-old", age_days=40)
+
+        with patch.object(executor.container_manager, "cleanup", return_value=None):
+            await executor.cleanup()
+
+        assert not old.exists()

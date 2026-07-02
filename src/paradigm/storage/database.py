@@ -162,20 +162,10 @@ class Database:
             )
         """)
 
-        # Events table (for structured querying, complements JSONL logs)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME NOT NULL,
-                event_type TEXT NOT NULL,
-                agent_id TEXT,
-                thread_id TEXT,
-                phase TEXT,
-                content TEXT,
-                metadata TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        # NOTE: a legacy ``events`` table (plus idx_events_* indices) used to be
+        # created here but was never written to — events live in the JSONL logs.
+        # New databases no longer create it; existing databases keep theirs
+        # untouched (no migration/drop).
 
         # Token usage tracking
         cursor.execute("""
@@ -204,8 +194,6 @@ class Database:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_papers_status ON papers(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_papers_published_at ON papers(published_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_threads_status ON threads(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_thread_id ON events(thread_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type)")
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_token_usage_thread_id ON token_usage(thread_id)"
         )

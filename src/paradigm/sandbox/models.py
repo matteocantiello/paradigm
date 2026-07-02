@@ -64,5 +64,4 @@ class ExecutionResult(BaseModel):
     output_files: list[OutputFile] = Field(default_factory=list)
     safety_verdict: SafetyVerdict | None = None
     error_message: str | None = None
-    started_at: datetime | None = None
     completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
