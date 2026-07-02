@@ -97,6 +97,31 @@ def test_parse_judge_json_variants():
     fenced = "```json\n" + good + "\n```"
     assert _parse_judge_json(fenced).rigor == 6
     assert _parse_judge_json("not json at all") is None
+    # Prose-wrapped object (chatty model) still parses.
+    assert _parse_judge_json("Here are my scores:\n" + good + "\nHope that helps!").clarity == 8
+    # Truncated at max_tokens (no closing brace) → None, not a crash.
+    assert _parse_judge_json(good[:-20]) is None
+    assert _parse_judge_json("") is None
+    # Non-integer score values → None (JudgeScores validation fallback).
+    assert _parse_judge_json('{"novelty": "high", "rigor": 6}') is None
+
+
+def test_parse_json_list_tolerant():
+    from paradigm.eval.metrics import _parse_json_list
+
+    assert _parse_json_list(None) == []
+    assert _parse_json_list("") == []
+    # Native list passthrough, non-dicts filtered.
+    assert _parse_json_list([{"a": 1}, "junk", 3]) == [{"a": 1}]
+    # Clean JSON string.
+    assert _parse_json_list('[{"status": "accepted"}]') == [{"status": "accepted"}]
+    # Fenced JSON string.
+    assert _parse_json_list('```json\n[{"status": "accepted"}]\n```') == [{"status": "accepted"}]
+    # Truncated array (cut mid-element) salvages the complete leading objects.
+    assert _parse_json_list('[{"status": "accepted"}, {"status": "rej') == [{"status": "accepted"}]
+    # Garbage / non-list JSON.
+    assert _parse_json_list("not json") == []
+    assert _parse_json_list('{"status": "accepted"}') == []
 
 
 class _StubDB:

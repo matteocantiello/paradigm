@@ -14,6 +14,7 @@ from paradigm.agents.base import Agent
 from paradigm.agents.factory import AgentFactory
 from paradigm.config import Config
 from paradigm.journal.publication import publish_paper
+from paradigm.knowledge.json_utils import first_json_object, strip_fences
 from paradigm.knowledge.world_model_handler import WorldModelHandler
 from paradigm.literature.corpus import Corpus
 from paradigm.literature.prompt_utils import extract_urls
@@ -1876,26 +1877,12 @@ class OrchestrationEngine:
             thread_id=self.state.thread_id,
         )
 
-        # Parse JSON response (strip markdown fences if present)
-        cleaned = text.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-            cleaned = re.sub(r"\s*```$", "", cleaned)
+        # Parse JSON response — tolerant of markdown fences and prose-wrapped
+        # objects (weaker open-weight models often add both).
+        cleaned = strip_fences(text)
+        result = first_json_object(cleaned)
 
-        result = None
-        try:
-            result = json.loads(cleaned)
-        except json.JSONDecodeError:
-            # Weaker open-weight models often wrap the JSON in prose — fall back
-            # to extracting the first {...} object before giving up.
-            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-            if match:
-                try:
-                    result = json.loads(match.group(0))
-                except json.JSONDecodeError:
-                    result = None
-
-        if not isinstance(result, dict):
+        if result is None:
             # Not an ERROR: a non-JSON reply just means "not converged, keep
             # going". Log as a STATE_CHANGE so it stays visible without polluting
             # the error stream.

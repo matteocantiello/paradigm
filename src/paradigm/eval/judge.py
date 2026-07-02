@@ -6,10 +6,10 @@ None so the harness falls back to deterministic-only scoring.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from paradigm.eval.models import JudgeScores
+from paradigm.knowledge.json_utils import first_json_object
 
 _JUDGE_SYSTEM = (
     "You are an impartial scientific editor scoring a research paper. You are "
@@ -43,20 +43,8 @@ _BODY_LIMIT = 40000
 
 def _parse_judge_json(text: str) -> JudgeScores | None:
     """Parse the judge's JSON response into JudgeScores, tolerating code fences."""
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.split("\n", 1)[-1]
-        if stripped.endswith("```"):
-            stripped = stripped[:-3]
-        stripped = stripped.strip()
-    # Find the first JSON object if the model added stray text.
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        return None
-    try:
-        data = json.loads(stripped[start : end + 1])
-    except (json.JSONDecodeError, ValueError):
+    data = first_json_object(text)
+    if data is None:
         return None
     try:
         return JudgeScores(

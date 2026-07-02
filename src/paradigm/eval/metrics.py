@@ -7,12 +7,12 @@ directory). Nothing here assumes a scientific domain — only general paper stru
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
 
 from paradigm.eval.models import OUTCOME_SCORES, DeterministicMetrics
+from paradigm.knowledge.json_utils import first_json_array
 
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,3}\s+\S", re.MULTILINE)
 _REFERENCES_HEADING_RE = re.compile(
@@ -104,12 +104,7 @@ def _parse_json_list(raw: Any) -> list[dict]:
     """Parse a JSON-list column (verification/prereg); tolerate None/garbage."""
     if not raw:
         return []
-    if isinstance(raw, list):
-        return [x for x in raw if isinstance(x, dict)]
-    try:
-        data = json.loads(raw)
-    except (TypeError, ValueError):
-        return []
+    data = raw if isinstance(raw, list) else first_json_array(str(raw))
     return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
 
 

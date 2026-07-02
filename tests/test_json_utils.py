@@ -29,6 +29,20 @@ class TestFirstJsonObject:
     def test_garbage(self):
         assert first_json_object("no json here") is None
 
+    def test_fenced_object(self):
+        # Convergence-check shape: fenced JSON object (works with or without
+        # a prior strip_fences — the brace search skips the fence).
+        raw = '```json\n{"converged": true, "confidence": 0.9, "rationale": "agreed"}\n```'
+        assert first_json_object(raw) == {
+            "converged": True,
+            "confidence": 0.9,
+            "rationale": "agreed",
+        }
+        assert first_json_object(strip_fences(raw)) is not None
+
+    def test_truncated_object_returns_none(self):
+        assert first_json_object('{"converged": true, "confidence"') is None
+
 
 class TestFirstJsonArray:
     def test_clean(self):
