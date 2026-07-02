@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Any
 
@@ -19,6 +20,8 @@ from paradigm.literature.prompt_utils import make_external_paper
 from paradigm.literature.semantic_scholar import SemanticScholarClient
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.storage.database import Database
+
+logger = logging.getLogger(__name__)
 
 
 class Corpus:
@@ -591,12 +594,55 @@ class Corpus:
             The ingested ArxivPaper, or None if fetching/extraction fails.
         """
         pdf_text = await self._arxiv.fetch_pdf_from_url(url)
-        if not pdf_text:
+        if pdf_text:
+            paper = make_external_paper(url, pdf_text)
+            await self.ingest_paper(paper, fetch_pdf=False)
+            return paper
+
+        # Direct fetch failed — publishers bot-block non-browser clients (A&A
+        # hard-403s, IOP serves an HTML interstitial). Derive the DOI from the
+        # URL and resolve through Semantic Scholar to the arXiv/OA version:
+        # verified live, this recovers e.g. every Bowman A&A paper with REAL
+        # metadata instead of dropping the URL (or garbling its title).
+        return await self._ingest_via_doi(url)
+
+    async def _ingest_via_doi(self, url: str) -> ArxivPaper | None:
+        """Resolve an unfetchable journal URL via its DOI (S2) and ingest the
+        arXiv or open-access version. Best-effort: returns None on any miss."""
+        from paradigm.literature.bibliography import doi_from_url
+
+        doi = doi_from_url(url)
+        if not doi:
+            return None
+        try:
+            meta = await self._s2.get_paper_details(f"DOI:{doi}")
+        except Exception as e:
+            logger.warning("DOI resolution failed for %s (%s): %s", url, doi, e)
+            return None
+        if meta is None:
             return None
 
-        paper = make_external_paper(url, pdf_text)
-        await self.ingest_paper(paper, fetch_pdf=False)
-        return paper
+        # Preferred: the arXiv version — reliable fetch path + canonical id, so
+        # citations ground to a real arXiv record instead of an ext- stub.
+        if meta.arxiv_id:
+            try:
+                paper = await self._arxiv.get_paper(meta.arxiv_id)
+            except Exception as e:
+                logger.warning("arXiv fetch failed for resolved %s: %s", meta.arxiv_id, e)
+                paper = None
+            if paper is not None:
+                await self.ingest_paper(paper, fetch_pdf=True)
+                return paper
+
+        # Fallback: another open-access PDF host with the S2 metadata as truth
+        # (real title/authors — no PDF-line title guessing).
+        if meta.oa_pdf_url and meta.oa_pdf_url != url:
+            pdf_text = await self._arxiv.fetch_pdf_from_url(meta.oa_pdf_url)
+            if pdf_text:
+                paper = make_external_paper(url, pdf_text, title=meta.title, authors=meta.authors)
+                await self.ingest_paper(paper, fetch_pdf=False)
+                return paper
+        return None
 
     # ------------------------------------------------------------------
     # Other queries

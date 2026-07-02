@@ -117,6 +117,49 @@ def extract_arxiv_id_from_url(url: str) -> str:
     return ""
 
 
+# A DOI embedded anywhere in a URL path (e.g. iopscience .../article/10.3847/xxx/pdf).
+_DOI_IN_URL_RE = re.compile(r"\b(10\.\d{4,9}/[^\s?#]+?)(?:/pdf|/meta|/fulltext)?(?:[?#].*)?$")
+# A&A pdf filenames: aa33662-18.pdf -> manuscript 33662, year 2018.
+_AANDA_RE = re.compile(r"(?:^|/)aa(\d{1,5})-(\d{2})(?:\.pdf)?$", re.IGNORECASE)
+# Nature-family article slugs: /articles/s41550-023-02040-7 -> 10.1038/<slug>.
+_NATURE_RE = re.compile(r"nature\.com/articles/([a-z]\d{4,6}[\w.-]+?)(?:\.pdf)?(?:[?#].*)?$")
+
+
+def doi_from_url(url: str) -> str:
+    """Best-effort DOI from a journal URL — publishers that block direct PDF
+    fetches (A&A hard-403s any non-browser client; IOP serves an HTML
+    interstitial) can still be resolved through DOI-keyed APIs (S2/ADS) to an
+    arXiv/OA version.
+
+    Handles:
+        - Any URL with an embedded DOI path (IOP, doi.org, ...).
+        - aanda.org PDF names: ``aa33662-18.pdf`` → ``10.1051/0004-6361/201833662``.
+        - nature.com articles: ``/articles/s41550-023-02040-7`` → ``10.1038/…``.
+
+    Returns:
+        The DOI, or "" if none can be derived.
+    """
+    u = (url or "").strip()
+    if not u or "arxiv.org" in u.lower():
+        return ""
+
+    if "aanda.org" in u.lower():
+        m = _AANDA_RE.search(u)
+        if m:
+            manuscript, yy = m.group(1), m.group(2)
+            return f"10.1051/0004-6361/20{yy}{manuscript.zfill(5)}"
+
+    m = _NATURE_RE.search(u)
+    if m:
+        return f"10.1038/{m.group(1)}"
+
+    m = _DOI_IN_URL_RE.search(u)
+    if m:
+        return m.group(1)
+
+    return ""
+
+
 class BibliographyBuilder:
     """Builds a markdown bibliography from citation URLs."""
 

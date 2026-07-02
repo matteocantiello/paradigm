@@ -581,6 +581,7 @@ _EXTERNAL_TITLE_SKIP_RE = re.compile(
     r"the\s+astrophysical\s+journal|apj\b|astron\.|"
     r"draft\s+version|preprint|in\s+press|"
     r"doi[:\s]|https?://|arxiv[:\s]|©|\(c\)|copyright|"
+    r"compiled\s+using|latex\s+style|"
     r"proof|manuscript\s+no|typeset|to\s+appear|vol\.?\s*\d|no\.?\s*\d)",
     re.IGNORECASE,
 )
@@ -618,7 +619,12 @@ def _extract_external_title(lines: list[str]) -> tuple[str, int]:
     return (lines[0], 0) if lines else ("External Paper", 0)
 
 
-def make_external_paper(url: str, pdf_text: str) -> ArxivPaper:
+def make_external_paper(
+    url: str,
+    pdf_text: str,
+    title: str | None = None,
+    authors: list[str] | None = None,
+) -> ArxivPaper:
     """Create an ArxivPaper from an external URL and its extracted PDF text.
 
     Uses a deterministic synthetic ID based on the URL hash.
@@ -626,6 +632,9 @@ def make_external_paper(url: str, pdf_text: str) -> ArxivPaper:
     Args:
         url: Source URL of the PDF.
         pdf_text: Extracted text content from the PDF.
+        title: Authoritative title (e.g. from a DOI/S2 lookup) — when given it
+            beats the best-effort PDF-line extraction.
+        authors: Authoritative author list (same source).
 
     Returns:
         ArxivPaper with synthetic external ID.
@@ -635,7 +644,10 @@ def make_external_paper(url: str, pdf_text: str) -> ArxivPaper:
 
     # Extract title, skipping journal running-headers / boilerplate.
     lines = [line.strip() for line in pdf_text.split("\n") if line.strip()]
-    title, title_idx = _extract_external_title(lines)
+    extracted_title, title_idx = _extract_external_title(lines)
+    # An authoritative title beats PDF-line guessing; the extracted line index
+    # still anchors the abstract slice either way.
+    title = title.strip() if title and title.strip() else extracted_title
 
     # Abstract: first 500 chars AFTER the chosen title line (not after line 0 —
     # when the title sits below running headers, those aren't the abstract).
@@ -648,7 +660,7 @@ def make_external_paper(url: str, pdf_text: str) -> ArxivPaper:
         arxiv_id=arxiv_id,
         title=title,
         abstract=abstract,
-        authors=[],
+        authors=list(authors or []),
         categories=[],
         primary_category="",
         published=now,

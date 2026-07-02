@@ -457,3 +457,20 @@ class TestFormatReadResult:
         assert "Deep Read: My Paper" in result
         assert "2301.12345" in result
         assert "Abstract text here..." in result
+
+
+class TestExternalPaperMetadataOverride:
+    def test_authoritative_title_and_authors_win(self):
+        paper = make_external_paper(
+            "https://x.org/p.pdf",
+            "Compiled using MNRAS LaTeX style file v3.0\nSome garbage line here ok\nBody...",
+            title="Photometric detection of internal gravity waves",
+            authors=["D. M. Bowman", "S. Burssens"],
+        )
+        assert paper.title == "Photometric detection of internal gravity waves"
+        assert paper.authors == ["D. M. Bowman", "S. Burssens"]
+
+    def test_latex_style_boilerplate_skipped(self):
+        text = "Compiled using MNRAS LATEX style file v3.3\nA Real Title About Massive Stars\nWe study..."
+        paper = make_external_paper("https://x.org/p.pdf", text)
+        assert paper.title == "A Real Title About Massive Stars"

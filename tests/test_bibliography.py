@@ -316,3 +316,47 @@ class TestMetadataResolution:
         refs = await builder.build_references(urls)
         assert [r.index for r in refs] == [1, 2, 3]
         assert [r.title for r in refs] == ["First", "", "Third"]
+
+
+class TestDoiFromUrl:
+    """Publisher URLs that bot-block direct PDF fetches map deterministically to
+    DOIs, so blocked papers resolve via S2/ADS instead of being dropped."""
+
+    def test_aanda_pdf_name(self):
+        from paradigm.literature.bibliography import doi_from_url
+
+        assert (
+            doi_from_url("https://www.aanda.org/articles/aa/pdf/2019/01/aa33662-18.pdf")
+            == "10.1051/0004-6361/201833662"
+        )
+        assert (
+            doi_from_url("https://www.aanda.org/articles/aa/pdf/2020/08/aa38224-20.pdf")
+            == "10.1051/0004-6361/202038224"
+        )
+
+    def test_nature_article_slug(self):
+        from paradigm.literature.bibliography import doi_from_url
+
+        assert (
+            doi_from_url("https://www.nature.com/articles/s41550-023-02040-7")
+            == "10.1038/s41550-023-02040-7"
+        )
+
+    def test_embedded_doi_iop(self):
+        from paradigm.literature.bibliography import doi_from_url
+
+        assert (
+            doi_from_url("https://iopscience.iop.org/article/10.3847/1538-4357/ac03b0/pdf")
+            == "10.3847/1538-4357/ac03b0"
+        )
+        assert (
+            doi_from_url("https://iopscience.iop.org/article/10.1088/2041-8205/806/2/L33/pdf")
+            == "10.1088/2041-8205/806/2/L33"
+        )
+
+    def test_arxiv_and_plain_urls_yield_nothing(self):
+        from paradigm.literature.bibliography import doi_from_url
+
+        assert doi_from_url("https://arxiv.org/pdf/2605.23209") == ""
+        assert doi_from_url("https://example.com/paper.pdf") == ""
+        assert doi_from_url("") == ""

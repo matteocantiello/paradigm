@@ -518,3 +518,83 @@ async def test_read_paper_from_pdf(corpus, mock_arxiv):
     assert title == "PDF Paper"
     assert len(text) > 0
     mock_arxiv.fetch_pdf_text.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# DOI fallback for bot-blocked journal URLs (fetch_and_ingest_url)
+# ---------------------------------------------------------------------------
+
+
+def _s2_meta(arxiv_id=None, oa_pdf_url=None):
+    from paradigm.literature.semantic_scholar import SemanticPaper
+
+    return SemanticPaper(
+        paper_id="s2id",
+        arxiv_id=arxiv_id,
+        title="Photometric detection of IGW, Paper II",
+        authors=["D. M. Bowman"],
+        abstract="Real abstract.",
+        year=2020,
+        citation_count=100,
+        url="https://semanticscholar.org/p/s2id",
+        oa_pdf_url=oa_pdf_url,
+    )
+
+
+@pytest.mark.asyncio
+async def test_blocked_journal_url_resolves_via_doi_to_arxiv(corpus, mock_arxiv, db):
+    """A&A hard-403s direct fetches — the DOI fallback must ingest the arXiv version."""
+    mock_arxiv.fetch_pdf_from_url = AsyncMock(return_value=None)  # publisher blocked
+    resolved = _make_paper("2006.03012", title="Photometric detection of IGW, Paper II")
+    mock_arxiv.get_paper = AsyncMock(return_value=resolved)
+    corpus._s2 = AsyncMock()
+    corpus._s2.get_paper_details = AsyncMock(return_value=_s2_meta(arxiv_id="2006.03012"))
+
+    paper = await corpus.fetch_and_ingest_url(
+        "https://www.aanda.org/articles/aa/pdf/2020/08/aa38224-20.pdf"
+    )
+    assert paper is not None
+    assert paper.arxiv_id == "2006.03012"  # canonical arXiv record, not an ext- stub
+    corpus._s2.get_paper_details.assert_awaited_once_with("DOI:10.1051/0004-6361/202038224")
+    assert db.get_paper("arxiv:2006.03012") is not None
+
+
+@pytest.mark.asyncio
+async def test_non_doi_url_fails_without_s2_call(corpus, mock_arxiv):
+    mock_arxiv.fetch_pdf_from_url = AsyncMock(return_value=None)
+    corpus._s2 = AsyncMock()
+    paper = await corpus.fetch_and_ingest_url("https://example.com/paywalled.pdf")
+    assert paper is None
+    corpus._s2.get_paper_details.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_doi_fallback_uses_oa_pdf_with_real_metadata(corpus, mock_arxiv):
+    """No arXiv version -> fetch the S2 open-access PDF; S2 metadata beats title guessing."""
+
+    async def fetch(url):
+        if url == "https://oa.host/real.pdf":
+            return "Compiled using MNRAS LaTeX style file v3.0\nBody text of the paper..."
+        return None
+
+    mock_arxiv.fetch_pdf_from_url = AsyncMock(side_effect=fetch)
+    corpus._s2 = AsyncMock()
+    corpus._s2.get_paper_details = AsyncMock(
+        return_value=_s2_meta(arxiv_id=None, oa_pdf_url="https://oa.host/real.pdf")
+    )
+    paper = await corpus.fetch_and_ingest_url(
+        "https://iopscience.iop.org/article/10.3847/1538-4357/ac03b0/pdf"
+    )
+    assert paper is not None
+    assert paper.arxiv_id.startswith("ext-")
+    assert paper.title == "Photometric detection of IGW, Paper II"
+    assert paper.authors == ["D. M. Bowman"]
+
+
+@pytest.mark.asyncio
+async def test_s2_error_degrades_to_none(corpus, mock_arxiv):
+    mock_arxiv.fetch_pdf_from_url = AsyncMock(return_value=None)
+    corpus._s2 = AsyncMock()
+    corpus._s2.get_paper_details = AsyncMock(side_effect=RuntimeError("S2 down"))
+    paper = await corpus.fetch_and_ingest_url("https://www.nature.com/articles/s41550-023-02040-7")
+    assert paper is None
