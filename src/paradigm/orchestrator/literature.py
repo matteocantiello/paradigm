@@ -355,44 +355,68 @@ class LiteratureHandler:
             await client.close()
             return 0
 
-        # Collect unique, not-yet-seen arXiv IDs from the discovered URLs.
+        # Split discovered URLs: arXiv IDs (one batch request) vs non-arXiv URLs
+        # (journal / open-access PDFs, fetched individually as external papers).
+        # The old arXiv-only path DROPPED every non-arXiv URL, which starved topics
+        # whose key literature lives in journals (A&A / MNRAS / ApJ) — e.g. a
+        # red-noise run found 19 URLs but ingested 0.
         ids: list[str] = []
+        non_arxiv_urls: list[str] = []
         for url in urls[:max_papers]:
             arxiv_id = extract_arxiv_id_from_url(url)
-            if arxiv_id and arxiv_id not in self.seen_paper_ids and arxiv_id not in ids:
-                ids.append(arxiv_id)
+            if arxiv_id:
+                if arxiv_id not in self.seen_paper_ids and arxiv_id not in ids:
+                    ids.append(arxiv_id)
+            elif url not in non_arxiv_urls:
+                non_arxiv_urls.append(url)
 
-        # Fetch them ALL in one arXiv request. Firing N rate-limited single fetches
-        # here trips arXiv's 429 + the circuit breaker on cloud IPs, which would
-        # then disable arXiv for the agents' searches too.
         papers = []
-        try:
-            fetched = await self._engine._corpus._arxiv.get_papers(ids)
-        except Exception as e:
-            _logger.warning("Seed discovery: arXiv batch fetch failed: %s", e)
-            fetched = []
-        for paper in fetched:
-            try:
-                await self._engine._corpus.ingest_paper(paper)
-                pid = getattr(paper, "arxiv_id", "") or ""
-                if pid:
-                    self.seen_paper_ids.add(pid)
-                    first_author = paper.authors[0] if paper.authors else "Unknown"
-                    self._track_paper(
-                        pid,
-                        paper.title,
-                        first_author,
-                        getattr(paper, "abstract", "") or getattr(paper, "summary", ""),
-                        oa_pdf_url=_oa_url(paper),
-                    )
-                papers.append(paper)
-            except Exception as e:
-                _logger.warning(
-                    "Seed discovery: failed to ingest %s: %s",
-                    getattr(paper, "arxiv_id", "?"),
-                    e,
+
+        def _track_ingested(paper: object) -> None:
+            pid = getattr(paper, "arxiv_id", "") or ""
+            if pid and pid not in self.seen_paper_ids:
+                self.seen_paper_ids.add(pid)
+                first_author = paper.authors[0] if paper.authors else "Unknown"
+                self._track_paper(
+                    pid,
+                    paper.title,
+                    first_author,
+                    getattr(paper, "abstract", "") or getattr(paper, "summary", ""),
+                    oa_pdf_url=_oa_url(paper),
                 )
+            papers.append(paper)
+
+        # arXiv: fetch ALL in one request. Firing N rate-limited single fetches here
+        # trips arXiv's 429 + the circuit breaker on cloud IPs, which would then
+        # disable arXiv for the agents' searches too.
+        if ids:
+            try:
+                fetched = await self._engine._corpus._arxiv.get_papers(ids)
+            except Exception as e:
+                _logger.warning("Seed discovery: arXiv batch fetch failed: %s", e)
+                fetched = []
+            for paper in fetched:
+                try:
+                    await self._engine._corpus.ingest_paper(paper)
+                    _track_ingested(paper)
+                except Exception as e:
+                    _logger.warning(
+                        "Seed discovery: failed to ingest %s: %s",
+                        getattr(paper, "arxiv_id", "?"),
+                        e,
+                    )
+                    continue
+
+        # Non-arXiv: fetch each URL as an external paper (open-access journal PDFs).
+        # Best-effort — a landing page or paywalled URL simply returns None.
+        for url in non_arxiv_urls:
+            try:
+                paper = await self._engine._corpus.fetch_and_ingest_url(url)
+            except Exception as e:
+                _logger.warning("Seed discovery: external fetch failed for %s: %s", url, e)
                 continue
+            if paper is not None:
+                _track_ingested(paper)
 
         if papers:
             source_results = [arxiv_paper_to_source_result(p) for p in papers]

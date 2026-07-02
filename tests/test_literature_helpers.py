@@ -298,3 +298,77 @@ class TestOpenAccessFullText:
         h.discovered_fulltext["PMID1"] = "http://oa/x.pdf"
         h._engine._corpus.fetch_pdf_text_from_url = AsyncMock(return_value="")
         assert await h._read_external_fulltext("PMID1", 100) is None
+
+
+class TestSeedDiscoveryNonArxiv:
+    """run_seed_discovery must ingest NON-arXiv journal URLs too, not just arXiv IDs
+    — the red-noise gap where 19 URLs were found but 0 ingested (all non-arXiv)."""
+
+    @staticmethod
+    def _paper(pid: str):
+        return SimpleNamespace(
+            arxiv_id=pid,
+            title=f"Paper {pid}",
+            authors=["A. Author"],
+            abstract="abstract",
+            summary="abstract",
+            oa_pdf_url="",
+            metadata={},
+        )
+
+    def _wire(self, monkeypatch, urls, arxiv_papers):
+        h = _make_handler()
+        eng = h._engine
+        eng._config.citation.enable_seed_discovery = True
+        eng._config.citation.perplexity_api_key_env = "PERPLEXITY_API_KEY"
+        eng._config.citation.perplexity_timeout = 30
+        eng._config.citation.seed_discovery_max_papers = 10
+        monkeypatch.setenv("PERPLEXITY_API_KEY", "test-key")
+        h._track_paper = MagicMock()
+
+        fake_client = MagicMock()
+        fake_client.discover_papers = AsyncMock(return_value=urls)
+        fake_client.close = AsyncMock()
+        monkeypatch.setattr(
+            "paradigm.orchestrator.literature.PerplexityClient", lambda *a, **k: fake_client
+        )
+        monkeypatch.setattr(
+            "paradigm.orchestrator.literature.arxiv_paper_to_source_result", lambda p: p
+        )
+        monkeypatch.setattr(
+            "paradigm.orchestrator.literature.format_search_results", lambda *a, **k: "ctx"
+        )
+        eng._corpus._arxiv.get_papers = AsyncMock(return_value=arxiv_papers)
+        eng._corpus.ingest_paper = AsyncMock()
+        return h, eng
+
+    @pytest.mark.asyncio
+    async def test_ingests_arxiv_and_non_arxiv(self, monkeypatch):
+        urls = [
+            "https://arxiv.org/abs/2401.11111",
+            "https://www.aanda.org/articles/aa/pdf/2024/12/aa51419-24.pdf",
+            "https://academic.oup.com/mnras/article-pdf/500/1/1/x.pdf",
+        ]
+        h, eng = self._wire(monkeypatch, urls, [self._paper("2401.11111")])
+        eng._corpus.fetch_and_ingest_url = AsyncMock(
+            side_effect=lambda url: self._paper("ext-" + url[-8:])
+        )
+
+        n = await h.run_seed_discovery("red noise massive stars")
+
+        assert n == 3  # 1 arXiv + 2 non-arXiv journal PDFs (previously only the arXiv one)
+        assert eng._corpus.fetch_and_ingest_url.await_count == 2
+        called = {c.args[0] for c in eng._corpus.fetch_and_ingest_url.await_args_list}
+        assert called == {urls[1], urls[2]}
+
+    @pytest.mark.asyncio
+    async def test_non_arxiv_fetch_failure_skipped(self, monkeypatch):
+        # A landing page / paywalled URL returns None from fetch_and_ingest_url —
+        # best-effort: it's skipped, no crash.
+        h, eng = self._wire(monkeypatch, ["https://journal.example/paywalled"], [])
+        eng._corpus.fetch_and_ingest_url = AsyncMock(return_value=None)
+
+        n = await h.run_seed_discovery("topic")
+
+        assert n == 0
+        assert eng._corpus.fetch_and_ingest_url.await_count == 1

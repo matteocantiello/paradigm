@@ -173,6 +173,26 @@ class TestMakeExternalPaper:
         assert paper.title == "External Paper"
         assert paper.abstract == ""
 
+    def test_title_skips_journal_running_header(self):
+        # A naive first-line title grabs the MNRAS running header ("MNRAS 000, 1-20").
+        text = (
+            "MNRAS 000, 1-20 (2026)\n"
+            "The Origin of Stochastic Low-Frequency Variability in Massive Stars\n"
+            "D. M. Bowman et al.\n"
+            "Abstract: we present..."
+        )
+        paper = make_external_paper("https://example.org/x.pdf", text)
+        assert paper.title == "The Origin of Stochastic Low-Frequency Variability in Massive Stars"
+
+    def test_title_skips_aa_manuscript_header(self):
+        text = (
+            "Astronomy & Astrophysics manuscript no. aa51419-24\n"
+            "Photometric detection of internal gravity waves in massive stars\n"
+            "body text"
+        )
+        paper = make_external_paper("https://example.org/y.pdf", text)
+        assert "internal gravity waves" in paper.title.lower()
+
 
 # --- parse_search_requests tests ---
 

@@ -571,6 +571,34 @@ def format_read_result(arxiv_id: str, title: str, extracted_text: str) -> str:
     return f"### Deep Read: {title} [{arxiv_id}]\n\n{extracted_text}\n"
 
 
+# Journal running-headers / boilerplate that a naive "first line" title grabs
+# (e.g. "MNRAS 000, 1-20 (2026)", "Astronomy & Astrophysics manuscript no. ...").
+_EXTERNAL_TITLE_SKIP_RE = re.compile(
+    r"^\s*("
+    r"mnras\b|mon\.?\s*not|astronomy\s*&?\s*astrophysics|a&a\b|aap\b|"
+    r"the\s+astrophysical\s+journal|apj\b|astron\.|nature\b|science\b|"
+    r"draft\s+version|preprint|submitted|accepted|received|published|in\s+press|"
+    r"doi[:\s]|https?://|arxiv[:\s]|©|\(c\)|copyright|"
+    r"proof|manuscript\s+no|typeset|to\s+appear|vol\.?\s*\d|no\.?\s*\d)",
+    re.IGNORECASE,
+)
+
+
+def _extract_external_title(lines: list[str]) -> str:
+    """Best-effort title from a journal/preprint PDF: skip running-headers and
+    boilerplate and take the first substantial line. Falls back to the first line
+    when nothing better is found (so it's never worse than the naive approach)."""
+    for ln in lines[:20]:
+        if _EXTERNAL_TITLE_SKIP_RE.match(ln):
+            continue
+        if len(ln) < 15 or len(ln) > 250:
+            continue
+        if re.fullmatch(r"[\d\s.,;:()\[\]/–—+-]+", ln):  # pure numbers / punctuation
+            continue
+        return ln
+    return lines[0] if lines else "External Paper"
+
+
 def make_external_paper(url: str, pdf_text: str) -> ArxivPaper:
     """Create an ArxivPaper from an external URL and its extracted PDF text.
 
@@ -586,9 +614,9 @@ def make_external_paper(url: str, pdf_text: str) -> ArxivPaper:
     url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
     arxiv_id = f"ext-{url_hash}"
 
-    # Extract title from first non-empty line
+    # Extract title, skipping journal running-headers / boilerplate.
     lines = [line.strip() for line in pdf_text.split("\n") if line.strip()]
-    title = lines[0] if lines else "External Paper"
+    title = _extract_external_title(lines)
 
     # Abstract: first 500 chars after title
     remaining_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
