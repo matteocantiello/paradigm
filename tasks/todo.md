@@ -53,8 +53,8 @@ Source: two-agent audit (critical diff review of 97e15cc→a5a0136 + codebase he
 
 ## C. Structural refactor — opportunistic, not now
 
-- [ ] C1. Extract `orchestrator/artifacts.py` (~390 lines of pure save/log I/O) from engine.py (M).
-- [ ] C2. Decompose `_run_cycle_impl` (515-line god method) into per-phase-group methods (M,
+- [x] C1. Extract `orchestrator/artifacts.py` (~390 lines of pure save/log I/O) from engine.py (M).
+- [x] C2. Decompose `_run_cycle_impl` (515-line god method) into per-phase-group methods (M,
       medium risk — heart of the system; lean on test_orchestrator + a selftest run).
 - NOT worth it now: SQLite per-session connections (WAL holding, no lock errors),
   DisplayManager/ws_display Protocol dedup, constants.py/writing.py splits.
@@ -65,7 +65,7 @@ Source: two-agent audit (critical diff review of 97e15cc→a5a0136 + codebase he
       configs/selftest-exp.yaml.
 - [ ] D2. VM deploy still pending (a5a0136 not deployed; NASA_ADS_API_KEY + frontend
       `npm run build` + restart). ADS key rotation after deploy.
-- [ ] D3. main is 143 commits behind (last 2026-06-05) — decide whether to merge
+- [x] D3. main is 143 commits behind (last 2026-06-05) — decide whether to merge
       responsive-live-progress → main after the A-fixes land.
 
 ## Review (2026-07-02)
@@ -80,6 +80,11 @@ All A (8/8) + B (5/5) items implemented, tested, committed:
 - 62dadb5 chore(sandbox+storage): B3 executions retention (30d/500) + B4 dead code
 - d012811 fix(ws): B5 checkpoint/rewind -> explicit not_supported error frames
 
-Full suite 1843 passed (+46 new tests), ruff clean. C and D remain open;
+Full suite 1843 passed (+46 new tests), ruff clean.
+C done 2026-07-02: e5a69b3 (C1 artifacts.py extraction, engine 2467->2116) +
+c48bfeb (C2 _run_cycle_impl 515-line god method -> ~50-line sequencer over
+per-stage methods + _intervention_gate/_announce_discussion_phase helpers);
+suite 1843 green, side-effect call counts verified identical. Merged to main.
+Remaining D: gitignore data_vm2/ + scratch files; VM deploy; ADS key rotation.
 NOTE for the operator: after B2, a broken production.yaml now aborts backend
 startup with a clear error instead of silently serving an empty data dir.

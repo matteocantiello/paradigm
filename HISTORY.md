@@ -4991,3 +4991,15 @@ Analyzed the VM red-noise cycle (`thread-69039e654b40`, prompt = stochastic low-
 
 Approved implementing plan sections A (8 correctness fixes from the critical review) + B (5 small high-leverage refactors) from tasks/todo.md. C (structural engine.py split) and D (housekeeping/deploy) deferred.
 Implemented A1-A8 + B1-B5 (see tasks/todo.md Review section). Six commits: 1c5c6fe (literature: arXiv-breaker isolation for external PDFs, title-extraction, ext full-text reads), 2635795 (review+citations: revision-path citation net closing the ADR-013 bypass, negation-guarded mandatory-check gate, real URLs for ext- references, editor token headroom, digest DB-read guard), 81e2439 (LLM-JSON parsing consolidated onto knowledge/json_utils), f4bdf51 (backend config-parse failure now fatal - no more silent empty-data-dir fallback), 62dadb5 (executions/ retention sweep + dead-code removal), d012811 (ws checkpoint/rewind explicit errors). Full suite 1843 passed (+46 tests). C (engine.py split) and D (housekeeping/VM deploy/main merge) deferred.
+
+## Prompt 235 — Regenerate all VM PDFs with the new LaTeX style
+
+> I would like to regenerate all the pdf on the platform (on the VM) using the new latex style. Is there a command I can run that would do that? Maybe just delete the old pdf so that the platform has to force-regenerate next time I ask for a pdf?
+
+(Continuation: VM regen troubleshooting — system python3 lacked paradigm module -> use /opt/paradigm/.venv/bin/python + source deploy/.env.production; then "sudo: unknown user paradigm" -> the deployed unit does not run as the repo template's User=paradigm; check the real unit user and run as that (root if root-run).)
+
+## Prompt 236 — Engine refactor (C1+C2) + merge to main
+
+> Ok. Please go ahead and 1) do the refactoring of the code and 2) merge to the main branch once you are done and you think everything is in good shape and ready to be merged back
+
+Done: C1 (e5a69b3) — extracted ArtifactsHandler (orchestrator/artifacts.py, ~400 lines of pure I/O; engine keeps thin delegates so call sites unchanged). C2 (c48bfeb) — _run_cycle_impl decomposed from a 515-line god method into a ~50-line sequencer over per-stage methods (_setup_team, seeding/ideation/planning/execution/post-execution/writing/internal-review/peer-review/finalize) with _intervention_gate + _announce_discussion_phase helpers; verbatim bodies, terminal side effects inside the owning stage; full suite 1843 green + side-effect call-count diff verified. Then merged responsive-live-progress -> main (fast-forward) and pushed both.
