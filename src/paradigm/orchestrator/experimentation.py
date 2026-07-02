@@ -389,7 +389,9 @@ class ExperimentationHandler:
                 checkpoint_context = ""
                 if engine.state.checkpoint:
                     checkpoint_context = engine.state.checkpoint.to_context_string() + "\n\n"
-                file_listing = _list_shared_files(engine._config.storage.data_dir, engine.state.wall_start_time)
+                file_listing = _list_shared_files(
+                    engine._config.storage.data_dir, engine.state.wall_start_time
+                )
                 checkpoint_context = file_listing + "\n\n" + checkpoint_context
                 if engine.state.code_context:
                     checkpoint_context += engine.state.code_context + "\n\n"
@@ -430,7 +432,9 @@ class ExperimentationHandler:
                     checkpoint_context = ""
                     if engine.state.checkpoint:
                         checkpoint_context = engine.state.checkpoint.to_context_string() + "\n\n"
-                    file_listing = _list_shared_files(engine._config.storage.data_dir, engine.state.wall_start_time)
+                    file_listing = _list_shared_files(
+                        engine._config.storage.data_dir, engine.state.wall_start_time
+                    )
                     checkpoint_context = file_listing + "\n\n" + checkpoint_context
                     if engine.state.code_context:
                         checkpoint_context += engine.state.code_context + "\n\n"
@@ -1334,7 +1338,9 @@ class ExperimentationHandler:
             # scripts that caught the exception and printed to stdout)
             combined_text = stderr_text + (result.stdout or "")
             if any(p in combined_text for p in _FILE_NOT_FOUND_PATTERNS):
-                file_listing = _list_shared_files(engine._config.storage.data_dir, engine.state.wall_start_time)
+                file_listing = _list_shared_files(
+                    engine._config.storage.data_dir, engine.state.wall_start_time
+                )
                 error_parts.insert(
                     0,
                     "**\u26a0 FILE NOT FOUND:** Your script tried to open a file that "

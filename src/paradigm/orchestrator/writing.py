@@ -19,13 +19,13 @@ from paradigm.journal.paper import (
     section_assignments_from_template,
     strip_agent_scaffolding,
 )
+from paradigm.knowledge.json_utils import first_json_array
 from paradigm.literature.citation_validation import (
     build_citation_allowlist,
     compile_allowlist_citations,
     validate_and_strip_citations,
 )
 from paradigm.logging.events import EventType
-from paradigm.knowledge.json_utils import first_json_array
 from paradigm.orchestrator.constants import (
     _CODE_BLOCK_RE,
     _CONCEPTUAL_FIGURE_MAX_TOKENS,
@@ -219,13 +219,11 @@ class WritingHandler:
                 thread_id=self._engine.state.thread_id,
             )
             items = first_json_array(raw) or []
-            self._requirements = [
-                x.strip() for x in items if isinstance(x, str) and x.strip()
-            ][:_REQUIREMENTS_MAX_ITEMS]
+            self._requirements = [x.strip() for x in items if isinstance(x, str) and x.strip()][
+                :_REQUIREMENTS_MAX_ITEMS
+            ]
             if self._requirements:
-                self._engine.emit_event(
-                    "requirements.extracted", {"items": self._requirements}
-                )
+                self._engine.emit_event("requirements.extracted", {"items": self._requirements})
         except Exception as e:
             self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
 
