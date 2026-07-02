@@ -12,7 +12,16 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
+
+
+class ConfigParseError(RuntimeError):
+    """A config file exists on disk but could not be parsed or validated.
+
+    This must be FATAL at startup: silently falling back to a default config
+    points the backend at an empty data dir, so papers/cycles appear to vanish
+    (seen on the VM with unresolved merge-conflict markers in production.yaml).
+    """
 
 
 class AgentOverrideConfig(BaseModel):
@@ -115,8 +124,18 @@ def load_backend_config(config_path: str | Path | None = None) -> BackendConfig:
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     config_dir = config_path.resolve().parent
-    with open(config_path) as f:
-        raw = yaml.safe_load(f) or {}
+    try:
+        with open(config_path) as f:
+            raw = yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        raise ConfigParseError(
+            f"Config file {config_path} exists but is not valid YAML "
+            f"(check for unresolved merge-conflict markers): {e}"
+        ) from e
+    if not isinstance(raw, dict):
+        raise ConfigParseError(
+            f"Config file {config_path} must contain a YAML mapping, got {type(raw).__name__}"
+        )
 
     # Resolve relative data_dir against project root
     project_root = config_dir.parent
@@ -132,10 +151,14 @@ def load_backend_config(config_path: str | Path | None = None) -> BackendConfig:
         raw.setdefault("storage", {})["data_dir"] = data_dir
 
     # Build with only the fields BackendConfig cares about
-    return BackendConfig(
-        agent=AgentConfig(**raw.get("agent", {})),
-        storage=StorageConfig(**raw.get("storage", {})),
-        testing_overrides={
-            role: AgentOverrideConfig(**v) for role, v in raw.get("testing_overrides", {}).items()
-        },
-    )
+    try:
+        return BackendConfig(
+            agent=AgentConfig(**raw.get("agent", {})),
+            storage=StorageConfig(**raw.get("storage", {})),
+            testing_overrides={
+                role: AgentOverrideConfig(**v)
+                for role, v in raw.get("testing_overrides", {}).items()
+            },
+        )
+    except (ValidationError, TypeError) as e:
+        raise ConfigParseError(f"Config file {config_path} failed validation: {e}") from e

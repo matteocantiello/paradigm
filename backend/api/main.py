@@ -31,25 +31,33 @@ def _load_paradigm_config() -> Any:
     Tries the full ``paradigm.config.load_config`` first (available when running
     on Python 3.11+).  Falls back to the lightweight backend-local loader so
     that routes still work on Python 3.10 where the core package cannot be
-    imported.
+    imported, or when core-only validation fails (e.g. missing ANTHROPIC_API_KEY).
+
+    A config file that EXISTS but cannot be parsed/validated is FATAL
+    (``ConfigParseError`` propagates and aborts startup): silently falling back
+    to a default config points the backend at an empty data dir, so papers and
+    cycles appear to vanish. Only a genuinely missing config file keeps the
+    quiet default behavior.
     """
     try:
         from paradigm.config import load_config
 
         return load_config()
-    except Exception:
-        pass
-
-    # Fallback: lightweight backend-local loader
-    try:
-        from backend.api.config import load_backend_config
-
-        cfg = load_backend_config()
-        logger.info("Loaded backend-local config (paradigm core not available)")
-        return cfg
     except Exception as e:
+        logger.warning("Core paradigm config loader unavailable or failed: %s", e)
+
+    # Fallback: lightweight backend-local loader. It re-parses the same YAML
+    # file, so a broken-but-present file raises ConfigParseError here and
+    # aborts startup loudly instead of degrading to an empty-data-dir config.
+    from backend.api.config import load_backend_config
+
+    try:
+        cfg = load_backend_config()
+    except FileNotFoundError as e:
         logger.warning("Could not load any config: %s", e)
         return None
+    logger.info("Loaded backend-local config (paradigm core not available)")
+    return cfg
 
 
 def _init_database(config: Any) -> Any:
