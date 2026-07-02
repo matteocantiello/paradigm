@@ -573,30 +573,49 @@ def format_read_result(arxiv_id: str, title: str, extracted_text: str) -> str:
 
 # Journal running-headers / boilerplate that a naive "first line" title grabs
 # (e.g. "MNRAS 000, 1-20 (2026)", "Astronomy & Astrophysics manuscript no. ...").
+# Only UNAMBIGUOUS boilerplate belongs here — bare journal-name words are handled
+# by _EXTERNAL_TITLE_AMBIGUOUS_RE below, because they also start real titles.
 _EXTERNAL_TITLE_SKIP_RE = re.compile(
     r"^\s*("
     r"mnras\b|mon\.?\s*not|astronomy\s*&?\s*astrophysics|a&a\b|aap\b|"
-    r"the\s+astrophysical\s+journal|apj\b|astron\.|nature\b|science\b|"
-    r"draft\s+version|preprint|submitted|accepted|received|published|in\s+press|"
+    r"the\s+astrophysical\s+journal|apj\b|astron\.|"
+    r"draft\s+version|preprint|in\s+press|"
     r"doi[:\s]|https?://|arxiv[:\s]|©|\(c\)|copyright|"
     r"proof|manuscript\s+no|typeset|to\s+appear|vol\.?\s*\d|no\.?\s*\d)",
     re.IGNORECASE,
 )
 
+# Tokens that ALSO start real titles ("Nature of the compact object in GW190814",
+# "Science with the Square Kilometre Array", "Submitted revisions of ..."): skip only
+# with masthead/dateline context — a journal name followed immediately by volume /
+# punctuation / digits, or a status verb whose line carries a year or "publication".
+_EXTERNAL_TITLE_AMBIGUOUS_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:nature|science)(?:\s+[A-Za-z]+)?\s*(?:[|,;:]|vol\b|\d)"
+    r"|(?:received|accepted|submitted|published)\b(?=.*(?:\b(?:18|19|20)\d{2}\b|publication))"
+    r")",
+    re.IGNORECASE,
+)
 
-def _extract_external_title(lines: list[str]) -> str:
+
+def _extract_external_title(lines: list[str]) -> tuple[str, int]:
     """Best-effort title from a journal/preprint PDF: skip running-headers and
     boilerplate and take the first substantial line. Falls back to the first line
-    when nothing better is found (so it's never worse than the naive approach)."""
-    for ln in lines[:20]:
-        if _EXTERNAL_TITLE_SKIP_RE.match(ln):
+    when nothing qualifies.
+
+    Returns:
+        ``(title, line_index)`` — the index lets the caller start the abstract
+        AFTER the title line instead of re-including skipped headers.
+    """
+    for i, ln in enumerate(lines[:20]):
+        if _EXTERNAL_TITLE_SKIP_RE.match(ln) or _EXTERNAL_TITLE_AMBIGUOUS_RE.match(ln):
             continue
         if len(ln) < 15 or len(ln) > 250:
             continue
         if re.fullmatch(r"[\d\s.,;:()\[\]/–—+-]+", ln):  # pure numbers / punctuation
             continue
-        return ln
-    return lines[0] if lines else "External Paper"
+        return ln, i
+    return (lines[0], 0) if lines else ("External Paper", 0)
 
 
 def make_external_paper(url: str, pdf_text: str) -> ArxivPaper:
@@ -616,10 +635,11 @@ def make_external_paper(url: str, pdf_text: str) -> ArxivPaper:
 
     # Extract title, skipping journal running-headers / boilerplate.
     lines = [line.strip() for line in pdf_text.split("\n") if line.strip()]
-    title = _extract_external_title(lines)
+    title, title_idx = _extract_external_title(lines)
 
-    # Abstract: first 500 chars after title
-    remaining_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
+    # Abstract: first 500 chars AFTER the chosen title line (not after line 0 —
+    # when the title sits below running headers, those aren't the abstract).
+    remaining_text = "\n".join(lines[title_idx + 1 :]) if len(lines) > title_idx + 1 else ""
     abstract = remaining_text[:500].strip() if remaining_text else ""
 
     now = datetime.now(UTC)

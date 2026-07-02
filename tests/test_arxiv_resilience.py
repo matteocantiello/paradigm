@@ -139,3 +139,41 @@ async def test_circuit_breaker_resets_on_success(mock_sleep):
     c2 = _client_with_gets(_resp(200))
     assert (await c2._rate_limited_get("https://x")).status_code == 200
     assert not _arxiv_circuit_is_open()  # success reset the counter
+
+
+# --------------------------------------------------------------------------- #
+# External (non-arXiv) PDF fetches must not touch the arXiv gate or breaker
+# --------------------------------------------------------------------------- #
+
+
+@patch("paradigm.literature.arxiv.subprocess.run")
+async def test_external_pdf_failures_do_not_open_arxiv_breaker(mock_run):
+    # Seed discovery fetches journal PDFs right before IDEATION's arXiv searches;
+    # two paywall 403s must NOT open the arXiv circuit (it would fast-fail those
+    # searches for the whole cooldown).
+    mock_run.return_value = MagicMock(returncode=1, stdout=b"")
+    client = _client_with_gets(_resp(403), _resp(403))
+    assert await client.fetch_pdf_bytes("https://academic.oup.com/mnras/x.pdf") is None
+    assert await client.fetch_pdf_bytes("https://www.aanda.org/y.pdf") is None
+    assert not _arxiv_circuit_is_open()
+
+
+async def test_arxiv_pdf_fetch_uses_rate_limited_path():
+    client = _client_with_gets()
+    client._rate_limited_get = AsyncMock(return_value=_resp(200))
+    await client.fetch_pdf_bytes("https://arxiv.org/pdf/2501.12345")
+    client._rate_limited_get.assert_awaited_once()
+
+
+async def test_external_pdf_fetch_bypasses_rate_limited_path():
+    pdf = httpx.Response(
+        status_code=200,
+        content=b"%PDF-1.4 fake",
+        headers={"content-type": "application/pdf"},
+        request=httpx.Request("GET", "https://academic.oup.com/mnras/x.pdf"),
+    )
+    client = _client_with_gets(pdf)
+    client._rate_limited_get = AsyncMock()
+    out = await client.fetch_pdf_bytes("https://academic.oup.com/mnras/x.pdf")
+    assert out == b"%PDF-1.4 fake"
+    client._rate_limited_get.assert_not_awaited()

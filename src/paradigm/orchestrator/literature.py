@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from paradigm.domains.base import arxiv_paper_to_source_result
+from paradigm.literature.arxiv import ArxivPaper
 from paradigm.literature.bibliography import extract_arxiv_id_from_url
 from paradigm.literature.citation_chains import follow_citation_chain
 from paradigm.literature.perplexity import PerplexityClient
@@ -372,17 +373,23 @@ class LiteratureHandler:
 
         papers = []
 
-        def _track_ingested(paper: object) -> None:
-            pid = getattr(paper, "arxiv_id", "") or ""
+        def _track_ingested(paper: ArxivPaper) -> None:
+            pid = paper.arxiv_id or ""
             if pid and pid not in self.seen_paper_ids:
                 self.seen_paper_ids.add(pid)
                 first_author = paper.authors[0] if paper.authors else "Unknown"
+                # External (ext-…) papers carry their source URL in .pdf_url, not the
+                # SourceResult oa_pdf_url slot — without this fallback a later [READ:]
+                # on the paper gets only its 500-char abstract stub.
+                oa_url = _oa_url(paper)
+                if not oa_url and pid.startswith("ext-"):
+                    oa_url = getattr(paper, "pdf_url", "") or ""
                 self._track_paper(
                     pid,
                     paper.title,
                     first_author,
                     getattr(paper, "abstract", "") or getattr(paper, "summary", ""),
-                    oa_pdf_url=_oa_url(paper),
+                    oa_pdf_url=oa_url,
                 )
             papers.append(paper)
 

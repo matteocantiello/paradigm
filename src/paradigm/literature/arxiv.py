@@ -11,6 +11,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import pymupdf
@@ -96,6 +97,14 @@ def _reset_arxiv_circuit() -> None:
     global _cb_consecutive_failures, _cb_open_until
     _cb_consecutive_failures = 0
     _cb_open_until = 0.0
+
+
+def _is_arxiv_url(url: str) -> bool:
+    """True when the URL's host is arxiv.org (or a subdomain) — i.e. traffic that
+    must respect the shared arXiv cadence + circuit breaker. External journal/OA
+    hosts must NOT feed the breaker: their paywalls 403 routinely."""
+    host = urlparse(url).netloc.lower()
+    return host == "arxiv.org" or host.endswith(".arxiv.org")
 
 
 def extract_key_sections(full_text: str, max_chars: int = 8000) -> str:
@@ -358,9 +367,17 @@ class ArxivClient:
         Returns:
             PDF file bytes, or None on failure.
         """
-        # Try httpx first
+        # Try httpx first. Only arxiv.org URLs go through the shared rate gate +
+        # circuit breaker: external journal/OA URLs (seed discovery, [READ:] on
+        # ext papers) are frequently 403 paywalls or HTML landing pages, and two
+        # such failures would otherwise open the ARXIV breaker for its cooldown —
+        # disabling arXiv searches right when the cycle needs them — while the
+        # 3 s arXiv cadence needlessly serializes unrelated hosts.
         try:
-            response = await self._rate_limited_get(url)
+            if _is_arxiv_url(url):
+                response = await self._rate_limited_get(url)
+            else:
+                response = await self._client.get(url)
             if response.status_code == 200:
                 content_type = response.headers.get("content-type", "")
                 if "pdf" in content_type or "octet-stream" in content_type:

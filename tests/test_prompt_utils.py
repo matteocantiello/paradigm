@@ -155,8 +155,33 @@ class TestMakeExternalPaper:
         assert paper.title == "My Paper Title"
 
     def test_abstract_from_remaining_text(self):
-        paper = make_external_paper("https://example.com/a.pdf", "Title\nThis is the abstract")
+        paper = make_external_paper(
+            "https://example.com/a.pdf", "A Substantial Paper Title\nThis is the abstract"
+        )
         assert paper.abstract == "This is the abstract"
+
+    def test_abstract_starts_after_title_line(self):
+        # Title found BELOW running headers → abstract must start after it,
+        # not after line 0 (which would re-include the headers + title).
+        text = "MNRAS 000, 1-20 (2026)\nStochastic variability of massive stars\nWe study..."
+        paper = make_external_paper("https://example.com/a.pdf", text)
+        assert paper.title == "Stochastic variability of massive stars"
+        assert paper.abstract == "We study..."
+
+    def test_title_not_skipped_for_nature_of_style_titles(self):
+        # Bare journal-name words start real titles — only masthead context skips.
+        text = "Nature of the compact object in GW190814\nA. Author, B. Author\nWe analyze..."
+        paper = make_external_paper("https://example.com/a.pdf", text)
+        assert paper.title == "Nature of the compact object in GW190814"
+
+    def test_masthead_and_dateline_still_skipped(self):
+        text = (
+            "Nature | Vol 615 | 30 March 2023\n"
+            "Received 2025 January 5; accepted 2025 March 3\n"
+            "A Real Paper Title About Stars\nWe present..."
+        )
+        paper = make_external_paper("https://example.com/a.pdf", text)
+        assert paper.title == "A Real Paper Title About Stars"
 
     def test_body_set(self):
         pdf_text = "Title\nBody line 1\nBody line 2"
