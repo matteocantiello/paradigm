@@ -65,6 +65,7 @@ from paradigm.storage.database import Database
 
 if TYPE_CHECKING:
     from paradigm.display import DisplayManager
+    from paradigm.journal.paper import PaperDraft
 
 
 class OrchestrationEngine:
@@ -307,8 +308,54 @@ class OrchestrationEngine:
         mode: str,
         team_roles: list[str] | None,
     ) -> str:
-        """The research cycle body (see run_research_cycle)."""
+        """The research cycle body (see run_research_cycle).
+
+        A thin sequencer: each stage method runs one phase group and returns
+        truthy when the cycle must stop there (abort/pause/gate/failure). All
+        terminal-path side effects (thread status, displays, token summary)
+        live INSIDE the stage that ends the cycle.
+        """
         self.state = ResearchState(seed_prompt=seed_prompt, mode=mode)
+        await self._setup_team(mode, team_roles)
+        await self._run_seeding_and_discovery(seed_prompt, mode)
+
+        if await self._run_ideation_stage(seed_prompt):
+            return self.state.thread_id
+        if await self._run_planning_stage():
+            return self.state.thread_id
+
+        # EXECUTION is optional — only when an experimentalist is on the team and
+        # the sandbox is enabled. The flag is also needed downstream (POST_EXECUTION
+        # condition + WRITING's from-phase label).
+        should_experiment = (
+            self._config.orchestrator.enable_experimentation
+            and self._config.sandbox.enabled
+            and self._find_agent_by_role("experimentalist") is not None
+        )
+        if should_experiment and await self._run_execution_stage():
+            return self.state.thread_id
+
+        ran_post_execution = await self._run_post_execution_stage(should_experiment)
+
+        if self._config.orchestrator.enable_writing:
+            paper_draft = await self._run_writing_stage(should_experiment, ran_post_execution)
+            if paper_draft is None:
+                return self.state.thread_id
+            if await self._run_internal_review_stage(paper_draft):
+                return self.state.thread_id
+            if self._config.orchestrator.enable_peer_review:
+                if await self._run_peer_review_stage(paper_draft):
+                    return self.state.thread_id
+            else:
+                self._db.update_thread(self.state.thread_id, status="reviewed")
+        else:
+            self._db.update_thread(self.state.thread_id, status="planning_complete")
+
+        await self._finalize_cycle()
+        return self.state.thread_id
+
+    async def _setup_team(self, mode: str, team_roles: list[str] | None) -> None:
+        """Resolve team roles, pre-flight models, and create the agent team."""
         # Treat an empty list the same as None — otherwise a caller passing
         # team_roles=[] (e.g. the GUI with no roles selected) yields a team of
         # ZERO agents: every phase races through producing nothing and the run
@@ -378,6 +425,8 @@ class OrchestrationEngine:
                     self._make_stream_sink(agent.skill_profile), min_chars=_min_chars
                 )
 
+    async def _run_seeding_and_discovery(self, seed_prompt: str, mode: str) -> None:
+        """SEEDING: create the thread, tag topics, seed the literature + knowledge."""
         # Phase 1: SEEDING
         self._display.phase_transition(ResearchPhase.SEEDING)
         self.state.thread_id = await self._run_seeding_phase(seed_prompt, mode)
@@ -411,33 +460,58 @@ class OrchestrationEngine:
         if self.state.world_model is not None or self.state.evidence_graph is not None:
             self._emit_knowledge_update()
 
-        # Phase 2: IDEATION
+    async def _intervention_gate(self, from_label: str, to_label: str) -> bool:
+        """Check the human-intervention hook at a phase boundary.
+
+        Returns True when the cycle must stop here (user aborted or paused);
+        thread status + display are already updated for that outcome.
+        """
+        intervention = await self._check_intervention(from_label, to_label)
+        if intervention == "abort":
+            self._db.update_thread(self.state.thread_id, status="aborted")
+            self._display.phase_aborted()
+            return True
+        if intervention == "pause":
+            self._db.update_thread(self.state.thread_id, status="paused")
+            self._display.phase_paused()
+            return True
+        return False
+
+    def _announce_discussion_phase(self, label: str, phase: ResearchPhase, max_rounds: int) -> None:
+        """Display a discussion-phase transition with its active/total agent counts."""
+        agent_count = len(self.state.agents)
+        active = self._get_phase_active_roles(phase)
+        active_count = (
+            sum(1 for a in self.state.agents.values() if a.skill_profile in active)
+            if active
+            else agent_count
+        )
+        self._display.phase_transition(
+            label,
+            max_rounds=max_rounds,
+            active_agents=active_count,
+            total_agents=agent_count,
+        )
+
+    async def _run_ideation_stage(self, seed_prompt: str) -> bool:
+        """IDEATION: discussion rounds + tournament/synthesis + novelty check.
+
+        Returns True when the cycle must stop (problem-selection gate).
+        """
         max_rounds = self._config.orchestrator.max_rounds_per_phase
         checkpoint_interval = self._config.orchestrator.checkpoint_interval
-        agent_count = len(self.state.agents)
 
         # 1E: problem-selection human gate (default-off).
         if self._handle_gate_decision(
             await self._human_gate("problem_selection", payload=f"Problem: {seed_prompt[:200]}")
         ):
-            return self.state.thread_id
+            return True
 
         self.state.phase_manager.transition_to(ResearchPhase.IDEATION)
         self._log_phase_transition(
             ResearchPhase.SEEDING, ResearchPhase.IDEATION, rounds_planned=max_rounds
         )
-        active_ideation = self._get_phase_active_roles(ResearchPhase.IDEATION)
-        active_ideation_count = (
-            sum(1 for a in self.state.agents.values() if a.skill_profile in active_ideation)
-            if active_ideation
-            else agent_count
-        )
-        self._display.phase_transition(
-            "IDEATION",
-            max_rounds=max_rounds,
-            active_agents=active_ideation_count,
-            total_agents=agent_count,
-        )
+        self._announce_discussion_phase("IDEATION", ResearchPhase.IDEATION, max_rounds)
         await self._run_phase(
             ResearchPhase.IDEATION,
             max_rounds=max_rounds,
@@ -470,334 +544,308 @@ class OrchestrationEngine:
                     )
             except Exception as e:
                 self._logger.log_error(e, thread_id=self.state.thread_id)
+        return False
 
-        # Phase 3: PLANNING (intervention check)
-        intervention = await self._check_intervention("ideation", "planning")
-        if intervention == "abort":
-            self._db.update_thread(self.state.thread_id, status="aborted")
-            self._display.phase_aborted()
-            return self.state.thread_id
-        if intervention == "pause":
-            self._db.update_thread(self.state.thread_id, status="paused")
-            self._display.phase_paused()
-            return self.state.thread_id
+    async def _run_planning_stage(self) -> bool:
+        """PLANNING: discussion rounds + synthesis + action-item extraction.
 
+        Returns True when the cycle must stop (intervention abort/pause).
+        """
+        if await self._intervention_gate("ideation", "planning"):
+            return True
+
+        max_rounds = self._config.orchestrator.max_rounds_per_phase
         self.state.phase_manager.transition_to(ResearchPhase.PLANNING)
         self._log_phase_transition(
             ResearchPhase.IDEATION, ResearchPhase.PLANNING, rounds_planned=max_rounds
         )
         self.state.messages = []  # Reset messages for new phase
-        active_planning = self._get_phase_active_roles(ResearchPhase.PLANNING)
-        active_planning_count = (
-            sum(1 for a in self.state.agents.values() if a.skill_profile in active_planning)
-            if active_planning
-            else agent_count
-        )
-        self._display.phase_transition(
-            "PLANNING",
-            max_rounds=max_rounds,
-            active_agents=active_planning_count,
-            total_agents=agent_count,
-        )
+        self._announce_discussion_phase("PLANNING", ResearchPhase.PLANNING, max_rounds)
         await self._run_phase(
             ResearchPhase.PLANNING,
             max_rounds=max_rounds,
-            checkpoint_interval=checkpoint_interval,
+            checkpoint_interval=self._config.orchestrator.checkpoint_interval,
         )
         await self._run_synthesis_round(ResearchPhase.PLANNING)
 
         # Extract action items from PLANNING for EXECUTION (Fix 5)
         self.state.planning_action_items = self._extract_planning_actions()
+        return False
 
-        # Phase 3.5: EXECUTION (optional — only when experimentalist present + sandbox enabled)
-        should_experiment = (
-            self._config.orchestrator.enable_experimentation
-            and self._config.sandbox.enabled
-            and self._find_agent_by_role("experimentalist") is not None
-        )
-        if should_experiment:
-            intervention = await self._check_intervention("planning", "execution")
-            if intervention == "abort":
-                self._db.update_thread(self.state.thread_id, status="aborted")
+    async def _run_execution_stage(self) -> bool:
+        """PRE_REGISTRATION (optional) + EXECUTION + VERIFICATION (optional).
+
+        Returns True when the cycle must stop (intervention, prereg failure/gate,
+        no usable experiment output, or verification failure/gate).
+        """
+        if await self._intervention_gate("planning", "execution"):
+            return True
+
+        # Phase 3.4: PRE_REGISTRATION (1A, optional) — freeze falsifiable
+        # predictions before execution so results can't be reinterpreted later.
+        if self._config.knowledge.enable_preregistration:
+            self.state.phase_manager.transition_to(ResearchPhase.PRE_REGISTRATION)
+            self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.PRE_REGISTRATION)
+            self._display.phase_transition("PRE_REGISTRATION")
+            frozen_rules = await self._prereg.run_freeze()
+            if not frozen_rules and self._config.knowledge.prereg_on_empty == "blocking":
+                self._db.update_thread(self.state.thread_id, status="prereg_failed")
                 self._display.phase_aborted()
-                return self.state.thread_id
-            if intervention == "pause":
-                self._db.update_thread(self.state.thread_id, status="paused")
-                self._display.phase_paused()
-                return self.state.thread_id
-
-            # Phase 3.4: PRE_REGISTRATION (1A, optional) — freeze falsifiable
-            # predictions before execution so results can't be reinterpreted later.
-            if self._config.knowledge.enable_preregistration:
-                self.state.phase_manager.transition_to(ResearchPhase.PRE_REGISTRATION)
-                self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.PRE_REGISTRATION)
-                self._display.phase_transition("PRE_REGISTRATION")
-                frozen_rules = await self._prereg.run_freeze()
-                if not frozen_rules and self._config.knowledge.prereg_on_empty == "blocking":
-                    self._db.update_thread(self.state.thread_id, status="prereg_failed")
-                    self._display.phase_aborted()
-                    self._print_token_summary()
-                    return self.state.thread_id
-                # 1E: pre-registration human gate (default-off).
-                gate_payload = f"{len(frozen_rules)} prediction(s) frozen before execution"
-                if self._handle_gate_decision(
-                    await self._human_gate("pre_registration", payload=gate_payload)
-                ):
-                    return self.state.thread_id
-                self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
-                self._log_phase_transition(ResearchPhase.PRE_REGISTRATION, ResearchPhase.EXECUTION)
-            else:
-                self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
-                self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
-            self.state.messages = []
-            self._display.phase_transition("EXECUTION")
-            exp_result = await self._experimentation.run_experimentation_phase()
-            self.state.execution_context = exp_result.execution_context
-            self.state.execution_caveats = exp_result.caveats
-            self.state.execution_figures = exp_result.execution_figures
-            self.state.successful_code = exp_result.successful_code
-            self.state.experiment_metadata = exp_result.experiment_metadata
-
-            # Pre-registration verdicts (1A): evaluate frozen rules against the
-            # captured experiment output. Verdicts feed the writing Fact Sheet so
-            # refuted hypotheses are reported honestly (and are publishable).
-            if self._config.knowledge.enable_preregistration and self.state.registered_rules:
-                verdicts = self._prereg.evaluate(exp_result.experiment_metadata)
-                # C2 step 4: a confirmed/refuted prediction revises its hypothesis's
-                # status in the canonical world model (no-op unless unified_hypotheses).
-                self._world_model.revise_from_prereg_verdicts(verdicts)
-                for v in verdicts:
-                    self._display.info(f"Pre-registration verdict [{v['verdict']}]: {v['detail']}")
-
-            # Go/no-go gate: if experiments were attempted but none produced usable
-            # output, a data-driven paper is impossible. Stop before WRITING rather
-            # than burning ~1M tokens on a paper the internal editor will reject for
-            # "reporting failed experiments as results". (successful_code excludes
-            # vacuous runs, which are reclassified to FAILURE upstream.)
-            if (
-                self._config.orchestrator.abort_on_execution_failure
-                and not exp_result.successful_code
-            ):
-                self._db.update_thread(self.state.thread_id, status="execution_failed")
-                # Surface a terminal outcome to the live UI (settle the phase bar +
-                # render the terminal screen now), consistent with the reject paths.
-                self._display.phase_transition(ResearchPhase.REJECTED)
-                self._display.execution_failed_abort(exp_result.caveats)
                 self._print_token_summary()
-                return self.state.thread_id
+                return True
+            # 1E: pre-registration human gate (default-off).
+            gate_payload = f"{len(frozen_rules)} prediction(s) frozen before execution"
+            if self._handle_gate_decision(
+                await self._human_gate("pre_registration", payload=gate_payload)
+            ):
+                return True
+            self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
+            self._log_phase_transition(ResearchPhase.PRE_REGISTRATION, ResearchPhase.EXECUTION)
+        else:
+            self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
+            self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
+        self.state.messages = []
+        self._display.phase_transition("EXECUTION")
+        exp_result = await self._experimentation.run_experimentation_phase()
+        self.state.execution_context = exp_result.execution_context
+        self.state.execution_caveats = exp_result.caveats
+        self.state.execution_figures = exp_result.execution_figures
+        self.state.successful_code = exp_result.successful_code
+        self.state.experiment_metadata = exp_result.experiment_metadata
 
-            # Phase 3.6: VERIFICATION (1B, optional) — re-execute results in a fresh
-            # sandbox; demote anything that does not reproduce so WRITING can't use it.
-            if self._config.orchestrator.enable_verification and self.state.successful_code:
-                self.state.phase_manager.transition_to(ResearchPhase.VERIFICATION)
-                self._log_phase_transition(ResearchPhase.EXECUTION, ResearchPhase.VERIFICATION)
-                self._display.phase_transition("VERIFICATION")
-                records = await self._verification.verify_experiments()
-                demoted = VerificationKernel.apply_gate(self, records)
-                if demoted:
-                    self._display.info(
-                        f"Verification demoted {demoted} unreproduced experiment(s)."
-                    )
-                if (
-                    self._config.orchestrator.abort_on_verification_failure
-                    and not self.state.successful_code
-                ):
-                    self._db.update_thread(self.state.thread_id, status="verification_failed")
-                    self._display.phase_transition(ResearchPhase.REJECTED)
-                    self._display.execution_failed_abort(
-                        ["No experiments reproduced under verification."]
-                    )
-                    self._print_token_summary()
-                    return self.state.thread_id
-                # 1E: final-verification human gate (default-off).
-                accepted = sum(1 for r in records if r.status == "accepted")
-                if self._handle_gate_decision(
-                    await self._human_gate(
-                        "final_verification",
-                        payload=f"{accepted}/{len(records)} experiment(s) reproduced",
-                    )
-                ):
-                    return self.state.thread_id
+        # Pre-registration verdicts (1A): evaluate frozen rules against the
+        # captured experiment output. Verdicts feed the writing Fact Sheet so
+        # refuted hypotheses are reported honestly (and are publishable).
+        if self._config.knowledge.enable_preregistration and self.state.registered_rules:
+            verdicts = self._prereg.evaluate(exp_result.experiment_metadata)
+            # C2 step 4: a confirmed/refuted prediction revises its hypothesis's
+            # status in the canonical world model (no-op unless unified_hypotheses).
+            self._world_model.revise_from_prereg_verdicts(verdicts)
+            for v in verdicts:
+                self._display.info(f"Pre-registration verdict [{v['verdict']}]: {v['detail']}")
 
-        # Phase 3.75: POST_EXECUTION discussion (optional — after experimentation)
-        ran_post_execution = False
-        if (
+        # Go/no-go gate: if experiments were attempted but none produced usable
+        # output, a data-driven paper is impossible. Stop before WRITING rather
+        # than burning ~1M tokens on a paper the internal editor will reject for
+        # "reporting failed experiments as results". (successful_code excludes
+        # vacuous runs, which are reclassified to FAILURE upstream.)
+        if self._config.orchestrator.abort_on_execution_failure and not exp_result.successful_code:
+            self._db.update_thread(self.state.thread_id, status="execution_failed")
+            # Surface a terminal outcome to the live UI (settle the phase bar +
+            # render the terminal screen now), consistent with the reject paths.
+            self._display.phase_transition(ResearchPhase.REJECTED)
+            self._display.execution_failed_abort(exp_result.caveats)
+            self._print_token_summary()
+            return True
+
+        # Phase 3.6: VERIFICATION (1B, optional) — re-execute results in a fresh
+        # sandbox; demote anything that does not reproduce so WRITING can't use it.
+        if self._config.orchestrator.enable_verification and self.state.successful_code:
+            self.state.phase_manager.transition_to(ResearchPhase.VERIFICATION)
+            self._log_phase_transition(ResearchPhase.EXECUTION, ResearchPhase.VERIFICATION)
+            self._display.phase_transition("VERIFICATION")
+            records = await self._verification.verify_experiments()
+            demoted = VerificationKernel.apply_gate(self, records)
+            if demoted:
+                self._display.info(f"Verification demoted {demoted} unreproduced experiment(s).")
+            if (
+                self._config.orchestrator.abort_on_verification_failure
+                and not self.state.successful_code
+            ):
+                self._db.update_thread(self.state.thread_id, status="verification_failed")
+                self._display.phase_transition(ResearchPhase.REJECTED)
+                self._display.execution_failed_abort(
+                    ["No experiments reproduced under verification."]
+                )
+                self._print_token_summary()
+                return True
+            # 1E: final-verification human gate (default-off).
+            accepted = sum(1 for r in records if r.status == "accepted")
+            if self._handle_gate_decision(
+                await self._human_gate(
+                    "final_verification",
+                    payload=f"{accepted}/{len(records)} experiment(s) reproduced",
+                )
+            ):
+                return True
+        return False
+
+    async def _run_post_execution_stage(self, should_experiment: bool) -> bool:
+        """POST_EXECUTION discussion (optional, after experimentation).
+
+        Returns True when the discussion actually ran (WRITING uses this for its
+        from-phase label) — NOT a terminal signal.
+        """
+        if not (
             should_experiment
             and self.state.execution_context
             and self._config.orchestrator.enable_post_execution_discussion
         ):
-            self.state.phase_manager.transition_to(ResearchPhase.POST_EXECUTION)
-            self._log_phase_transition(
-                ResearchPhase.EXECUTION,
-                ResearchPhase.POST_EXECUTION,
-                rounds_planned=min(2, max_rounds),
-            )
-            self.state.messages = []
-            # Shorter discussion: cap at 2 rounds
-            post_exec_rounds = min(2, max_rounds)
-            active_post_exec = self._get_phase_active_roles(ResearchPhase.POST_EXECUTION)
-            active_post_exec_count = (
-                sum(1 for a in self.state.agents.values() if a.skill_profile in active_post_exec)
-                if active_post_exec
-                else agent_count
-            )
-            self._display.phase_transition(
-                "POST_EXECUTION",
-                max_rounds=post_exec_rounds,
-                active_agents=active_post_exec_count,
-                total_agents=agent_count,
-            )
-            await self._run_phase(
-                ResearchPhase.POST_EXECUTION,
-                max_rounds=post_exec_rounds,
-                checkpoint_interval=checkpoint_interval,
-            )
-            await self._run_synthesis_round(ResearchPhase.POST_EXECUTION)
-            if self.state.world_model is not None:
-                self._emit_knowledge_update()
-            ran_post_execution = True
-            # Capture POST_EXECUTION discussion summary for WRITING
-            self.state.post_execution_summary = self._build_post_execution_summary()
+            return False
 
-        # Phase 4: WRITING (optional, controlled by config)
-        if self._config.orchestrator.enable_writing:
-            if ran_post_execution:
-                from_phase = ResearchPhase.POST_EXECUTION
-                from_label = "post_execution"
-            elif should_experiment:
-                from_phase = ResearchPhase.EXECUTION
-                from_label = "execution"
-            else:
-                from_phase = ResearchPhase.PLANNING
-                from_label = "planning"
+        max_rounds = self._config.orchestrator.max_rounds_per_phase
+        self.state.phase_manager.transition_to(ResearchPhase.POST_EXECUTION)
+        self._log_phase_transition(
+            ResearchPhase.EXECUTION,
+            ResearchPhase.POST_EXECUTION,
+            rounds_planned=min(2, max_rounds),
+        )
+        self.state.messages = []
+        # Shorter discussion: cap at 2 rounds
+        post_exec_rounds = min(2, max_rounds)
+        self._announce_discussion_phase(
+            "POST_EXECUTION", ResearchPhase.POST_EXECUTION, post_exec_rounds
+        )
+        await self._run_phase(
+            ResearchPhase.POST_EXECUTION,
+            max_rounds=post_exec_rounds,
+            checkpoint_interval=self._config.orchestrator.checkpoint_interval,
+        )
+        await self._run_synthesis_round(ResearchPhase.POST_EXECUTION)
+        if self.state.world_model is not None:
+            self._emit_knowledge_update()
+        # Capture POST_EXECUTION discussion summary for WRITING
+        self.state.post_execution_summary = self._build_post_execution_summary()
+        return True
 
-            # Intervention check before WRITING
-            intervention = await self._check_intervention(from_label, "writing")
-            if intervention == "abort":
-                self._db.update_thread(self.state.thread_id, status="aborted")
-                self._display.phase_aborted()
-                return self.state.thread_id
-            if intervention == "pause":
-                self._db.update_thread(self.state.thread_id, status="paused")
-                self._display.phase_paused()
-                return self.state.thread_id
+    async def _run_writing_stage(
+        self, should_experiment: bool, ran_post_execution: bool
+    ) -> PaperDraft | None:
+        """WRITING: draft + assemble the paper.
 
-            self.state.phase_manager.transition_to(ResearchPhase.WRITING)
-            self._log_phase_transition(from_phase, ResearchPhase.WRITING)
-            self.state.messages = []
-            self._display.phase_transition("WRITING")
-            paper_draft = await self._writing.run_writing_phase()
-
-            # Guard: if writing failed (empty/too short paper), skip all review phases
-            if paper_draft is None:
-                self._display.writing_failed_skip_review()
-                # Save auxiliary files even on failure (search log is still useful)
-                thread = self._db.get_thread(self.state.thread_id)
-                paper_id = thread.get("current_draft_id") if thread else None
-                if paper_id:
-                    self._save_auxiliary_files(paper_id)
-                self._print_token_summary()
-                return self.state.thread_id
-
-            # 1E: record provenance once a paper exists (only when gates/verification/
-            # pre-registration were in play, so default runs are unchanged).
-            if (
-                self._config.orchestrator.human_gate_mode != "off"
-                or self.state.verification_records
-                or self.state.registered_rules
-            ):
-                self._record_provenance()
-
-            # Phase 5: INTERNAL REVIEW
-            self.state.phase_manager.transition_to(ResearchPhase.INTERNAL_REVIEW)
-            self._log_phase_transition(ResearchPhase.WRITING, ResearchPhase.INTERNAL_REVIEW)
-            self.state.messages = []
-            # Pass the enum (value "internal"), NOT the string "INTERNAL_REVIEW":
-            # the display lowercases its arg, and "internal_review" != the canonical
-            # phase value "internal" the UI keys on, so the "Review" pip never lit.
-            self._display.phase_transition(ResearchPhase.INTERNAL_REVIEW)
-            await self._review.run_review_phase(paper_draft)
-
-            # Check if internal review ended without acceptance (editor rejected the
-            # paper, or revisions never converged within the iteration budget).
-            thread = self._db.get_thread(self.state.thread_id)
-            review_status = thread.get("status") if thread else None
-            if review_status in ("review_rejected", "revision_exhausted"):
-                self.emit_event("review.final", {"outcome": review_status, "stage": "internal"})
-                self._display.writing_failed_review_exhausted(review_status)
-                # Surface a terminal REJECTED outcome to the live UI (the tracker +
-                # terminal screen key off the broadcast phase + a paper_rejected
-                # notice). Without this the run looks stuck on "internal review"
-                # instead of ending with "Paper was not accepted" + the draft.
-                self._display.phase_transition(ResearchPhase.REJECTED)
-                self._display.paper_rejected()
-                paper_id = thread.get("current_draft_id") if thread else None
-                if paper_id:
-                    await self._assign_final_topics(paper_id)
-                    self._save_auxiliary_files(paper_id)
-                    await self._writing.finalize_digest(paper_id)
-                self._print_token_summary()
-                return self.state.thread_id
-
-            # Phase 6: PEER REVIEW PIPELINE (optional)
-            if self._config.orchestrator.enable_peer_review:
-                # Intervention check before SUBMITTED
-                intervention = await self._check_intervention("internal", "submitted")
-                if intervention == "abort":
-                    self._db.update_thread(self.state.thread_id, status="aborted")
-                    self._display.phase_aborted()
-                    return self.state.thread_id
-                if intervention == "pause":
-                    self._db.update_thread(self.state.thread_id, status="paused")
-                    self._display.phase_paused()
-                    return self.state.thread_id
-
-                accepted = await self._review.run_submission_phase(paper_draft)
-                if accepted:
-                    decision, reviews = await self._review.run_peer_review_phase(paper_draft)
-                    revision_count = 0
-                    max_revisions = self._config.orchestrator.max_revision_rounds
-                    while (
-                        decision in ("minor_revision", "major_revision")
-                        and revision_count < max_revisions
-                    ):
-                        paper_draft = await self._review.run_revision_phase(paper_draft, reviews)
-                        decision, reviews = await self._review.run_peer_review_phase(paper_draft)
-                        revision_count += 1
-
-                    thread = self._db.get_thread(self.state.thread_id)
-                    paper_id = thread["current_draft_id"] if thread else None
-                    if paper_id and decision in ("accept", "minor_revision"):
-                        # Advance the live UI to the terminal phase BEFORE the
-                        # (potentially slow) publish work, so the phase bar reaches
-                        # "Published" and the terminal screen renders promptly even
-                        # if corpus ingestion lags. Without this the run looked
-                        # stuck on "Peer Review" after the decision was made.
-                        self._display.phase_transition(ResearchPhase.PUBLISHED)
-                        self.emit_event("review.final", {"outcome": "accepted", "stage": "peer"})
-                        await publish_paper(paper_id, self._db, self._corpus, self._logger, reviews)
-                        self._db.update_thread(self.state.thread_id, status="published")
-                        self._display.paper_published()
-                    elif paper_id:
-                        from paradigm.journal.publication import reject_paper
-
-                        self._display.phase_transition(ResearchPhase.REJECTED)
-                        self.emit_event("review.final", {"outcome": "rejected", "stage": "peer"})
-                        reject_paper(paper_id, self._db, reviews, self._logger)
-                        self._db.update_thread(self.state.thread_id, status="rejected")
-                        self._display.paper_rejected()
-                else:
-                    # Desk rejected
-                    self.emit_event(
-                        "review.final", {"outcome": "desk_rejected", "stage": "submission"}
-                    )
-                    self._db.update_thread(self.state.thread_id, status="rejected")
-                    self._display.paper_rejected()
-            else:
-                self._db.update_thread(self.state.thread_id, status="reviewed")
+        Returns the PaperDraft, or None when the cycle must stop here
+        (intervention abort/pause, or writing produced no usable paper).
+        """
+        if ran_post_execution:
+            from_phase = ResearchPhase.POST_EXECUTION
+            from_label = "post_execution"
+        elif should_experiment:
+            from_phase = ResearchPhase.EXECUTION
+            from_label = "execution"
         else:
-            self._db.update_thread(self.state.thread_id, status="planning_complete")
+            from_phase = ResearchPhase.PLANNING
+            from_label = "planning"
 
+        # Intervention check before WRITING
+        if await self._intervention_gate(from_label, "writing"):
+            return None
+
+        self.state.phase_manager.transition_to(ResearchPhase.WRITING)
+        self._log_phase_transition(from_phase, ResearchPhase.WRITING)
+        self.state.messages = []
+        self._display.phase_transition("WRITING")
+        paper_draft = await self._writing.run_writing_phase()
+
+        # Guard: if writing failed (empty/too short paper), skip all review phases
+        if paper_draft is None:
+            self._display.writing_failed_skip_review()
+            # Save auxiliary files even on failure (search log is still useful)
+            thread = self._db.get_thread(self.state.thread_id)
+            paper_id = thread.get("current_draft_id") if thread else None
+            if paper_id:
+                self._save_auxiliary_files(paper_id)
+            self._print_token_summary()
+            return None
+
+        # 1E: record provenance once a paper exists (only when gates/verification/
+        # pre-registration were in play, so default runs are unchanged).
+        if (
+            self._config.orchestrator.human_gate_mode != "off"
+            or self.state.verification_records
+            or self.state.registered_rules
+        ):
+            self._record_provenance()
+        return paper_draft
+
+    async def _run_internal_review_stage(self, paper_draft: PaperDraft) -> bool:
+        """INTERNAL_REVIEW: editor review + revision loop.
+
+        Returns True when the cycle must stop here (editor rejected the paper or
+        revisions never converged) — the terminal outcome is fully surfaced.
+        """
+        self.state.phase_manager.transition_to(ResearchPhase.INTERNAL_REVIEW)
+        self._log_phase_transition(ResearchPhase.WRITING, ResearchPhase.INTERNAL_REVIEW)
+        self.state.messages = []
+        # Pass the enum (value "internal"), NOT the string "INTERNAL_REVIEW":
+        # the display lowercases its arg, and "internal_review" != the canonical
+        # phase value "internal" the UI keys on, so the "Review" pip never lit.
+        self._display.phase_transition(ResearchPhase.INTERNAL_REVIEW)
+        await self._review.run_review_phase(paper_draft)
+
+        # Check if internal review ended without acceptance (editor rejected the
+        # paper, or revisions never converged within the iteration budget).
+        thread = self._db.get_thread(self.state.thread_id)
+        review_status = thread.get("status") if thread else None
+        if review_status in ("review_rejected", "revision_exhausted"):
+            self.emit_event("review.final", {"outcome": review_status, "stage": "internal"})
+            self._display.writing_failed_review_exhausted(review_status)
+            # Surface a terminal REJECTED outcome to the live UI (the tracker +
+            # terminal screen key off the broadcast phase + a paper_rejected
+            # notice). Without this the run looks stuck on "internal review"
+            # instead of ending with "Paper was not accepted" + the draft.
+            self._display.phase_transition(ResearchPhase.REJECTED)
+            self._display.paper_rejected()
+            paper_id = thread.get("current_draft_id") if thread else None
+            if paper_id:
+                await self._assign_final_topics(paper_id)
+                self._save_auxiliary_files(paper_id)
+                await self._writing.finalize_digest(paper_id)
+            self._print_token_summary()
+            return True
+        return False
+
+    async def _run_peer_review_stage(self, paper_draft: PaperDraft) -> bool:
+        """SUBMITTED + PEER_REVIEW pipeline: desk review, reviews, revisions, decision.
+
+        Returns True when the cycle must stop here (intervention abort/pause);
+        publish/reject outcomes fall through to the common finalization tail.
+        """
+        # Intervention check before SUBMITTED
+        if await self._intervention_gate("internal", "submitted"):
+            return True
+
+        accepted = await self._review.run_submission_phase(paper_draft)
+        if accepted:
+            decision, reviews = await self._review.run_peer_review_phase(paper_draft)
+            revision_count = 0
+            max_revisions = self._config.orchestrator.max_revision_rounds
+            while (
+                decision in ("minor_revision", "major_revision") and revision_count < max_revisions
+            ):
+                paper_draft = await self._review.run_revision_phase(paper_draft, reviews)
+                decision, reviews = await self._review.run_peer_review_phase(paper_draft)
+                revision_count += 1
+
+            thread = self._db.get_thread(self.state.thread_id)
+            paper_id = thread["current_draft_id"] if thread else None
+            if paper_id and decision in ("accept", "minor_revision"):
+                # Advance the live UI to the terminal phase BEFORE the
+                # (potentially slow) publish work, so the phase bar reaches
+                # "Published" and the terminal screen renders promptly even
+                # if corpus ingestion lags. Without this the run looked
+                # stuck on "Peer Review" after the decision was made.
+                self._display.phase_transition(ResearchPhase.PUBLISHED)
+                self.emit_event("review.final", {"outcome": "accepted", "stage": "peer"})
+                await publish_paper(paper_id, self._db, self._corpus, self._logger, reviews)
+                self._db.update_thread(self.state.thread_id, status="published")
+                self._display.paper_published()
+            elif paper_id:
+                from paradigm.journal.publication import reject_paper
+
+                self._display.phase_transition(ResearchPhase.REJECTED)
+                self.emit_event("review.final", {"outcome": "rejected", "stage": "peer"})
+                reject_paper(paper_id, self._db, reviews, self._logger)
+                self._db.update_thread(self.state.thread_id, status="rejected")
+                self._display.paper_rejected()
+        else:
+            # Desk rejected
+            self.emit_event("review.final", {"outcome": "desk_rejected", "stage": "submission"})
+            self._db.update_thread(self.state.thread_id, status="rejected")
+            self._display.paper_rejected()
+        return False
+
+    async def _finalize_cycle(self) -> None:
+        """Common cycle tail: auxiliary artifacts, digest, token summary, memories."""
         # Save auxiliary files (search log, review report)
         thread = self._db.get_thread(self.state.thread_id)
         paper_id = thread.get("current_draft_id") if thread else None
@@ -813,8 +861,6 @@ class OrchestrationEngine:
 
         # Generate agent episodic memories via reflection
         await self._memory.run_memory_generation()
-
-        return self.state.thread_id
 
     async def _run_seeding_phase(self, seed_prompt: str, mode: str) -> str:
         """Initialize the research thread. No agent calls.
