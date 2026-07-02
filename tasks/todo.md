@@ -5,51 +5,51 @@ Source: two-agent audit (critical diff review of 97e15cc→a5a0136 + codebase he
 
 ## A. Correctness fixes (recent-change mistakes) — do first
 
-- [ ] **A1. Revision bypasses citation invariant (MODERATE, ADR-013 hollowed out)**
+- [x] **A1. Revision bypasses citation invariant (MODERATE, ADR-013 hollowed out)**
       `review.py` internal-review revision (~506/545) and `run_revision_phase` (~912-921) save the
       writer's raw revised body with no `validate_and_strip_citations` (nor
       `compile_allowlist_citations` when enabled). Fix: re-run the citation net after every body
       rewrite at both save points; append the allow-list block to revision prompts. + tests.
-- [ ] **A2. Mandatory-check "passed" early-return matches negated text (MODERATE)**
+- [x] **A2. Mandatory-check "passed" early-return matches negated text (MODERATE)**
       `review.py:182-187` — "was NOT passed" / "only 1 of 5 passed" → returns 0 failures, so the
       revise→reject escalation never fires. Fix: require affirmative "all … passed" and reject the
       match when `not|fail|only|except` appears in the span. + regression tests with the three
       verified bypass strings.
-- [ ] **A3. Non-arXiv seed fetches pollute the arXiv circuit breaker (MODERATE)**
+- [x] **A3. Non-arXiv seed fetches pollute the arXiv circuit breaker (MODERATE)**
       `corpus.fetch_and_ingest_url` → `arxiv.py fetch_pdf_bytes` → `_rate_limited_get` counts
       journal-site 403s against the arXiv breaker (2 failures → 120 s open, right before IDEATION
       searches) and serializes behind the 3 s arXiv cadence. Fix: plain httpx GET for external
       URLs (or a `note_failures=False` path); optionally cap total seed-fetch wall time.
-- [ ] **A4. `ext-…` papers render as fake arXiv references (MODERATE)**
+- [x] **A4. `ext-…` papers render as fake arXiv references (MODERATE)**
       `citation_validation.py:152-158` — external papers print as
       `arXiv:ext-ab12… https://arxiv.org/abs/ext-…`, authors "Unknown". Fix: carry source URL
       into allow-list entries; render journal/URL form for `ext-` ids.
-- [ ] **A5. Editor 16384-token headroom inert on internal review (MODERATE)**
+- [x] **A5. Editor 16384-token headroom inert on internal review (MODERATE)**
       `review.py:439` passes explicit `max_tokens=_REVIEW_MAX_TOKENS` (8192), overriding the
       production.yaml editor setting that commit 9576957 added for Sonnet 5 thinking headroom.
       Fix: `max_tokens=max(_REVIEW_MAX_TOKENS, editor.max_tokens)`.
-- [ ] **A6. Title-extraction can be worse than line 0 (MINOR)**
+- [x] **A6. Title-extraction can be worse than line 0 (MINOR)**
       `prompt_utils.py:576-599` — start-anchored `nature|science|…` skips real titles
       ("Nature of the compact object in GW190814") and returns the author list. Fix: require
       journal tokens to be followed by volume/date patterns; abstract slice should start after
       the chosen title line (also covers finding #7).
-- [ ] **A7. External papers never populate full-text reads (MINOR)**
+- [x] **A7. External papers never populate full-text reads (MINOR)**
       `orchestrator/literature.py:384` — pass the actual URL as `oa_pdf_url` for ext papers so
       `[READ:]` gets full text instead of the 500-char stub.
-- [ ] **A8. `finalize_digest` DB read outside the guard (MINOR)**
+- [x] **A8. `finalize_digest` DB read outside the guard (MINOR)**
       `writing.py:1421-1429` — wrap `get_paper` in the same never-break-the-cycle try/except.
 
 ## B. Small high-leverage refactors (proven bug sources) — same pass or next
 
-- [ ] **B1. Consolidate LLM-JSON parsing onto `knowledge/json_utils.py`** (S) — migrate
+- [x] **B1. Consolidate LLM-JSON parsing onto `knowledge/json_utils.py`** (S) — migrate
       engine.py convergence parser, eval/judge.py, eval/metrics.py, agents/memory.py,
       agents/topics.py. This bug family (Elo all-1500, forced-major_revision) has hit twice.
-- [ ] **B2. Make config-parse failure fatal in the backend** (S) — kill the silent fallback that
+- [x] **B2. Make config-parse failure fatal in the backend** (S) — kill the silent fallback that
       caused the VM "vanished data" incident.
-- [ ] **B3. executions/ TTL pruning** (S) — age/keep-last-N sweep (1,140 dirs locally; VM worse).
-- [ ] **B4. Dead-code sweep** (S) — `reflection_model`, `_get_call_name`,
+- [x] **B3. executions/ TTL pruning** (S) — age/keep-last-N sweep (1,140 dirs locally; VM worse).
+- [x] **B4. Dead-code sweep** (S) — `reflection_model`, `_get_call_name`,
       `ExecutionResult.started_at`, stop creating the unused `events` table.
-- [ ] **B5. ws.py checkpoint/rewind silent no-ops** (S) — hide the UI or implement.
+- [x] **B5. ws.py checkpoint/rewind silent no-ops** (S) — hide the UI or implement.
 
 ## C. Structural refactor — opportunistic, not now
 
@@ -68,6 +68,18 @@ Source: two-agent audit (critical diff review of 97e15cc→a5a0136 + codebase he
 - [ ] D3. main is 143 commits behind (last 2026-06-05) — decide whether to merge
       responsive-live-progress → main after the A-fixes land.
 
-## Review
+## Review (2026-07-02)
 
-(to be filled in after implementation)
+All A (8/8) + B (5/5) items implemented, tested, committed:
+- 1c5c6fe fix(literature): A3 breaker isolation + A6 title/abstract + A7 ext full-text
+- 2635795 fix(review+citations): A1 revision citation net + A2 negation guard + A4 ext
+  references + A5 editor tokens + A8 digest guard
+- 81e2439 refactor(parsing): B1 - engine/judge/metrics on json_utils (memory.py and
+  topics.py inspected: line-based protocols, NOT JSON - left alone)
+- f4bdf51 fix(backend): B2 fatal ConfigParseError (missing file still quiet-defaults)
+- 62dadb5 chore(sandbox+storage): B3 executions retention (30d/500) + B4 dead code
+- d012811 fix(ws): B5 checkpoint/rewind -> explicit not_supported error frames
+
+Full suite 1843 passed (+46 new tests), ruff clean. C and D remain open;
+NOTE for the operator: after B2, a broken production.yaml now aborts backend
+startup with a clear error instead of silently serving an empty data dir.
