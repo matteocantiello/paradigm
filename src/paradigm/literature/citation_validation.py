@@ -182,9 +182,7 @@ def compile_allowlist_citations(
         else:
             # Synthetic ``ext-…`` / provider id: cite by source URL — never a
             # fabricated arXiv form. Omit an unknown author rather than print it.
-            author_part = (
-                f"{first_author}. " if first_author and first_author != "Unknown" else ""
-            )
+            author_part = f"{first_author}. " if first_author and first_author != "Unknown" else ""
             url = (urls or {}).get(arxiv_id) or ""
             refs_lines.append(f'[{new_idx}] {author_part}"{title}".{f" {url}" if url else ""}')
     references_md = "\n".join(refs_lines)

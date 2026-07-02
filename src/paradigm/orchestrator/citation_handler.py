@@ -279,9 +279,7 @@ class CitationHandler:
             return draft
 
         urls = getattr(self._engine._writing, "_citation_allowlist_urls", {}) or {}
-        new_body, _refs_md, cited = compile_allowlist_citations(
-            draft.assembled_body, entries, urls
-        )
+        new_body, _refs_md, cited = compile_allowlist_citations(draft.assembled_body, entries, urls)
         draft.assembled_body = new_body
         # The compile renumbers markers by first appearance — re-order the stashed
         # allow-list so later REVISION prompts show numbering that matches the body.
