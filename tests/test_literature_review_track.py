@@ -225,3 +225,40 @@ class TestCountMandatoryCheckFailures:
             "LaTeX math mode notation rules must be addressed."
         )
         assert self.CF(review) == 0
+
+    def test_negated_pass_statement_not_trusted(self):
+        # "was NOT passed" must fall through to the per-category count, not return 0.
+        review = (
+            "The verification checklist was not passed. Internal consistency: FAILED — "
+            "the abstract contradicts section 4. Data integrity: FAILED. Figure "
+            "references: FAILED. Claim-evidence alignment: FAILED."
+        )
+        assert self.CF(review) >= 4
+
+    def test_only_n_of_m_passed_not_trusted(self):
+        review = (
+            "Only 1 of 5 mandatory checks passed. Internal consistency: FAILED. "
+            "Data integrity: FAILED. Figure references: FAILED. "
+            "Claim-evidence alignment: FAILED."
+        )
+        assert self.CF(review) >= 4
+
+    def test_partial_fraction_passed_not_trusted(self):
+        # "3 of 5 ... passed" (no "only") is still a partial pass.
+        review = (
+            "3 of 5 mandatory checks passed. Internal consistency FAILED because the "
+            "tables disagree, and data integrity FAILED."
+        )
+        assert self.CF(review) >= 2
+
+    def test_several_not_passed_with_failures_counted(self):
+        review = (
+            "Several mandatory checklist items have NOT passed: data integrity FAILED, "
+            "anti-confabulation FAILED, figure references FAILED, internal "
+            "consistency FAILED."
+        )
+        assert self.CF(review) >= 4
+
+    def test_full_fraction_passed_is_trusted(self):
+        review = "5 of 5 mandatory verification checks passed. Minor style edits needed."
+        assert self.CF(review) == 0

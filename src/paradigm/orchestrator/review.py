@@ -179,12 +179,24 @@ class ReviewHandler:
         # "anti-confabulation", and words like "violations" (e.g. of LaTeX rules,
         # not the checks) sit near a category. A single spurious count of >=4 wrongly
         # escalates a "revise" to a "reject" — a good paper was rejected this way.
-        if re.search(
+        # But only an AFFIRMATIVE statement counts: "was NOT passed", "only 1 of 5
+        # passed", or "3 of 5 passed" must fall through to the per-category count.
+        passed_match = re.search(
             r"(mandatory|verification|checklist)[^.]{0,160}\bpass(?:ed|es)?\b",
             review_text,
             re.IGNORECASE,
-        ):
-            return 0
+        )
+        if passed_match is not None:
+            window = review_text[max(0, passed_match.start() - 40) : passed_match.end()]
+            negated = re.search(
+                r"\b(not|no|none|fail\w*|only|except|partial\w*|unmet|missing)\b|n't\b",
+                window,
+                re.IGNORECASE,
+            )
+            fraction = re.search(r"\b(\d+)\s+(?:out\s+)?of\s+(\d+)\b", window)
+            partial = fraction is not None and fraction.group(1) != fraction.group(2)
+            if negated is None and not partial:
+                return 0
 
         categories = [
             r"internal\s+consistency",
@@ -436,7 +448,14 @@ class ReviewHandler:
             last_error = None
             for retry in range(_INTERNAL_REVIEW_MAX_RETRIES + 1):
                 try:
-                    response = await editor.generate(prompt, max_tokens=_REVIEW_MAX_TOKENS)
+                    # Honor a larger per-role config (e.g. headroom for a thinking
+                    # editor) — the floor here only protects against tiny defaults.
+                    role_cap = getattr(editor, "max_tokens", 0)
+                    if not isinstance(role_cap, int):
+                        role_cap = 0
+                    response = await editor.generate(
+                        prompt, max_tokens=max(_REVIEW_MAX_TOKENS, role_cap)
+                    )
                     break
                 except Exception as e:
                     last_error = e
@@ -595,6 +614,11 @@ class ReviewHandler:
                 "not in the Actual Output blocks above."
             )
 
+        # Same citation allow-list the drafting prompts carried — a revision replaces the
+        # whole body, so without it the writer has no valid [N] targets to cite from.
+        if self._engine._writing._citation_allowlist_block:
+            prompt += self._engine._writing._citation_allowlist_block
+
         try:
             response = await writer.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             self._engine._log_agent_response(
@@ -610,7 +634,10 @@ class ReviewHandler:
             # revision can reintroduce Unicode symbols (μ, ∑, α, subscripts). Without this,
             # the editor flags "mathematical notation violations" every iteration and the
             # review loop never converges (see paper-b94ddf: all 5 rounds "Revise").
-            return sanitize_unicode_math(strip_agent_scaffolding(response.content))
+            # Then re-apply the citation net — the rewrite bypasses the assembly-time
+            # compile/strip, so fabricated cites could otherwise re-enter here (ADR-013).
+            revised = sanitize_unicode_math(strip_agent_scaffolding(response.content))
+            return self._engine._writing.apply_citation_net(revised)
         except Exception as e:
             self._engine._logger.log_error(
                 e, agent_id=writer.agent_id, thread_id=self._engine.state.thread_id
@@ -881,6 +908,11 @@ class ReviewHandler:
             review_feedback=review_feedback[:_PAPER_CONTEXT_LIMIT],
         )
 
+        # Same citation allow-list the drafting prompts carried — a revision replaces the
+        # whole body, so without it the writer has no valid [N] targets to cite from.
+        if self._engine._writing._citation_allowlist_block:
+            prompt += self._engine._writing._citation_allowlist_block
+
         try:
             response = await writer.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
         except Exception as e:
@@ -909,8 +941,12 @@ class ReviewHandler:
             }
         )
 
-        # Update draft (strip any agent meta-text before saving)
-        revised_body = strip_agent_scaffolding(response.content)
+        # Update draft (strip any agent meta-text before saving), then re-apply the
+        # citation net — the rewrite bypasses the assembly-time compile/strip, so
+        # fabricated cites could otherwise re-enter here (ADR-013).
+        revised_body = self._engine._writing.apply_citation_net(
+            strip_agent_scaffolding(response.content)
+        )
         draft.assembled_body = revised_body
 
         # Update paper in database and on disk

@@ -1,39 +1,73 @@
-# Quality Audit & Improvement — Prompt 173
+# Plan — fixes from the 2026-07-01 critical review + refactor pass (Prompt 234)
 
-Autonomous multi-hour effort. Ground every fix in real generated artifacts; verify with fresh cycles.
+Source: two-agent audit (critical diff review of 97e15cc→a5a0136 + codebase health scan).
+(Previous contents: Prompt 173 quality audit — completed, see HISTORY.md.)
 
-## Audit findings (confirmed against real PDF `paper-489a566e6225.pdf` + code)
+## A. Correctness fixes (recent-change mistakes) — do first
 
-### Area A — LaTeX/PDF (`journal/latex.py`) ✅ DONE (b147830)
-- [x] **A1. Markdown tables** → booktabs `tabular` with l/c/r alignment + math/escaped cells. Verified in a real compiled PDF.
-- [x] **A2. Loose-list numbering** → lists survive blank lines (1,2,3 not 1,1,1).
-- [x] **A3. Robust preamble** → booktabs/microtype/caption/float/enumitem/xcolor behind `\IfFileExists` (minimal-install safe; booktabs→\hline fallback). References hanging-indent.
-- [x] +9 tests.
+- [ ] **A1. Revision bypasses citation invariant (MODERATE, ADR-013 hollowed out)**
+      `review.py` internal-review revision (~506/545) and `run_revision_phase` (~912-921) save the
+      writer's raw revised body with no `validate_and_strip_citations` (nor
+      `compile_allowlist_citations` when enabled). Fix: re-run the citation net after every body
+      rewrite at both save points; append the allow-list block to revision prompts. + tests.
+- [ ] **A2. Mandatory-check "passed" early-return matches negated text (MODERATE)**
+      `review.py:182-187` — "was NOT passed" / "only 1 of 5 passed" → returns 0 failures, so the
+      revise→reject escalation never fires. Fix: require affirmative "all … passed" and reject the
+      match when `not|fail|only|except` appears in the span. + regression tests with the three
+      verified bypass strings.
+- [ ] **A3. Non-arXiv seed fetches pollute the arXiv circuit breaker (MODERATE)**
+      `corpus.fetch_and_ingest_url` → `arxiv.py fetch_pdf_bytes` → `_rate_limited_get` counts
+      journal-site 403s against the arXiv breaker (2 failures → 120 s open, right before IDEATION
+      searches) and serializes behind the 3 s arXiv cadence. Fix: plain httpx GET for external
+      URLs (or a `note_failures=False` path); optionally cap total seed-fetch wall time.
+- [ ] **A4. `ext-…` papers render as fake arXiv references (MODERATE)**
+      `citation_validation.py:152-158` — external papers print as
+      `arXiv:ext-ab12… https://arxiv.org/abs/ext-…`, authors "Unknown". Fix: carry source URL
+      into allow-list entries; render journal/URL form for `ext-` ids.
+- [ ] **A5. Editor 16384-token headroom inert on internal review (MODERATE)**
+      `review.py:439` passes explicit `max_tokens=_REVIEW_MAX_TOKENS` (8192), overriding the
+      production.yaml editor setting that commit 9576957 added for Sonnet 5 thinking headroom.
+      Fix: `max_tokens=max(_REVIEW_MAX_TOKENS, editor.max_tokens)`.
+- [ ] **A6. Title-extraction can be worse than line 0 (MINOR)**
+      `prompt_utils.py:576-599` — start-anchored `nature|science|…` skips real titles
+      ("Nature of the compact object in GW190814") and returns the author list. Fix: require
+      journal tokens to be followed by volume/date patterns; abstract slice should start after
+      the chosen title line (also covers finding #7).
+- [ ] **A7. External papers never populate full-text reads (MINOR)**
+      `orchestrator/literature.py:384` — pass the actual URL as `oa_pdf_url` for ext papers so
+      `[READ:]` gets full text instead of the 500-char stub.
+- [ ] **A8. `finalize_digest` DB read outside the guard (MINOR)**
+      `writing.py:1421-1429` — wrap `get_paper` in the same never-break-the-cycle try/except.
 
-### Area B — Figures (default matplotlib → publication quality) ✅ DONE (e8fe15d)
-- [x] **B1. Publication rcParams** in `_SCIENCE_PREAMBLE` — serif+cm-math, despined, subtle grid, Okabe-Ito palette, 200-dpi tight, `useoffset=False` (kills `1e-13+…`). Both figure paths inherit it. try/except-safe. **Verified by rendering in the real sandbox image** — dramatic improvement.
-- [x] **B2. Descriptive captions** — humanize experiment name into alt text; strip redundant "Figure N:" in latex. Prompt guidance: style is pre-applied, demand titles+unit-labelled axes+legend.
-- [x] +9 tests.
+## B. Small high-leverage refactors (proven bug sources) — same pass or next
 
-### Area C — Citations (often sparse / incomplete) ✅ DONE (22040de)
-- [x] **C1.** `citation_sections` default → whole body (intro/methods/results/discussion/conclusion).
-- [x] **C2.** Retry+backoff in `_fetch_metadata` (transient 429/timeout/5xx), bounded-concurrent resolution (semaphore 4). Redundant per-ref ERROR → debug.
-- [x] **C3.** `max_retries_per_paragraph` 2→3.
-- [ ] (defer) Feed agent-discovered papers into bibliography — revisit if still sparse after a real run.
-- [x] +8 tests.
+- [ ] **B1. Consolidate LLM-JSON parsing onto `knowledge/json_utils.py`** (S) — migrate
+      engine.py convergence parser, eval/judge.py, eval/metrics.py, agents/memory.py,
+      agents/topics.py. This bug family (Elo all-1500, forced-major_revision) has hit twice.
+- [ ] **B2. Make config-parse failure fatal in the backend** (S) — kill the silent fallback that
+      caused the VM "vanished data" incident.
+- [ ] **B3. executions/ TTL pruning** (S) — age/keep-last-N sweep (1,140 dirs locally; VM worse).
+- [ ] **B4. Dead-code sweep** (S) — `reflection_model`, `_get_call_name`,
+      `ExecutionResult.started_at`, stop creating the unused `events` table.
+- [ ] **B5. ws.py checkpoint/rewind silent no-ops** (S) — hide the UI or implement.
 
-## Verification (the "few cycles of improvement")
-- [~] Flash-Lite cycle (verify-quality.yaml: experiments+grounding+latex/pdf) — RUNNING, inspect PDF.
-- [ ] Production-lineup cycle (verify-production.yaml) — strong models, publish path (= task 2).
+## C. Structural refactor — opportunistic, not now
 
-## Offered follow-ups
-- [x] **(1)** Cover review's conceptual-figure branch — review prompt now asks for ≥1 figure (0760a29); review cycle generated styled schematics, PDF compiled with one figure failing (guard).
-- [x] **(2)** Real production-lineup batch — verify-production.yaml → PUBLISHED, 0 preflight swaps, publication-quality PDF.
-- [x] **(3)** Wire `selftest.py` into a pre-push smoke check — `.githooks/pre-push` (dcfc3dc), validated.
+- [ ] C1. Extract `orchestrator/artifacts.py` (~390 lines of pure save/log I/O) from engine.py (M).
+- [ ] C2. Decompose `_run_cycle_impl` (515-line god method) into per-phase-group methods (M,
+      medium risk — heart of the system; lean on test_orchestrator + a selftest run).
+- NOT worth it now: SQLite per-session connections (WAL holding, no lock errors),
+  DisplayManager/ws_display Protocol dedup, constants.py/writing.py splits.
 
-## Prompt 174 follow-on (same session)
-- [x] **Completed-cycle routing** (9aaf884) — finished cycles open the paper (or terminal summary), not a dead reconnecting socket. `lib/cycleStatus.ts` central router + socket guard.
-- [x] **gpt-5.x preflight 429 retry** (b2a0c70) — burst-induced rate-limit 429s retried before swapping; genuine quota still swaps.
+## D. Housekeeping / ops
+
+- [ ] D1. gitignore `data_vm2/` (220 MB), decide fate of PROMPT-*.md, paper-489a566e6225.pdf,
+      configs/selftest-exp.yaml.
+- [ ] D2. VM deploy still pending (a5a0136 not deployed; NASA_ADS_API_KEY + frontend
+      `npm run build` + restart). ADS key rotation after deploy.
+- [ ] D3. main is 143 commits behind (last 2026-06-05) — decide whether to merge
+      responsive-live-progress → main after the A-fixes land.
 
 ## Review
-Verification-driven, real-artifact discipline paid off: the first cycle's PDF surfaced 3 bugs the unit tests couldn't (hallucinated-figure crash, duplicate references, garbage URLs), and the production cycle surfaced the bare-URL resolution issue (fixed via batch+exact-id → 41/41). Net: tables/lists/figures/captions now publication-quality (verified in 2 real PDFs + a PUBLISHED paper), citations complete + correctly formatted, PDF robust to hallucinated figures, completed-cycle navigation fixed, preflight no longer false-swaps gpt-5.x. ~11 commits, full suite 1600, both branches synced. NOTE: production.yaml on the VM has citation grounding OFF — enable it (+ PERPLEXITY_API_KEY) to get the citation improvements.
+
+(to be filled in after implementation)

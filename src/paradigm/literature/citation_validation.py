@@ -47,6 +47,17 @@ _REFS_SECTION_RE = re.compile(
 
 _TITLE_CAP = 110
 
+# A REAL arXiv identifier form (new ``YYMM.NNNNN`` or old ``cat/NNNNNNN``). Discovered
+# papers can carry synthetic/provider ids (seed-discovered journal PDFs get ``ext-<hash>``)
+# — rendering those as ``arXiv:ext-…`` + a dead arxiv.org link would fabricate a reference.
+_ARXIV_ID_FORM_RE = re.compile(
+    r"^(\d{4}\.\d{4,5}|[a-z\-]+(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?$", re.IGNORECASE
+)
+
+
+def _is_arxiv_id(paper_id: str) -> bool:
+    return bool(_ARXIV_ID_FORM_RE.match(paper_id or ""))
+
 
 def _arxiv_url(arxiv_id: str) -> str:
     return f"https://arxiv.org/abs/{arxiv_id}"
@@ -68,7 +79,9 @@ def _tidy(text: str) -> str:
 
 
 def build_citation_allowlist(
-    papers: list[tuple[str, str, str]], max_n: int
+    papers: list[tuple[str, str, str]],
+    max_n: int,
+    urls: dict[str, str] | None = None,
 ) -> tuple[str, list[tuple[str, str, str]]]:
     """Build the writer-facing allow-list block from discovered papers.
 
@@ -76,6 +89,9 @@ def build_citation_allowlist(
         papers: ``(arxiv_id, title, first_author)`` tuples (e.g.
             ``LiteratureHandler.discovered_papers``).
         max_n: Cap on the number of papers exposed.
+        urls: Optional ``paper_id -> source url`` map for NON-arXiv entries (synthetic
+            ``ext-…`` ids from seed-discovered journal PDFs), so they render with their
+            real link instead of a fabricated ``arXiv:`` form.
 
     Returns:
         ``(instruction_block, entries)`` where ``entries`` is the capped list the
@@ -101,13 +117,19 @@ def build_citation_allowlist(
     ]
     for i, (arxiv_id, title, first_author) in enumerate(entries, 1):
         short = title if len(title) <= _TITLE_CAP else title[:_TITLE_CAP] + "..."
-        lines.append(f"[{i}] {first_author or 'Unknown'}: {short} (arXiv:{arxiv_id})")
+        if _is_arxiv_id(arxiv_id):
+            source = f"arXiv:{arxiv_id}"
+        else:
+            source = (urls or {}).get(arxiv_id) or "journal/external paper"
+        lines.append(f"[{i}] {first_author or 'Unknown'}: {short} ({source})")
     lines.append("")
     return "\n".join(lines), entries
 
 
 def compile_allowlist_citations(
-    body: str, entries: list[tuple[str, str, str]]
+    body: str,
+    entries: list[tuple[str, str, str]],
+    urls: dict[str, str] | None = None,
 ) -> tuple[str, str, list[tuple[str, str, str]]]:
     """Compile the deterministic bibliography for a corpus-grounded paper.
 
@@ -152,10 +174,19 @@ def compile_allowlist_citations(
     cited_entries = [entries[old - 1] for old in used_order]
     refs_lines = ["## References", ""]
     for new_idx, (arxiv_id, title, first_author) in enumerate(cited_entries, 1):
-        refs_lines.append(
-            f'[{new_idx}] {first_author or "Unknown"}. "{title}". '
-            f"arXiv:{arxiv_id}. {_arxiv_url(arxiv_id)}"
-        )
+        if _is_arxiv_id(arxiv_id):
+            refs_lines.append(
+                f'[{new_idx}] {first_author or "Unknown"}. "{title}". '
+                f"arXiv:{arxiv_id}. {_arxiv_url(arxiv_id)}"
+            )
+        else:
+            # Synthetic ``ext-…`` / provider id: cite by source URL — never a
+            # fabricated arXiv form. Omit an unknown author rather than print it.
+            author_part = (
+                f"{first_author}. " if first_author and first_author != "Unknown" else ""
+            )
+            url = (urls or {}).get(arxiv_id) or ""
+            refs_lines.append(f'[{new_idx}] {author_part}"{title}".{f" {url}" if url else ""}')
     references_md = "\n".join(refs_lines)
     return f"{new_core}\n\n{references_md}", references_md, cited_entries
 

@@ -172,3 +172,46 @@ def test_strip_matches_old_style_and_versioned_ids():
     assert "hep-ph/9901001" not in out  # fabricated old-style stripped
     assert "arXiv:2501.00001v3" in out  # versioned id matches versionless valid id
     assert stats["fabricated_arxiv_stripped"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Non-arXiv (ext-…) entries: never render a fabricated arXiv form
+# --------------------------------------------------------------------------- #
+
+EXT_PAPERS = [
+    ("2501.00001", "Deep Learning for Stellar Pulsations", "Smith"),
+    ("ext-ab12cd34ef56", "Red Noise in Massive Stars", "Unknown"),
+]
+EXT_URLS = {"ext-ab12cd34ef56": "https://www.aanda.org/articles/aa/pdf/2019/paper.pdf"}
+
+
+def test_allowlist_ext_entry_renders_source_url_not_arxiv():
+    block, _ = build_citation_allowlist(EXT_PAPERS, 40, EXT_URLS)
+    assert "arXiv:ext-" not in block
+    assert "https://www.aanda.org/articles/aa/pdf/2019/paper.pdf" in block
+    assert "arXiv:2501.00001" in block  # real arXiv entry unchanged
+
+
+def test_allowlist_ext_entry_without_url_labels_external():
+    block, _ = build_citation_allowlist(EXT_PAPERS, 40)
+    assert "arXiv:ext-" not in block
+    assert "journal/external paper" in block
+
+
+def test_compile_ext_reference_uses_url_and_omits_unknown_author():
+    body = "Result [1] agrees with observations [2]."
+    new_body, refs, cited = compile_allowlist_citations(body, EXT_PAPERS, EXT_URLS)
+    assert "arXiv:ext-" not in new_body
+    assert "arxiv.org/abs/ext-" not in new_body
+    assert 'Unknown. "Red Noise' not in new_body
+    assert '[2] "Red Noise in Massive Stars". https://www.aanda.org/' in new_body
+    # Real arXiv entry keeps the arXiv form.
+    assert "arXiv:2501.00001" in new_body
+    assert len(cited) == 2
+
+
+def test_compile_ext_reference_without_url_still_no_fake_arxiv():
+    body = "Only the external paper is cited [2]."
+    new_body, refs, cited = compile_allowlist_citations(body, EXT_PAPERS)
+    assert "arxiv.org/abs/ext-" not in new_body
+    assert '[1] "Red Noise in Massive Stars".' in new_body

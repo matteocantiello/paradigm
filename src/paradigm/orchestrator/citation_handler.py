@@ -270,17 +270,30 @@ class CitationHandler:
         Returns:
             Updated PaperDraft with deterministic citations + references.
         """
-        from paradigm.literature.citation_validation import compile_allowlist_citations
+        from paradigm.literature.citation_validation import (
+            _is_arxiv_id,
+            compile_allowlist_citations,
+        )
 
         if not entries:
             return draft
 
-        new_body, _refs_md, cited = compile_allowlist_citations(draft.assembled_body, entries)
+        urls = getattr(self._engine._writing, "_citation_allowlist_urls", {}) or {}
+        new_body, _refs_md, cited = compile_allowlist_citations(
+            draft.assembled_body, entries, urls
+        )
         draft.assembled_body = new_body
+        # The compile renumbers markers by first appearance — re-order the stashed
+        # allow-list so later REVISION prompts show numbering that matches the body.
+        self._engine._writing.refresh_allowlist_numbering(cited)
         draft.references = [
             {
                 "index": i,
-                "url": f"https://arxiv.org/abs/{arxiv_id}",
+                "url": (
+                    f"https://arxiv.org/abs/{arxiv_id}"
+                    if _is_arxiv_id(arxiv_id)
+                    else urls.get(arxiv_id, "")
+                ),
                 "arxiv_id": arxiv_id,
                 "title": title,
                 "authors": first_author,

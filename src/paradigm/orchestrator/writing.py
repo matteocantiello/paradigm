@@ -21,6 +21,7 @@ from paradigm.journal.paper import (
 )
 from paradigm.literature.citation_validation import (
     build_citation_allowlist,
+    compile_allowlist_citations,
     validate_and_strip_citations,
 )
 from paradigm.logging.events import EventType
@@ -88,6 +89,9 @@ class WritingHandler:
         # _build_citation_allowlist when corpus_grounded_citations is on; "" / [] otherwise).
         self._citation_allowlist_block: str = ""
         self._citation_allowlist_entries: list[tuple[str, str, str]] = []
+        # paper_id -> source url for NON-arXiv entries (ext-… ids), so they render
+        # with a real link instead of a fabricated arXiv form.
+        self._citation_allowlist_urls: dict[str, str] = {}
 
     def _build_citation_allowlist(self) -> None:
         """Compute the corpus citation allow-list once per writing phase.
@@ -100,14 +104,82 @@ class WritingHandler:
         """
         self._citation_allowlist_block = ""
         self._citation_allowlist_entries = []
+        self._citation_allowlist_urls = {}
         if not self._engine._config.citation.corpus_grounded_citations:
             return
         papers = list(getattr(self._engine._literature, "discovered_papers", []) or [])
+        self._citation_allowlist_urls = dict(
+            getattr(self._engine._literature, "discovered_fulltext", {}) or {}
+        )
         block, entries = build_citation_allowlist(
-            papers, self._engine._config.citation.max_allowlist_papers
+            papers,
+            self._engine._config.citation.max_allowlist_papers,
+            self._citation_allowlist_urls,
         )
         self._citation_allowlist_block = block
         self._citation_allowlist_entries = entries
+
+    def refresh_allowlist_numbering(self, cited: list[tuple[str, str, str]]) -> None:
+        """Re-order the allow-list after a bibliography compile so its ``[N]`` numbering
+        matches the markers now embedded in the paper body.
+
+        ``compile_allowlist_citations`` renumbers markers by first appearance, so after
+        assembly (and after every revision compile) the body's ``[1]..[k]`` refer to
+        ``cited`` — NOT to the original discovery order. Putting the cited entries first
+        (uncited ones after, still citable) keeps the block shown to the REVISING writer
+        consistent with the draft it is editing.
+        """
+        if not self._citation_allowlist_entries or not cited:
+            return
+        cited_ids = {e[0] for e in cited}
+        rest = [e for e in self._citation_allowlist_entries if e[0] not in cited_ids]
+        entries = list(cited) + rest
+        block, entries = build_citation_allowlist(
+            entries, len(entries), self._citation_allowlist_urls
+        )
+        self._citation_allowlist_block = block
+        self._citation_allowlist_entries = entries
+
+    def apply_citation_net(self, body: str) -> str:
+        """Re-apply the citation invariant to a REWRITTEN paper body (revisions).
+
+        Assembly runs the allow-list compile + fabricated-id strip once (`run_writing_phase`),
+        but every revision replaces the whole body with the writer's raw output — without
+        this, a revised paper can re-acquire fabricated arXiv ids or out-of-range ``[N]``
+        markers and ship (ADR-013 would hold only for never-revised papers). Best-effort:
+        a failure here returns the body unchanged rather than breaking the review loop.
+        """
+        config = self._engine._config.citation
+        if config.corpus_grounded_citations and self._citation_allowlist_entries:
+            try:
+                body, _refs_md, cited = compile_allowlist_citations(
+                    body, self._citation_allowlist_entries, self._citation_allowlist_urls
+                )
+                self.refresh_allowlist_numbering(cited)
+                self._engine._logger.log(
+                    EventType.CITATION_GROUNDING,
+                    content={
+                        "event": "corpus_grounded_citations_revision",
+                        "num_citations": len(cited),
+                        "allowlist_size": len(self._citation_allowlist_entries),
+                    },
+                    thread_id=self._engine.state.thread_id,
+                )
+            except Exception as e:
+                self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+        if config.strip_ungrounded_citations:
+            try:
+                valid_ids = set(getattr(self._engine._literature, "seen_paper_ids", set()) or set())
+                body, stats = validate_and_strip_citations(body, valid_ids)
+                if stats["fabricated_arxiv_stripped"] or stats["unverifiable_author_year"]:
+                    self._engine._logger.log(
+                        EventType.CITATION_GROUNDING,
+                        content={"event": "citation_safety_net_revision", **stats},
+                        thread_id=self._engine.state.thread_id,
+                    )
+            except Exception as e:
+                self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+        return body
 
     def _build_execution_fact_sheet(self) -> str:
         """Build an anti-confabulation execution fact sheet for writing prompts.
@@ -1423,7 +1495,14 @@ class WritingHandler:
         finalization — AFTER all review/revision — so it summarizes the version the
         reader actually sees, not the pre-review draft.
         """
-        paper = self._engine._db.get_paper(paper_id)
+        # Same contract as _generate_and_save_digest: a summary artifact must NEVER
+        # break cycle finalization — guard the DB read too (e.g. a locked SQLite here
+        # would otherwise abort run_cycle after publication).
+        try:
+            paper = self._engine._db.get_paper(paper_id)
+        except Exception as e:
+            self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+            return
         body = (paper or {}).get("body") or ""
         if body:
             await self._generate_and_save_digest(paper_id, body)

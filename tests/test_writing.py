@@ -1160,3 +1160,72 @@ class TestFallbackAssembly:
         draft = PaperDraft(section_order=["abstract", "introduction"])
         result = engine._writing._fallback_assembly(draft)
         assert result == ""
+
+
+class TestApplyCitationNet:
+    """The revision-path citation net (ADR-013): every body REWRITE must re-run the
+    allow-list compile + fabricated-id strip, or revised papers ship ungrounded cites."""
+
+    @staticmethod
+    def _handler(grounded=True, strip=True, entries=None, urls=None, seen=None):
+        engine = MagicMock()
+        engine._config.citation.corpus_grounded_citations = grounded
+        engine._config.citation.strip_ungrounded_citations = strip
+        engine._literature.seen_paper_ids = seen or set()
+        h = WritingHandler(engine)
+        h._citation_allowlist_entries = list(entries or [])
+        h._citation_allowlist_urls = dict(urls or {})
+        return h
+
+    def test_recompiles_bibliography_and_drops_out_of_range(self):
+        entries = [
+            ("2501.00001", "Paper One", "Smith"),
+            ("2502.00002", "Paper Two", "Jones"),
+        ]
+        h = self._handler(entries=entries, seen={"2501.00001", "2502.00002"})
+        body = "Revised text cites [1] and a fabricated [9].\n\n## References\n\n[1] stale"
+        out = h.apply_citation_net(body)
+        assert "[9]" not in out
+        assert '[1] Smith. "Paper One". arXiv:2501.00001' in out
+        assert "stale" not in out  # writer/stale References replaced by the compile
+
+    def test_strips_fabricated_inline_arxiv_ids(self):
+        h = self._handler(grounded=False, seen={"2501.00001"})
+        out = h.apply_citation_net("Cites arXiv:2501.00001 and fake arXiv:9999.88888.")
+        assert "9999.88888" not in out
+        assert "2501.00001" in out
+
+    def test_refresh_keeps_marker_numbering_consistent(self):
+        # Body cites only the SECOND allow-list entry -> compile renumbers it to [1];
+        # the refreshed allow-list must now list that paper as [1] so the next
+        # revision prompt matches the body the writer sees.
+        entries = [
+            ("2501.00001", "Paper One", "Smith"),
+            ("2502.00002", "Paper Two", "Jones"),
+        ]
+        h = self._handler(entries=entries, seen=set())
+        out = h.apply_citation_net("Only cites [2].")
+        assert "[1]" in out and 'Jones. "Paper Two"' in out
+        assert h._citation_allowlist_entries[0][0] == "2502.00002"
+        assert "[1] Jones:" in h._citation_allowlist_block
+        # The uncited paper is still offered (as [2]) for later revisions.
+        assert "[2] Smith:" in h._citation_allowlist_block
+
+    def test_disabled_flags_leave_body_untouched(self):
+        h = self._handler(grounded=False, strip=False)
+        body = "Anything [7] arXiv:9999.88888."
+        assert h.apply_citation_net(body) == body
+
+
+class TestFinalizeDigestGuard:
+    @pytest.mark.asyncio
+    async def test_db_error_never_breaks_finalization(self, tmp_path):
+        # finalize_digest runs at cycle finalization AFTER publication — a DB
+        # hiccup here must be logged and swallowed, never abort run_cycle.
+        engine = MagicMock()
+        engine._config.journal.enable_digest = True
+        engine._config.storage.papers_dir = tmp_path
+        engine._db.get_paper.side_effect = RuntimeError("database is locked")
+        await WritingHandler(engine).finalize_digest("paper-abc")
+        engine._logger.log_error.assert_called_once()
+        engine._find_agent_by_role.assert_not_called()
