@@ -103,7 +103,7 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
 
                 elif msg_type == "session_control":
                     msg = SessionControlMsg(**data)
-                    await _handle_session_control(manager, session_id, msg)
+                    await _handle_session_control(manager, websocket, session_id, msg)
 
                 elif msg_type == "user_intervention":
                     msg = UserInterventionMsg(**data)
@@ -159,17 +159,31 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
         await manager.disconnect_ws(session_id, websocket)
 
 
-async def _handle_session_control(manager, session_id: str, msg: SessionControlMsg) -> None:
-    """Handle session control actions (pause, resume, checkpoint, rewind)."""
+async def _handle_session_control(
+    manager, websocket: WebSocket, session_id: str, msg: SessionControlMsg
+) -> None:
+    """Handle session control actions (pause, resume, abort).
+
+    Manual checkpoint and rewind-to-checkpoint are NOT implemented; the client
+    gets an explicit error frame instead of a silent no-op.
+    """
     if msg.action == "pause":
         await manager.pause_session(session_id)
     elif msg.action == "resume":
         await manager.resume_session(session_id)
-    elif msg.action == "checkpoint":
-        # TODO: Trigger manual checkpoint
-        pass
-    elif msg.action == "rewind":
-        # TODO: Rewind to checkpoint
-        pass
+    elif msg.action in ("checkpoint", "rewind"):
+        await websocket.send_text(
+            ErrorMsg(
+                code="not_supported",
+                message=f"Session control action '{msg.action}' is not supported",
+            ).model_dump_json()
+        )
     elif msg.action == "abort":
         await manager.abort_session(session_id)
+    else:
+        await websocket.send_text(
+            ErrorMsg(
+                code="unknown_action",
+                message=f"Unknown session control action: {msg.action}",
+            ).model_dump_json()
+        )
