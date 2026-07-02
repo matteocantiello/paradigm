@@ -417,6 +417,18 @@ class ReviewHandler:
                     + "\nFlag these issues in your review."
                 )
 
+            # Semantic claim↔citation audit: possible MISATTRIBUTIONS (right-looking
+            # but wrong-paper references) surfaced for the editor to verify.
+            citation_alerts = await self._engine._citation_handler.audit_citation_claims(
+                current_body
+            )
+            if citation_alerts:
+                prompt += (
+                    "\n\n## AUTOMATED CITATION ALERTS (possible misattributions)\n"
+                    "Verify each against the paper; add a Required Change for any "
+                    "real one:\n" + "\n".join(f"- {w}" for w in citation_alerts)
+                )
+
             # Inject figure existence warnings
             fig_warnings = self._engine._writing._validate_figure_references(current_body)
             if fig_warnings:

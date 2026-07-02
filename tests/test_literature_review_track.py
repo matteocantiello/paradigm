@@ -93,9 +93,11 @@ def _build_review_engine(*, figures, code):
     engine._writing._build_forbidden_claims_block.return_value = ""
     engine._writing._check_reference_quality.return_value = []
     engine._writing._validate_figure_references.return_value = []
+    engine._writing.requirements_block.return_value = ""
     # Awaited literature hooks must be async.
     engine._literature.process_search_requests = AsyncMock()
     engine._literature.process_literature_actions = AsyncMock()
+    engine._citation_handler.audit_citation_claims = AsyncMock(return_value=[])
     editor = make_mock_agent("editor-0", "editor", content=_ACCEPT_REVIEW)
     engine._find_agent_by_role.return_value = editor
     return engine, editor

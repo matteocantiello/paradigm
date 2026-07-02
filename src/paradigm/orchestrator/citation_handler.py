@@ -68,6 +68,43 @@ def _strip_references_section(body: str) -> str:
     return _REFS_SECTION_RE.sub("", body).rstrip()
 
 
+_REF_ENTRY_RE = re.compile(r"^\[(\d+)\]\s+(.+)$", re.MULTILINE)
+
+
+def build_citation_audit_evidence(body: str, *, context_chars: int, max_contexts: int) -> str:
+    """Pair each bibliography entry with the prose snippets that cite it.
+
+    Pure text assembly (no LLM): returns "" when the paper has no compiled
+    References section or no in-prose ``[N]`` markers to audit.
+    """
+    m = _REFS_SECTION_RE.search(body)
+    if m is None:
+        return ""
+    prose, refs_section = body[: m.start()], body[m.start() :]
+    entries = {int(num): text.strip() for num, text in _REF_ENTRY_RE.findall(refs_section)}
+    if not entries:
+        return ""
+
+    contexts: dict[int, list[str]] = {}
+    for marker in _MARKER_RE.finditer(prose):
+        n = int(marker.group(1))
+        if n not in entries:
+            continue
+        bucket = contexts.setdefault(n, [])
+        if len(bucket) >= max_contexts:
+            continue
+        start = max(0, marker.start() - context_chars)
+        end = min(len(prose), marker.end() + context_chars)
+        snippet = " ".join(prose[start:end].split())
+        bucket.append(f'"...{snippet}..."')
+
+    blocks = []
+    for n in sorted(contexts):
+        cited = "\n".join(f"  - {c}" for c in contexts[n])
+        blocks.append(f"[{n}] REFERENCE: {entries[n]}\n  CITED AS:\n{cited}")
+    return "\n\n".join(blocks)
+
+
 class CitationHandler:
     """Handles citation grounding and novelty checking for the orchestrator."""
 
@@ -311,6 +348,64 @@ class CitationHandler:
         )
         self._engine._display.citation_grounding_complete(len(cited))
         return draft
+
+    async def audit_citation_claims(self, body: str) -> list[str]:
+        """Flag likely claim↔citation MISATTRIBUTIONS (one cheap LLM call).
+
+        The compiled bibliography guarantees every reference is a real discovered
+        paper — not that it is the RIGHT paper for the claim citing it (a live run
+        credited its analyzed dataset to the wrong paper of a series throughout).
+        Returns short warning strings for the editor prompt; best-effort — any
+        failure returns [] and never breaks the review.
+        """
+        from paradigm.knowledge.json_utils import first_json_array
+        from paradigm.orchestrator.constants import (
+            _CITATION_AUDIT_CONTEXT_CHARS,
+            _CITATION_AUDIT_MAX_CONTEXTS,
+            _CITATION_AUDIT_MAX_WARNINGS,
+            _CITATION_AUDIT_PROMPT,
+        )
+
+        if not self._engine._config.citation.enable_citation_audit:
+            return []
+        try:
+            evidence = build_citation_audit_evidence(
+                body,
+                context_chars=_CITATION_AUDIT_CONTEXT_CHARS,
+                max_contexts=_CITATION_AUDIT_MAX_CONTEXTS,
+            )
+            if not evidence:
+                return []
+            provider = self._engine._config.get_provider()
+            raw, input_tokens, output_tokens = await asyncio.to_thread(
+                provider.complete,
+                model=provider.default_model,
+                system="You are a precise citation auditor. Return only JSON.",
+                messages=[
+                    {"role": "user", "content": _CITATION_AUDIT_PROMPT.format(evidence=evidence)}
+                ],
+                max_tokens=1024,
+                temperature=0.2,
+            )
+            self._engine._db.record_token_usage(
+                model=provider.default_model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                agent_id="citation_auditor",
+                thread_id=self._engine.state.thread_id,
+            )
+            items = first_json_array(raw) or []
+            warnings = [x.strip() for x in items if isinstance(x, str) and x.strip()]
+            if warnings:
+                self._engine._logger.log(
+                    EventType.CITATION_GROUNDING,
+                    content={"event": "citation_audit", "warnings": warnings},
+                    thread_id=self._engine.state.thread_id,
+                )
+            return warnings[:_CITATION_AUDIT_MAX_WARNINGS]
+        except Exception as e:
+            self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+            return []
 
     async def check_novelty(self, idea_text: str, mode: str = "semantic_scholar") -> NoveltyResult:
         """Check idea novelty using configured backend.

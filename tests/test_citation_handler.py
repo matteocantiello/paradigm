@@ -379,3 +379,82 @@ class TestSeedDiscovery:
         assert len(handler.discovered_papers) == 2
         assert mock_ingest.call_count == 2
         engine._display.seed_discovery_start.assert_called_once()
+
+
+_AUDIT_BODY = (
+    "We analyze the 70-star sample from [1]. The frequency trend [2] is confirmed.\n"
+    "Independent work [1] agrees.\n\n"
+    "## References\n\n"
+    '[1] Bowman. "Photometric detection of SLFV, Paper IV". arXiv:2410.12726.\n'
+    '[2] Anders. "Convective simulations". arXiv:2301.00001.\n'
+)
+
+
+class TestCitationAuditEvidence:
+    def test_pairs_refs_with_citing_snippets(self):
+        from paradigm.orchestrator.citation_handler import build_citation_audit_evidence
+
+        ev = build_citation_audit_evidence(_AUDIT_BODY, context_chars=80, max_contexts=2)
+        assert '[1] REFERENCE: Bowman. "Photometric detection of SLFV, Paper IV"' in ev
+        assert "70-star sample" in ev
+        assert "[2] REFERENCE: Anders." in ev
+
+    def test_context_cap_respected(self):
+        from paradigm.orchestrator.citation_handler import build_citation_audit_evidence
+
+        ev = build_citation_audit_evidence(_AUDIT_BODY, context_chars=80, max_contexts=1)
+        assert ev.count('- "...') == 2  # one snippet per reference
+
+    def test_no_references_section_returns_empty(self):
+        from paradigm.orchestrator.citation_handler import build_citation_audit_evidence
+
+        assert (
+            build_citation_audit_evidence("Prose [1] only.", context_chars=80, max_contexts=2) == ""
+        )
+
+
+class TestAuditCitationClaims:
+    @staticmethod
+    def _handler(
+        raw='["[1] dataset credited to Paper IV but text describes the 2020 sample"]', enabled=True
+    ):
+        from paradigm.orchestrator.citation_handler import CitationHandler
+
+        engine = MagicMock()
+        engine._config.citation.enable_citation_audit = enabled
+        provider = MagicMock()
+        provider.default_model = "test-model"
+        provider.complete.return_value = (raw, 200, 30)
+        engine._config.get_provider.return_value = provider
+        return CitationHandler(engine), engine
+
+    @pytest.mark.asyncio
+    async def test_returns_warnings(self):
+        h, engine = self._handler()
+        warnings = await h.audit_citation_claims(_AUDIT_BODY)
+        assert warnings == ["[1] dataset credited to Paper IV but text describes the 2020 sample"]
+        engine._db.record_token_usage.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_disabled_flag_makes_no_call(self):
+        h, engine = self._handler(enabled=False)
+        assert await h.audit_citation_claims(_AUDIT_BODY) == []
+        engine._config.get_provider.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_refs_section_makes_no_call(self):
+        h, engine = self._handler()
+        assert await h.audit_citation_claims("Just prose [1].") == []
+        engine._config.get_provider.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_garbage_output_returns_empty(self):
+        h, _ = self._handler(raw="Everything looks fine to me!")
+        assert await h.audit_citation_claims(_AUDIT_BODY) == []
+
+    @pytest.mark.asyncio
+    async def test_provider_error_never_breaks_review(self):
+        h, engine = self._handler()
+        engine._config.get_provider.return_value.complete.side_effect = RuntimeError("boom")
+        assert await h.audit_citation_claims(_AUDIT_BODY) == []
+        engine._logger.log_error.assert_called_once()

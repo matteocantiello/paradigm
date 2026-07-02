@@ -715,6 +715,27 @@ _REQUIREMENTS_EXTRACT_PROMPT = (
 
 _REQUIREMENTS_MAX_ITEMS = 8
 
+# Claim↔citation audit: the compiled bibliography guarantees every reference is a
+# REAL discovered paper, but not that it is the RIGHT paper for the claim citing it.
+_CITATION_AUDIT_PROMPT = (
+    "You are auditing the citations of a research paper for MISATTRIBUTION.\n\n"
+    "For each reference below you are given its bibliography entry and the "
+    "sentences that cite it. Flag ONLY likely misattributions — a claim, dataset, "
+    "measurement, or method attributed to a paper whose title/venue/year makes it "
+    "the WRONG source (e.g. data tables credited to a different paper in the same "
+    "series, a survey cited for a result it predates). Do NOT flag stylistic "
+    "issues, plausible-but-unverifiable pairings, or missing citations.\n\n"
+    "{evidence}\n\n"
+    "Respond with ONLY a JSON array of short warning strings (one per suspected "
+    'misattribution, naming the [N] and the reason), e.g. ["[6] data tables are '
+    "credited to the 2024 Paper IV but the text says they come from the 2020 "
+    'sample"]. Return [] if nothing looks misattributed.'
+)
+
+_CITATION_AUDIT_MAX_WARNINGS = 8
+_CITATION_AUDIT_CONTEXT_CHARS = 240  # prose window kept around each [N] marker
+_CITATION_AUDIT_MAX_CONTEXTS = 3  # citing sentences kept per reference
+
 _GENERAL_LATER_ROUND_REINFORCEMENT = (
     "\n\n## Anti-Repetition Rule\n"
     "Before writing your response, review the Recent Discussion above. "

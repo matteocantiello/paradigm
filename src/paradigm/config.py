@@ -270,6 +270,11 @@ class CitationConfig(BaseModel):
     # identifiers (arXiv ids / DOIs not in the cycle's corpus) from the assembled paper and
     # log unverifiable "(Author, Year)" cites. Pure robustness — leave ON; kill-switch only.
     strip_ungrounded_citations: bool = True
+    # Semantic claim↔citation audit (one cheap LLM call per review iteration): the
+    # allow-list makes FABRICATED references impossible but not WRONG ones — a live run
+    # attributed its analyzed dataset to the wrong paper of a series throughout. The
+    # audit feeds "possible misattribution" alerts into the editor's review prompt.
+    enable_citation_audit: bool = True
     perplexity_api_key_env: str = "PERPLEXITY_API_KEY"
     # Ground the whole body, not just intro+methods — results/discussion/conclusion
     # make substantive claims that need citing too (a big completeness win). Grounding
