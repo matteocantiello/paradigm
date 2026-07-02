@@ -1170,6 +1170,22 @@ class OrchestrationEngine:
             else:
                 self.state.messages.append(msg_dict)
 
+            # Visibility: a thin turn from a big prompt is a (tolerated) provider
+            # failure mode — 6 such Gemini turns silently ate 212k input tokens in
+            # one run. Surface it so runs can be triaged without event archaeology.
+            if not self._is_substantive_contribution(response.content):
+                self.emit_event(
+                    "warning.emitted",
+                    {
+                        "kind": "thin_contribution",
+                        "message": (
+                            f"{agent_id}: {len(response.content)} chars from a "
+                            f"{response.usage.input_tokens}-token prompt"
+                        ),
+                    },
+                    agent=agent_id,
+                )
+
             total_tokens = response.usage.input_tokens + response.usage.output_tokens
             self._display.agent_response(
                 agent_id,

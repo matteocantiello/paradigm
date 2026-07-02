@@ -156,6 +156,36 @@ class CheckpointManager:
         # Parse JSON response
         summary = self._parse_summary(raw)
 
+        # Degenerate-compression guard: a large context that compresses to a
+        # summary with NO findings and NO conversation summary is a failed
+        # generation, not a real checkpoint (seen live: 30-47k-token contexts
+        # "compressed" to ~80 tokens — and downstream agents RESUME from these).
+        # One retry; keep whichever attempt parsed richer.
+        if (
+            len(messages_text) > 5000
+            and not summary.get("key_findings")
+            and not summary.get("conversation_summary")
+        ):
+            logger.warning(
+                "Degenerate checkpoint for %s (%d chars in, %d out tokens) — retrying",
+                thread_id,
+                len(messages_text),
+                output_tokens,
+            )
+            retry_raw, retry_in, retry_out = await asyncio.to_thread(
+                self._provider.complete,
+                model=self._model,
+                max_tokens=2048,
+                temperature=0.3,
+                system="",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            input_tokens += retry_in
+            output_tokens += retry_out
+            retry_summary = self._parse_summary(retry_raw)
+            if retry_summary.get("key_findings") or retry_summary.get("conversation_summary"):
+                summary = retry_summary
+
         checkpoint = Checkpoint(
             thread_id=thread_id,
             phase=phase,

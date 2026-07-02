@@ -135,3 +135,58 @@ def test_reset_usage(mock_provider):
 
     assert agent.total_input_tokens == 0
     assert agent.total_output_tokens == 0
+
+
+class TestEmptyCompletionRetry:
+    """An empty completion is never a valid answer (provider flake, or a thinking
+    model exhausting max_tokens before any visible text) — generate() retries once
+    with doubled headroom and carries BOTH calls' usage."""
+
+    @pytest.mark.asyncio
+    async def test_empty_completion_retried_with_more_headroom(self, mock_provider):
+        # max_tokens kept under the 8192 streaming threshold so the mocked
+        # sync path (provider.complete) is exercised for BOTH attempts.
+        mock_provider.complete.side_effect = [("", 100, 1000), ("real review text", 100, 50)]
+        agent = Agent(
+            agent_id="editor-0",
+            skill_profile="editor",
+            system_prompt="You are an editor.",
+            provider=mock_provider,
+            max_tokens=1000,
+        )
+        resp = await agent.generate("review this")
+        assert resp.content == "real review text"
+        assert mock_provider.complete.call_count == 2
+        # Token accounting carries the failed attempt too.
+        assert resp.usage.input_tokens == 200
+        assert resp.usage.output_tokens == 1050
+        first = mock_provider.complete.call_args_list[0].kwargs["max_tokens"]
+        second = mock_provider.complete.call_args_list[1].kwargs["max_tokens"]
+        assert second > first
+
+    @pytest.mark.asyncio
+    async def test_empty_twice_returns_empty_without_looping(self, mock_provider):
+        mock_provider.complete.side_effect = [("", 10, 0), ("   ", 10, 0)]
+        agent = Agent(
+            agent_id="a",
+            skill_profile="theorist",
+            system_prompt="x",
+            provider=mock_provider,
+            max_tokens=1000,
+        )
+        resp = await agent.generate("q")
+        assert resp.content.strip() == ""
+        assert mock_provider.complete.call_count == 2  # exactly one retry
+
+    @pytest.mark.asyncio
+    async def test_nonempty_completion_not_retried(self, mock_provider):
+        agent = Agent(
+            agent_id="a",
+            skill_profile="theorist",
+            system_prompt="x",
+            provider=mock_provider,
+            max_tokens=1000,
+        )
+        resp = await agent.generate("q")
+        assert resp.content == "test response"
+        assert mock_provider.complete.call_count == 1

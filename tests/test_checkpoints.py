@@ -201,3 +201,48 @@ class TestCheckpointManagerCreateCheckpoint:
         usage = tmp_db.get_token_usage(thread_id="t1")
         assert usage["input_tokens"] == 100
         assert usage["output_tokens"] == 50
+
+
+class TestDegenerateCompressionRetry:
+    """A large context that 'compresses' to no findings and no summary is a failed
+    generation (seen live: 30-47k-token contexts -> ~80-token checkpoints that
+    downstream agents resume from) — retried once, richer attempt wins."""
+
+    @pytest.mark.asyncio
+    async def test_degenerate_compression_retried(self, tmp_db, mock_provider):
+        tmp_db.create_thread("t1", "Test Thread", "directed", ["agent-0"])
+        good = json.dumps(
+            {
+                "hypothesis": "h",
+                "key_findings": ["a real finding"],
+                "open_questions": [],
+                "next_steps": [],
+                "conversation_summary": "The team found things.",
+            }
+        )
+        mock_provider.complete.side_effect = [("{}", 30000, 80), (good, 30000, 500)]
+        mgr = CheckpointManager(tmp_db, provider=mock_provider)
+        messages = [{"from": "theorist-0", "content": "x" * 6000}]
+        cp = await mgr.create_checkpoint("t1", "ideation", 1, messages)
+        assert mock_provider.complete.call_count == 2
+        assert cp.key_findings == ["a real finding"]
+        assert cp.conversation_summary == "The team found things."
+
+    @pytest.mark.asyncio
+    async def test_small_context_not_retried(self, tmp_db, mock_provider):
+        tmp_db.create_thread("t2", "Test Thread", "directed", ["agent-0"])
+        mock_provider.complete.return_value = ("{}", 100, 10)
+        mgr = CheckpointManager(tmp_db, provider=mock_provider)
+        cp = await mgr.create_checkpoint("t2", "ideation", 1, [{"from": "a", "content": "hi"}])
+        assert mock_provider.complete.call_count == 1
+        assert cp.key_findings == []
+
+    @pytest.mark.asyncio
+    async def test_degenerate_retry_keeps_first_when_retry_no_better(self, tmp_db, mock_provider):
+        tmp_db.create_thread("t3", "Test Thread", "directed", ["agent-0"])
+        mock_provider.complete.side_effect = [("{}", 30000, 80), ("{}", 30000, 80)]
+        mgr = CheckpointManager(tmp_db, provider=mock_provider)
+        messages = [{"from": "a", "content": "x" * 6000}]
+        cp = await mgr.create_checkpoint("t3", "ideation", 1, messages)
+        assert mock_provider.complete.call_count == 2
+        assert cp.key_findings == []  # degrades gracefully, no crash

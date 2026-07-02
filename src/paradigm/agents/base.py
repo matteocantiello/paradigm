@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from paradigm.agents.providers import LLMProvider
@@ -155,13 +158,41 @@ class Agent:
         # sink is attached we always stream so even short turns animate live;
         # otherwise the size threshold decides (large calls stream to dodge
         # Anthropic's 10-minute timeout).
-        if self._stream_sink is not None or effective_max_tokens >= self._STREAMING_THRESHOLD:
-            return await asyncio.to_thread(
-                self._generate_streaming, messages, effective_max_tokens, stream_id
-            )
-        return await asyncio.to_thread(
-            self._generate_sync, messages, effective_max_tokens, stream_id
+        response = await self._generate_once(messages, effective_max_tokens, stream_id)
+        if response.content.strip():
+            return response
+
+        # Empty completion — never a valid answer. Two known causes: a provider
+        # flake (Gemini occasionally returns nothing for a large prompt) and a
+        # thinking model exhausting max_tokens before any VISIBLE text (a
+        # Sonnet-5 editor burned its whole 16384 budget on thinking and returned
+        # ""). One retry with doubled headroom covers both; both calls' usage is
+        # carried on the returned response so token accounting stays truthful.
+        retry_tokens = max(effective_max_tokens, min(effective_max_tokens * 2, 32768))
+        _logger.warning(
+            "%s returned an empty completion (%d/%d output tokens) — retrying with %d",
+            self.agent_id,
+            response.usage.output_tokens,
+            effective_max_tokens,
+            retry_tokens,
         )
+        retry = await self._generate_once(messages, retry_tokens, uuid.uuid4().hex[:12])
+        retry.usage = TokenUsage(
+            input_tokens=response.usage.input_tokens + retry.usage.input_tokens,
+            output_tokens=response.usage.output_tokens + retry.usage.output_tokens,
+            total_tokens=response.usage.total_tokens + retry.usage.total_tokens,
+        )
+        return retry
+
+    async def _generate_once(
+        self, messages: list[dict[str, str]], max_tokens: int, stream_id: str
+    ) -> AgentResponse:
+        """One provider call (streaming or sync per the usual thresholds)."""
+        if self._stream_sink is not None or max_tokens >= self._STREAMING_THRESHOLD:
+            return await asyncio.to_thread(
+                self._generate_streaming, messages, max_tokens, stream_id
+            )
+        return await asyncio.to_thread(self._generate_sync, messages, max_tokens, stream_id)
 
     def _generate_sync(
         self, messages: list[dict[str, str]], max_tokens: int, stream_id: str = ""

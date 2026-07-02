@@ -456,6 +456,16 @@ class ReviewHandler:
                     response = await editor.generate(
                         prompt, max_tokens=max(_REVIEW_MAX_TOKENS, role_cap)
                     )
+                    # An empty review is a failed review, not a lenient one: a
+                    # thinking editor that exhausts its budget returns "" (seen
+                    # live: 16384/16384 tokens, no text), which would parse to
+                    # "revise / 0 changes" and trigger a BLIND full revision.
+                    if not response.content.strip():
+                        response = None
+                        raise ValueError(
+                            "editor returned an empty review (output budget "
+                            "likely exhausted before any visible text)"
+                        )
                     break
                 except Exception as e:
                     last_error = e
@@ -540,15 +550,24 @@ class ReviewHandler:
             # Trajectory-aware budget (see _review_keep_going): extend a converging
             # paper past the normal cap, cut a diverging/stalled one early.
             required_count = len(feedback.required_changes)
-            keep_going, stall_count = self._review_keep_going(
-                prev_required_count,
-                required_count,
-                iteration,
-                max_iterations,
-                hard_cap,
-                stall_count,
-            )
-            prev_required_count = required_count
+            if feedback.recommendation_explicit:
+                keep_going, stall_count = self._review_keep_going(
+                    prev_required_count,
+                    required_count,
+                    iteration,
+                    max_iterations,
+                    hard_cap,
+                    stall_count,
+                )
+                prev_required_count = required_count
+            else:
+                # A truncated/unparseable review carries NO convergence signal —
+                # its 0 required changes must not read as "improving" and EXTEND
+                # the budget (a token-starved editor did exactly that live).
+                # Treat it as a stalled iteration; prev_required_count keeps the
+                # last real signal.
+                stall_count += 1
+                keep_going = stall_count < _REVIEW_STALL_LIMIT and iteration < max_iterations
             if not keep_going:
                 break
 

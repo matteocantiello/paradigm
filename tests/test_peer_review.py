@@ -1302,3 +1302,29 @@ class TestTopicInheritance:
         await engine._assign_topics("paper text", stage="final", paper_id="paper-z2")
 
         assert json.loads(tmp_db.get_paper("paper-z2")["topics"]) == ["other"]
+
+
+class TestEmptyEditorReview:
+    """A token-starved (empty) editor review must be treated as a FAILED review —
+    retried, then skipped — never parsed as 'revise / 0 changes' and never allowed
+    to trigger a blind revision (a live Sonnet-5 editor burned its whole 16384
+    budget on thinking, returned '', and caused a ~140k-token blind Opus revision)."""
+
+    @pytest.mark.asyncio
+    async def test_empty_editor_review_never_triggers_blind_revision(
+        self, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        factory = _make_writing_factory(editor_desk_response="")
+        display = MagicMock()
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+            display=display,
+        )
+        await engine.run_research_cycle(seed_prompt="Empty editor run", mode="directed")
+        # Editor failure surfaced, review skipped — no revision on invented feedback.
+        display.review_editor_error.assert_called_once()
+        display.review_revising.assert_not_called()
