@@ -44,6 +44,8 @@ export interface ResearchCycleResponse {
   status_detail?: string | null;
   topics?: string[] | null;
   resumed_from?: string | null;
+  /** Host paths of datasets uploaded for this cycle. */
+  datasets?: string[] | null;
   total_tokens?: number | null;
   elapsed_seconds?: number | null;
   created_at: string;
@@ -82,6 +84,24 @@ export function createCycle(body: ResearchCycleCreate) {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/** Attach a dataset file to a pending cycle (raw-body upload — no multipart). */
+export async function uploadCycleDataset(cycleId: string, file: File) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/octet-stream",
+  };
+  const apiKey = localStorage.getItem("paradigm_api_key");
+  if (apiKey) headers["X-API-Key"] = apiKey;
+  const res = await fetch(
+    `${BASE}/api/v1/research/${cycleId}/datasets?filename=${encodeURIComponent(file.name)}`,
+    { method: "POST", headers, body: file }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`API ${res.status}: ${body || res.statusText}`);
+  }
+  return res.json() as Promise<ResearchCycleResponse>;
 }
 
 export function deleteCycle(cycleId: string) {

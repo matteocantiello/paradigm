@@ -52,6 +52,19 @@ export function TerminalSessionView({ cycle }: { cycle: ResearchCycleResponse })
             {promptTitle(cycle.seed_prompt)}
           </h1>
           <TopicBadges topics={cycle.topics} size="sm" className="mt-3" />
+          {cycle.datasets && cycle.datasets.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {cycle.datasets.map((d) => (
+                <span
+                  key={d}
+                  className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
+                  title={d}
+                >
+                  📎 {d.split("/").pop()}
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* Outcome + reason + actions — up top so a failed run isn't a dead end. */}
           <div className="mt-5">

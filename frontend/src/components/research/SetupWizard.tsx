@@ -1,9 +1,21 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCreateCycle, useStartSession } from "@/hooks/useCycles";
+import { uploadCycleDataset } from "@/api/client";
 import { AGENT_THEMES, SELECTABLE_TEAM_ROLES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, ArrowRight, Play, Loader2, Check } from "lucide-react";
+import { ArrowLeft, ArrowRight, Play, Loader2, Check, Paperclip, X } from "lucide-react";
+
+const DATASET_EXTS = [
+  ".csv", ".tsv", ".txt", ".json", ".dat", ".fits", ".parquet", ".npy", ".npz", ".h5", ".hdf5",
+];
+const DATASET_MAX_MB = 100;
+
+function formatSize(bytes: number): string {
+  if (bytes > 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes > 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
 
 const STEPS = ["Prompt", "Mode", "Team", "Review"] as const;
 type Step = (typeof STEPS)[number];
@@ -26,6 +38,29 @@ export function SetupWizard({ onClose, initialPrompt }: SetupWizardProps) {
   const [prompt, setPrompt] = useState(initialPrompt ?? "");
   const [mode, setMode] = useState("directed");
   const [roles, setRoles] = useState<string[]>([...ALL_ROLES]);
+  const [files, setFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = (list: FileList | null) => {
+    if (!list) return;
+    setFileError(null);
+    const next = [...files];
+    for (const f of Array.from(list)) {
+      const ext = f.name.includes(".") ? "." + f.name.split(".").pop()!.toLowerCase() : "";
+      if (!DATASET_EXTS.includes(ext)) {
+        setFileError(`Unsupported type "${ext}" — allowed: ${DATASET_EXTS.join(" ")}`);
+        continue;
+      }
+      if (f.size > DATASET_MAX_MB * 1024 * 1024) {
+        setFileError(`${f.name} is too large (max ${DATASET_MAX_MB} MB)`);
+        continue;
+      }
+      if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f);
+    }
+    setFiles(next);
+  };
 
   const navigate = useNavigate();
   const createCycle = useCreateCycle();
@@ -46,6 +81,7 @@ export function SetupWizard({ onClose, initialPrompt }: SetupWizardProps) {
 
   const handleSubmit = useCallback(async () => {
     try {
+      setUploadError(null);
       const cycle = await createCycle.mutateAsync({
         seed_prompt: prompt.trim(),
         mode,
@@ -54,12 +90,18 @@ export function SetupWizard({ onClose, initialPrompt }: SetupWizardProps) {
         team_roles:
           roles.length === 0 || roles.length === ALL_ROLES.length ? null : roles,
       });
+      // Attach datasets BEFORE starting the session (the engine stages them
+      // into the sandbox shared data dir during seeding).
+      for (const f of files) {
+        await uploadCycleDataset(cycle.cycle_id, f);
+      }
       const session = await startSession.mutateAsync(cycle.cycle_id);
       navigate(`/session/${session.session_id}`);
     } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
       console.error("Failed to create cycle:", err);
     }
-  }, [prompt, mode, roles, createCycle, startSession, navigate]);
+  }, [prompt, mode, roles, files, createCycle, startSession, navigate]);
 
   const isSubmitting = createCycle.isPending || startSession.isPending;
 
@@ -117,6 +159,58 @@ export function SetupWizard({ onClose, initialPrompt }: SetupWizardProps) {
               <p className="text-xs text-muted-foreground mt-1.5 font-mono">
                 {prompt.length}/10000 characters
               </p>
+
+              {/* Dataset attachments */}
+              <div className="mt-4">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={DATASET_EXTS.join(",")}
+                  className="hidden"
+                  onChange={(e) => {
+                    addFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground transition-all"
+                >
+                  <Paperclip className="h-3.5 w-3.5" />
+                  Attach dataset{files.length > 0 ? "s" : ""} (optional)
+                </button>
+                {files.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {files.map((f) => (
+                      <li
+                        key={`${f.name}-${f.size}`}
+                        className="flex items-center justify-between rounded-md bg-muted/30 px-2.5 py-1.5 text-xs"
+                      >
+                        <span className="font-mono truncate">
+                          {f.name}{" "}
+                          <span className="text-muted-foreground">({formatSize(f.size)})</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setFiles(files.filter((x) => x !== f))}
+                          className="ml-2 text-muted-foreground hover:text-red-400 transition-colors"
+                          aria-label={`Remove ${f.name}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {fileError && (
+                  <p className="text-xs text-red-400 mt-1.5">{fileError}</p>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-1.5">
+                  Attached files are staged into the sandbox with a schema preview for the agents.
+                </p>
+              </div>
             </div>
           )}
 
@@ -188,9 +282,17 @@ export function SetupWizard({ onClose, initialPrompt }: SetupWizardProps) {
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Team</div>
                 <p className="text-sm">{roles.map((r) => AGENT_THEMES[r]?.label ?? r).join(", ")}</p>
               </div>
-              {(createCycle.isError || startSession.isError) && (
+              {files.length > 0 && (
+                <div className="rounded-lg bg-muted/30 p-3">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Datasets</div>
+                  <p className="text-sm font-mono">
+                    {files.map((f) => `${f.name} (${formatSize(f.size)})`).join(", ")}
+                  </p>
+                </div>
+              )}
+              {(createCycle.isError || startSession.isError || uploadError) && (
                 <p className="text-sm text-red-400 bg-red-500/10 rounded-lg p-3">
-                  Error: {(createCycle.error ?? startSession.error)?.message}
+                  Error: {uploadError ?? (createCycle.error ?? startSession.error)?.message}
                 </p>
               )}
             </div>
