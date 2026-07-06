@@ -52,6 +52,7 @@ async def start_session(
         seed_prompt=cycle.seed_prompt,
         mode=cycle.mode,
         team_roles=cycle.team_roles,
+        datasets=cycle.datasets,
     )
     await manager.start_session(state.session_id)
 

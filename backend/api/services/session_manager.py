@@ -107,6 +107,7 @@ class SessionManager:
         seed_prompt: str,
         mode: str = "directed",
         team_roles: list[str] | None = None,
+        datasets: list[str] | None = None,
     ) -> SessionState:
         """Create a new session for a research cycle."""
         session_id = f"session-{secrets.token_hex(16)}"
@@ -128,6 +129,7 @@ class SessionManager:
             "seed_prompt": seed_prompt,
             "mode": mode,
             "team_roles": team_roles,
+            "datasets": datasets,
         }
 
         return state
@@ -272,6 +274,7 @@ class SessionManager:
                 seed_prompt=meta["seed_prompt"],
                 mode=meta["mode"],
                 team_roles=meta.get("team_roles"),
+                datasets=meta.get("datasets"),
             )
 
             state.thread_id = thread_id

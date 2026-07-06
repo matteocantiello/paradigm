@@ -145,9 +145,12 @@ class Database:
         """)
         # Added idempotently so existing databases pick up new columns without a
         # migration framework. status_detail = a short human reason for a terminal
-        # (failed/aborted) cycle, surfaced in the research-tab UI.
+        # (failed/aborted) cycle, surfaced in the research-tab UI. datasets = JSON
+        # list of uploaded local dataset paths attached to the cycle.
         self._add_columns_if_missing(
-            cursor, "cycles", {"resumed_from": "TEXT", "status_detail": "TEXT"}
+            cursor,
+            "cycles",
+            {"resumed_from": "TEXT", "status_detail": "TEXT", "datasets": "TEXT"},
         )
 
         # Graveyard table (failed research)
@@ -585,11 +588,12 @@ class Database:
 
     def _row_to_cycle(self, row: Any) -> dict[str, Any]:
         d = dict(row)
-        raw = d.get("team_roles")
-        try:
-            d["team_roles"] = json.loads(raw) if raw else None
-        except (TypeError, ValueError):
-            d["team_roles"] = None
+        for key in ("team_roles", "datasets"):
+            raw = d.get(key)
+            try:
+                d[key] = json.loads(raw) if raw else None
+            except (TypeError, ValueError):
+                d[key] = None
         return d
 
     def get_cycle(self, cycle_id: str) -> dict[str, Any] | None:
@@ -606,10 +610,11 @@ class Database:
         return [self._row_to_cycle(r) for r in cursor.fetchall()]
 
     def update_cycle(self, cycle_id: str, **fields: Any) -> None:
-        """Update cycle fields (team_roles auto-serialized)."""
+        """Update cycle fields (team_roles/datasets auto-serialized)."""
         _validate_field_names(fields)
-        if "team_roles" in fields and fields["team_roles"] is not None:
-            fields["team_roles"] = self._serialize_json(fields["team_roles"])
+        for key in ("team_roles", "datasets"):
+            if key in fields and fields[key] is not None:
+                fields[key] = self._serialize_json(fields[key])
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         values = list(fields.values()) + [cycle_id]
         cursor = self.conn.cursor()

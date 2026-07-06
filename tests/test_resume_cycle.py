@@ -43,7 +43,7 @@ class FakeManager:
 
     max_concurrent_sessions = 4
 
-    async def create_session(self, cycle_id, seed_prompt, mode, team_roles):
+    async def create_session(self, cycle_id, seed_prompt, mode, team_roles, datasets=None):
         self._n += 1
         return SimpleNamespace(
             session_id=f"sess-{self._n}",

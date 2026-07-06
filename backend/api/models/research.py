@@ -57,6 +57,9 @@ class ResearchCycleResponse(BaseModel):
     topics: list[str] | None = None
     # Set when this cycle continues an earlier one (resume).
     resumed_from: str | None = None
+    # Host paths of datasets uploaded for this cycle (staged into the sandbox
+    # shared data dir when the session starts).
+    datasets: list[str] | None = None
     # End-of-run stats, backfilled from the thread for the terminal summary
     # (None when unknown — e.g. before the cycle has a thread).
     total_tokens: int | None = None

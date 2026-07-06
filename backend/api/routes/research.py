@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -158,6 +160,92 @@ async def create_research_cycle(
     return cycle
 
 
+# Dataset uploads: raw request body (no multipart dependency); the frontend
+# sends fetch(url, {method: "POST", body: file}). Files land in a per-cycle
+# holding dir and are STAGED into the sandbox shared data dir (with data-card
+# schema previews) by the engine when the session starts.
+_DATASET_ALLOWED_EXTS = frozenset(
+    {".csv", ".tsv", ".txt", ".json", ".dat", ".fits", ".parquet", ".npy", ".npz", ".h5", ".hdf5"}
+)
+_DATASET_MAX_BYTES = 100 * 1024 * 1024
+_DATASET_NAME_RE = re.compile(r"[^\w.\-]+")
+
+
+@router.post(
+    "/{cycle_id}/datasets",
+    response_model=ResearchCycleResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(verify_api_key)],
+)
+async def upload_cycle_dataset(
+    cycle_id: str,
+    filename: str,
+    request: Request,
+) -> ResearchCycleResponse:
+    """Attach a dataset file to a PENDING cycle (raw body upload).
+
+    The file is held under data/uploads/<cycle_id>/ and staged into the
+    sandbox-visible shared data dir when the session starts.
+    """
+    store = request.app.state.cycle_store
+    cycle = store.get(cycle_id)
+    if cycle is None:
+        raise HTTPException(status_code=404, detail="Research cycle not found")
+    if cycle.status != CycleStatus.PENDING:
+        raise HTTPException(
+            status_code=409, detail="Datasets can only be attached before the session starts"
+        )
+
+    safe = _DATASET_NAME_RE.sub("_", Path(filename).name).strip("._")
+    if not safe:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    ext = Path(safe).suffix.lower()
+    if ext not in _DATASET_ALLOWED_EXTS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported dataset type '{ext}'. Allowed: "
+            + ", ".join(sorted(_DATASET_ALLOWED_EXTS)),
+        )
+
+    config = getattr(request.app.state, "config", None)
+    data_dir = Path(getattr(getattr(config, "storage", None), "data_dir", "./data"))
+    dest_dir = data_dir / "uploads" / cycle_id
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / safe
+    counter = 1
+    while dest.exists():
+        dest = dest_dir / f"{Path(safe).stem}-{counter}{ext}"
+        counter += 1
+
+    # Stream to disk with a hard size cap (no full-file buffering in memory).
+    written = 0
+    try:
+        with open(dest, "wb") as f:
+            async for chunk in request.stream():
+                written += len(chunk)
+                if written > _DATASET_MAX_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Dataset too large (max {_DATASET_MAX_BYTES // (1024 * 1024)} MB)",
+                    )
+                f.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
+    except Exception as e:  # noqa: BLE001 — surface as an HTTP error
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}") from e
+    if written == 0:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Empty upload body")
+
+    datasets = list(cycle.datasets or []) + [str(dest)]
+    store.update(cycle_id, datasets=datasets)
+    updated = store.get(cycle_id)
+    assert updated is not None
+    return updated
+
+
 @router.post(
     "/{cycle_id}/resume",
     response_model=ResearchCycleResponse,
@@ -210,6 +298,7 @@ async def resume_research_cycle(
         seed_prompt=prior.seed_prompt,
         mode=prior.mode,
         team_roles=prior.team_roles,
+        datasets=prior.datasets,
     )
     # Queue the continuation context + steering BEFORE the engine starts, so it's
     # drained into the first agent round.
