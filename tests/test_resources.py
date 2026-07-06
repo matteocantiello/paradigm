@@ -428,3 +428,138 @@ class TestResolveResource:
 
 # Need httpx import for the exception test
 import httpx  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Data cards + local dataset staging
+# ---------------------------------------------------------------------------
+
+
+def _write_csv(path, rows):
+    path.write_text("\n".join(",".join(str(c) for c in r) for r in rows))
+    return path
+
+
+class TestBuildDataCard:
+    def test_csv_schema_dtypes_and_value_counts(self, tmp_path):
+        from paradigm.literature.resources import build_data_card
+
+        rows = [["star_id", "teff", "logg", "sample"]] + [
+            [f"HD{i}", 30000 + i, 3.5 + i / 100, "galactic" if i % 3 else "smc"]
+            for i in range(50)
+        ]
+        f = _write_csv(tmp_path / "stars.csv", rows)
+        card = build_data_card(f)
+        assert "### Data card: stars.csv" in card
+        assert "star_id: str" in card
+        assert "teff: int" in card
+        assert "logg: float" in card
+        # Low-cardinality string column gets value counts.
+        assert "sample: str [2 values:" in card
+        assert "galactic(" in card
+        assert "Head:" in card
+        assert "HD0" in card
+
+    def test_whitespace_dat_file(self, tmp_path):
+        from paradigm.literature.resources import build_data_card
+
+        f = tmp_path / "table.dat"
+        f.write_text("id nu_char amp\n1 2.5 0.01\n2 3.1 0.02\n")
+        card = build_data_card(f)
+        assert "nu_char: float" in card
+
+    def test_json_array_card(self, tmp_path):
+        from paradigm.literature.resources import build_data_card
+
+        f = tmp_path / "records.json"
+        f.write_text('[{"name": "a", "value": 1}, {"name": "b", "value": 2}]')
+        card = build_data_card(f)
+        assert "JSON array of 2 items" in card
+        assert "name, value" in card
+
+    def test_binary_file_degrades_to_size_line(self, tmp_path):
+        from paradigm.literature.resources import build_data_card
+
+        f = tmp_path / "blob.npy"
+        f.write_bytes(b"\x93NUMPY\x01\x00" + b"\x00" * 100)
+        card = build_data_card(f)
+        assert "### Data card: blob.npy" in card  # never raises
+
+    def test_card_capped(self, tmp_path):
+        from paradigm.literature.resources import build_data_card
+
+        rows = [[f"col{i}" for i in range(200)]] + [[str(i)] * 200 for i in range(300)]
+        f = _write_csv(tmp_path / "wide.csv", rows)
+        card = build_data_card(f)
+        assert len(card) <= 2000
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        from paradigm.literature.resources import build_data_card
+
+        assert build_data_card(tmp_path / "nope.csv") == ""
+
+
+class TestStageLocalDataset:
+    def test_stages_file_with_card_summary(self, tmp_path):
+        from paradigm.literature.resources import stage_local_dataset
+
+        src = _write_csv(tmp_path / "obs.csv", [["a", "b"], [1, 2]])
+        shared = tmp_path / "shared"
+        staged = stage_local_dataset(src, shared)
+        assert len(staged) == 1
+        r = staged[0]
+        assert r.resource_type.value == "data"
+        assert r.sandbox_path == "/data/shared/data/obs.csv"
+        assert (shared / "data" / "obs.csv").exists()
+        assert r.size_bytes and r.size_bytes > 0
+
+    def test_name_sanitized_and_collision_suffixed(self, tmp_path):
+        from paradigm.literature.resources import stage_local_dataset
+
+        weird = tmp_path / "my data (v2)!.csv"
+        _write_csv(weird, [["x"], [1]])
+        shared = tmp_path / "shared"
+        first = stage_local_dataset(weird, shared)[0]
+        second = stage_local_dataset(weird, shared)[0]
+        assert "(" not in first.name and " " not in first.name
+        assert first.name != second.name  # collision got a suffix
+        assert (shared / "data" / second.name).exists()
+
+    def test_directory_staged_with_cap(self, tmp_path):
+        from paradigm.literature.resources import stage_local_dataset
+
+        src_dir = tmp_path / "bundle"
+        src_dir.mkdir()
+        for i in range(25):
+            _write_csv(src_dir / f"part{i:02d}.csv", [["v"], [i]])
+        staged = stage_local_dataset(src_dir, tmp_path / "shared")
+        assert len(staged) == 20  # _STAGE_MAX_DIR_FILES cap
+
+    def test_missing_path_raises(self, tmp_path):
+        from paradigm.literature.resources import stage_local_dataset
+
+        with pytest.raises(FileNotFoundError):
+            stage_local_dataset(tmp_path / "ghost.csv", tmp_path / "shared")
+
+
+class TestDataContextCards:
+    def test_context_includes_cards_for_local_files(self, tmp_path):
+        from paradigm.literature.resources import (
+            ResolvedResource,
+            ResourceType,
+            build_data_context,
+        )
+
+        f = _write_csv(tmp_path / "sample.csv", [["a", "b"], [1, 2], [3, 4]])
+        r = ResolvedResource(
+            url="file:///x/sample.csv",
+            resource_type=ResourceType.DATA,
+            name="sample.csv",
+            local_path=str(f),
+            sandbox_path="/data/shared/data/sample.csv",
+            size_bytes=f.stat().st_size,
+        )
+        ctx = build_data_context([r])
+        assert "/data/shared/data/sample.csv" in ctx
+        assert "### Data card: sample.csv" in ctx
+        assert "a: int" in ctx

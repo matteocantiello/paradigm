@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from paradigm.agents.base import Agent
@@ -26,6 +27,7 @@ from paradigm.literature.resources import (
     build_reference_context,
     classify_resource,
     resolve_resource,
+    stage_local_dataset,
 )
 from paradigm.logging.events import EventLogger, EventType
 from paradigm.logging.stream import ResearchEventStream
@@ -281,6 +283,7 @@ class OrchestrationEngine:
         seed_prompt: str,
         mode: str = "directed",
         team_roles: list[str] | None = None,
+        datasets: list[str] | None = None,
     ) -> str:
         """Run a full research cycle: SEEDING -> IDEATION -> PLANNING -> WRITING -> REVIEW -> PEER REVIEW.
 
@@ -288,12 +291,14 @@ class OrchestrationEngine:
             seed_prompt: The research question or topic.
             mode: Operating mode (directed, explore, etc.).
             team_roles: Agent roles to include. Defaults to profile-defined roles.
+            datasets: Local dataset files/dirs to stage into the sandbox-visible
+                shared data dir (with data-card schema previews) during seeding.
 
         Returns:
             Thread ID of the completed cycle.
         """
         try:
-            return await self._run_cycle_impl(seed_prompt, mode, team_roles)
+            return await self._run_cycle_impl(seed_prompt, mode, team_roles, datasets)
         finally:
             # Close the dashboard record on EVERY terminal path, including
             # cancellation and crashes (run.completed carries the final status).
@@ -307,6 +312,7 @@ class OrchestrationEngine:
         seed_prompt: str,
         mode: str,
         team_roles: list[str] | None,
+        datasets: list[str] | None = None,
     ) -> str:
         """The research cycle body (see run_research_cycle).
 
@@ -316,6 +322,7 @@ class OrchestrationEngine:
         live INSIDE the stage that ends the cycle.
         """
         self.state = ResearchState(seed_prompt=seed_prompt, mode=mode)
+        self.state.attached_datasets = [str(d) for d in (datasets or [])]
         await self._setup_team(mode, team_roles)
         await self._run_seeding_and_discovery(seed_prompt, mode)
 
@@ -950,6 +957,29 @@ class OrchestrationEngine:
                         },
                     )
                 resolved.append(resource)
+
+        # Stage locally-attached datasets (CLI --data / GUI upload) into the
+        # sandbox-visible shared data dir; they join the resolved resources so
+        # data_context carries their data cards like any URL-derived dataset.
+        for ds_path in self.state.attached_datasets:
+            try:
+                staged = stage_local_dataset(Path(ds_path), shared_dir)
+            except Exception as e:
+                self._logger.log_error(e, thread_id=thread_id)
+                self._display.resource_error(f"dataset attach failed for {ds_path}: {e}")
+                continue
+            for resource in staged:
+                self._display.resource_resolved(resource.name, "data")
+                self.emit_event(
+                    "dataset.attached",
+                    {
+                        "path": str(ds_path),
+                        "name": resource.name,
+                        "sandbox_path": resource.sandbox_path,
+                        "size_bytes": resource.size_bytes,
+                    },
+                )
+            resolved.extend(staged)
 
         self.state.resolved_resources = resolved
         self.state.code_context = build_code_context(resolved)

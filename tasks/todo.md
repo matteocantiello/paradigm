@@ -88,3 +88,75 @@ suite 1843 green, side-effect call counts verified identical. Merged to main.
 Remaining D: gitignore data_vm2/ + scratch files; VM deploy; ADS key rotation.
 NOTE for the operator: after B2, a broken production.yaml now aborts backend
 startup with a clear error instead of silently serving an empty data dir.
+
+---
+
+# Plan — dataset attachment + prompt pre-processing (Prompt 239, 2026-07-06)
+
+Existing plumbing this builds on: ResourceType.DATA + staging at data/shared/data/
+(sandbox-mounted RO at /data/shared), state.data_context injected into every
+discussion-phase prompt (engine.py:1428) AND the experimentalist context;
+role-model overrides via config.agent.overrides + get_provider_and_model_for_role.
+
+## Phase 1 — Data card + local-dataset staging (core)  [the deferred #4]
+- [ ] 1a. `build_data_card(path)` in literature/resources.py — stdlib-only schema
+      preview: filename+size; CSV/TSV: header, inferred dtypes, first 5 rows,
+      value-counts of low-cardinality cols (first 1000 rows); JSON: top-level keys;
+      text: first lines; binary: size only. Cap ~2k chars/file. No pandas dep.
+- [ ] 1b. `stage_local_dataset(path, shared_dir)` — copy file/dir into
+      data/shared/data/ (sanitized names, collision-safe), return ResolvedResource
+      (DATA, sandbox_path=/data/shared/data/<name>, summary=data card).
+- [ ] 1c. build_data_context appends the data card for EVERY DATA resource
+      (URL-downloaded too — fixes schema-blindness generally, the original #4).
+- [ ] 1d. Engine: `run_research_cycle(..., datasets: list[Path] | None)` → staged
+      during seeding into state.resolved_resources (so data_context carries them);
+      emit `dataset.attached` events.
+- [ ] 1e. CLI: `paradigm run --data <path>` (repeatable; file or dir).
+
+## Phase 2 — Backend API + session wiring
+- [ ] 2a. `POST /api/v1/research/{cycle_id}/datasets` multipart upload → stage to
+      data/shared/data/; sanitize filename (no traversal), size cap 100 MB,
+      extension allowlist (.csv .tsv .txt .json .dat .fits .parquet .zip → zip
+      extracted? NO — keep v1 simple: no archives). Returns staged path list.
+- [ ] 2b. Persist per-cycle dataset paths (cycles table `datasets` JSON column,
+      auto-migration on startup like status_detail) + include in cycle GET model.
+- [ ] 2c. session_manager passes cycle.datasets → run_research_cycle(datasets=…).
+
+## Phase 3 — Frontend (SetupWizard)
+- [ ] 3a. File picker/drop zone in the Prompt step (type+size validation, list of
+      attached files with remove). On submit: create cycle → upload files →
+      start session.
+- [ ] 3b. Show attached datasets on the session/cycle view (chip list).
+
+## Phase 4 — Prompt pre-processing ("prompt_refiner")
+- [ ] 4a. Config: `orchestrator.enable_prompt_preprocessing: bool = True`; model
+      resolved via role `prompt_refiner` (reuses overrides + GUI model picker);
+      production.yaml override → claude-opus-4-8 (the strong-model first pass).
+- [ ] 4b. Engine stage `_refine_seed_prompt()` at cycle start (BEFORE seeding, so
+      thread title/hypothesis, resources, topics, requirements checklist and every
+      agent prompt all use the refined brief). Prompt: rewrite into a structured
+      research brief (question, context, explicit deliverables, constraints);
+      PRESERVE all URLs/paths/numbers/formulae VERBATIM; do not invent
+      requirements; output only the brief.
+- [ ] 4c. Deterministic guards: any URL present in the original but missing from
+      the refined text is re-appended verbatim in a "## Resources" block; empty /
+      too-short / failed output → keep original. Best-effort, never breaks a run.
+- [ ] 4d. Provenance: threads get `original_prompt` column (auto-migration);
+      state.original_prompt kept; emit `prompt.refined` event (before/after) +
+      display notice; backend cycle keeps the USER's original as seed_prompt so
+      terminal-screen "Retry with this prompt" retries the original.
+- [ ] 4e. Selftest/validate configs: preprocessing OFF (cost + determinism).
+
+## Phase 5 — Verify + ship
+- [ ] Tests per phase (card builder edge cases incl. dtype inference + caps;
+      staging collisions/sanitization; upload endpoint traversal/size/type; refiner
+      URL-guard + fallback + disabled; engine wiring; CLI flag). Full suite + ruff.
+- [ ] Optionally: one trimmed live cycle with a small CSV attached to see the card
+      + refined brief in the transcript.
+- [ ] Update .env/README/production.yaml docs; commit per phase; push.
+
+Decisions taken (flag if you disagree): refiner default ON, automatic (no
+approve-gate; visible via event + original kept); Opus 4.8 as refiner in
+production; uploads capped at 100 MB, no archives in v1; datasets stage into the
+EXISTING shared data dir (provenance tags from fix E already mark them
+[saved this run]).

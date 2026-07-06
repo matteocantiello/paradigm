@@ -19,6 +19,7 @@ def _run_research(
     testing: bool = False,
     verbose: bool = False,
     fresh_corpus: bool = False,
+    datasets: list[Path] | None = None,
 ) -> str | None:
     """Run a research cycle synchronously (wraps async engine).
 
@@ -144,7 +145,11 @@ def _run_research(
     result_thread_id: str | None = None
     try:
         result_thread_id = asyncio.run(
-            engine.run_research_cycle(seed_prompt=seed_prompt, mode=mode)
+            engine.run_research_cycle(
+                seed_prompt=seed_prompt,
+                mode=mode,
+                datasets=[str(d) for d in datasets] if datasets else None,
+            )
         )
         display.cycle_complete(result_thread_id)
     except KeyboardInterrupt:
@@ -245,6 +250,14 @@ def cli(ctx: click.Context, config: Path | None) -> None:
     default=False,
     help="Start with an empty internal corpus (avoids cross-domain contamination)",
 )
+@click.option(
+    "--data",
+    "datasets",
+    type=click.Path(exists=True, path_type=Path),
+    multiple=True,
+    help="Local dataset file or directory to attach (repeatable). Staged into the "
+    "sandbox-visible shared data dir with a schema preview for the agents.",
+)
 @click.pass_obj
 def run(
     config: Config,
@@ -258,12 +271,13 @@ def run(
     verbose: bool,
     network_access: bool,
     fresh_corpus: bool,
+    datasets: tuple[Path, ...],
 ) -> None:
     """Run a research cycle.
 
     Examples:
         paradigm run --mode directed --prompt "Explain the period-luminosity relation"
-        paradigm run --mode directed --prompt-file prompt.md
+        paradigm run --mode directed --prompt-file prompt.md --data observations.csv
         paradigm run --mode explore --topic "massive star variability"
     """
     from paradigm.display import DisplayManager
@@ -311,6 +325,7 @@ def run(
         testing=testing,
         verbose=verbose,
         fresh_corpus=fresh_corpus,
+        datasets=list(datasets) if datasets else None,
     )
 
 

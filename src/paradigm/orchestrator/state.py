@@ -67,6 +67,9 @@ class ResearchState:
     data_context: str = ""
     reference_context: str = ""
     resolved_resources: list[ResolvedResource] = field(default_factory=list)
+    # Local dataset files/dirs attached at cycle start (CLI --data / GUI upload);
+    # staged into data/shared/data/ during seeding with data-card summaries.
+    attached_datasets: list[str] = field(default_factory=list)
     graveyard_context: str = ""
 
     # Knowledge architecture

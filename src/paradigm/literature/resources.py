@@ -580,6 +580,15 @@ def build_data_context(resources: list[ResolvedResource]) -> str:
         lines.append(f"- **{r.name}**{size_str} — `{r.sandbox_path}`")
     lines.append("")
 
+    # Data cards: schema previews so experiments never blind-guess column
+    # names/dtypes (URL-downloaded and locally-attached datasets alike).
+    for r in data_resources:
+        if r.local_path:
+            card = build_data_card(Path(r.local_path))
+            if card:
+                lines.append(card)
+                lines.append("")
+
     return "\n".join(lines)
 
 
@@ -611,3 +620,230 @@ def build_reference_context(resources: list[ResolvedResource]) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Data cards + local dataset staging (attached datasets)
+# ---------------------------------------------------------------------------
+
+# Extensions treated as delimited text for schema preview.
+_CARD_TABULAR_EXTS = {".csv", ".tsv", ".dat", ".txt"}
+_CARD_SAMPLE_ROWS = 1000  # rows scanned for dtypes / value counts
+_CARD_HEAD_ROWS = 5
+_CARD_MAX_COLS = 30
+_CARD_CELL_CAP = 24  # chars per head-row cell
+_CARD_LOW_CARDINALITY = 12  # <= this many distinct values -> show value counts
+_CARD_MAX_CHARS = 2000
+_STAGE_MAX_DIR_FILES = 20  # files carded per attached directory
+
+_SAFE_NAME_RE = re.compile(r"[^\w.\-]+")
+
+
+def _sanitize_dataset_name(name: str) -> str:
+    """Filesystem/sandbox-safe file name (also blocks path traversal in uploads)."""
+    cleaned = _SAFE_NAME_RE.sub("_", Path(name).name).strip("._")
+    return cleaned or "dataset"
+
+
+def _infer_dtype(values: list[str]) -> str:
+    """int / float / str over the non-empty sample values."""
+    seen = [v for v in values if v.strip()]
+    if not seen:
+        return "empty"
+
+    def _is(kind: type) -> bool:
+        try:
+            for v in seen:
+                kind(v)
+        except ValueError:
+            return False
+        return True
+
+    if _is(int):
+        return "int"
+    if _is(float):
+        return "float"
+    return "str"
+
+
+def _card_delimiter(sample: str, suffix: str) -> str | None:
+    """Best-effort delimiter: csv.Sniffer, falling back by extension.
+
+    Returns None for whitespace-delimited files (split on any whitespace).
+    """
+    import csv as _csv
+
+    try:
+        return _csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
+    except _csv.Error:
+        pass
+    if suffix == ".csv":
+        return ","
+    if suffix == ".tsv":
+        return "\t"
+    return None  # .dat/.txt: whitespace
+
+
+def _tabular_card_lines(path: Path) -> list[str]:
+    """Schema lines for a delimited text file (header, dtypes, head, value counts)."""
+    import csv as _csv
+
+    with open(path, encoding="utf-8", errors="replace", newline="") as f:
+        sample = f.read(8192)
+        f.seek(0)
+        delimiter = _card_delimiter(sample, path.suffix.lower())
+        if delimiter is not None:
+            reader = _csv.reader(f, delimiter=delimiter)
+            rows = []
+            for row in reader:
+                rows.append(row)
+                if len(rows) > _CARD_SAMPLE_ROWS:
+                    break
+        else:
+            rows = []
+            for line in f:
+                if line.strip():
+                    rows.append(line.split())
+                if len(rows) > _CARD_SAMPLE_ROWS:
+                    break
+
+    rows = [r for r in rows if r]
+    if len(rows) < 2:
+        return ["(no parseable rows)"]
+
+    header = [h.strip() for h in rows[0]][:_CARD_MAX_COLS]
+    data_rows = rows[1:]
+    n_cols_note = (
+        f" (first {_CARD_MAX_COLS} columns shown)" if len(rows[0]) > _CARD_MAX_COLS else ""
+    )
+
+    columns: list[list[str]] = [[] for _ in header]
+    for row in data_rows:
+        for i in range(min(len(header), len(row))):
+            columns[i].append(row[i])
+
+    lines = [f"Columns ({len(rows[0])}){n_cols_note}:"]
+    for name, values in zip(header, columns, strict=False):
+        dtype = _infer_dtype(values)
+        entry = f"  - {name}: {dtype}"
+        if dtype == "str":
+            distinct = {v.strip() for v in values if v.strip()}
+            if 0 < len(distinct) <= _CARD_LOW_CARDINALITY:
+                from collections import Counter
+
+                counts = Counter(v.strip() for v in values if v.strip())
+                top = ", ".join(f"{k}({n})" for k, n in counts.most_common(6))
+                entry += f" [{len(distinct)} values: {top}]"
+        lines.append(entry)
+
+    lines.append(
+        f"Rows sampled: {len(data_rows)}" + ("+" if len(data_rows) > _CARD_SAMPLE_ROWS - 1 else "")
+    )
+    lines.append("Head:")
+    for row in data_rows[:_CARD_HEAD_ROWS]:
+        cells = [c[:_CARD_CELL_CAP] for c in row[:_CARD_MAX_COLS]]
+        lines.append("  " + " | ".join(cells))
+    return lines
+
+
+def build_data_card(path: Path, max_chars: int = _CARD_MAX_CHARS) -> str:
+    """Compact schema preview ("data card") of a data file for agent prompts.
+
+    The durable fix for schema-blindness: without this, experiments blind-guess
+    column names/dtypes and burn retry rounds (bit 3 models on CliniFact).
+    Stdlib-only (no pandas on the host). Never raises — unreadable/binary files
+    degrade to a name+size line.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return ""
+    if size > 1024 * 1024:
+        size_str = f"{size / (1024 * 1024):.1f} MB"
+    elif size > 1024:
+        size_str = f"{size / 1024:.1f} KB"
+    else:
+        size_str = f"{size} B"
+
+    lines = [f"### Data card: {path.name} ({size_str})"]
+    suffix = path.suffix.lower()
+    try:
+        if suffix in _CARD_TABULAR_EXTS:
+            lines += _tabular_card_lines(path)
+        elif suffix == ".json":
+            import json as _json
+
+            with open(path, encoding="utf-8", errors="replace") as f:
+                obj = _json.loads(f.read(512 * 1024))
+            if isinstance(obj, list):
+                lines.append(f"JSON array of {len(obj)} items")
+                if obj and isinstance(obj[0], dict):
+                    lines.append("Item keys: " + ", ".join(list(obj[0].keys())[:_CARD_MAX_COLS]))
+            elif isinstance(obj, dict):
+                lines.append(
+                    "JSON object; top-level keys: " + ", ".join(list(obj.keys())[:_CARD_MAX_COLS])
+                )
+        else:
+            # Unknown format: show the first text lines if it decodes at all.
+            with open(path, encoding="utf-8", errors="replace") as f:
+                head = [next(f, "").rstrip() for _ in range(3)]
+            head = [h[:120] for h in head if h and h.isprintable()]
+            if head:
+                lines.append("First lines:")
+                lines += [f"  {h}" for h in head]
+    except Exception:
+        lines.append("(contents not previewable)")
+
+    card = "\n".join(lines)
+    return card[:max_chars]
+
+
+def stage_local_dataset(path: Path, shared_dir: Path) -> list[ResolvedResource]:
+    """Copy a local dataset file or directory into the sandbox-visible shared data
+    dir and return DATA resources (with data-card summaries) for each staged file.
+
+    Names are sanitized; collisions get a numeric suffix. A directory stages up to
+    ``_STAGE_MAX_DIR_FILES`` regular files (flat copy of the tree). Raises
+    ``FileNotFoundError`` for a missing path — callers decide how loud to be.
+    """
+    import shutil as _shutil
+
+    src = Path(path).expanduser()
+    if not src.exists():
+        raise FileNotFoundError(f"Dataset path not found: {src}")
+
+    data_dir = shared_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    def _dest_for(name: str) -> Path:
+        base = _sanitize_dataset_name(name)
+        dest = data_dir / base
+        counter = 1
+        while dest.exists():
+            stem, dot, ext = base.partition(".")
+            dest = data_dir / f"{stem}-{counter}{dot}{ext}"
+            counter += 1
+        return dest
+
+    sources: list[Path]
+    if src.is_dir():
+        sources = sorted(p for p in src.rglob("*") if p.is_file())[:_STAGE_MAX_DIR_FILES]
+    else:
+        sources = [src]
+
+    staged: list[ResolvedResource] = []
+    for f in sources:
+        dest = _dest_for(f.name)
+        _shutil.copy2(f, dest)
+        staged.append(
+            ResolvedResource(
+                url=f"file://{f}",
+                resource_type=ResourceType.DATA,
+                name=dest.name,
+                local_path=str(dest),
+                sandbox_path=f"/data/shared/data/{dest.name}",
+                summary=f"Attached dataset '{dest.name}'",
+                size_bytes=dest.stat().st_size,
+            )
+        )
+    return staged

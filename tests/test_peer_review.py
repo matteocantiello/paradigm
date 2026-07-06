@@ -1328,3 +1328,58 @@ class TestEmptyEditorReview:
         # Editor failure surfaced, review skipped — no revision on invented feedback.
         display.review_editor_error.assert_called_once()
         display.review_revising.assert_not_called()
+
+
+class TestAttachedDatasets:
+    """CLI --data / GUI-uploaded datasets are staged into the sandbox-visible
+    shared data dir during seeding, with data-card schema previews in
+    state.data_context (visible to every discussion phase + the experimentalist)."""
+
+    @pytest.mark.asyncio
+    async def test_dataset_staged_and_carded_through_cycle(
+        self, mock_config, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        src = tmp_path / "observations.csv"
+        src.write_text("star,teff,amp\nHD1,31000,0.01\nHD2,29000,0.02\n")
+
+        factory = _make_writing_factory()
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+            display=MagicMock(),
+        )
+        await engine.run_research_cycle(
+            seed_prompt="Analyze the attached photometry",
+            mode="directed",
+            datasets=[str(src)],
+        )
+
+        staged = mock_config.storage.data_dir / "shared" / "data" / "observations.csv"
+        assert staged.exists()
+        assert "### Data card: observations.csv" in engine.state.data_context
+        assert "teff: int" in engine.state.data_context
+        assert "/data/shared/data/observations.csv" in engine.state.data_context
+
+    @pytest.mark.asyncio
+    async def test_missing_dataset_never_breaks_the_cycle(
+        self, mock_config, tmp_path, tmp_db, tmp_logger, mock_corpus
+    ):
+        factory = _make_writing_factory()
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=factory,
+            display=MagicMock(),
+        )
+        thread_id = await engine.run_research_cycle(
+            seed_prompt="Run with a bad dataset path",
+            mode="directed",
+            datasets=[str(tmp_path / "does-not-exist.csv")],
+        )
+        thread = tmp_db.get_thread(thread_id)
+        assert thread["status"] == "published"  # cycle completed regardless

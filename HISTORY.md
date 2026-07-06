@@ -5018,3 +5018,11 @@ Implemented all six families (each its own commit): A 9f81913 empty-output guard
 
 > let's commit and push. If I want this stuff on the vm (since it's merged in main) do I have to do anything after pulling?
 
+
+## Prompt 239 — Plan: dataset attachment + prompt pre-processing for the research loop
+
+> Ok. I think it's time to add 1) The option to add a data set when setting the research loop 2) A pre-processing of the prompt. We need a strong LLM model to take a first pass and create an improved prompt that is passed to the agents for the reserch loop (I think this is a standard procedure when asking an LLM). Let's plan first, then execute
+
+> yes let's proceed
+
+Approved: all 5 phases (data card + staging, backend upload API, frontend wizard attachment, prompt_refiner preprocessing, verification).
