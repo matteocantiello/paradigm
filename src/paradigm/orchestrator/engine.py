@@ -960,18 +960,9 @@ class OrchestrationEngine:
         # Set initial hypothesis from seed prompt
         self._db.update_thread(thread_id, hypothesis=seed_prompt)
 
-        # Prompt-preprocessing provenance: persist the user's ORIGINAL prompt and
-        # surface the refined brief now that the thread + event stream exist.
+        # Prompt-preprocessing provenance: persist the user's ORIGINAL prompt.
         if self.state.original_prompt:
             self._db.update_thread(thread_id, original_prompt=self.state.original_prompt)
-            self.emit_event(
-                "prompt.refined",
-                {
-                    "original_chars": len(self.state.original_prompt),
-                    "refined_chars": len(seed_prompt),
-                    "refined_prompt": seed_prompt[:4000],
-                },
-            )
 
         # Open the per-thread dashboard event stream now that the thread exists
         self._open_event_stream(thread_id)
@@ -987,6 +978,17 @@ class OrchestrationEngine:
                 },
             },
         )
+        # Surface the refined brief AFTER the stream opens (an emit before
+        # _open_event_stream is silently dropped — caught live in testing).
+        if self.state.original_prompt:
+            self.emit_event(
+                "prompt.refined",
+                {
+                    "original_chars": len(self.state.original_prompt),
+                    "refined_chars": len(seed_prompt),
+                    "refined_prompt": seed_prompt[:4000],
+                },
+            )
 
         self._logger.log(
             EventType.PHASE_TRANSITION,

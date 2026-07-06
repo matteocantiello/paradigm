@@ -1489,6 +1489,11 @@ class TestPromptRefiner:
         assert thread["original_prompt"] == original
         assert engine.state.seed_prompt.startswith("## Research Question")
         assert engine.state.original_prompt == original
+        # The prompt.refined event must reach the dashboard stream (a pre-fix
+        # version emitted it BEFORE the stream opened — silently dropped).
+        events_file = mock_config.storage.threads_dir / thread_id / "events.jsonl"
+        assert events_file.exists()
+        assert "prompt.refined" in events_file.read_text()
 
 
 class TestPromptRefinerFormatGuard:
