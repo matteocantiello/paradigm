@@ -45,6 +45,10 @@ from paradigm.orchestrator.constants import (
     _PHASE_ACTIVE_ROLES,
     _PHASE_CONTEXT_NEEDS,
     _PHASE_INSTRUCTIONS,
+    _PROMPT_REFINER_MAX_TOKENS,
+    _PROMPT_REFINER_MIN_RATIO,
+    _PROMPT_REFINER_PROMPT,
+    _PROMPT_REFINER_SYSTEM,
     _RECENT_MESSAGES_LIMIT,
     _SEARCH_ENABLED_PHASES,
     _SYNTHESIS_CLOSING_TEMPLATES,
@@ -321,7 +325,15 @@ class OrchestrationEngine:
         terminal-path side effects (thread status, displays, token summary)
         live INSIDE the stage that ends the cycle.
         """
+        # Pre-process the prompt into a structured research brief (strong-LLM first
+        # pass) BEFORE any downstream use — thread title, resource extraction,
+        # topics, requirements checklist and every agent prompt all see the brief.
+        original_prompt = seed_prompt
+        seed_prompt = await self._refine_seed_prompt(seed_prompt)
+
         self.state = ResearchState(seed_prompt=seed_prompt, mode=mode)
+        if seed_prompt != original_prompt:
+            self.state.original_prompt = original_prompt
         self.state.attached_datasets = [str(d) for d in (datasets or [])]
         await self._setup_team(mode, team_roles)
         await self._run_seeding_and_discovery(seed_prompt, mode)
@@ -360,6 +372,62 @@ class OrchestrationEngine:
 
         await self._finalize_cycle()
         return self.state.thread_id
+
+    async def _refine_seed_prompt(self, seed_prompt: str) -> str:
+        """One strong-LLM pass turning the raw prompt into a structured research
+        brief (role ``prompt_refiner``; see _PROMPT_REFINER_PROMPT).
+
+        Best-effort with hard guards: a failed/degenerate generation keeps the
+        original, and any URL the refiner drops is re-appended VERBATIM so the
+        resource pipeline can never lose an attachment.
+        """
+        if not getattr(self._config.orchestrator, "enable_prompt_preprocessing", False):
+            return seed_prompt
+        try:
+            provider, model, extra_body = self._config.get_provider_and_model_for_role(
+                "prompt_refiner"
+            )
+            prompt_text = _PROMPT_REFINER_PROMPT.format(seed_prompt=seed_prompt[:20000])
+            text, input_tokens, output_tokens = await asyncio.to_thread(
+                provider.complete,
+                model=model,
+                system=_PROMPT_REFINER_SYSTEM,
+                messages=[{"role": "user", "content": prompt_text}],
+                max_tokens=_PROMPT_REFINER_MAX_TOKENS,
+                temperature=0.3,
+                extra_body=extra_body,
+            )
+            self._db.record_token_usage(
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                agent_id="prompt_refiner",
+                thread_id=self.state.thread_id,
+            )
+            refined = strip_fences(text or "").strip()
+            # Degenerate-output guards: keep the original rather than run the whole
+            # cycle on a truncated, empty, or off-format generation. A valid brief
+            # is structured (## sections per the instructions) — anything else
+            # (refusal prose, stray JSON) must not replace the user's prompt.
+            if len(refined) < max(80, int(len(seed_prompt) * _PROMPT_REFINER_MIN_RATIO)):
+                return seed_prompt
+            if "## " not in refined:
+                return seed_prompt
+            # URL guard: the resource pipeline parses URLs from the seed prompt —
+            # anything the refiner dropped is re-appended verbatim.
+            missing = [u for u in extract_urls(seed_prompt) if u not in refined]
+            if missing:
+                refined += "\n\n## Resources (verbatim from the original request)\n" + "\n".join(
+                    missing
+                )
+            self._display.info(
+                f"Prompt refined into a research brief ({len(seed_prompt)} -> "
+                f"{len(refined)} chars, model {model})"
+            )
+            return refined
+        except Exception as e:
+            self._logger.log_error(e, thread_id=self.state.thread_id)
+            return seed_prompt
 
     async def _setup_team(self, mode: str, team_roles: list[str] | None) -> None:
         """Resolve team roles, pre-flight models, and create the agent team."""
@@ -891,6 +959,19 @@ class OrchestrationEngine:
 
         # Set initial hypothesis from seed prompt
         self._db.update_thread(thread_id, hypothesis=seed_prompt)
+
+        # Prompt-preprocessing provenance: persist the user's ORIGINAL prompt and
+        # surface the refined brief now that the thread + event stream exist.
+        if self.state.original_prompt:
+            self._db.update_thread(thread_id, original_prompt=self.state.original_prompt)
+            self.emit_event(
+                "prompt.refined",
+                {
+                    "original_chars": len(self.state.original_prompt),
+                    "refined_chars": len(seed_prompt),
+                    "refined_prompt": seed_prompt[:4000],
+                },
+            )
 
         # Open the per-thread dashboard event stream now that the thread exists
         self._open_event_stream(thread_id)

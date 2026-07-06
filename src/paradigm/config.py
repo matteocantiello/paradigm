@@ -169,6 +169,12 @@ class OrchestratorConfig(BaseModel):
     enable_checkpointing: bool = True
     checkpoint_interval: int = Field(default=5, gt=0)  # rounds (must be >0: used in modulo)
     enable_writing: bool = True
+    # Pre-process the seed prompt with a strong LLM (role "prompt_refiner") into a
+    # structured research brief before ANY downstream use (thread title, resource
+    # extraction, topics, requirements checklist, every agent prompt). The user's
+    # original is preserved (threads.original_prompt + prompt.refined event) and
+    # any URL the refiner drops is deterministically re-appended.
+    enable_prompt_preprocessing: bool = True
     # Extract the seed prompt's EXPLICIT deliverables once (one cheap LLM call) and
     # hold writer + editor to them: deliver each, or state plainly why not — so a
     # requested analysis can't silently degrade to nothing (a MIST-overlay ask

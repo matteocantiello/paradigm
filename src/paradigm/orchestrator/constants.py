@@ -715,6 +715,39 @@ _REQUIREMENTS_EXTRACT_PROMPT = (
 
 _REQUIREMENTS_MAX_ITEMS = 8
 
+# Prompt preprocessing: one strong-LLM pass that turns the raw user prompt into a
+# structured research brief before any downstream use. The refined brief REPLACES
+# the seed prompt for the whole cycle, so faithfulness rules are strict.
+_PROMPT_REFINER_SYSTEM = (
+    "You are a research-brief editor. You rewrite a user's research request into a "
+    "clear, well-structured brief for a team of AI research agents. You NEVER add "
+    "requirements, data, or claims the user did not state, and you never drop any."
+)
+
+_PROMPT_REFINER_PROMPT = (
+    "Rewrite the research request below into a structured research brief with these "
+    "sections (omit a section only if the request gives nothing for it):\n"
+    "## Research Question — the core question, sharpened but faithful\n"
+    "## Context — background the user provided or clearly implied\n"
+    "## Deliverables — every analysis/plot/comparison/output the user asked for, "
+    "as an explicit list\n"
+    "## Data & Resources — every URL, file, dataset, formula and code reference, "
+    "copied VERBATIM (do not reformat, shorten, or drop ANY)\n"
+    "## Constraints & Notes — caveats, conversions, methods the user specified\n\n"
+    "Strict rules:\n"
+    "- Preserve ALL URLs, file paths, numbers, formulae and code snippets EXACTLY.\n"
+    "- Do NOT invent requirements, datasets, or background facts.\n"
+    "- Do NOT answer the question or propose an approach — only restructure the ask.\n"
+    "- Keep it concise; plain language; no preamble.\n\n"
+    "## Research Request\n{seed_prompt}\n\n"
+    "Output ONLY the brief (no commentary before or after)."
+)
+
+_PROMPT_REFINER_MAX_TOKENS = 4096
+# A refined brief shorter than this fraction of the original is treated as a
+# degenerate generation and discarded (keep the original).
+_PROMPT_REFINER_MIN_RATIO = 0.25
+
 # Claim↔citation audit: the compiled bibliography guarantees every reference is a
 # REAL discovered paper, but not that it is the RIGHT paper for the claim citing it.
 _CITATION_AUDIT_PROMPT = (

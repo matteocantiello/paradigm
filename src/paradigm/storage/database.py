@@ -121,7 +121,9 @@ class Database:
         # Topic tags (broad arXiv-style fields), added idempotently. Stored as a
         # JSON list; classified by an agent at the start (the seed prompt) and
         # refreshed from the finished paper at the end of the cycle.
-        self._add_columns_if_missing(cursor, "threads", {"topics": "TEXT"})
+        self._add_columns_if_missing(
+            cursor, "threads", {"topics": "TEXT", "original_prompt": "TEXT"}
+        )
 
         # Research cycles table — the web/research-tab unit of work. Persisted so
         # the research tab survives a restart and orphaned runs can be marked

@@ -1383,3 +1383,128 @@ class TestAttachedDatasets:
         )
         thread = tmp_db.get_thread(thread_id)
         assert thread["status"] == "published"  # cycle completed regardless
+
+
+class TestPromptRefiner:
+    """Prompt preprocessing: a strong-LLM first pass turns the raw prompt into a
+    structured brief, with hard guards (URL preservation, degenerate fallback)."""
+
+    def _engine(self, monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus, refined_text):
+        provider = MagicMock()
+        provider.complete.return_value = (refined_text, 300, 150)
+        mock_config.orchestrator.enable_prompt_preprocessing = True
+        # patch_config_provider shadows Config methods with INSTANCE attributes
+        # (object.__setattr__), so override the same way — a class-level patch
+        # would stay shadowed.
+        object.__setattr__(
+            mock_config,
+            "get_provider_and_model_for_role",
+            MagicMock(return_value=(provider, "refiner-model", None)),
+        )
+        engine = OrchestrationEngine(
+            config=mock_config,
+            database=tmp_db,
+            corpus=mock_corpus,
+            logger=tmp_logger,
+            agent_factory=_make_writing_factory(),
+            display=MagicMock(),
+        )
+        return engine, provider
+
+    @pytest.mark.asyncio
+    async def test_refined_brief_replaces_prompt(
+        self, monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        original = "Please look into stochastic variability of massive stars " * 4
+        brief = (
+            "## Research Question\nWhat drives stochastic low-frequency variability?\n"
+            "## Deliverables\n- Correlation analysis\n- Trend plots\n" * 3
+        )
+        engine, provider = self._engine(
+            monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus, brief
+        )
+        out = await engine._refine_seed_prompt(original)
+        assert out.startswith("## Research Question")
+        provider.complete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dropped_urls_reappended_verbatim(
+        self, monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        original = (
+            "Study red noise using https://www.aanda.org/articles/aa/pdf/2020/08/aa38224-20.pdf "
+            "and https://arxiv.org/pdf/2605.23209 with the conversion ell propto T^4/g. " * 3
+        )
+        brief = "## Research Question\nOrigin of red noise in massive stars?\n" * 5  # no URLs
+        engine, _ = self._engine(monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus, brief)
+        out = await engine._refine_seed_prompt(original)
+        assert "https://www.aanda.org/articles/aa/pdf/2020/08/aa38224-20.pdf" in out
+        assert "https://arxiv.org/pdf/2605.23209" in out
+        assert "verbatim from the original request" in out
+
+    @pytest.mark.asyncio
+    async def test_degenerate_output_keeps_original(
+        self, monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        original = "A long and detailed research request about stellar physics. " * 20
+        engine, _ = self._engine(monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus, "ok.")
+        assert await engine._refine_seed_prompt(original) == original
+
+    @pytest.mark.asyncio
+    async def test_provider_error_keeps_original(
+        self, monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        engine, provider = self._engine(
+            monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus, "x"
+        )
+        provider.complete.side_effect = RuntimeError("model down")
+        original = "Prompt that must survive a refiner outage " * 5
+        assert await engine._refine_seed_prompt(original) == original
+
+    @pytest.mark.asyncio
+    async def test_disabled_flag_no_call(
+        self, monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        engine, provider = self._engine(
+            monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus, "x"
+        )
+        mock_config.orchestrator.enable_prompt_preprocessing = False
+        out = await engine._refine_seed_prompt("Original prompt")
+        assert out == "Original prompt"
+        provider.complete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_full_cycle_persists_original_prompt(
+        self, monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        original = "Investigate convective overshooting in intermediate-mass stars. " * 4
+        brief = (
+            "## Research Question\nHow does convective overshooting scale with mass?\n"
+            "## Deliverables\n- Model comparison\n" * 4
+        )
+        engine, _ = self._engine(monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus, brief)
+        thread_id = await engine.run_research_cycle(seed_prompt=original, mode="directed")
+        thread = tmp_db.get_thread(thread_id)
+        # The brief drove the cycle; the user's original is preserved on the thread.
+        assert thread["original_prompt"] == original
+        assert engine.state.seed_prompt.startswith("## Research Question")
+        assert engine.state.original_prompt == original
+
+
+class TestPromptRefinerFormatGuard:
+    @pytest.mark.asyncio
+    async def test_offformat_output_keeps_original(
+        self, monkeypatch, mock_config, tmp_db, tmp_logger, mock_corpus
+    ):
+        # Long enough to pass the length guard, but no "## " structure (e.g. a
+        # refusal or stray JSON) — must NOT replace the user's prompt.
+        engine, _ = TestPromptRefiner()._engine(
+            monkeypatch,
+            mock_config,
+            tmp_db,
+            tmp_logger,
+            mock_corpus,
+            '{"hypothesis": "x", "key_findings": []} ' * 10,
+        )
+        original = "Short prompt"
+        assert await engine._refine_seed_prompt(original) == original

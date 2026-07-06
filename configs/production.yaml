@@ -89,6 +89,10 @@ agent:
     # shares the max_tokens budget, so give it headroom → a truncated review can't
     # rubber-stamp or over-reject (the parsing bugs we just fixed).
     editor: { provider: anthropic, model: claude-sonnet-5, max_tokens: 16384 }
+    # Prompt refiner — the strong-model first pass that turns the raw user prompt
+    # into a structured research brief (orchestrator.enable_prompt_preprocessing).
+    # One call per cycle, so the premium model costs pennies.
+    prompt_refiner: { provider: anthropic, model: claude-opus-4-8 }
 
 # Code execution sandbox.
 # NOTE: experiments run real code here. It's network-isolated (network=none) and

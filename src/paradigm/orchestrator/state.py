@@ -34,6 +34,8 @@ class ResearchState:
     thread_id: str = ""
     seed_prompt: str = ""
     mode: str = "directed"
+    # The user's prompt as typed, when preprocessing rewrote it ("" otherwise).
+    original_prompt: str = ""
     start_time: float = field(default_factory=time.monotonic)
     # Wall-clock cycle start (epoch seconds) — comparable to file mtimes, so shared
     # workspace listings can tell files saved THIS run from earlier runs' leftovers.

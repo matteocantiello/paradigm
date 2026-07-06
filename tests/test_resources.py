@@ -429,7 +429,6 @@ class TestResolveResource:
 # Need httpx import for the exception test
 import httpx  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Data cards + local dataset staging
 # ---------------------------------------------------------------------------
@@ -445,8 +444,7 @@ class TestBuildDataCard:
         from paradigm.literature.resources import build_data_card
 
         rows = [["star_id", "teff", "logg", "sample"]] + [
-            [f"HD{i}", 30000 + i, 3.5 + i / 100, "galactic" if i % 3 else "smc"]
-            for i in range(50)
+            [f"HD{i}", 30000 + i, 3.5 + i / 100, "galactic" if i % 3 else "smc"] for i in range(50)
         ]
         f = _write_csv(tmp_path / "stars.csv", rows)
         card = build_data_card(f)

@@ -123,6 +123,7 @@ display:
 
 # Orchestrator configuration — FAST
 orchestrator:
+  enable_prompt_preprocessing: false  # deterministic test runs
   max_rounds_per_phase: 2          # was 10
   enable_checkpointing: true
   checkpoint_interval: 5
