@@ -5033,3 +5033,16 @@ Shipped all 5 phases: 5611891 data card + local dataset staging + CLI --data (la
 > Let's run a cycle with a dataset attached to test both features
 
 LIVE end-to-end validation (thread-b6082437d423, isolated session data dir, trimmed production config, ~50 min, 410k in / 121k out): BOTH features work. Refiner: Opus brief 964->1604 chars drove the whole cycle (thread title = brief; original_prompt persisted verbatim). Dataset: bowman_o_stars_slfv.csv staged + dataset.attached event + THE FIRST EXPERIMENT loaded /data/shared/data/bowman_o_stars_slfv.csv directly with exact real column names (log_nu_char_cpd, log_alpha0) - no schema guessing, zero synthetic data (0 mentions in the paper). All experiments succeeded; paper stats trace to workspace CSVs (nu_char-logTeff rho=0.665); 17 real arXiv refs; excellent Digest; deliverables checklist visible in the review; citation auditor ran. Outcome revision_exhausted (expected: review cap 2 for the test). ONE BUG caught+fixed: prompt.refined was emitted BEFORE _open_event_stream and silently dropped - moved after stream open + regression test asserting the event lands in events.jsonl.
+
+## Prompt 241 — Did prompt prefiltering improve output quality?
+
+> Did the quality of the final output improved adding the prompt prefiltering?
+
+Honest assessment given (single uncontrolled run — cannot attribute causally); A/B offered.
+> yes
+
+Approved the A/B: same raw red-noise prompt + same attached Bowman CSV + same trimmed config, preprocessing OFF (arm A) vs ON (arm B), isolated data dirs; score with eval judge + deliverables coverage.
+
+## Prompt 242 — A/B result: prompt prefiltering (refiner OFF vs ON)
+
+A/B ran (identical raw red-noise prompt + attached Bowman CSV + trimmed production config, isolated data dirs; ~40 min/arm, both revision_exhausted at the 2-iteration test cap). RESULT — refiner ON won every judge dimension (Sonnet-5 judge, multi-sample averages): novelty 3.7->5.0, rigor 4.0->6.0, clarity 6.7->8.0, significance 3.7->4.5, honesty 5.7->7.0 (composite 4.73->6.10); 4 real figures vs 2; 19 vs 17 refs; tighter body (31k vs 35k chars). Deliverables coverage TIED (6 delivered/1 acknowledged/0 silent both arms — the requirements checklist, active in both, already prevents silent drops; the refiner's lift shows up as focus/rigor/clarity instead). Cost of ON: +17% input tokens (~547k vs 466k), same output/wall time. Judge dinged OFF for "AI-pipeline artifacts (text-mining mention counts, oddly specific automated language)" leaking into the paper. CAVEAT: n=1 per arm, experiment stochasticity is large (both arms fabricated synthetic "MIST-like" tracks since the sandbox cannot download MIST grids). Also caught+fixed: eval judge max_tokens 512->1024 (thinking judge exhausted the budget -> None, same empty-output family).

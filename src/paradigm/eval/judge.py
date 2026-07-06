@@ -73,7 +73,9 @@ def judge_paper(
             model=model,
             system=_JUDGE_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=512,
+            # 1024, not 512: a thinking judge (Sonnet 5) can exhaust a tight
+            # budget before emitting the JSON and silently return None.
+            max_tokens=1024,
             extra_body=extra_body,
         )
     except Exception:
