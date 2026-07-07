@@ -357,6 +357,13 @@ class ReviewHandler:
         prev_required_count: int | None = None
         stall_count = 0
         iteration = 0
+        # Anti-moving-target: the editor's open blocking items, re-shown each
+        # iteration so later rounds track them instead of surfacing new nits.
+        prior_blocking: list[str] = []
+        # Last parsed review, for the budget-exhaustion rescue below: a paper
+        # with only MINOR items open must not die as revision_exhausted.
+        last_feedback = None
+        last_review_text = ""
 
         while iteration < hard_cap:
             iteration += 1
@@ -460,6 +467,18 @@ class ReviewHandler:
             # must be delivered or honestly acknowledged, never silently dropped.
             prompt += self._engine._writing.requirements_block(audience="editor")
 
+            # Anti-moving-target: later iterations verify the FIRST review's
+            # blocking items rather than raising fresh blockers for pre-existing
+            # nits (the churn that exhausts revision budgets).
+            if prior_blocking:
+                prompt += (
+                    "\n\n## Previously Required (Blocking) Changes\n"
+                    "Verify each was addressed. Do NOT add new blocking items unless "
+                    "the revision itself introduced them — a pre-existing issue you "
+                    "only just noticed belongs under Minor Changes.\n"
+                    + "\n".join(f"- {c}" for c in prior_blocking)
+                )
+
             response = None
             last_error = None
             for retry in range(_INTERNAL_REVIEW_MAX_RETRIES + 1):
@@ -539,9 +558,14 @@ class ReviewHandler:
                     "iteration": iteration,
                     "recommendation": feedback.recommendation,
                     "n_required_changes": len(feedback.required_changes),
+                    "n_blocking": len(feedback.blocking_changes),
                     "stage": "internal",
                 },
             )
+            last_feedback = feedback
+            last_review_text = response.content
+            if feedback.recommendation_explicit:
+                prior_blocking = list(feedback.blocking_changes)
 
             if feedback.recommendation == "reject":
                 # Paper fundamentally flawed — stop immediately
@@ -561,6 +585,22 @@ class ReviewHandler:
                 thread = self._engine._db.get_thread(self._engine.state.thread_id)
                 if thread and thread.get("current_draft_id"):
                     self._engine._db.update_paper(thread["current_draft_id"], status="reviewed")
+                return
+
+            # Accept-with-minor-revisions: "revise" with ZERO blocking items means
+            # the science stands — apply the cosmetic fixes in ONE final polish
+            # pass and accept, instead of burning (and possibly exhausting) the
+            # revision budget on nits. (A real paper died revision_exhausted one
+            # rounding-range sentence away from acceptance.)
+            if (
+                feedback.recommendation == "revise"
+                and feedback.recommendation_explicit
+                and not feedback.blocking_changes
+                and feedback.minor_changes
+            ):
+                await self._accept_with_minor_fixes(
+                    draft, current_body, response.content, len(feedback.minor_changes)
+                )
                 return
 
             # Trajectory-aware budget (see _review_keep_going): extend a converging
@@ -608,11 +648,53 @@ class ReviewHandler:
                 )
 
         # Loop ended without editor acceptance (max iterations or stalled revisions).
+        # Rescue: if the LAST review found no blocking issues, the paper is
+        # scientifically sound — accept with a final polish pass rather than
+        # letting the budget cap convert open cosmetics into a fatal rejection.
+        if (
+            last_feedback is not None
+            and last_feedback.recommendation_explicit
+            and not last_feedback.blocking_changes
+        ):
+            await self._accept_with_minor_fixes(
+                draft, current_body, last_review_text, len(last_feedback.minor_changes)
+            )
+            return
         self._engine._display.review_max_iterations()
         thread = self._engine._db.get_thread(self._engine.state.thread_id)
         if thread and thread.get("current_draft_id"):
             self._engine._db.update_paper(thread["current_draft_id"], status="revision_exhausted")
         self._engine._db.update_thread(self._engine.state.thread_id, status="revision_exhausted")
+
+    async def _accept_with_minor_fixes(
+        self,
+        draft: PaperDraft,
+        current_body: str,
+        review_text: str,
+        n_minor: int,
+    ) -> None:
+        """Accept a paper whose only open items are cosmetic.
+
+        Applies the minor changes in ONE final revision pass (no re-review — by
+        construction none of them can change a conclusion) and marks the paper
+        reviewed. Peer review still follows as usual.
+        """
+        self._engine._display.info(
+            f"Editor: no blocking issues ({n_minor} minor) — applying a final polish "
+            "pass and accepting."
+        )
+        self._engine.emit_event("review.accept_minor", {"n_minor": n_minor, "stage": "internal"})
+        if n_minor > 0:
+            revised = await self.run_revision(current_body, review_text)
+            # A failed/degenerate polish must not shrink the accepted paper.
+            if len(revised) >= _MIN_PAPER_LENGTH:
+                current_body = revised
+        draft.assembled_body = current_body
+        thread = self._engine._db.get_thread(self._engine.state.thread_id)
+        if thread and thread.get("current_draft_id"):
+            paper_id = thread["current_draft_id"]
+            self._engine._db.update_paper(paper_id, body=current_body, status="reviewed")
+            await asyncio.to_thread(self._engine._writing.save_paper_file, paper_id, current_body)
 
     async def run_revision(self, current_body: str, review_text: str) -> str:
         """Writer revises the paper based on review feedback.

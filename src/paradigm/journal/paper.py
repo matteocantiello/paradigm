@@ -61,6 +61,12 @@ class ReviewFeedback(BaseModel):
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
     required_changes: list[str] = Field(default_factory=list)
+    # Tiered changes: only BLOCKING items (science-invalidating) may prevent
+    # acceptance; MINOR items (wording/rounding/labels) are applied in one final
+    # polish pass without re-review. Legacy un-tiered reviews put everything in
+    # blocking_changes (conservative — reproduces the old behavior).
+    blocking_changes: list[str] = Field(default_factory=list)
+    minor_changes: list[str] = Field(default_factory=list)
     recommendation: str = "revise"  # "accept", "revise", or "reject"
     # True when a ## Recommendation section was actually parsed; False when the
     # review was incomplete (e.g. truncated before its recommendation) and the
@@ -390,9 +396,27 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
                 items.append(line)
         return [item for item in items if item]
 
+    def _drop_none(items: list[str]) -> list[str]:
+        """An explicit 'None' entry means the section is intentionally empty."""
+        return [i for i in items if i.strip().lower() not in ("none", "none.", "n/a")]
+
     strengths = _extract_list(sections.get("strengths", ""))
     weaknesses = _extract_list(sections.get("weaknesses", ""))
-    required_changes = _extract_list(sections.get("required changes", ""))
+    required_changes = _drop_none(_extract_list(sections.get("required changes", "")))
+    blocking_changes = _drop_none(_extract_list(sections.get("blocking changes", "")))
+    minor_changes = _drop_none(_extract_list(sections.get("minor changes", "")))
+
+    if (
+        blocking_changes
+        or minor_changes
+        or ("blocking changes" in sections or "minor changes" in sections)
+    ):
+        # Tiered review: required_changes stays the combined list for the
+        # convergence budget and any legacy consumer counting total work.
+        required_changes = blocking_changes + minor_changes
+    else:
+        # Legacy un-tiered review: treat everything as blocking (old behavior).
+        blocking_changes = list(required_changes)
 
     # Parse recommendation (reject is strongest signal, then accept, then revise)
     _revise_words = re.compile(r"\brevis(?:e|ion|ions)\b")
@@ -422,6 +446,8 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
         strengths=strengths,
         weaknesses=weaknesses,
         required_changes=required_changes,
+        blocking_changes=blocking_changes,
+        minor_changes=minor_changes,
         recommendation=recommendation,
         recommendation_explicit="recommendation" in sections,
     )
