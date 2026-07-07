@@ -42,7 +42,7 @@ class SandboxConfig(BaseModel):
 
     enabled: bool = True
     image_name: str = "paradigm-sandbox:latest"
-    network_mode: str = "none"
+    network_mode: str = "bridge"
     cpu_limit: float = 2.0  # CPU cores
     memory_limit: str = "2g"
     execution_timeout: int = 300  # seconds

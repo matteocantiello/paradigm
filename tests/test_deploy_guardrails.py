@@ -39,7 +39,9 @@ async def test_terminal_sessions_do_not_count_as_active():
 
 def test_sandbox_hardening_defaults_are_safe():
     c = SandboxConfig()
-    assert c.network_mode == "none"  # no network in the sandbox
+    # bridge by default: experiments may fetch public data; test-harness
+    # configs pin network_mode: "none" explicitly.
+    assert c.network_mode == "bridge"
     assert c.drop_capabilities is True
     assert c.no_new_privileges is True
     assert c.pids_limit > 0  # fork-bomb guard

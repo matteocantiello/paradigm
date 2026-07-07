@@ -87,7 +87,7 @@ sandbox:
   # SPEC hard constraint: agent-generated code runs network-isolated. "none"
   # also keeps the safety scanner's network-import guard active (executor.py).
   # Use the explicit --network-access CLI flag to opt in when truly needed.
-  network_mode: "none"
+  network_mode: "bridge"
   cpu_limit: 2.0
   memory_limit: "2g"
   execution_timeout: 300

@@ -27,7 +27,7 @@ Read `.planning/DECISIONS.md` before making architectural changes. Key constrain
 - **Orchestrator is plain Python** (not an agent, not a framework). It must be deterministic and debuggable.
 - **Agents are Claude API calls** with differentiated system prompts. No fine-tuning.
 - **SQLite + ChromaDB** for storage. Single-node only for now.
-- **Docker containers** for code execution sandbox. `--network=none`.
+- **Docker containers** for code execution sandbox. Network mode is `bridge` by default (experiments can fetch public data); test-harness configs pin `none`.
 - **Domain-agnostic**: No hardcoded scientific domain assumptions anywhere.
 - **Markdown** for paper format (with LaTeX math blocks).
 

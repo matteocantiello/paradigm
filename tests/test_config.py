@@ -18,7 +18,7 @@ def test_default_config():
     assert config.agent.default_model == "claude-sonnet-4-5-20250929"
     assert config.agent.max_tokens == 8192
     assert config.sandbox.enabled is True
-    assert config.sandbox.network_mode == "none"
+    assert config.sandbox.network_mode == "bridge"
     assert config.api_key == "test-key"
 
 
