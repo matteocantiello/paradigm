@@ -50,7 +50,11 @@ interface SetupWizardProps {
 }
 
 export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizardProps) {
-  const [step, setStep] = useState<Step>("Prompt");
+  // Opened from the hero console (or a retry) the prompt is already written —
+  // asking again is redundant. Skip straight to supervision + team.
+  const hasPrefill = (initialPrompt ?? "").trim().length >= MIN_PROMPT_CHARS;
+  const steps: Step[] = hasPrefill ? ["Mode", "Team", "Review"] : [...STEPS];
+  const [step, setStep] = useState<Step>(hasPrefill ? "Mode" : "Prompt");
   const [prompt, setPrompt] = useState(initialPrompt ?? "");
   const [mode, setMode] = useState("directed");
   const [interactive, setInteractive] = useState(false);
@@ -59,7 +63,7 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
 
   const { launch, stage, error, busy, uploadIndex, isRetry } = useLaunchCycle();
 
-  const stepIdx = STEPS.indexOf(step);
+  const stepIdx = steps.indexOf(step);
   const promptOk = prompt.trim().length >= MIN_PROMPT_CHARS;
   const teamOk = roles.length > 0;
   const canNext =
@@ -117,7 +121,7 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
 
         {/* Step indicators — horizontal progress bar */}
         <div className="flex items-center gap-0 mb-8 pr-8">
-          {STEPS.map((s, i) => (
+          {steps.map((s, i) => (
             <div key={s} className="flex items-center flex-1 last:flex-none">
               <div className="flex flex-col items-center gap-1.5">
                 <div
@@ -141,7 +145,7 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
                   {s}
                 </span>
               </div>
-              {i < STEPS.length - 1 && (
+              {i < steps.length - 1 && (
                 <div className={cn(
                   "flex-1 h-0.5 mx-2 mb-5 rounded-full",
                   i < stepIdx ? "bg-emerald-500/40" : "bg-border"
@@ -185,25 +189,6 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
 
           {step === "Mode" && (
             <div className="space-y-5">
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold mb-2">Research Mode</label>
-                {MODES.map((m) => (
-                  <button
-                    key={m.value}
-                    onClick={() => setMode(m.value)}
-                    className={cn(
-                      "w-full rounded-lg border p-3 text-left transition-all",
-                      mode === m.value
-                        ? "border-primary/50 bg-primary/5 glow-sm"
-                        : "border-border hover:border-primary/30 hover:bg-accent/30"
-                    )}
-                  >
-                    <div className="text-sm font-semibold">{m.label}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
-                  </button>
-                ))}
-              </div>
-
               <div>
                 <label className="block text-sm font-semibold mb-2">Supervision</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -241,6 +226,25 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
                     proceed with their own best choice.
                   </p>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold mb-2">Research Mode</label>
+                {MODES.map((m) => (
+                  <button
+                    key={m.value}
+                    onClick={() => setMode(m.value)}
+                    className={cn(
+                      "w-full rounded-lg border p-3 text-left transition-all",
+                      mode === m.value
+                        ? "border-primary/50 bg-primary/5 glow-sm"
+                        : "border-border hover:border-primary/30 hover:bg-accent/30"
+                    )}
+                  >
+                    <div className="text-sm font-semibold">{m.label}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{m.desc}</div>
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -348,7 +352,7 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
         {/* Navigation */}
         <div className="flex items-center justify-between mt-6">
           <button
-            onClick={stepIdx === 0 ? onClose : () => setStep(STEPS[stepIdx - 1])}
+            onClick={stepIdx === 0 ? onClose : () => setStep(steps[stepIdx - 1])}
             disabled={busy}
             className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/30 disabled:opacity-40 transition-all"
           >
@@ -371,7 +375,7 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
             </button>
           ) : (
             <button
-              onClick={() => setStep(STEPS[stepIdx + 1])}
+              onClick={() => setStep(steps[stepIdx + 1])}
               disabled={!canNext}
               className="flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-all"
             >

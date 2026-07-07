@@ -5053,3 +5053,13 @@ A/B ran (identical raw red-noise prompt + attached Bowman CSV + trimmed producti
 
 Approved scope: all three phases (landing redesign, setup wizard v2, interactive mode v1); prompt-first landing direction chosen.
 Shipped: (1) prompt-first landing — hero console on the Dashboard (question textarea + dataset chips + quick Launch + Configure opens the wizard prefilled), inline stats strip; (2) SetupWizard v2 — shared useLaunchCycle (resume-safe retry, per-file upload progress), DatasetPicker with client-side CSV/TSV schema peek, per-cycle Supervision choice (Autonomous/Interactive), real validation, Esc/X close; (3) interactive mode v1 — cycles.interactive flag through DB/store/routes/session; DecisionHook + engine decision points (hypothesis_selection over the full tournament ranked field with winners preselected; experiment_plan approval whose notes become an OPERATOR DIRECTIVE); structured decisions ride the approval WS channel (choices/multi_select/default_ids + notes/modifications now honored); ApprovalDialog upgraded to a decision dialog with choice cards + auto-continue countdown; InteractionBar (steering/pause/abort) re-enabled. 1918 tests green (+15 new), ruff/tsc/eslint/vite clean, headless visual pass.
+
+## Prompt 244 — Run the platform locally for interactive testing
+
+> Let's test. Let's run the platform locally and let me interact with it
+
+
+## Prompt 245 — Feedback: bridge network default + skip redundant prompt step in Configure
+
+> Netword mode should be bridge by default. When I click on configure, another window asking for a prompt pops up -- which is redundant. It should just ask what if we want an interactive or fully autonomous run, and which agents we want to enable
+
