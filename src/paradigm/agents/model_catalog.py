@@ -19,23 +19,32 @@ import time
 CURATED: dict[str, list[tuple[str, str]]] = {
     "anthropic": [
         ("claude-opus-4-8", "Claude Opus 4.8"),
+        ("claude-sonnet-5", "Claude Sonnet 5"),
         ("claude-opus-4-7", "Claude Opus 4.7"),
         ("claude-opus-4-6", "Claude Opus 4.6"),
         ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
         ("claude-haiku-4-5", "Claude Haiku 4.5"),
     ],
     "gemini": [
+        ("gemini-3.5-flash", "Gemini 3.5 Flash"),
+        ("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite"),
         ("gemini-2.5-pro", "Gemini 2.5 Pro"),
         ("gemini-2.5-flash", "Gemini 2.5 Flash"),
-        ("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite"),
     ],
+    # Open-weights via Together SERVERLESS (verified live 2026-07-07 — many
+    # catalog entries are dedicated-endpoint-only and fail on a plain key, e.g.
+    # GLM-4.7/GLM-5/DeepSeek-V3.1/Qwen3-Next). $/M in/out noted for reference.
+    # GLM-5.2 and Kimi are hybrid-REASONING models: hidden thinking (~1k tok/turn)
+    # bills as output and shares max_tokens — give those roles 16384 headroom.
     "together": [
-        ("meta-llama/Llama-3.3-70B-Instruct-Turbo", "Llama 3.3 70B Instruct Turbo"),
-        ("meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo", "Llama 3.1 405B Instruct Turbo"),
-        ("Qwen/Qwen2.5-72B-Instruct-Turbo", "Qwen2.5 72B Instruct Turbo"),
-        ("deepseek-ai/DeepSeek-V3", "DeepSeek V3"),
-        ("deepseek-ai/DeepSeek-R1", "DeepSeek R1"),
-        ("mistralai/Mixtral-8x7B-Instruct-v0.1", "Mixtral 8x7B Instruct"),
+        ("zai-org/GLM-5.2", "GLM 5.2 (1.40/4.40, #2 code arena)"),
+        ("moonshotai/Kimi-K2.6", "Kimi K2.6 (1.20/4.50)"),
+        ("moonshotai/Kimi-K2.7-Code", "Kimi K2.7 Code (0.95/4.00)"),
+        ("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro (1.74/3.48)"),
+        ("MiniMaxAI/MiniMax-M3", "MiniMax M3 (0.30/1.20)"),
+        ("MiniMaxAI/MiniMax-M2.7", "MiniMax M2.7 (0.30/1.20)"),
+        ("openai/gpt-oss-120b", "GPT-OSS 120B (0.15/0.60)"),
+        ("Qwen/Qwen3-235B-A22B-Instruct-2507-tput", "Qwen3 235B MoE (0.20/0.60)"),
     ],
     # A current top shortlist — use the GUI's "Refresh from API" for the exact set
     # your key can access (versions move fast). Reasoning models (gpt-5*, o*) are

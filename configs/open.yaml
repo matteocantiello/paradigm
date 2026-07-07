@@ -1,0 +1,173 @@
+# Paradigm OPEN-MODEL Configuration — the cheap(er) science machine
+#
+# Same pipeline as production.yaml, but every agent runs an OPEN-WEIGHTS model
+# served on TogetherAI serverless. Rationale (checked live 2026-07-07 against
+# api.together.xyz + the arena.ai code leaderboard):
+#   - GLM-5.2 (MIT) ranks #2 on the code arena — above Opus 4.8-thinking —
+#     at $1.40/$4.40 per M tokens (Opus-class output for ~1/5 the price).
+#   - Kimi K2.6 (#14) and MiniMax M3 (#16) both outrank gpt-5.5-high.
+#   - Rough cost for a production-shaped cycle (~0.9M in / 0.3M out incl.
+#     hidden reasoning): ~$2-3, vs ~$15-25 on the premium closed mix.
+#
+# CAVEATS (learned the hard way — do not "simplify" these away):
+#   - Serverless only: many Together catalog entries (GLM-4.7, GLM-5,
+#     DeepSeek-V3.1, Qwen3-Next, Kimi-K2.5) are DEDICATED-ENDPOINT-only and
+#     fail with model_not_available on a plain key. Every model below was
+#     verified serverless-live on 2026-07-07.
+#   - GLM-5.2 and Kimi K2.x are hybrid-REASONING models: ~1k hidden thinking
+#     tokens per turn, billed as output and sharing max_tokens — the same
+#     empty-output failure family as Sonnet-5 thinking. Roles on them get
+#     16384 headroom; the engine's empty-output guard + thin-turn retry are
+#     the backstop.
+#   - Family diversity is deliberate: the writer (GLM) is never graded by its
+#     own family (editor = Kimi, peer reviewers = MiniMax).
+#
+# Use it:  PARADIGM_CONFIG=configs/open.yaml
+# Needs:   TOGETHER_API_KEY (plus ANTHROPIC_API_KEY etc. only if you re-add
+#          closed models per-role in the GUI Agents panel).
+
+providers:
+  together:
+    type: openai_compatible
+    api_key_env: TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    default_model: MiniMaxAI/MiniMax-M3
+  # Closed providers stay REGISTERED (hidden in the picker without their key),
+  # so any role can be flipped back to a frontier model live from the GUI.
+  anthropic:
+    type: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+    default_model: claude-haiku-4-5
+  gemini:
+    type: openai_compatible
+    api_key_env: GEMINI_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    default_model: gemini-3.5-flash
+  openai:
+    type: openai_compatible
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    default_model: gpt-4.1-mini
+
+agent:
+  # Utility surface (tournament judge, citation auditor, topic tagger,
+  # convergence checks) runs on the default: MiniMax M3 — 0.30/1.20, 524k ctx,
+  # #16 on the code arena. The best judgment-per-dollar on Together.
+  default_model: "MiniMaxAI/MiniMax-M3"
+  opus_model: "MiniMaxAI/MiniMax-M3"
+  max_tokens: 8192
+  temperature: 1.0
+  token_budget_per_thread: 1000000
+  token_budget_per_agent: 150000
+  default_provider: together
+  overrides:
+    # Theorist — GLM-5.2: the top open reasoner frames the hypotheses.
+    theorist: { provider: together, model: zai-org/GLM-5.2, max_tokens: 16384 }
+    # Analyst — MiniMax M3: strong quantitative discussion at bulk-token prices
+    # (discussion rounds are the token-heaviest surface).
+    analyst: { provider: together, model: MiniMaxAI/MiniMax-M3 }
+    # Skeptic — Kimi K2.6: a DIFFERENT family pokes holes in GLM's theories.
+    skeptic: { provider: together, model: moonshotai/Kimi-K2.6, max_tokens: 16384 }
+    # Experimentalist — GLM-5.2: writes the experiment code where correctness
+    # matters most (#2 code arena). Alternative: moonshotai/Kimi-K2.7-Code
+    # (0.95/4.00, code-tuned) if you want family separation from the theorist.
+    experimentalist: { provider: together, model: zai-org/GLM-5.2, max_tokens: 16384 }
+    # Writer — GLM-5.2: the best open long-form model drafts the paper.
+    writer: { provider: together, model: zai-org/GLM-5.2, max_tokens: 16384 }
+    # Editor — Kimi K2.6: the internal review GATE deliberately comes from a
+    # different family than the writer (GLM must not grade GLM).
+    editor: { provider: together, model: moonshotai/Kimi-K2.6, max_tokens: 16384 }
+    # Synthesizer — gpt-oss-120b: cheap (0.15/0.60), no hidden-reasoning burn,
+    # verified non-empty on integration-style prompts.
+    synthesizer: { provider: together, model: openai/gpt-oss-120b }
+    # Peer reviewers — MiniMax M3: a third family reviews the submission.
+    reviewer: { provider: together, model: MiniMaxAI/MiniMax-M3 }
+    # Prompt refiner — GLM-5.2: one call per cycle, worth the flagship.
+    prompt_refiner: { provider: together, model: zai-org/GLM-5.2, max_tokens: 16384 }
+
+# Everything below mirrors production.yaml.
+sandbox:
+  enabled: true
+  image_name: "paradigm-sandbox:latest"
+  network_mode: "bridge"
+  cpu_limit: 2.0
+  memory_limit: "2g"
+  execution_timeout: 500
+  max_output_size: 10485760
+  pids_limit: 256
+  drop_capabilities: true
+  no_new_privileges: true
+  read_only_rootfs: false
+
+literature:
+  arxiv_rate_limit: 3.0
+  max_results_per_search: 30
+  enable_pdf_fetch: true
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  follow_budget_per_round: 2
+  cited_by_budget_per_round: 2
+  read_budget_per_round: 3
+  max_read_chars: 80000
+  max_citation_results: 10
+  max_reference_results: 20
+  mcp:
+    enabled: false
+
+storage:
+  data_dir: "./data"
+
+display:
+  stream_tokens: true
+  stream_chunk_min_chars: 12
+
+orchestrator:
+  max_rounds_per_phase: 2
+  enable_checkpointing: true
+  checkpoint_interval: 5
+  enable_writing: true
+  max_review_iterations: 3
+  enable_peer_review: true
+  num_reviewers: 2
+  max_revision_rounds: 2
+  enable_experimentation: true
+  max_searches_per_round: 3
+  enable_debates: true
+  enable_execution_sprints: true
+  enable_verification: false
+  human_gate_mode: "off"
+  human_gate_points: []
+
+skills:
+  skills_dir: "vendor/claude-scientific-skills/scientific-skills"
+  default_mode: "default"
+  max_skill_chars: null
+
+memory:
+  enabled: true
+  max_memories_per_prompt: 5
+  recency_half_life_days: 30.0
+  collection_name: "agent_memories"
+  max_memory_chars: 2000
+
+knowledge:
+  enable_world_model: true
+  world_model_max_context_chars: 3000
+  enable_evidence_graph: true
+  enable_hypothesis_tournament: true
+  tournament_population_size: 8
+  tournament_winners: 2
+  unified_hypotheses: true
+  hypothesis_dedup: embedding
+  hypothesis_dedup_threshold: 0.82
+  enable_preregistration: false
+
+journal:
+  enable_latex_output: true
+  compile_pdf: true
+
+citation:
+  corpus_grounded_citations: true
+  strip_ungrounded_citations: true
+  enable_citation_grounding: true
+  enable_novelty_check: false
+  enable_seed_discovery: true
