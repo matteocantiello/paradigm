@@ -1,14 +1,28 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCycles, useDeleteCycle, useResearchStats } from "@/hooks/useCycles";
 import { usePapers } from "@/hooks/usePapers";
+import { useLaunchCycle } from "@/hooks/useLaunchCycle";
 import { CycleCard } from "@/components/research/CycleCard";
 import { SetupWizard } from "@/components/research/SetupWizard";
+import { DatasetPicker } from "@/components/research/DatasetPicker";
 import { TopicBadges } from "@/components/shared/TopicBadges";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { isActiveStatus } from "@/lib/cycleStatus";
 import type { PaperSummary } from "@/api/client";
-import { Plus, Radio, FlaskConical, FileText, Zap, ArrowRight } from "lucide-react";
+import type { ReactNode } from "react";
+import {
+  ArrowRight,
+  FileText,
+  FlaskConical,
+  Loader2,
+  Radio,
+  SlidersHorizontal,
+  Sparkles,
+  Zap,
+} from "lucide-react";
+
+const MIN_PROMPT_CHARS = 15;
 
 function fmtCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
@@ -16,17 +30,13 @@ function fmtCompact(n: number): string {
   return `${n}`;
 }
 
-function StatTile({ icon: Icon, value, label }: { icon: typeof Zap; value: string; label: string }) {
+function StatInline({ icon: Icon, value, label }: { icon: typeof Zap; value: string; label: string }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-card/60 p-4 backdrop-blur-sm">
-      <div className="flex items-center gap-2 text-muted-foreground/70">
-        <Icon className="h-4 w-4 text-primary/70" />
-        <span className="text-[11px] font-medium uppercase tracking-[0.12em]">{label}</span>
-      </div>
-      <div className="mt-2 font-display text-3xl font-semibold leading-none tracking-tight text-foreground">
-        {value}
-      </div>
-    </div>
+    <span className="flex items-center gap-1.5 text-muted-foreground/80">
+      <Icon className="h-3.5 w-3.5 text-primary/60" />
+      <span className="font-mono text-sm text-foreground">{value}</span>
+      <span className="text-xs">{label}</span>
+    </span>
   );
 }
 
@@ -57,9 +67,91 @@ function SectionHeading({ children }: { children: ReactNode }) {
   );
 }
 
+/** The prompt-first hero console: type a question, attach data, launch. */
+function HeroConsole({
+  onConfigure,
+}: {
+  onConfigure: (prompt: string, files: File[]) => void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const { launch, stage, error, busy, uploadIndex, isRetry } = useLaunchCycle();
+
+  const ready = prompt.trim().length >= MIN_PROMPT_CHARS;
+
+  const handleLaunch = () => {
+    if (!ready || busy) return;
+    void launch({ prompt, files });
+  };
+
+  const stageLabel =
+    stage === "creating"
+      ? "Creating…"
+      : stage === "uploading"
+        ? `Uploading ${uploadIndex + 1}/${files.length}…`
+        : stage === "starting"
+          ? "Starting…"
+          : null;
+
+  return (
+    <div className="mx-auto max-w-2xl">
+      <div className="rounded-2xl border border-border/60 bg-card/70 p-4 backdrop-blur-sm panel-edge transition-all focus-within:border-primary/40 focus-within:glow-gold">
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              handleLaunch();
+            }
+          }}
+          placeholder="Pose a research question — the more specific, the better…"
+          maxLength={10000}
+          rows={3}
+          className="w-full resize-none bg-transparent text-[15px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none"
+        />
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-2 border-t border-border/40 pt-3">
+          <DatasetPicker files={files} onChange={setFiles} compact disabled={busy} />
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onConfigure(prompt, files)}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground disabled:opacity-40 transition-all"
+              title="Mode, team & supervision"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Configure
+            </button>
+            <button
+              type="button"
+              onClick={handleLaunch}
+              disabled={!ready || busy}
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-4 py-2 text-sm font-semibold text-primary-foreground hover:shadow-lg hover:shadow-primary/20 disabled:opacity-40 transition-all"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {stageLabel ?? (error && isRetry ? "Retry" : "Launch")}
+            </button>
+          </div>
+        </div>
+      </div>
+      {error ? (
+        <p className="mt-2 rounded-lg bg-red-500/10 p-2.5 text-center text-xs text-red-400">
+          {error}
+          {isRetry && " — Retry resumes the created cycle."}
+        </p>
+      ) : (
+        <p className="mt-2 text-center font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground/50">
+          ⌘↵ to launch · Configure for mode, team & interactive supervision
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function Dashboard() {
   const navigate = useNavigate();
-  const [showWizard, setShowWizard] = useState(false);
+  const [wizard, setWizard] = useState<{ prompt: string; files: File[] } | null>(null);
   const { data: cyclesData } = useCycles(0, 20);
   const { data: stats } = useResearchStats();
   const { data: papersData, isLoading: papersLoading } = usePapers("published", 0, 5);
@@ -69,35 +161,38 @@ export function Dashboard() {
   const papers = papersData?.items ?? [];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      {/* Header + the one true call to action. */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-[30px] font-semibold leading-none tracking-tight bg-gradient-to-br from-foreground via-foreground to-primary/70 bg-clip-text text-transparent">
-            Mission Control
-          </h1>
-          <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground/80">
-            what&apos;s running · what came out
-          </p>
+    <div className="mx-auto max-w-5xl space-y-10 stagger">
+      {/* Hero — the question comes first. */}
+      <section className="pt-6 text-center" style={{ "--i": 0 } as React.CSSProperties}>
+        <p className="font-mono text-[11px] uppercase tracking-[0.35em] text-primary/70">
+          ✦ Paradigm Observatory
+        </p>
+        <h1 className="mt-3 font-display text-[38px] font-semibold leading-tight tracking-tight bg-gradient-to-br from-foreground via-foreground to-primary/70 bg-clip-text text-transparent">
+          What should we investigate?
+        </h1>
+        <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
+          A team of AI scientists will survey the literature, run experiments in a
+          sandbox, and write a paper that faces peer review.
+        </p>
+        <div className="mt-6">
+          <HeroConsole onConfigure={(prompt, files) => setWizard({ prompt, files })} />
         </div>
-        <button
-          onClick={() => setShowWizard(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-4 py-2 text-sm font-medium text-primary-foreground transition-all hover:shadow-lg hover:shadow-primary/20"
-        >
-          <Plus className="h-4 w-4" />
-          New Research
-        </button>
-      </div>
+      </section>
 
-      {/* Headline stats. */}
-      <div className="grid grid-cols-3 gap-4">
-        <StatTile icon={FlaskConical} value={fmtCompact(stats?.total_cycles ?? 0)} label="Cycles run" />
-        <StatTile icon={FileText} value={fmtCompact(stats?.papers_published ?? 0)} label="Papers published" />
-        <StatTile icon={Zap} value={fmtCompact(stats?.total_tokens ?? 0)} label="Tokens used" />
+      {/* Observatory ledger — one quiet line. */}
+      <div
+        className="flex items-center justify-center gap-6"
+        style={{ "--i": 1 } as React.CSSProperties}
+      >
+        <StatInline icon={FlaskConical} value={fmtCompact(stats?.total_cycles ?? 0)} label="cycles" />
+        <span className="h-3 w-px bg-border" />
+        <StatInline icon={FileText} value={fmtCompact(stats?.papers_published ?? 0)} label="papers" />
+        <span className="h-3 w-px bg-border" />
+        <StatInline icon={Zap} value={fmtCompact(stats?.total_tokens ?? 0)} label="tokens" />
       </div>
 
       {/* Running now — the live work. */}
-      <section>
+      <section style={{ "--i": 2 } as React.CSSProperties}>
         <SectionHeading>
           <span className="flex items-center gap-1.5">
             {running.length > 0 && (
@@ -107,16 +202,9 @@ export function Dashboard() {
           </span>
         </SectionHeading>
         {running.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border/60 px-4 py-8 text-center">
-            <p className="text-sm text-muted-foreground">Nothing running right now.</p>
-            <button
-              onClick={() => setShowWizard(true)}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Start a research cycle
-            </button>
-          </div>
+          <p className="px-1 py-2 text-center text-sm text-muted-foreground/70">
+            Nothing running right now — the observatory is quiet.
+          </p>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {running.map((cycle) => (
@@ -127,14 +215,14 @@ export function Dashboard() {
       </section>
 
       {/* Latest papers — what came out. */}
-      <section>
+      <section style={{ "--i": 3 } as React.CSSProperties}>
         <SectionHeading>Latest papers</SectionHeading>
         {papersLoading ? (
           <div className="flex justify-center py-8">
             <LoadingSpinner />
           </div>
         ) : papers.length === 0 ? (
-          <p className="px-1 py-4 text-sm text-muted-foreground/70">
+          <p className="px-1 py-2 text-center text-sm text-muted-foreground/70">
             No published papers yet — they&apos;ll appear here as cycles finish.
           </p>
         ) : (
@@ -153,7 +241,13 @@ export function Dashboard() {
         )}
       </section>
 
-      {showWizard && <SetupWizard onClose={() => setShowWizard(false)} />}
+      {wizard && (
+        <SetupWizard
+          onClose={() => setWizard(null)}
+          initialPrompt={wizard.prompt}
+          initialFiles={wizard.files}
+        />
+      )}
     </div>
   );
 }

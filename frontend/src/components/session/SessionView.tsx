@@ -18,9 +18,9 @@ import { isTerminalStatus, isTerminalPhase } from "@/lib/cycleStatus";
 // revision_exhausted, …) is coerced to "completed" for display.
 const DISPLAY_STATUSES = new Set(["completed", "failed", "aborted"]);
 
-// Demo: hide the steering/control bar to foreground the autonomous flow.
-// Flip to true to bring back live steering + pause/abort.
-const SHOW_INTERACTION_BAR = false;
+// Live steering + pause/abort bar (guidance lands at the next round boundary).
+// Flip to false to foreground a purely autonomous demo flow.
+const SHOW_INTERACTION_BAR = true;
 import type { ConnectionStatus } from "@/api/websocket";
 import type {
   ActivityEvent,

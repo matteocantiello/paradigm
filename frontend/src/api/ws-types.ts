@@ -41,6 +41,14 @@ export interface ActivityEventMsg {
   timestamp: string;
 }
 
+/** A selectable option inside a structured decision request. */
+export interface DecisionChoice {
+  id: string;
+  label: string;
+  detail?: string;
+  score?: number;
+}
+
 export interface ApprovalRequestMsg {
   type: "approval_request";
   request_id: string;
@@ -49,6 +57,11 @@ export interface ApprovalRequestMsg {
   from_phase: string;
   to_phase: string;
   options: string[];
+  // Structured decisions (interactive mode); empty for plain approvals.
+  decision_type?: string;
+  choices?: DecisionChoice[];
+  multi_select?: boolean;
+  default_ids?: string[];
   timeout_seconds?: number | null;
   timestamp: string;
 }

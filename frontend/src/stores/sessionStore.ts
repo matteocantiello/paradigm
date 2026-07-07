@@ -182,7 +182,12 @@ interface SessionStoreState {
   // Actions
   connect: (sessionId: string) => void;
   disconnect: () => void;
-  sendApprovalResponse: (requestId: string, decision: "continue" | "pause" | "abort", notes?: string) => void;
+  sendApprovalResponse: (
+    requestId: string,
+    decision: "continue" | "pause" | "abort",
+    notes?: string,
+    modifications?: Record<string, unknown> | null
+  ) => void;
   sendSessionControl: (action: "pause" | "resume" | "checkpoint" | "rewind" | "abort") => void;
   sendUserMessage: (content: string, targetAgent?: string | null) => void;
   sendIntervention: (action: "redirect" | "constrain" | "inform", content: string, targetAgent?: string | null) => void;
@@ -273,12 +278,13 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     set({ ws: null, sessionId: null, connectionStatus: "disconnected" });
   },
 
-  sendApprovalResponse: (requestId, decision, notes) => {
+  sendApprovalResponse: (requestId, decision, notes, modifications) => {
     get().ws?.send({
       type: "approval_response",
       request_id: requestId,
       decision,
       notes: notes ?? "",
+      modifications: modifications ?? null,
     });
     set({ pendingApproval: null });
   },

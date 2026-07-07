@@ -27,6 +27,8 @@ export interface ResearchCycleCreate {
   seed_prompt: string;
   mode?: string;
   team_roles?: string[] | null;
+  /** Interactive supervision: the user approves key decisions during the run. */
+  interactive?: boolean;
   config_overrides?: Record<string, unknown> | null;
 }
 
@@ -46,6 +48,8 @@ export interface ResearchCycleResponse {
   resumed_from?: string | null;
   /** Host paths of datasets uploaded for this cycle. */
   datasets?: string[] | null;
+  /** Interactive supervision: the user approves key decisions during the run. */
+  interactive?: boolean;
   total_tokens?: number | null;
   elapsed_seconds?: number | null;
   created_at: string;
