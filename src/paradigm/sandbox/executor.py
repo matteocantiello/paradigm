@@ -288,6 +288,17 @@ class CodeExecutor:
         )
         result.safety_verdict = verdict
 
+        # Persist the console output next to the script — it's the experiment's
+        # primary data product (the RESULT[...] lines) and otherwise survives
+        # only as truncated event-log entries. Best-effort.
+        try:
+            if result.stdout:
+                (results_dir / "stdout.txt").write_text(result.stdout)
+            if result.stderr:
+                (results_dir / "stderr.txt").write_text(result.stderr)
+        except OSError as e:
+            _logger.warning("Could not persist stdout/stderr to %s: %s", results_dir, e)
+
         # Step 4: Log result
         self.logger.log_code_execution(
             agent_id=request.agent_id,

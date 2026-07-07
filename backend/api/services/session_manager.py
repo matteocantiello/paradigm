@@ -29,6 +29,21 @@ logger = logging.getLogger(__name__)
 # proceeds with the agents' own choice (also shown as a countdown in the GUI).
 APPROVAL_TIMEOUT_SECONDS = 300
 
+# Human-readable reasons for review-stage terminal thread statuses, persisted
+# as the cycle's status_detail so a rejected run isn't a bare "completed".
+_REVIEW_OUTCOME_DETAILS = {
+    "review_rejected": (
+        "Rejected at internal review — the editor judged the paper fundamentally flawed."
+    ),
+    "revision_exhausted": (
+        "Rejected at internal review — the revision budget ran out before the editor accepted."
+    ),
+    "rejected": "Rejected at peer review.",
+    "execution_failed": "Stopped before writing — no experiment produced usable output.",
+    "verification_failed": "Stopped — no experiment reproduced under verification.",
+    "prereg_failed": "Stopped — no falsifiable predictions could be frozen before execution.",
+}
+
 
 def _summarize_failure(exc: BaseException, phase: str | None) -> str:
     """A short, user-facing reason for a failed cycle.
@@ -355,6 +370,15 @@ class SessionManager:
                             thread = self._db.get_thread(thread_id)
                             if thread and thread.get("current_draft_id"):
                                 fields["paper_id"] = thread["current_draft_id"]
+                            # A rejected outcome must carry its reason — without
+                            # this the cycle shows a bare "completed" and the
+                            # operator can't tell it died in review.
+                            if (
+                                thread
+                                and not fields.get("status_detail")
+                                and thread.get("status") in _REVIEW_OUTCOME_DETAILS
+                            ):
+                                fields["status_detail"] = _REVIEW_OUTCOME_DETAILS[thread["status"]]
                     if state.current_phase:
                         fields["current_phase"] = state.current_phase
                     store.update(state.cycle_id, **fields)

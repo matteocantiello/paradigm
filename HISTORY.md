@@ -5074,3 +5074,13 @@ Diagnosis: steering had worked (both messages drained into planning round 1) —
 
 > look like the platform stopped
 
+
+## Prompt 248 — Analyze the run when it ends; identify bugs + improvements, plan next steps
+
+> When the run ends please analyze the outcome and identify possible bugs and area of improvement so that we can plan next steps
+
+
+## Prompt 249 — Implement A (review policy), B (thin-output guard), D (ops fixes)
+
+> let's tackle A,B and D
+

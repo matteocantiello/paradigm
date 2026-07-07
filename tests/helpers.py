@@ -200,7 +200,16 @@ def make_mock_agent(
     elif long_response:
         response_content = LONG_RESPONSE
     else:
-        response_content = f"Response from {agent_id}: I have ideas about this topic."
+        # Long enough to count as a substantive contribution (>200 chars after
+        # tag-stripping) — otherwise the engine's thin-output retry fires and
+        # every mocked turn is generated twice, breaking call-count assertions.
+        response_content = (
+            f"Response from {agent_id}: I have ideas about this topic. "
+            "The observed variability suggests a convective origin operating near "
+            "the iron opacity bump, which we can test by correlating the amplitude "
+            "with effective temperature and surface gravity across the sample and "
+            "checking the predicted scaling against the tabulated measurements."
+        )
 
     response = AgentResponse(
         content=response_content,

@@ -79,9 +79,11 @@ agent:
     # Writer — Claude Opus 4.8 for the final paper: best long-form markdown/LaTeX
     # and the most careful (fewest mistakes). Runs once + revisions → cost bounded.
     writer: { provider: anthropic, model: claude-opus-4-8, max_tokens: 16384 }
-    # Synthesizer / Reviewers — Gemini 3.5 Flash: fast + capable + cheap for
-    # integration and peer-review passes (3.5 Flash is a full generation over 2.5).
-    synthesizer: { provider: gemini, model: gemini-3.5-flash }
+    # Synthesizer — Claude Haiku 4.5: 3.5 Flash returned near-empty discussion
+    # turns half the time in live runs (17-57 chars from 3k-21k-token prompts);
+    # Haiku is comparably cheap and reliable for integration passes.
+    synthesizer: { provider: anthropic, model: claude-haiku-4-5-20251001 }
+    # Reviewers — Gemini 3.5 Flash: fast + capable + cheap for peer-review passes.
     reviewer: { provider: gemini, model: gemini-3.5-flash }
     # Editor — the internal review GATE. Claude Sonnet 5 (drop-in upgrade over
     # Sonnet 4.6, biggest gains in coding/agentic judgment; intro pricing $2/$10 in-

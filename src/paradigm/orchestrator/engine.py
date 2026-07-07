@@ -995,6 +995,8 @@ class OrchestrationEngine:
                     "rounds": self._config.orchestrator.max_rounds_per_phase,
                     "mode": mode,
                     "agents": participants,
+                    "sandbox_enabled": self._config.sandbox.enabled,
+                    "sandbox_network_mode": self._config.sandbox.network_mode,
                 },
             },
         )
@@ -1330,6 +1332,41 @@ class OrchestrationEngine:
 
             try:
                 response = await agent.generate(prompt)
+                # Thin-output retry: some providers intermittently return a
+                # near-empty turn from a huge prompt (observed live: 6/12
+                # synthesizer turns of 17-57 chars) — one retry usually recovers
+                # it. A thin turn that carries action tags ([SEARCH: …], [READ: …],
+                # [HYPOTHESIS: …]) is an INTENTIONAL action-only turn, not a dead
+                # one — never discard those. The discarded attempt's usage is
+                # accounted here; the adopted response through the normal path.
+                if not self._is_substantive_contribution(response.content) and not re.search(
+                    r"\[[A-Z_]{3,}:", response.content
+                ):
+                    self._logger.log_api_call(
+                        agent_id=agent_id,
+                        model=response.model,
+                        input_tokens=response.usage.input_tokens,
+                        output_tokens=response.usage.output_tokens,
+                        thread_id=self.state.thread_id,
+                    )
+                    self._db.record_token_usage(
+                        model=response.model,
+                        input_tokens=response.usage.input_tokens,
+                        output_tokens=response.usage.output_tokens,
+                        agent_id=agent_id,
+                        thread_id=self.state.thread_id,
+                    )
+                    self.emit_event(
+                        "warning.emitted",
+                        {
+                            "kind": "thin_contribution_retry",
+                            "message": (
+                                f"{agent_id}: {len(response.content)} chars — retrying the turn"
+                            ),
+                        },
+                        agent=agent_id,
+                    )
+                    response = await agent.generate(prompt)
             except Exception as e:
                 self._logger.log_error(e, agent_id=agent_id, thread_id=self.state.thread_id)
                 self._display.agent_error(agent_id, e)
