@@ -16,6 +16,7 @@ export type SystemState =
   | "working"
   | "thinking"
   | "awaiting"
+  | "pausing"
   | "paused"
   | "stalled"
   | "done"
@@ -59,6 +60,7 @@ export function useSystemState(): SystemStatus {
   const status = useSessionStore((s) => s.status);
   const currentPhase = useSessionStore((s) => s.currentPhase);
   const pendingApproval = useSessionStore((s) => s.pendingApproval);
+  const engineParked = useSessionStore((s) => s.engineParked);
   const lastActivityAt = useSessionStore((s) => s.lastActivityAt);
   const streaming = useSessionStore((s) => s.agentOutputs.some((o) => o.streaming));
 
@@ -96,6 +98,9 @@ export function useSystemState(): SystemStatus {
 
   switch (status) {
     case "paused":
+      // Pause requested ≠ engine parked: agents finish the current turn first.
+      if (!engineParked)
+        return { state: "pausing", tone: "think", label: "Pausing…", hint: "Finishing the current agent turn, then parking", idleSeconds };
       return { state: "paused", tone: "paused", label: "Paused", hint: "Click Resume (top right) to continue — you can also come back later", idleSeconds };
     case "completed":
       return { state: "done", tone: "ok", label: "Completed", hint: "The research cycle finished", idleSeconds };

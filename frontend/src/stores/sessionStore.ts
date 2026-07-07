@@ -32,6 +32,9 @@ export type AgentOutput = {
   streaming: boolean;
   startedAt: number; // ms epoch when the turn opened
   firstChunkAt: number | null; // ms epoch of first token (null = still "thinking")
+  // Operator steering bubbles only: queued locally → delivered (engine receipt).
+  delivery?: "queued" | "delivered";
+  deliveryInfo?: string; // e.g. "planning · round 1"
 };
 
 export type Notification = {
@@ -179,6 +182,10 @@ interface SessionStoreState {
   // Approval
   pendingApproval: ApprovalRequestMsg | null;
 
+  // True once the ENGINE has actually parked on the pause gate (vs. "pause
+  // requested, still finishing the current turn").
+  engineParked: boolean;
+
   // Actions
   connect: (sessionId: string) => void;
   disconnect: () => void;
@@ -233,6 +240,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   draft: { ...EMPTY_DRAFT },
   experiments: [],
   pendingApproval: null,
+  engineParked: false,
 
   connect: (sessionId: string) => {
     const existing = get().ws;
@@ -268,6 +276,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       draft: { ...EMPTY_DRAFT },
       experiments: [],
       pendingApproval: null,
+      engineParked: false,
     });
     ws.connect(sessionId);
   },
@@ -294,6 +303,28 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
 
   sendUserMessage: (content, targetAgent) => {
+    const text = content.trim();
+    if (!text) return;
+    // Mirror the backend's composed line exactly (session_manager prefixes the
+    // target) so the engine's delivery receipt can be matched back to this bubble.
+    const composed = targetAgent ? `(to ${targetAgent}) ${text}` : text;
+    const echo: AgentOutput = {
+      id: nextOutputId(),
+      agentId: "operator",
+      role: "operator",
+      content: composed,
+      model: "",
+      tokens: 0,
+      phase: get().currentPhase ?? "",
+      timestamp: new Date().toISOString(),
+      isFinal: true,
+      streamId: "",
+      streaming: false,
+      startedAt: Date.now(),
+      firstChunkAt: Date.now(),
+      delivery: "queued",
+    };
+    set((s) => ({ agentOutputs: [...s.agentOutputs.slice(-199), echo] }));
     get().ws?.send({
       type: "user_message",
       content,
@@ -339,6 +370,8 @@ function handleServerMessage(
         ...(msg.topics && msg.topics.length > 0 ? { topics: msg.topics } : {}),
         avgStepMs: msg.avg_step_ms ?? 0,
         phaseElapsedSeconds: msg.phase_elapsed_seconds ?? 0,
+        // A run that isn't paused can't be parked on the pause gate.
+        ...(msg.status !== "paused" ? { engineParked: false } : {}),
       });
       break;
 
@@ -471,6 +504,26 @@ function handleServerMessage(
       set((s) => ({
         notifications: [...s.notifications.slice(-99), notif],
       }));
+      // Structured live-steering signals (see backend ws_display):
+      if (m.category === "guidance_delivered") {
+        // Flip the oldest matching queued operator bubble to "delivered".
+        const phase = String(m.metadata?.phase ?? "");
+        const round = m.metadata?.round;
+        const info = phase ? `${phase}${round ? ` · round ${round}` : ""}` : "";
+        set((s) => {
+          const idx = s.agentOutputs.findIndex(
+            (o) => o.delivery === "queued" && o.content === m.message
+          );
+          if (idx === -1) return {};
+          const next = s.agentOutputs.slice();
+          next[idx] = { ...next[idx], delivery: "delivered", deliveryInfo: info };
+          return { agentOutputs: next };
+        });
+      } else if (m.category === "run_parked") {
+        set({ engineParked: true });
+      } else if (m.category === "run_resumed") {
+        set({ engineParked: false });
+      }
       break;
     }
 

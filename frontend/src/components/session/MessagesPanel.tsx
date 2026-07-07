@@ -79,6 +79,16 @@ export function MessagesPanel({ outputs }: MessagesPanelProps) {
                   thinking… {thinkingSecs}s
                 </span>
               )}
+              {out.delivery === "queued" && (
+                <span className="ml-auto rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-300 animate-pulse">
+                  queued — lands at the next agent turn
+                </span>
+              )}
+              {out.delivery === "delivered" && (
+                <span className="ml-auto rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">
+                  ✓ delivered{out.deliveryInfo ? ` · ${out.deliveryInfo}` : ""}
+                </span>
+              )}
             </div>
             {out.content && <Markdown>{out.content}</Markdown>}
             {out.streaming && !thinking && (

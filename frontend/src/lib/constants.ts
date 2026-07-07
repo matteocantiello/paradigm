@@ -8,6 +8,7 @@ import {
   PenTool,
   FileEdit,
   FileSearch,
+  UserRound,
 } from "lucide-react";
 
 // Agent theme map — mirrors src/paradigm/display/theme.py
@@ -63,6 +64,12 @@ export const AGENT_THEMES: Record<string, AgentTheme> = {
     icon: FileSearch,
     color: "text-teal-400",
     label: "Reviewer",
+  },
+  // The human steering the run (local-echo bubbles in the messages panel).
+  operator: {
+    icon: UserRound,
+    color: "text-primary",
+    label: "You",
   },
 };
 

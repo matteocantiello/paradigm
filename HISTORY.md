@@ -5063,3 +5063,9 @@ Shipped: (1) prompt-first landing — hero console on the Dashboard (question te
 
 > Netword mode should be bridge by default. When I click on configure, another window asking for a prompt pops up -- which is redundant. It should just ask what if we want an interactive or fully autonomous run, and which agents we want to enable
 
+
+## Prompt 246 — Responsiveness: steering/pause feel dead; plan a live digest + intervention surface
+
+> I am using the interactive bar, but when I send a message (tried to both the orchestrator and the skeptic) nothing really happens. The users feels like it's really hard to interact -- it's hard to understand what's happening (the message helps a bit, but there's a lot happening. It probably would be good to have a digest window next to it (probably the first to the left) that gives an overview of what's happening and possibly allows the user to better understand when to interact. For example surfacing possible questions or forks in the road. But again, the pause / restart buttons don't seem to do much, and the bar with send a message also seems unresponsive. In general responsiveness is the missing piece. Let's plan and see if we can find a way to improve this
+
+Diagnosis: steering had worked (both messages drained into planning round 1) — the gap was round-boundary-only latency + zero feedback. Shipped R1 turn-level responsiveness (pause gate + guidance drain before every agent turn; between-experiment checkpoints where steering becomes OPERATOR DIRECTIVEs; parked/resumed + delivery-receipt signals), R2 visible feedback (instant gold "You" bubble queued→delivered, Pausing… status until the engine actually parks, ≈eta hint in the steering bar), R3 Mission Digest panel (Now / So far / Ahead with per-phase intervention hints and decision-waiting banner). 1924 tests green (+6), builds clean, backend restarted.

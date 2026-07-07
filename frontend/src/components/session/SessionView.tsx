@@ -1,4 +1,5 @@
 import { useUiStore } from "@/stores/uiStore";
+import { DigestPanel } from "./DigestPanel";
 import { PhaseTracker } from "./PhaseTracker";
 import { NowPlaying } from "./NowPlaying";
 import { StatsBar } from "./StatsBar";
@@ -134,10 +135,13 @@ export function SessionView(props: SessionViewProps) {
         />
       )}
 
-      {/* 3-column layout */}
-      <div className="flex-1 grid grid-cols-[180px_1fr_1fr] gap-0 overflow-hidden border-b border-border">
+      {/* 3-column layout: digest + agents | conversation | detail panels */}
+      <div className="flex-1 grid grid-cols-[250px_1fr_1fr] gap-0 overflow-hidden border-b border-border">
         <div className="border-r border-border overflow-y-auto">
-          <AgentPanel activeAgents={props.activeAgents} />
+          <DigestPanel />
+          <div className="border-t border-border/60">
+            <AgentPanel activeAgents={props.activeAgents} />
+          </div>
         </div>
         <div className="border-r border-border overflow-hidden">
           <MessagesPanel outputs={props.agentOutputs} />

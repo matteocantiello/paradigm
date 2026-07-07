@@ -9,6 +9,11 @@ export function InteractionBar() {
   const sendSessionControl = useSessionStore((s) => s.sendSessionControl);
   const status = useSessionStore((s) => s.status);
   const activeAgents = useSessionStore((s) => s.activeAgents);
+  const avgStepMs = useSessionStore((s) => s.avgStepMs);
+
+  // Guidance is picked up before every agent turn — the wait is at most one
+  // turn, which the rolling per-turn average approximates.
+  const etaSecs = avgStepMs > 0 ? Math.max(5, Math.round(avgStepMs / 1000)) : null;
 
   const handleSend = useCallback(() => {
     const text = message.trim();
@@ -40,14 +45,24 @@ export function InteractionBar() {
           </option>
         ))}
       </select>
-      <input
-        type="text"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Steer the agents — applies at the next round (Ctrl+Enter)"
-        className="flex-1 rounded-lg border border-input bg-card px-4 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
-      />
+      <div className="relative flex-1">
+        <input
+          type="text"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Steer the agents — lands at the next agent turn (Ctrl+Enter)"
+          className="w-full rounded-lg border border-input bg-card px-4 py-2 pr-24 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
+        />
+        {etaSecs !== null && (
+          <span
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-[10px] text-muted-foreground/50"
+            title="Approximate wait until the next agent turn picks this up"
+          >
+            ≈{etaSecs}s
+          </span>
+        )}
+      </div>
       <button
         onClick={handleSend}
         disabled={!message.trim()}

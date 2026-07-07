@@ -225,3 +225,50 @@ Verified: 1918 tests green (15 new in test_interactive_mode.py), ruff clean,
 tsc+eslint+vite clean, headless-Chrome visual pass on landing + wizard.
 NOT verified live: a real interactive cycle exercising a decision gate end-to-end
 (needs a running backend + a watched session) — suggested next step.
+
+---
+
+# Plan — Responsiveness overhaul (Prompt 246, 2026-07-07)
+
+Diagnosis: steering DID reach the agents (both messages drained into planning
+round 1) — the problem is latency (round-boundary-only injection, none in
+EXECUTION/WRITING/REVIEW) + zero visible feedback (no echo, no receipt, pause
+parks minutes after the click).
+
+## R1 — Turn-level responsiveness (engine)
+- [ ] Pause gate + guidance drain before EVERY agent turn in discussion rounds
+      (was: once per round); guidance visible rest-of-round + next full round
+- [ ] Checkpoints between sandbox experiments: pause gate + drain; drained
+      guidance becomes an OPERATOR DIRECTIVE on planning_action_items
+- [ ] Emit structured "guidance delivered" + "run parked/resumed" signals (new
+      DisplayManager methods → WS notifications with categories)
+
+## R2 — Visible feedback (frontend)
+- [ ] Local echo: operator message renders instantly as a gold "You" bubble
+      (queued chip) in the messages panel
+- [ ] Delivery receipt: guidance_delivered notification flips chip to
+      "delivered (phase · round)"
+- [ ] Pause pending state: "Pausing… finishes current turn" until run_parked;
+      StatusPill gains Pausing; resume clears
+- [ ] InteractionBar hint: "lands in ≈Xs" from avgStepMs
+
+## R3 — Digest panel (left column)
+- [ ] DigestPanel (Now / So far / Ahead) derived from existing store state:
+      current activity narration; top hypotheses+Elo, papers, experiments ✓/✗,
+      draft sections; phase roadmap with intervention hints + pending gate
+- [ ] Left column widens, AgentPanel moves below the digest
+
+Deferred (R4): writing/review checkpoints + guidance, LLM narrator, fork events.
+
+## Review (Prompt 246) — DONE 2026-07-07
+R1: _interaction_checkpoint before EVERY discussion turn (park + drain);
+_execution_checkpoint between experiment rounds (steering → OPERATOR DIRECTIVE
+on planning_action_items, re-read each round); guidance buffer now (text, round)
+tuples visible rest-of-round + one full round, normalized to round 0 across
+phases; run_parked/run_resumed + guidance_delivered display methods across
+manager/fallback/ws adapters. R2: operator echo bubble (queued→delivered chip
+matched on the composed line), Pausing… state (paused && !engineParked),
+InteractionBar ≈eta hint. R3: DigestPanel (Now / So far / Ahead + per-phase
+intervention hints + decision-waiting banner), left column 250px.
+1924 tests green (+6 in test_responsiveness.py), ruff clean, vite clean.
+Backend restarted with changes live.
