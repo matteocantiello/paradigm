@@ -53,6 +53,7 @@ async def start_session(
         mode=cycle.mode,
         team_roles=cycle.team_roles,
         datasets=cycle.datasets,
+        interactive=cycle.interactive,
     )
     await manager.start_session(state.session_id)
 

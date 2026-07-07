@@ -148,11 +148,17 @@ class Database:
         # Added idempotently so existing databases pick up new columns without a
         # migration framework. status_detail = a short human reason for a terminal
         # (failed/aborted) cycle, surfaced in the research-tab UI. datasets = JSON
-        # list of uploaded local dataset paths attached to the cycle.
+        # list of uploaded local dataset paths attached to the cycle. interactive =
+        # 0/1 flag: the user approves key decisions during the run.
         self._add_columns_if_missing(
             cursor,
             "cycles",
-            {"resumed_from": "TEXT", "status_detail": "TEXT", "datasets": "TEXT"},
+            {
+                "resumed_from": "TEXT",
+                "status_detail": "TEXT",
+                "datasets": "TEXT",
+                "interactive": "INTEGER",
+            },
         )
 
         # Graveyard table (failed research)
@@ -544,6 +550,7 @@ class Database:
         team_roles: list[str] | None = None,
         created_at: Any | None = None,
         resumed_from: str | None = None,
+        interactive: bool = False,
     ) -> None:
         """Persist a new research cycle."""
         cursor = self.conn.cursor()
@@ -558,7 +565,26 @@ class Database:
             cursor.execute(
                 """
                 INSERT INTO cycles
-                    (cycle_id, seed_prompt, mode, status, team_roles, resumed_from, created_at)
+                    (cycle_id, seed_prompt, mode, status, team_roles, resumed_from,
+                     interactive, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    cycle_id,
+                    seed_prompt,
+                    mode,
+                    status,
+                    self._serialize_json(team_roles or []),
+                    resumed_from,
+                    int(interactive),
+                    created,
+                ),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO cycles
+                    (cycle_id, seed_prompt, mode, status, team_roles, resumed_from, interactive)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -568,22 +594,7 @@ class Database:
                     status,
                     self._serialize_json(team_roles or []),
                     resumed_from,
-                    created,
-                ),
-            )
-        else:
-            cursor.execute(
-                """
-                INSERT INTO cycles (cycle_id, seed_prompt, mode, status, team_roles, resumed_from)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    cycle_id,
-                    seed_prompt,
-                    mode,
-                    status,
-                    self._serialize_json(team_roles or []),
-                    resumed_from,
+                    int(interactive),
                 ),
             )
         self.conn.commit()

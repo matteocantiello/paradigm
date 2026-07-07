@@ -94,6 +94,13 @@ class ApprovalRequestMsg(BaseModel):
     from_phase: str = ""
     to_phase: str = ""
     options: list[str] = Field(default_factory=lambda: ["continue", "pause", "abort"])
+    # Structured decisions (interactive mode): a typed decision point with
+    # selectable choices (each {id, label, detail, score}). Plain phase-
+    # transition approvals leave these empty.
+    decision_type: str = ""
+    choices: list[dict[str, object]] = Field(default_factory=list)
+    multi_select: bool = False
+    default_ids: list[str] = Field(default_factory=list)
     timeout_seconds: int | None = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 

@@ -154,6 +154,7 @@ async def create_research_cycle(
         mode=body.mode,
         status=CycleStatus.PENDING,
         team_roles=body.team_roles,
+        interactive=body.interactive,
         created_at=now,
     )
     request.app.state.cycle_store.create(cycle)
@@ -288,6 +289,7 @@ async def resume_research_cycle(
         mode=prior.mode,
         status=CycleStatus.PENDING,
         team_roles=prior.team_roles,
+        interactive=prior.interactive,
         resumed_from=cycle_id,
         created_at=datetime.now(timezone.utc),
     )
@@ -299,6 +301,7 @@ async def resume_research_cycle(
         mode=prior.mode,
         team_roles=prior.team_roles,
         datasets=prior.datasets,
+        interactive=prior.interactive,
     )
     # Queue the continuation context + steering BEFORE the engine starts, so it's
     # drained into the first agent round.

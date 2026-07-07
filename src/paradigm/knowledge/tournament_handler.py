@@ -266,6 +266,10 @@ class TournamentHandler:
 
         return winners
 
+    def ranked_hypotheses(self) -> list[Hypothesis]:
+        """Full Elo-ranked hypothesis list from the last tournament ([] before one runs)."""
+        return list(self._last_population.ranked) if self._last_population is not None else []
+
     def get_tournament_data(self) -> dict[str, Any] | None:
         """Return serializable tournament data, or None if no tournament has run."""
         if self._last_population is None:

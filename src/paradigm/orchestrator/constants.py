@@ -5,6 +5,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from paradigm.orchestrator.phases import ResearchPhase
 from paradigm.sandbox.models import ExecutionResult
@@ -15,6 +16,13 @@ from paradigm.sandbox.models import ExecutionResult
 
 # Intervention hook type: called with (thread_id, from_phase, to_phase) → "continue"|"pause"|"abort"
 InterventionHook = Callable[[str, str, str], str]
+
+# Structured-decision hook (interactive mode): called with
+# (thread_id, decision_type, payload) where payload carries the GUI-renderable
+# fields (title, description, choices, multi_select, default_ids). Returns a
+# dict with at least {"decision": "continue"|"pause"|"abort"}, plus optional
+# "notes" (free text) and "modifications" (e.g. {"selected_ids": [...]}).
+DecisionHook = Callable[[str, str, dict[str, Any]], dict[str, Any]]
 
 # ---------------------------------------------------------------------------
 # Mode-specific prompt overrides (round_1 only)

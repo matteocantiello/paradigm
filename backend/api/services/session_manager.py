@@ -25,6 +25,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# How long an approval/decision prompt waits for the human before the run
+# proceeds with the agents' own choice (also shown as a countdown in the GUI).
+APPROVAL_TIMEOUT_SECONDS = 300
+
 
 def _summarize_failure(exc: BaseException, phase: str | None) -> str:
     """A short, user-facing reason for a failed cycle.
@@ -64,7 +68,8 @@ class SessionManager:
         self._sessions: dict[str, SessionState] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
         self._intervention_events: dict[str, asyncio.Event] = {}
-        self._intervention_responses: dict[str, str] = {}
+        # Full response per request: {"decision": ..., "notes": ..., "modifications": ...}
+        self._intervention_responses: dict[str, dict[str, Any]] = {}
         self._ws_connections: dict[str, set[WebSocket]] = {}
 
         # Cycle metadata (seed_prompt, mode, team_roles)
@@ -108,6 +113,7 @@ class SessionManager:
         mode: str = "directed",
         team_roles: list[str] | None = None,
         datasets: list[str] | None = None,
+        interactive: bool = False,
     ) -> SessionState:
         """Create a new session for a research cycle."""
         session_id = f"session-{secrets.token_hex(16)}"
@@ -130,6 +136,7 @@ class SessionManager:
             "mode": mode,
             "team_roles": team_roles,
             "datasets": datasets,
+            "interactive": interactive,
         }
 
         return state
@@ -196,16 +203,17 @@ class SessionManager:
 
             display = WebSocketDisplayAdapter(session_id, self)
 
-            # Create the intervention hook that bridges to WebSocket
-            # Only wire the blocking phase-transition approval gate for
-            # interactive sessions (human_gate_mode == "blocking"). Otherwise an
-            # unattended run would stall up to 5 min per transition waiting for
-            # an approval that never comes.
-            intervention_hook = (
-                self._make_intervention_hook(session_id)
-                if self._config.orchestrator.human_gate_mode == "blocking"
-                else None
-            )
+            # Create the intervention hook that bridges to WebSocket.
+            # Wired only for interactive runs — a per-cycle "interactive" flag
+            # from the setup wizard, or the global human_gate_mode="blocking"
+            # config. Otherwise an unattended run would stall up to 5 min per
+            # transition waiting for an approval that never comes.
+            interactive = bool(meta.get("interactive"))
+            wire_gates = interactive or self._config.orchestrator.human_gate_mode == "blocking"
+            intervention_hook = self._make_intervention_hook(session_id) if wire_gates else None
+            # Structured decisions (hypothesis selection, experiment-plan
+            # approval) ride the same approval channel.
+            decision_hook = self._make_decision_hook(session_id) if wire_gates else None
 
             # Load the domain profile first — it declares which SourceProviders
             # to build (arXiv, semantic_scholar, alphaXiv MCP, …).
@@ -257,6 +265,7 @@ class SessionManager:
                 logger=self._event_logger,
                 agent_factory=agent_factory,
                 intervention_hook=intervention_hook,
+                decision_hook=decision_hook,
                 display=display,
                 domain_profile=domain_profile,
                 pause_gate=resume_event.wait,
@@ -405,11 +414,70 @@ class SessionManager:
                 loop,
             )
             try:
-                return future.result(timeout=300)  # 5 min timeout
+                # Headroom past the coroutine's own timeout, which resolves first.
+                return future.result(timeout=APPROVAL_TIMEOUT_SECONDS + 30)
             except Exception:
                 return "continue"
 
         return hook
+
+    def _make_decision_hook(self, session_id: str):
+        """Like :meth:`_make_intervention_hook`, but for STRUCTURED decisions.
+
+        The engine sends a payload (title, description, choices, default_ids)
+        that renders as a decision dialog in the GUI; the full response dict
+        (decision + notes + modifications) is returned to the engine. Same
+        thread-bridging rules as the plain hook.
+        """
+        loop = asyncio.get_running_loop()
+
+        def hook(thread_id: str, decision_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+            future = asyncio.run_coroutine_threadsafe(
+                self._request_decision(session_id, decision_type, payload),
+                loop,
+            )
+            try:
+                return future.result(timeout=APPROVAL_TIMEOUT_SECONDS + 30)
+            except Exception:
+                return {"decision": "continue"}
+
+        return hook
+
+    async def _request_decision(
+        self,
+        session_id: str,
+        decision_type: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Send a structured decision request via WebSocket and wait for the response."""
+        request_id = f"decision-{secrets.token_hex(8)}"
+        event = asyncio.Event()
+        self._intervention_events[request_id] = event
+
+        await self._broadcast(
+            session_id,
+            ApprovalRequestMsg(
+                request_id=request_id,
+                title=str(payload.get("title") or decision_type),
+                description=str(payload.get("description") or ""),
+                from_phase=str(payload.get("from_phase") or ""),
+                to_phase=str(payload.get("to_phase") or ""),
+                decision_type=decision_type,
+                choices=list(payload.get("choices") or []),
+                multi_select=bool(payload.get("multi_select", False)),
+                default_ids=[str(x) for x in payload.get("default_ids") or []],
+                timeout_seconds=APPROVAL_TIMEOUT_SECONDS,
+            ),
+        )
+
+        try:
+            await asyncio.wait_for(event.wait(), timeout=APPROVAL_TIMEOUT_SECONDS)
+        except TimeoutError:
+            self._intervention_responses[request_id] = {"decision": "continue"}
+
+        response = self._intervention_responses.pop(request_id, {"decision": "continue"})
+        self._intervention_events.pop(request_id, None)
+        return response
 
     async def _request_approval(
         self,
@@ -444,24 +512,35 @@ class SessionManager:
                 description=description,
                 from_phase=from_phase,
                 to_phase=to_phase,
+                timeout_seconds=APPROVAL_TIMEOUT_SECONDS,
             ),
         )
 
         # Wait for response (timeout after 5 minutes, default to continue)
         try:
-            await asyncio.wait_for(event.wait(), timeout=300)
+            await asyncio.wait_for(event.wait(), timeout=APPROVAL_TIMEOUT_SECONDS)
         except TimeoutError:
-            self._intervention_responses[request_id] = "continue"
+            self._intervention_responses[request_id] = {"decision": "continue"}
 
-        response = self._intervention_responses.pop(request_id, "continue")
+        response = self._intervention_responses.pop(request_id, {"decision": "continue"})
         self._intervention_events.pop(request_id, None)
-        return response
+        return str(response.get("decision", "continue"))
 
-    async def respond_to_approval(self, request_id: str, decision: str) -> None:
-        """Process a frontend approval response."""
+    async def respond_to_approval(
+        self,
+        request_id: str,
+        decision: str,
+        notes: str = "",
+        modifications: dict[str, Any] | None = None,
+    ) -> None:
+        """Process a frontend approval/decision response."""
         if decision not in ("continue", "pause", "abort"):
             decision = "continue"
-        self._intervention_responses[request_id] = decision
+        self._intervention_responses[request_id] = {
+            "decision": decision,
+            "notes": notes or "",
+            "modifications": modifications,
+        }
         event = self._intervention_events.get(request_id)
         if event is not None:
             event.set()

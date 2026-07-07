@@ -52,6 +52,7 @@ from paradigm.orchestrator.constants import (
     _RECENT_MESSAGES_LIMIT,
     _SEARCH_ENABLED_PHASES,
     _SYNTHESIS_CLOSING_TEMPLATES,
+    DecisionHook,
     InterventionHook,
 )
 from paradigm.orchestrator.debate import DebateHandler
@@ -85,6 +86,7 @@ class OrchestrationEngine:
         logger: EventLogger,
         agent_factory: AgentFactory,
         intervention_hook: InterventionHook | None = None,
+        decision_hook: DecisionHook | None = None,
         memory_store: Any | None = None,
         display: DisplayManager | None = None,
         domain_profile: Any | None = None,
@@ -102,6 +104,10 @@ class OrchestrationEngine:
             agent_factory: Factory for creating agents.
             intervention_hook: Optional callback invoked before certain phase transitions.
                 Returns "continue", "pause", or "abort".
+            decision_hook: Optional callback for STRUCTURED human decisions
+                (interactive mode) — hypothesis selection, experiment-plan
+                approval. Returns a dict with "decision" plus optional
+                "notes"/"modifications".
             memory_store: Optional AgentMemoryStore for cross-cycle episodic memory.
             display: Optional DisplayManager for terminal output.
             domain_profile: Optional DomainProfile. If None, loaded from config.domain.
@@ -112,6 +118,7 @@ class OrchestrationEngine:
         self._logger = logger
         self._factory = agent_factory
         self._intervention_hook = intervention_hook
+        self._decision_hook = decision_hook
         self._memory_store = memory_store
         self._profile = domain_profile
         # Optional async gate (supplied by the backend) that blocks while the
@@ -596,6 +603,11 @@ class OrchestrationEngine:
         if self._config.knowledge.enable_hypothesis_tournament:
             winners = await self._tournament.run_tournament()
             if winners:
+                # Interactive mode: the human confirms/edits the winner set.
+                selected = await self._decide_hypothesis_selection(winners)
+                if selected is None:
+                    return True
+                winners = selected
                 # Carry winners forward so PRE_REGISTRATION (1A) can freeze rules for them.
                 self.state.selected_hypotheses = list(winners)
                 self._emit_knowledge_update()
@@ -653,7 +665,13 @@ class OrchestrationEngine:
         Returns True when the cycle must stop (intervention, prereg failure/gate,
         no usable experiment output, or verification failure/gate).
         """
-        if await self._intervention_gate("planning", "execution"):
+        # Interactive mode gets the STRUCTURED plan-approval decision (which
+        # subsumes the plain continue/pause/abort gate); otherwise the classic
+        # phase-transition intervention gate.
+        if self._decision_hook is not None:
+            if await self._decide_experiment_plan():
+                return True
+        elif await self._intervention_gate("planning", "execution"):
             return True
 
         # Phase 3.4: PRE_REGISTRATION (1A, optional) — freeze falsifiable
@@ -1799,6 +1817,135 @@ class OrchestrationEngine:
         if result not in ("continue", "pause", "abort"):
             return "continue"
         return result
+
+    async def _check_decision(self, decision_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Ask the human for a structured decision (interactive mode).
+
+        Like :meth:`_check_intervention`, the hook may BLOCK on a GUI response,
+        so it runs off the event loop. Returns at least ``{"decision":
+        continue|pause|abort}``; ``"modifications"``/``"notes"`` carry the
+        structured choice. No hook (autonomous run) → continue.
+        """
+        if self._decision_hook is None:
+            return {"decision": "continue"}
+        try:
+            result = await asyncio.to_thread(
+                self._decision_hook, self.state.thread_id, decision_type, payload
+            )
+        except Exception as e:  # a steering hiccup must never kill the cycle
+            self._logger.log_error(e, thread_id=self.state.thread_id)
+            return {"decision": "continue"}
+        if not isinstance(result, dict) or result.get("decision") not in (
+            "continue",
+            "pause",
+            "abort",
+        ):
+            return {"decision": "continue"}
+        return result
+
+    def _apply_decision_action(self, decision: dict[str, Any]) -> bool:
+        """Apply the pause/abort action of a structured decision.
+
+        Returns True when the cycle must stop here (mirrors
+        :meth:`_intervention_gate`'s handling of the plain hook).
+        """
+        action = decision.get("decision", "continue")
+        if action == "abort":
+            self._db.update_thread(self.state.thread_id, status="aborted")
+            self._display.phase_aborted()
+            return True
+        if action == "pause":
+            self._db.update_thread(self.state.thread_id, status="paused")
+            self._display.phase_paused()
+            return True
+        return False
+
+    async def _decide_hypothesis_selection(self, winners: list[Any]) -> list[Any] | None:
+        """Interactive mode: let the human pick which hypotheses to carry forward.
+
+        The tournament's full ranked field is offered with the winners
+        preselected; the user may keep, narrow, or broaden the set. Free-text
+        notes are staged as guidance for the next discussion round. Returns the
+        selection, or None when the user paused/aborted the cycle. Autonomous
+        runs (no decision hook) keep the tournament winners untouched.
+        """
+        if self._decision_hook is None:
+            return winners
+        ranked = self._tournament.ranked_hypotheses() or list(winners)
+        payload: dict[str, Any] = {
+            "title": "Choose the hypotheses to investigate",
+            "description": (
+                "The tournament ranked the team's hypotheses by Elo. The winners "
+                "are preselected — keep them, or change the set to carry forward."
+            ),
+            "from_phase": "ideation",
+            "to_phase": "planning",
+            "multi_select": True,
+            "default_ids": [h.id for h in winners],
+            "choices": [
+                {
+                    "id": h.id,
+                    "label": h.statement,
+                    "detail": (h.rationale or "")[:280],
+                    "score": round(h.elo_rating),
+                }
+                for h in ranked
+            ],
+        }
+        decision = await self._check_decision("hypothesis_selection", payload)
+        if self._apply_decision_action(decision):
+            return None
+        modifications = decision.get("modifications") or {}
+        selected_ids = modifications.get("selected_ids") if isinstance(modifications, dict) else []
+        by_id = {h.id: h for h in ranked}
+        chosen = [by_id[i] for i in selected_ids or [] if i in by_id]
+        if chosen:
+            winners = chosen
+            self._display.info(
+                f"[your decision] {len(chosen)} hypothesis(es) selected for investigation"
+            )
+        notes = str(decision.get("notes") or "").strip()
+        if notes:
+            self._pending_guidance.append(notes)
+        self.emit_event(
+            "decision.hypothesis_selection",
+            {"selected": [h.id for h in winners], "notes": notes[:500]},
+        )
+        return winners
+
+    async def _decide_experiment_plan(self) -> bool:
+        """Interactive mode: present the experiment plan before execution.
+
+        The human sees the action items extracted from PLANNING and can approve,
+        add directives (appended to the plan the experimentalist receives),
+        pause, or abort. Returns True when the cycle must stop here.
+        """
+        plan = self.state.planning_action_items.strip()
+        payload: dict[str, Any] = {
+            "title": "Approve the experiment plan",
+            "description": plan
+            or (
+                "No explicit action items were extracted from PLANNING — the "
+                "experimentalist will design experiments from the discussion."
+            ),
+            "from_phase": "planning",
+            "to_phase": "execution",
+            "choices": [],
+        }
+        decision = await self._check_decision("experiment_plan", payload)
+        if self._apply_decision_action(decision):
+            return True
+        notes = str(decision.get("notes") or "").strip()
+        if notes:
+            # Appended to the plan itself — round-boundary guidance only reaches
+            # discussion phases, which EXECUTION doesn't run.
+            prefix = f"{self.state.planning_action_items}\n\n" if plan else ""
+            self.state.planning_action_items = (
+                f"{prefix}OPERATOR DIRECTIVE (must be honored): {notes}"
+            )
+            self._display.info(f"[your directive] {notes}")
+        self.emit_event("decision.experiment_plan", {"notes": notes[:500]})
+        return False
 
     async def _human_gate(self, point: str, payload: str = "") -> str:
         """Config-driven human gate (1E) at a named point.

@@ -99,7 +99,9 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
             try:
                 if msg_type == "approval_response":
                     msg = ApprovalResponseMsg(**data)
-                    await manager.respond_to_approval(msg.request_id, msg.decision)
+                    await manager.respond_to_approval(
+                        msg.request_id, msg.decision, msg.notes, msg.modifications
+                    )
 
                 elif msg_type == "session_control":
                     msg = SessionControlMsg(**data)

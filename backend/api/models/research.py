@@ -28,6 +28,9 @@ class ResearchCycleCreate(BaseModel):
     seed_prompt: str = Field(..., min_length=1, max_length=10000)
     mode: str = Field(default="directed", pattern=r"^(directed|explore|test)$")
     team_roles: list[str] | None = None
+    # Interactive supervision: the user approves key decisions during the run
+    # (hypothesis selection, experiment plan, phase transitions).
+    interactive: bool = False
     config_overrides: dict[str, object] | None = None
 
 
@@ -60,6 +63,8 @@ class ResearchCycleResponse(BaseModel):
     # Host paths of datasets uploaded for this cycle (staged into the sandbox
     # shared data dir when the session starts).
     datasets: list[str] | None = None
+    # Interactive supervision: the user approves key decisions during the run.
+    interactive: bool = False
     # End-of-run stats, backfilled from the thread for the terminal summary
     # (None when unknown — e.g. before the cycle has a thread).
     total_tokens: int | None = None

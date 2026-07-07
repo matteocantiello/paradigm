@@ -48,6 +48,7 @@ class CycleStore:
             resumed_from=row.get("resumed_from"),
             status_detail=row.get("status_detail"),
             datasets=row.get("datasets"),
+            interactive=bool(row.get("interactive") or 0),
             created_at=row["created_at"],
             updated_at=row.get("updated_at"),
         )
@@ -62,6 +63,7 @@ class CycleStore:
                 cycle.team_roles,
                 cycle.created_at,
                 cycle.resumed_from,
+                cycle.interactive,
             )
         else:
             self._mem[cycle.cycle_id] = cycle
