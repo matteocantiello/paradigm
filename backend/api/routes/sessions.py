@@ -54,6 +54,7 @@ async def start_session(
         team_roles=cycle.team_roles,
         datasets=cycle.datasets,
         interactive=cycle.interactive,
+        model_tier=cycle.model_tier,
     )
     await manager.start_session(state.session_id)
 

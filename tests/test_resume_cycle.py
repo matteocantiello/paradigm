@@ -44,7 +44,14 @@ class FakeManager:
     max_concurrent_sessions = 4
 
     async def create_session(
-        self, cycle_id, seed_prompt, mode, team_roles, datasets=None, interactive=False
+        self,
+        cycle_id,
+        seed_prompt,
+        mode,
+        team_roles,
+        datasets=None,
+        interactive=False,
+        model_tier=None,
     ):
         self._n += 1
         return SimpleNamespace(

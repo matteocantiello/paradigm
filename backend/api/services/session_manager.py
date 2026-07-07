@@ -129,6 +129,7 @@ class SessionManager:
         team_roles: list[str] | None = None,
         datasets: list[str] | None = None,
         interactive: bool = False,
+        model_tier: str | None = None,
     ) -> SessionState:
         """Create a new session for a research cycle."""
         session_id = f"session-{secrets.token_hex(16)}"
@@ -152,6 +153,7 @@ class SessionManager:
             "team_roles": team_roles,
             "datasets": datasets,
             "interactive": interactive,
+            "model_tier": model_tier,
         }
 
         return state
@@ -210,6 +212,7 @@ class SessionManager:
         try:
             # Import here to avoid startup dependency
             # Create the WebSocket display adapter
+            from backend.api.services.model_tiers import apply_tier
             from backend.api.services.ws_display import WebSocketDisplayAdapter
             from paradigm.agents.factory import AgentFactory
             from paradigm.literature.corpus import Corpus
@@ -218,13 +221,18 @@ class SessionManager:
 
             display = WebSocketDisplayAdapter(session_id, self)
 
+            # Per-cycle model tier (wizard's Models toggle): graft the chosen
+            # tier's agent mapping onto a deep COPY of the active config, so
+            # concurrent sessions on different tiers never share mutated state.
+            config = apply_tier(self._config, meta.get("model_tier"))
+
             # Create the intervention hook that bridges to WebSocket.
             # Wired only for interactive runs — a per-cycle "interactive" flag
             # from the setup wizard, or the global human_gate_mode="blocking"
             # config. Otherwise an unattended run would stall up to 5 min per
             # transition waiting for an approval that never comes.
             interactive = bool(meta.get("interactive"))
-            wire_gates = interactive or self._config.orchestrator.human_gate_mode == "blocking"
+            wire_gates = interactive or config.orchestrator.human_gate_mode == "blocking"
             intervention_hook = self._make_intervention_hook(session_id) if wire_gates else None
             # Structured decisions (hypothesis selection, experiment-plan
             # approval) ride the same approval channel.
@@ -232,7 +240,7 @@ class SessionManager:
 
             # Load the domain profile first — it declares which SourceProviders
             # to build (arXiv, semantic_scholar, alphaXiv MCP, …).
-            domain_profile = self._config.get_domain_profile()
+            domain_profile = config.get_domain_profile()
 
             # Build the corpus with a session-specific ChromaDB collection to
             # isolate literature embeddings across research cycles. Wire the
@@ -244,25 +252,25 @@ class SessionManager:
             collection_name = f"paradigm_papers_{session_id}"
             source_providers = create_source_providers(
                 provider_configs=domain_profile.source_providers,
-                literature_config=self._config.literature,
-                storage_config=self._config.storage,
+                literature_config=config.literature,
+                storage_config=config.storage,
                 database=self._db,
                 logger=self._event_logger,
                 collection_name=collection_name,
             )
             corpus = Corpus(
                 database=self._db,
-                literature_config=self._config.literature,
-                storage_config=self._config.storage,
+                literature_config=config.literature,
+                storage_config=config.storage,
                 logger=self._event_logger,
                 source_providers=source_providers or None,
                 topic=meta["seed_prompt"],
                 collection_name=collection_name,
             )
 
-            # Build the agent factory with domain-specific prompts
+            # Build the agent factory with domain-specific prompts (tier-aware)
             agent_factory = AgentFactory(
-                self._config,
+                config,
                 prompts_dir=domain_profile.prompts_dir,
             )
 
@@ -274,7 +282,7 @@ class SessionManager:
 
             # Create engine with our WS-backed display and intervention hook
             engine = OrchestrationEngine(
-                config=self._config,
+                config=config,
                 database=self._db,
                 corpus=corpus,
                 logger=self._event_logger,

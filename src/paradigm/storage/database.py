@@ -158,6 +158,7 @@ class Database:
                 "status_detail": "TEXT",
                 "datasets": "TEXT",
                 "interactive": "INTEGER",
+                "model_tier": "TEXT",
             },
         )
 
@@ -551,6 +552,7 @@ class Database:
         created_at: Any | None = None,
         resumed_from: str | None = None,
         interactive: bool = False,
+        model_tier: str | None = None,
     ) -> None:
         """Persist a new research cycle."""
         cursor = self.conn.cursor()
@@ -566,7 +568,27 @@ class Database:
                 """
                 INSERT INTO cycles
                     (cycle_id, seed_prompt, mode, status, team_roles, resumed_from,
-                     interactive, created_at)
+                     interactive, model_tier, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    cycle_id,
+                    seed_prompt,
+                    mode,
+                    status,
+                    self._serialize_json(team_roles or []),
+                    resumed_from,
+                    int(interactive),
+                    model_tier,
+                    created,
+                ),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO cycles
+                    (cycle_id, seed_prompt, mode, status, team_roles, resumed_from,
+                     interactive, model_tier)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -577,24 +599,7 @@ class Database:
                     self._serialize_json(team_roles or []),
                     resumed_from,
                     int(interactive),
-                    created,
-                ),
-            )
-        else:
-            cursor.execute(
-                """
-                INSERT INTO cycles
-                    (cycle_id, seed_prompt, mode, status, team_roles, resumed_from, interactive)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    cycle_id,
-                    seed_prompt,
-                    mode,
-                    status,
-                    self._serialize_json(team_roles or []),
-                    resumed_from,
-                    int(interactive),
+                    model_tier,
                 ),
             )
         self.conn.commit()

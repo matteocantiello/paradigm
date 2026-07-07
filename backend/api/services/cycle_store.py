@@ -49,6 +49,7 @@ class CycleStore:
             status_detail=row.get("status_detail"),
             datasets=row.get("datasets"),
             interactive=bool(row.get("interactive") or 0),
+            model_tier=row.get("model_tier"),
             created_at=row["created_at"],
             updated_at=row.get("updated_at"),
         )
@@ -64,6 +65,7 @@ class CycleStore:
                 cycle.created_at,
                 cycle.resumed_from,
                 cycle.interactive,
+                cycle.model_tier,
             )
         else:
             self._mem[cycle.cycle_id] = cycle

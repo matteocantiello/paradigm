@@ -17,6 +17,38 @@ class ConfigModeResponse(BaseModel):
     testing_available: bool
 
 
+class ModelTierInfo(BaseModel):
+    """One selectable model tier (the wizard's Models toggle)."""
+
+    id: str  # "premium" | "open"
+    label: str
+    description: str
+    available: bool
+
+
+class ModelTiersResponse(BaseModel):
+    """Available per-cycle model tiers + which one the active config resembles."""
+
+    tiers: list[ModelTierInfo]
+    default: str
+
+
+@router.get(
+    "/tiers",
+    response_model=ModelTiersResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_model_tiers(request: Request) -> ModelTiersResponse:
+    """Model tiers a new cycle can choose between (premium vs open weights)."""
+    from backend.api.services.model_tiers import default_tier, tier_availability
+
+    config = getattr(request.app.state, "config", None)
+    return ModelTiersResponse(
+        tiers=[ModelTierInfo(**t) for t in tier_availability()],
+        default=default_tier(config) if config is not None else "premium",
+    )
+
+
 class ConfigModeUpdate(BaseModel):
     """Request body to switch mode."""
 

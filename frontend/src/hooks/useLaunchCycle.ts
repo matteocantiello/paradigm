@@ -9,6 +9,8 @@ export interface LaunchRequest {
   teamRoles?: string[] | null;
   files?: File[];
   interactive?: boolean;
+  /** "premium" | "open" | null (null = server default). */
+  modelTier?: string | null;
 }
 
 export type LaunchStage = "idle" | "creating" | "uploading" | "starting";
@@ -41,6 +43,7 @@ export function useLaunchCycle() {
           mode: req.mode ?? "directed",
           team_roles: req.teamRoles ?? null,
           interactive: req.interactive ?? false,
+          model_tier: req.modelTier ?? null,
         });
         cid = cycle.cycle_id;
         setCycleId(cid);

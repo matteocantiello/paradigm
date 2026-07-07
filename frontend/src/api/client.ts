@@ -29,6 +29,8 @@ export interface ResearchCycleCreate {
   team_roles?: string[] | null;
   /** Interactive supervision: the user approves key decisions during the run. */
   interactive?: boolean;
+  /** Model tier: "premium" (top closed models) or "open" (open weights). */
+  model_tier?: string | null;
   config_overrides?: Record<string, unknown> | null;
 }
 
@@ -50,6 +52,8 @@ export interface ResearchCycleResponse {
   datasets?: string[] | null;
   /** Interactive supervision: the user approves key decisions during the run. */
   interactive?: boolean;
+  /** Model tier this cycle runs on ("premium" | "open"; null = server default). */
+  model_tier?: string | null;
   total_tokens?: number | null;
   elapsed_seconds?: number | null;
   created_at: string;
@@ -298,6 +302,23 @@ export interface ConfigModeResponse {
 
 export function getConfigMode() {
   return request<ConfigModeResponse>("/api/v1/config/mode");
+}
+
+// --- Model tiers (per-cycle premium vs open-weights toggle) ---
+export interface ModelTierInfo {
+  id: string; // "premium" | "open"
+  label: string;
+  description: string;
+  available: boolean;
+}
+
+export interface ModelTiersResponse {
+  tiers: ModelTierInfo[];
+  default: string;
+}
+
+export function getModelTiers() {
+  return request<ModelTiersResponse>("/api/v1/config/tiers");
 }
 
 export function setConfigMode(mode: string) {

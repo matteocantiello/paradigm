@@ -5101,3 +5101,15 @@ Shipped A+B+D (commits eee79d2, 2ab6ff8): A tiered internal review — editor cl
 > I would like to check together.ai available models, and adopt a new strategy for a cheaper configuration of paradigm that exploits (mostly) open models. For example, GLM 5.2 is apparently very good and much cheaper than top foundational models. Can you help me devise the strategy and add some of these open models to the agents option in config? https://arena.ai/leaderboard/code https://www.together.ai/models
 
 Checked Together's live catalog (271 models) + the arena code leaderboard. KEY FINDINGS: GLM-5.2 (MIT) is #2 on the code arena — above Opus-4.8-thinking — at $1.40/$4.40 per M (~1/5 Opus); Kimi K2.6 (#14) and MiniMax M3 (#16, $0.30/$1.20) outrank gpt-5.5-high. GOTCHAS verified live: many catalog entries (GLM-4.7/GLM-5/DeepSeek-V3.1/Qwen3-Next/Kimi-K2.5) are dedicated-endpoint-only → model_not_available on a serverless key; GLM-5.2/Kimi are hybrid-reasoning (~1k hidden tokens/turn billed as output) → need 16384 max_tokens headroom. Shipped: refreshed curated picker catalog (8 verified serverless open models w/ pricing labels + Sonnet-5/Gemini-3.5 gaps filled) + configs/open.yaml — all-open mapping with deliberate family diversity (theorist/experimentalist/writer GLM-5.2, skeptic/editor Kimi-K2.6 so GLM never grades GLM, analyst/reviewers/utility MiniMax-M3, synthesizer gpt-oss-120b). Est. ~$2-3/cycle vs ~$15-25 premium. Config validates; 56 catalog/config tests green.
+
+## Prompt 253 — Launch the open.yaml head-to-head (microturbulence rerun)
+
+> Yes
+
+Approved: restart backend on configs/open.yaml and rerun the microturbulence prompt + VizieR tables for an open-vs-premium comparison.
+
+## Prompt 254 — Per-cycle model-tier toggle (top/premium vs open/cheap)
+
+> It would also be good to have a simple button to easily toggle between the two configurations in the platform, maybe when starting the research cycle  (top models/ performance (expensive), open models (cheaper))
+
+Shipped the per-cycle model-tier toggle: backend/api/services/model_tiers.py grafts a tier's agent mapping (parsed from configs/production.yaml or configs/open.yaml) onto a deep copy of the active config per session — concurrent cycles can run different tiers, no restart or config switching. cycles.model_tier column + create/resume/session wiring; GET /api/v1/config/tiers (labels, cost hints, availability by API key, server default inferred from active config); wizard Mode step gains a Models toggle (Top models 👑 vs Open models 🌿) shown on Review too. 1940 tests green (+7 in test_model_tiers.py). Backend side goes live at the next restart (deferred: open-vs-premium head-to-head cycle in flight).

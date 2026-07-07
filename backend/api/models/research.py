@@ -31,6 +31,9 @@ class ResearchCycleCreate(BaseModel):
     # Interactive supervision: the user approves key decisions during the run
     # (hypothesis selection, experiment plan, phase transitions).
     interactive: bool = False
+    # Model tier for this cycle: "premium" (top closed models) or "open"
+    # (open weights). None = whatever the active config runs.
+    model_tier: str | None = Field(default=None, pattern=r"^(premium|open)$")
     config_overrides: dict[str, object] | None = None
 
 
@@ -65,6 +68,8 @@ class ResearchCycleResponse(BaseModel):
     datasets: list[str] | None = None
     # Interactive supervision: the user approves key decisions during the run.
     interactive: bool = False
+    # Model tier this cycle runs on ("premium" | "open"; None = active config).
+    model_tier: str | None = None
     # End-of-run stats, backfilled from the thread for the terminal summary
     # (None when unknown — e.g. before the cycle has a thread).
     total_tokens: int | None = None

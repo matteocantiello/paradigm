@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLaunchCycle } from "@/hooks/useLaunchCycle";
+import { getModelTiers } from "@/api/client";
 import { AGENT_THEMES, SELECTABLE_TEAM_ROLES } from "@/lib/constants";
 import { DatasetPicker } from "./DatasetPicker";
 import { formatSize } from "@/lib/datasets";
@@ -9,11 +11,15 @@ import {
   ArrowRight,
   Bot,
   Check,
+  Crown,
+  Leaf,
   Loader2,
   Play,
   UserCheck,
   X,
 } from "lucide-react";
+
+const TIER_ICONS: Record<string, typeof Crown> = { premium: Crown, open: Leaf };
 
 const MIN_PROMPT_CHARS = 15;
 
@@ -58,6 +64,16 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
   const [prompt, setPrompt] = useState(initialPrompt ?? "");
   const [mode, setMode] = useState("directed");
   const [interactive, setInteractive] = useState(false);
+  // Model tier — null until the user picks or the server default loads.
+  const [modelTier, setModelTier] = useState<string | null>(null);
+  const { data: tiersData } = useQuery({
+    queryKey: ["model-tiers"],
+    queryFn: getModelTiers,
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
+  const tiers = tiersData?.tiers ?? [];
+  const effectiveTier = modelTier ?? tiersData?.default ?? null;
   const [roles, setRoles] = useState<string[]>([...ALL_ROLES]);
   const [files, setFiles] = useState<File[]>(initialFiles ?? []);
 
@@ -84,8 +100,9 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
       teamRoles: roles.length === ALL_ROLES.length ? null : roles,
       files,
       interactive,
+      modelTier: effectiveTier,
     });
-  }, [launch, prompt, mode, roles, files, interactive]);
+  }, [launch, prompt, mode, roles, files, interactive, effectiveTier]);
 
   // Esc closes (except mid-submit, when closing would hide the upload progress).
   useEffect(() => {
@@ -189,6 +206,44 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
 
           {step === "Mode" && (
             <div className="space-y-5">
+              {tiers.length > 0 && (
+                <div>
+                  <label className="block text-sm font-semibold mb-2">Models</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {tiers.map((t) => {
+                      const Icon = TIER_ICONS[t.id] ?? Crown;
+                      const selected = effectiveTier === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setModelTier(t.id)}
+                          disabled={!t.available}
+                          title={t.available ? undefined : "API key not configured"}
+                          className={cn(
+                            "rounded-lg border p-3 text-left transition-all",
+                            selected
+                              ? "border-primary/50 bg-primary/5 glow-sm"
+                              : "border-border hover:border-primary/30 hover:bg-accent/30",
+                            !t.available && "opacity-40 cursor-not-allowed"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 text-sm font-semibold">
+                            <Icon
+                              className={cn(
+                                "h-4 w-4",
+                                selected ? "text-primary" : "text-muted-foreground"
+                              )}
+                            />
+                            {t.label}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">{t.description}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-semibold mb-2">Supervision</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -306,7 +361,7 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Prompt</div>
                 <p className="text-sm max-h-28 overflow-y-auto whitespace-pre-wrap">{prompt}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-lg bg-muted/30 p-3">
                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Mode</div>
                   <p className="text-sm capitalize font-medium">{mode}</p>
@@ -314,6 +369,12 @@ export function SetupWizard({ onClose, initialPrompt, initialFiles }: SetupWizar
                 <div className="rounded-lg bg-muted/30 p-3">
                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Supervision</div>
                   <p className="text-sm font-medium">{interactive ? "Interactive" : "Autonomous"}</p>
+                </div>
+                <div className="rounded-lg bg-muted/30 p-3">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Models</div>
+                  <p className="text-sm font-medium">
+                    {tiers.find((t) => t.id === effectiveTier)?.label ?? "Server default"}
+                  </p>
                 </div>
               </div>
               <div className="rounded-lg bg-muted/30 p-3">
