@@ -561,6 +561,15 @@ class PlainTextFallback:
     def info(self, message: str) -> None:
         click.echo(message)
 
+    def guidance_delivered(self, text: str, phase: str, round_num: int) -> None:
+        click.echo(f"[your guidance → agents] {text}")
+
+    def run_parked(self, phase: str, round_num: int) -> None:
+        click.echo(f"⏸ Paused ({phase}, round {round_num}).")
+
+    def run_resumed(self, phase: str, round_num: int) -> None:
+        click.echo(f"▶ Resumed ({phase}, round {round_num}).")
+
     def warning(self, message: str) -> None:
         click.echo(message)
 

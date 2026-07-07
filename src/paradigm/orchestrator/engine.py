@@ -133,7 +133,9 @@ class OrchestrationEngine:
         # round boundaries and injected into the next agent prompts. No-op for
         # the CLI (None → free-text steering simply isn't available there).
         self._guidance_provider = guidance_provider
-        self._pending_guidance: list[str] = []
+        # (text, drained_round) — each entry stays visible for the rest of the
+        # round it arrived in plus one full round, so every agent sees it once.
+        self._pending_guidance: list[tuple[str, int]] = []
         if display is not None:
             self._display = display
         else:
@@ -1142,6 +1144,10 @@ class OrchestrationEngine:
         else:
             active_count = len(self.state.agents)
 
+        # Guidance carried over from a previous phase: treat as drained in
+        # "round 0" so it's visible through this phase's first round, then pruned.
+        self._pending_guidance = [(g, 0) for g, _ in self._pending_guidance]
+
         for round_num in range(1, max_rounds + 1):
             # Real pause: block here while the session is paused (GUI-driven). Before
             # blocking, persist a checkpoint so a paused cycle can be resumed LATER —
@@ -1149,16 +1155,17 @@ class OrchestrationEngine:
             if self._pause_gate is not None:
                 if self._is_paused is not None and self._is_paused():
                     await self._save_checkpoint(phase, round_num, label="pause")
-                await self._pause_gate()
+                await self._await_pause_gate(phase, round_num)
             # Pull in any human guidance typed since the last round and inject it
             # into this round's agent prompts (round-boundary steering).
             await self._drain_guidance(phase, round_num)
             self._display.round_start(round_num, max_rounds)
             await self._run_round(phase, round_num, scheduler)
             self.emit_event("round.completed", {"round": round_num})
-            # Guidance applied this round is now embedded in agent responses /
-            # thread history — clear the buffer so it isn't re-injected forever.
-            self._pending_guidance.clear()
+            # Guidance is embedded in agent responses / thread history after one
+            # full round of visibility — prune what's been seen by everyone.
+            # (Entries drained DURING round N stay through round N+1.)
+            self._pending_guidance = [(g, r) for g, r in self._pending_guidance if r >= round_num]
             scheduler.advance_round()
 
             # Convergence detection: skip remaining rounds if agents agree
@@ -1232,14 +1239,61 @@ class OrchestrationEngine:
             text = (msg or "").strip()
             if not text:
                 continue
-            self._pending_guidance.append(text)
-            self._display.info(f"[your guidance] {text}")
+            self._pending_guidance.append((text, round_num))
+            # Structured delivery receipt — the GUI flips the operator's queued
+            # bubble to "delivered" off this signal.
+            self._display.guidance_delivered(text, str(phase), round_num)
             self._logger.log(
                 EventType.USER_GUIDANCE,
                 content={"guidance": text, "phase": str(phase), "round": round_num},
                 thread_id=self.state.thread_id,
                 phase=str(phase),
             )
+
+    async def _await_pause_gate(self, phase: ResearchPhase | str, round_num: int) -> None:
+        """Block while paused, with explicit parked/resumed signals for the GUI.
+
+        Without the signals, a pause click looks dead: the status flips to
+        "paused" instantly but agents keep streaming until the engine actually
+        parks here — the GUI needs to know when that happens.
+        """
+        if self._pause_gate is None:
+            return
+        if self._is_paused is not None and self._is_paused():
+            self._display.run_parked(str(phase), round_num)
+            await self._pause_gate()
+            self._display.run_resumed(str(phase), round_num)
+        else:
+            await self._pause_gate()
+
+    async def _interaction_checkpoint(self, phase: ResearchPhase, round_num: int) -> None:
+        """Turn-level responsiveness: park if paused, then drain fresh steering.
+
+        Called before EVERY agent turn, so a pause click or a typed message
+        takes effect within one turn (~a minute) instead of one full round
+        (potentially 10+). Guidance drained mid-round reaches the remaining
+        speakers immediately and stays visible through the next full round.
+        """
+        await self._await_pause_gate(phase, round_num)
+        await self._drain_guidance(phase, round_num)
+
+    async def _execution_checkpoint(self) -> None:
+        """Between-experiment responsiveness for the EXECUTION phase.
+
+        EXECUTION runs no discussion rounds, so round-boundary steering never
+        landed here — a black hole. Park on pause between experiment rounds and
+        turn any steering typed during execution into OPERATOR DIRECTIVE lines
+        on ``planning_action_items``, which every experiment prompt re-reads.
+        """
+        await self._await_pause_gate("execution", 0)
+        before = len(self._pending_guidance)
+        await self._drain_guidance(ResearchPhase.EXECUTION, 0)
+        fresh = [g for g, _ in self._pending_guidance[before:]]
+        if fresh:
+            directives = "\n".join(f"OPERATOR DIRECTIVE (must be honored): {g}" for g in fresh)
+            plan = self.state.planning_action_items.strip()
+            self.state.planning_action_items = f"{plan}\n\n{directives}".strip()
+            del self._pending_guidance[before:]
 
     async def _run_round(
         self,
@@ -1269,6 +1323,8 @@ class OrchestrationEngine:
         self.emit_event("round.started", {"round": round_num, "active_agents": speaker_order})
 
         for agent_id in speaker_order:
+            # Turn-level pause + steering pickup (see _interaction_checkpoint).
+            await self._interaction_checkpoint(phase, round_num)
             agent = self.state.agents[agent_id]
             prompt = self._build_agent_prompt(agent, phase, round_num)
 
@@ -1641,7 +1697,7 @@ class OrchestrationEngine:
         if self._pending_guidance:
             guidance_block = (
                 "## HUMAN GUIDANCE (from the operator — follow this now)\n"
-                + "\n".join(f"- {g}" for g in self._pending_guidance)
+                + "\n".join(f"- {g}" for g, _ in self._pending_guidance)
                 + "\n\n"
             )
             checkpoint_context = guidance_block + checkpoint_context
@@ -1906,7 +1962,7 @@ class OrchestrationEngine:
             )
         notes = str(decision.get("notes") or "").strip()
         if notes:
-            self._pending_guidance.append(notes)
+            self._pending_guidance.append((notes, 0))
         self.emit_event(
             "decision.hypothesis_selection",
             {"selected": [h.id for h in winners], "notes": notes[:500]},

@@ -417,6 +417,10 @@ class ExperimentationHandler:
 
                 for round_num in range(sprint_start_round, sprint_end_round + 1):
                     global_round = round_num
+                    # Between-experiment pause gate + steering pickup (typed
+                    # guidance becomes OPERATOR DIRECTIVE lines on the plan,
+                    # which the prompt below re-reads every round).
+                    await engine._execution_checkpoint()
                     engine._display.experiment_round(round_num, max_rounds)
                     engine._literature.search_count_this_round = 0
 

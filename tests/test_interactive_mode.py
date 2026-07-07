@@ -244,7 +244,7 @@ async def test_hypothesis_selection_applies_user_subset_and_notes():
     selected = await stub._decide_hypothesis_selection(winners)
 
     assert [h.id for h in selected] == ["h1"]
-    assert stub._pending_guidance == ["prefer the second one"]
+    assert stub._pending_guidance == [("prefer the second one", 0)]
     # The full ranked field was offered, winners preselected.
     assert [c["id"] for c in seen_payloads[0]["choices"]] == ["h0", "h1", "h2"]
     assert seen_payloads[0]["default_ids"] == ["h0", "h1"]

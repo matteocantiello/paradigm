@@ -1308,6 +1308,20 @@ class DisplayManager:
         else:
             self._fallback.info(message)
 
+    # Live-steering feedback (structured for the GUI; plain info here) --------
+
+    def guidance_delivered(self, text: str, phase: str, round_num: int) -> None:
+        """Operator guidance was injected into the agents' prompts."""
+        self.info(f"[your guidance → agents] {text}")
+
+    def run_parked(self, phase: str, round_num: int) -> None:
+        """The engine actually blocked on the pause gate."""
+        self.info(f"⏸ Paused ({phase}, round {round_num}).")
+
+    def run_resumed(self, phase: str, round_num: int) -> None:
+        """The engine unblocked after a resume."""
+        self.info(f"▶ Resumed ({phase}, round {round_num}).")
+
     def warning(self, message: str) -> None:
         self._state.add_event("warning", message)
         if self._use_rich:

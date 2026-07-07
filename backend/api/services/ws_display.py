@@ -1154,6 +1154,35 @@ class WebSocketDisplayAdapter:
     def info(self, message: str) -> None:
         self._notify(message, level="info")
 
+    # Live-steering feedback — structured categories the frontend keys on.
+
+    def guidance_delivered(self, text: str, phase: str, round_num: int) -> None:
+        self._notify(
+            text,
+            level="success",
+            category="guidance_delivered",
+            phase=phase,
+            round=round_num,
+        )
+
+    def run_parked(self, phase: str, round_num: int) -> None:
+        self._notify(
+            f"Paused ({phase}, round {round_num})",
+            level="warning",
+            category="run_parked",
+            phase=phase,
+            round=round_num,
+        )
+
+    def run_resumed(self, phase: str, round_num: int) -> None:
+        self._notify(
+            f"Resumed ({phase}, round {round_num})",
+            level="success",
+            category="run_resumed",
+            phase=phase,
+            round=round_num,
+        )
+
     def warning(self, message: str) -> None:
         self._notify(message, level="warning")
 
