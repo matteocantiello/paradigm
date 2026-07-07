@@ -5084,3 +5084,4 @@ Diagnosis: steering had worked (both messages drained into planning round 1) —
 
 > let's tackle A,B and D
 
+Shipped A+B+D (commits eee79d2, 2ab6ff8): A tiered internal review — editor classifies Blocking vs Minor changes, accept-with-minor applies cosmetics in one final polish pass without re-review, budget-exhaustion rescue accepts when the last review found no blockers, anti-moving-target rule + open-blocker tracking across iterations, legacy reviews stay conservative; B thin-turn retry in discussion rounds (action-tag turns exempt) + synthesizer gemini-3.5-flash → claude-haiku-4-5; D experiment stdout/stderr persisted per execution dir, run.started records sandbox/network mode, review-stage rejections persist a human-readable cycle status_detail. Suite 1933 green (+9 tests), backend restarted with changes live. C (VizieR data cards) deferred.
