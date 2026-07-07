@@ -23,8 +23,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["websocket"])
 
 # If no message received within this window, assume connection is dead.
-# The frontend sends a ping every 30s, so 90s gives 3 missed pings of slack.
-RECEIVE_TIMEOUT = 90
+# The frontend pings every 30s, but browsers throttle background-tab timers to
+# ≥1-minute granularity (and harder after 5 min occluded) — 300s tolerates a
+# backgrounded viewer instead of churning close/reconnect every 90s. The client
+# reconnects after an idle close either way (1000 is not terminal client-side).
+RECEIVE_TIMEOUT = 300
 
 
 @router.websocket("/api/v1/sessions/{session_id}/ws")

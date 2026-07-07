@@ -19,9 +19,22 @@ export class ParadigmWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private intentionalClose = false;
+  // Returning to a backgrounded tab reconnects IMMEDIATELY (throttled timers
+  // may have let the connection lapse and delayed the scheduled reconnect).
+  private onVisible = () => {
+    if (document.visibilityState !== "visible") return;
+    if (this.intentionalClose || !this.sessionId || this.ws) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+    this._connect();
+  };
 
   constructor(callbacks: WebSocketCallbacks) {
     this.callbacks = callbacks;
+    document.addEventListener("visibilitychange", this.onVisible);
   }
 
   connect(sessionId: string) {
@@ -33,6 +46,7 @@ export class ParadigmWebSocket {
 
   disconnect() {
     this.intentionalClose = true;
+    document.removeEventListener("visibilitychange", this.onVisible);
     this._stopHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -103,10 +117,13 @@ export class ParadigmWebSocket {
     this.ws.onclose = (event) => {
       this.ws = null;
       this._stopHeartbeat();
-      // Terminal close codes must NOT trigger reconnects:
-      //   1000 normal/idle-timeout, 4001 unauthorized (would 403-loop forever),
-      //   4004 session not found. Only abnormal closes (e.g. 1006) reconnect.
-      const TERMINAL_CLOSE_CODES = [1000, 4001, 4004];
+      // Terminal close codes must NOT trigger reconnects: 4001 unauthorized
+      // (would 403-loop forever), 4004 session not found. Everything else —
+      // including 1000 — reconnects: the server closes IDLE connections with
+      // 1000 when a backgrounded tab's throttled timers stop the heartbeat,
+      // and treating that as final left the UI permanently frozen while the
+      // run continued. Deliberate client closes are covered by intentionalClose.
+      const TERMINAL_CLOSE_CODES = [4001, 4004];
       if (this.intentionalClose || TERMINAL_CLOSE_CODES.includes(event.code)) {
         this.callbacks.onStatusChange("disconnected");
         return;
