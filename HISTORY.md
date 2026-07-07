@@ -5113,3 +5113,8 @@ Approved: restart backend on configs/open.yaml and rerun the microturbulence pro
 > It would also be good to have a simple button to easily toggle between the two configurations in the platform, maybe when starting the research cycle  (top models/ performance (expensive), open models (cheaper))
 
 Shipped the per-cycle model-tier toggle: backend/api/services/model_tiers.py grafts a tier's agent mapping (parsed from configs/production.yaml or configs/open.yaml) onto a deep copy of the active config per session — concurrent cycles can run different tiers, no restart or config switching. cycles.model_tier column + create/resume/session wiring; GET /api/v1/config/tiers (labels, cost hints, availability by API key, server default inferred from active config); wizard Mode step gains a Models toggle (Top models 👑 vs Open models 🌿) shown on Review too. 1940 tests green (+7 in test_model_tiers.py). Backend side goes live at the next restart (deferred: open-vs-premium head-to-head cycle in flight).
+
+## Prompt 255 — Push
+
+> let's push
+
