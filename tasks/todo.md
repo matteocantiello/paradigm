@@ -165,3 +165,63 @@ approve-gate; visible via event + original kept); Opus 4.8 as refiner in
 production; uploads capped at 100 MB, no archives in v1; datasets stage into the
 EXISTING shared data dir (provenance tags from fix E already mark them
 [saved this run]).
+
+---
+
+# Plan — Landing + Setup UX + Interactive Mode v1 (Prompt 243, 2026-07-06)
+
+Approved scope: all three phases; prompt-first landing direction.
+
+## Phase 1 — Prompt-first landing page
+- [ ] Redesign `frontend/src/pages/Dashboard.tsx`: hero = wordmark + tagline + large
+      "What should we investigate?" prompt console (textarea, attach-data affordance,
+      Configure → opens wizard prefilled, quick Launch)
+- [ ] Running now + Latest papers below the hero; stats as a compact strip
+- [ ] Stay inside the Observatory design system (index.css tokens)
+
+## Phase 2 — Setup flow v2 (SetupWizard)
+- [ ] Wizard accepts prefill (prompt + files) from the landing hero
+- [ ] Mode step gains Interactive vs Autonomous choice (per-cycle)
+- [ ] Real validation; dataset add/remove on Review step; per-file upload status,
+      failed upload doesn't silently orphan the cycle
+- [ ] Client-side dataset preview (CSV/TSV columns + head) in the wizard
+- [ ] Team step: explicit selected state (not opacity only); Esc + X close
+
+## Phase 3 — Interactive mode v1 (structured decisions)
+- [ ] Backend: honor ApprovalRequestMsg.options + ApprovalResponseMsg.notes/modifications
+      (currently discarded in respond_to_approval)
+- [ ] Engine: structured decision points with timeout→autonomous fallback:
+      ideation→planning = pick among ranked tournament hypotheses;
+      planning→execution = approve experiment plan + notes
+- [ ] Per-cycle interactive flag: wizard → POST /research → session wires blocking
+      gates for that cycle only
+- [ ] Frontend: ApprovalDialog → structured DecisionDialog (option cards, notes);
+      re-enable InteractionBar (SHOW_INTERACTION_BAR)
+- [ ] Decision notes injected as guidance into the next round
+
+## Verification
+- [ ] pytest green; ruff clean; npm run build green; visual pass
+- [ ] Live smoke: interactive test cycle exercising a decision gate
+
+## Review (Prompt 243) — DONE 2026-07-06
+All three phases shipped. Phase 1: Dashboard.tsx rewritten as a prompt-first hero
+("What should we investigate?" console with attach-data chips + quick Launch +
+Configure→wizard prefill), stats as a quiet inline strip. Phase 2: SetupWizard v2 —
+shared useLaunchCycle hook (create→upload→start with per-file progress and a
+resume-safe Retry that never duplicates the cycle), DatasetPicker with client-side
+CSV/TSV column peek, Supervision step (Autonomous vs Interactive per cycle),
+15-char prompt gate, ≥1-role team gate with explicit check state, Esc/X close.
+Phase 3: interactive mode v1 — cycles.interactive column (idempotent migration) →
+create/resume/session wiring; DecisionHook (thread_id, decision_type, payload)→dict
+alongside InterventionHook; engine decision points: hypothesis_selection (full
+tournament ranked field offered, winners preselected, user subset applied to
+state.selected_hypotheses, notes→next-round guidance) and experiment_plan
+(plan approval; notes appended as OPERATOR DIRECTIVE the experimentalist sees);
+SessionManager._request_decision rides the approval channel (ApprovalRequestMsg
+gains decision_type/choices/multi_select/default_ids; ApprovalResponseMsg
+notes/modifications now honored end-to-end); 300s timeout → agents' own choice.
+ApprovalDialog renders choice cards + countdown; InteractionBar re-enabled.
+Verified: 1918 tests green (15 new in test_interactive_mode.py), ruff clean,
+tsc+eslint+vite clean, headless-Chrome visual pass on landing + wizard.
+NOT verified live: a real interactive cycle exercising a decision gate end-to-end
+(needs a running backend + a watched session) — suggested next step.
