@@ -134,6 +134,7 @@ orchestrator:
   enable_debates: true
   enable_execution_sprints: true
   enable_verification: false
+  data_policy: "real_only"   # fabricated datasets are excluded from the evidence base
   human_gate_mode: "off"
   human_gate_points: []
 

@@ -78,6 +78,7 @@ display:
   stream_tokens: false
 
 orchestrator:
+  data_policy: "permissive"
   enable_prompt_preprocessing: false  # deterministic test runs
   max_rounds_per_phase: 1
   enable_checkpointing: true

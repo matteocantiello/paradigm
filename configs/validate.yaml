@@ -86,6 +86,7 @@ storage:
   data_dir: "./data_validate"
 
 orchestrator:
+  data_policy: "permissive"
   enable_prompt_preprocessing: false  # deterministic test runs
   max_rounds_per_phase: 2
   enable_checkpointing: true

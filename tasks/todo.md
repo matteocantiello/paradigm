@@ -280,16 +280,17 @@ Backend restarted with changes live.
 Design: .planning/REAL-DATA-AND-BACKTRACKING.md (decisions confirmed).
 Build order: D1 → R1 → D2 → R2+R3 → R4.
 
-## D1 — data policy + fabrication detector  [IN PROGRESS]
-- [ ] orchestrator.data_policy config (real_only|prefer_real|permissive);
-      production/open/interactive = real_only, selftest/verify = permissive
-- [ ] Execution + design-review prompt directive (ban with resampling/theory
-      carve-outs; descope honestly on unavailable data)
-- [ ] classify_data_provenance(code, stdout) → real|derived|resampled|synthetic
-- [ ] Wire into experimentation: provenance event + metadata; real_only demotes
-      synthetic experiments (excluded from successful_code + caveat + editor
-      BLOCKING alert)
-- [ ] Tests + full suite
+## D1 — data policy + fabrication detector  [DONE 2026-07-08]
+- [x] orchestrator.data_policy config; production/open/interactive = real_only,
+      test harnesses = permissive (core default prefer_real)
+- [x] data_policy_directive → every experiment prompt (ban + resampling/theory
+      carve-outs + DATA UNAVAILABLE descope protocol)
+- [x] data_provenance.py classifier (real|derived|resampled|synthetic; marker
+      words in code/stdout; conservative mixed-case handling)
+- [x] experimentation wiring: per-experiment provenance in experiment.completed
+      + metadata; real_only excludes synthetic from successful_code (no breaker
+      pollution), EXCLUDED marker in results text, blocking-worded caveat
+- [x] 9 tests (incl. the MIST-like fabrication case); suite 1949 green
 
 ## R1 — PI reflection gate (next)
 ## D2 — VizieR/Zenodo providers + DATASEARCH/FETCHDATA (folds area C)

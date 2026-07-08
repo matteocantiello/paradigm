@@ -159,6 +159,7 @@ orchestrator:
   # work (ideation -> planning -> execution -> writing -> submit). The earlier
   # fine-grained human-gate points are left OFF so a fresh cycle never blocks
   # before any research is visible. Want a fully hands-off run? Use fast.yaml. ---
+  data_policy: "real_only"   # fabricated datasets are excluded from the evidence base
   human_gate_mode: "blocking"
   human_gate_points: []
   enable_multimodal_review: false

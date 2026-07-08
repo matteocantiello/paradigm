@@ -229,6 +229,11 @@ class OrchestratorConfig(BaseModel):
     enable_multimodal_review: bool = False  # show the editor the actual figure images
     multimodal_review_role: str = "editor"  # role whose provider/model does the figure review
     max_review_figures: int = 6  # cap images sent to the vision model
+    # Real-data mandate (D1): "real_only" forbids fabricated datasets (synthetic
+    # experiments are excluded from the evidence base + flagged to the editor);
+    # "prefer_real" flags but tolerates clearly-labeled synthetic stand-ins;
+    # "permissive" = no policy (test harnesses).
+    data_policy: str = "prefer_real"  # real_only | prefer_real | permissive
     # Hybrid human-gate (Phase 1E). Autonomous by default; gates are opt-in.
     human_gate_mode: str = "off"  # off | advisory | blocking
     human_gate_points: list[str] = Field(

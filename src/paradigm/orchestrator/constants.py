@@ -25,6 +25,43 @@ InterventionHook = Callable[[str, str, str], str]
 DecisionHook = Callable[[str, str, dict[str, Any]], dict[str, Any]]
 
 # ---------------------------------------------------------------------------
+# Real-data mandate (D1)
+# ---------------------------------------------------------------------------
+
+# Injected into every experiment prompt per orchestrator.data_policy. The
+# carve-outs matter — banning np.random outright would ban legitimate
+# bootstrap/permutation statistics.
+_DATA_POLICY_DIRECTIVES: dict[str, str] = {
+    "real_only": (
+        "\n\n## DATA POLICY: REAL DATA ONLY\n"
+        "Fabricating datasets is FORBIDDEN. Never generate synthetic/mock/"
+        "placeholder data and analyze it as if it were observations.\n"
+        "ALLOWED: bootstrap/permutation/Monte-Carlo resampling OF REAL loaded "
+        "data, null distributions for significance tests, and purely analytic/"
+        "theoretical computation (label it as such).\n"
+        "If the data an experiment needs cannot be found in /data/shared (or "
+        "downloaded), DESCOPE the experiment and print "
+        "'DATA UNAVAILABLE: <what and why>' — an honestly missing analysis is "
+        "publishable; a fabricated one is fraud. Experiments that generate "
+        "their own input data are detected automatically and EXCLUDED from the "
+        "paper's evidence base."
+    ),
+    "prefer_real": (
+        "\n\n## DATA POLICY: PREFER REAL DATA\n"
+        "Strongly prefer real data (files in /data/shared, workspace outputs, "
+        "downloads). If you must use a synthetic stand-in, LABEL it clearly in "
+        "the code, stdout, and any saved artifacts — it will be flagged to "
+        "reviewers."
+    ),
+}
+
+
+def data_policy_directive(policy: str) -> str:
+    """The prompt block for a data policy ('' for permissive/unknown)."""
+    return _DATA_POLICY_DIRECTIVES.get(policy, "")
+
+
+# ---------------------------------------------------------------------------
 # Mode-specific prompt overrides (round_1 only)
 # ---------------------------------------------------------------------------
 

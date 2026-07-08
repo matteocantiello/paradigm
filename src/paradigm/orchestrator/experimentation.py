@@ -28,7 +28,9 @@ from paradigm.orchestrator.constants import (
     _network_caveat,
     _normalize_query_keywords,
     _topological_sort,
+    data_policy_directive,
 )
+from paradigm.orchestrator.data_provenance import classify_data_provenance, excluded_by_policy
 from paradigm.orchestrator.phases import ResearchPhase
 from paradigm.orchestrator.verification import _extract_result_tokens
 from paradigm.sandbox.executor import CodeExecutor
@@ -352,6 +354,7 @@ class ExperimentationHandler:
         _circuit_breaker_fired = False
         _total_experiments = 0
         _total_failures = 0
+        _synthetic_excluded = 0  # real-data mandate (D1)
 
         # Reset cross-round failure tracking for this phase
         self._failure_categories = {}
@@ -488,6 +491,10 @@ class ExperimentationHandler:
                             "Execute them in order of priority:\n"
                             + engine.state.planning_action_items
                         )
+
+                    # Real-data mandate (D1): the policy block rides every
+                    # experiment prompt so fabrication is forbidden at the source.
+                    prompt += data_policy_directive(engine._config.orchestrator.data_policy)
 
                     # Inject the console-as-data-bus contract (1B): print key numbers as
                     # machine-readable tokens so results can be re-extracted and verified.
@@ -658,14 +665,43 @@ class ExperimentationHandler:
                             workspace_dir=workspace_dir,
                         )
                         formatted = _format_execution_result(block.name, result)
+
+                        # Real-data mandate (D1): classify where this experiment's
+                        # inputs came from; under real_only a fabricated-input
+                        # experiment is EXCLUDED from the evidence base.
+                        provenance, prov_reasons = classify_data_provenance(
+                            final_code, result.stdout or ""
+                        )
+                        synthetic_excluded = (
+                            result.status == ExecutionStatus.SUCCESS
+                            and excluded_by_policy(
+                                provenance, engine._config.orchestrator.data_policy
+                            )
+                        )
+                        if synthetic_excluded:
+                            _synthetic_excluded += 1
+                            formatted += (
+                                "\n\n**EXCLUDED BY DATA POLICY**: this experiment "
+                                f"generated its own input data ({'; '.join(prov_reasons)}). "
+                                "Its numbers are NOT part of the evidence base — do not "
+                                "cite them. Acquire real data or descope."
+                            )
+                            engine._display.warning(
+                                f"[data policy] {block.name} excluded: {'; '.join(prov_reasons)}"
+                            )
+
                         all_results.append(formatted)
                         self._sprint_results.append(formatted)
 
                         _total_experiments += 1
                         round_total += 1
-                        if result.status == ExecutionStatus.SUCCESS:
+                        if result.status == ExecutionStatus.SUCCESS and not synthetic_excluded:
                             successful_code.append((block.name, final_code))
                             self._consecutive_failures = 0
+                        elif synthetic_excluded:
+                            # Not a code failure — don't trip the failure breakers,
+                            # but the experiment contributes no evidence.
+                            pass
                         else:
                             round_failures += 1
                             _total_failures += 1
@@ -738,6 +774,8 @@ class ExperimentationHandler:
                                 "experiment_id": block.name,
                                 "status": status_str,
                                 "artifacts": exp_artifacts,
+                                "data_provenance": provenance,
+                                "excluded_by_data_policy": synthetic_excluded,
                             },
                         )
 
@@ -767,14 +805,22 @@ class ExperimentationHandler:
                                 failure_reason = result.stderr[:500]
                             else:
                                 failure_reason = f"Exited with status: {status_str}"
+                        if synthetic_excluded and not failure_reason:
+                            failure_reason = (
+                                "excluded by data policy (real data only): "
+                                + "; ".join(prov_reasons)
+                            )
                         experiment_metadata.append(
                             {
                                 "name": block.name,
-                                "status": status_str,
+                                "status": "excluded_by_data_policy"
+                                if synthetic_excluded
+                                else status_str,
                                 "stdout_preview": stdout_preview,
                                 "stdout_full": stdout_full,
                                 "has_figures": has_figures,
                                 "failure_reason": failure_reason,
+                                "data_provenance": provenance,
                             }
                         )
 
@@ -880,6 +926,14 @@ class ExperimentationHandler:
         if _had_timeout:
             caveats.append(
                 "One or more experiments timed out before completion. Results may be incomplete."
+            )
+
+        if _synthetic_excluded:
+            caveats.append(
+                f"{_synthetic_excluded} experiment(s) generated their own input data "
+                "and were EXCLUDED from the evidence base (data policy: real data "
+                "only). Any of their numbers appearing in the paper is a BLOCKING "
+                "defect — they must not be cited."
             )
 
         # Check for vacuous reclassifications in the results text

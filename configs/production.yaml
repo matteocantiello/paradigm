@@ -163,6 +163,7 @@ orchestrator:
   enable_execution_sprints: true   # operator tuning
   enable_verification: false
   # Unattended remote runs: no blocking gates. Steer via the interaction bar.
+  data_policy: "real_only"   # fabricated datasets are excluded from the evidence base
   human_gate_mode: "off"
   human_gate_points: []
 
