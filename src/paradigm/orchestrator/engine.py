@@ -40,6 +40,7 @@ from paradigm.orchestrator.constants import (
     _DEBATE_ENABLED_PHASES,
     _GENERAL_LATER_ROUND_REINFORCEMENT,
     _KNOWLEDGE_TAG_INSTRUCTION,
+    _MIN_PAPER_LENGTH,
     _MODE_PROMPT_OVERRIDES,
     _MODE_SYNTHESIS_OVERRIDES,
     _PHASE_ACTIVE_ROLES,
@@ -62,6 +63,7 @@ from paradigm.orchestrator.literature import LiteratureHandler
 from paradigm.orchestrator.memory import MemoryHandler
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
 from paradigm.orchestrator.preregistration import PreRegistrationHandler
+from paradigm.orchestrator.reflection import ReflectionHandler
 from paradigm.orchestrator.review import ReviewHandler
 from paradigm.orchestrator.scheduler import Scheduler
 from paradigm.orchestrator.state import ResearchState
@@ -162,6 +164,7 @@ class OrchestrationEngine:
         self._debate = DebateHandler(self)
         self._writing = WritingHandler(self)
         self._review = ReviewHandler(self)
+        self._reflection = ReflectionHandler(self)
         self._citation_handler = CitationHandler(self)
         self._experimentation = ExperimentationHandler(self)
         self._memory = MemoryHandler(self)
@@ -369,6 +372,9 @@ class OrchestrationEngine:
             paper_draft = await self._run_writing_stage(should_experiment, ran_post_execution)
             if paper_draft is None:
                 return self.state.thread_id
+            # PI reflection (R1): step back, judge the draft, possibly loop back
+            # for more experiments / a re-plan before the draft faces review.
+            paper_draft = await self._run_reflection_loop(paper_draft, should_experiment)
             if await self._run_internal_review_stage(paper_draft):
                 return self.state.thread_id
             if self._config.orchestrator.enable_peer_review:
@@ -852,6 +858,172 @@ class OrchestrationEngine:
             self._record_provenance()
         return paper_draft
 
+    async def _run_reflection_loop(
+        self, paper_draft: PaperDraft, should_experiment: bool
+    ) -> PaperDraft:
+        """R1: PI reflection on the fresh draft, with budgeted loop-backs.
+
+        The PI (strongest model, config role ``pi``) may send the team back to
+        EXECUTION (more experiments) or PLANNING (rethink, then experiments),
+        after which the paper is revised IN PLACE (the revision path — same
+        paper row, citation net intact) and re-reflected. Convergence is
+        mechanical: max_loop_backs, no-repeat-target, and call_it.
+        Never stops the cycle; always returns a draft for review.
+        """
+        cfg = self._config.orchestrator
+        if not cfg.enable_reflection or not should_experiment:
+            return paper_draft
+
+        while True:
+            current_body = paper_draft.assembled_body or paper_draft.to_markdown()
+            verdict = await self._reflection.run_reflection(current_body)
+            self.emit_event(
+                "reflection.verdict",
+                {
+                    "verdict": verdict.get("verdict"),
+                    "target": verdict.get("target"),
+                    "reason": str(verdict.get("reason") or "")[:400],
+                    "loop_backs_used": self.state.loop_backs_used,
+                },
+            )
+            kind = verdict.get("verdict")
+            if kind == "proceed":
+                self._display.info(
+                    f"[PI reflection] proceed to review — {verdict.get('reason', '')}"
+                )
+                return paper_draft
+            if kind == "call_it":
+                self.state.called_by_pi = True
+                self.state.pi_call_reason = str(verdict.get("reason") or "")[:400]
+                self._display.info(f"[PI reflection] calling it — {self.state.pi_call_reason}")
+                # The paper still faces review honestly; record the call in caveats
+                # so the editor/reviewers see the declared scope.
+                self.state.execution_caveats.append(
+                    "The PI declared the investigation complete at its current scope "
+                    f"(no further experiments): {self.state.pi_call_reason}"
+                )
+                return paper_draft
+
+            # loop_back (already budget/target-validated by the handler)
+            target = verdict.get("target", "execution")
+            directives = verdict.get("directives", [])
+            self.state.loop_backs_used += 1
+            self.state.reflection_log.append(verdict)
+            self._display.info(
+                f"[PI reflection] loop back to {target} "
+                f"({self.state.loop_backs_used}/{cfg.max_loop_backs}): " + "; ".join(directives)
+            )
+            self.emit_event(
+                "reflection.loop_back",
+                {"target": target, "directives": directives[:5]},
+            )
+            directive_block = "\n".join(f"PI DIRECTIVE (must be honored): {d}" for d in directives)
+            plan = self.state.planning_action_items.strip()
+            self.state.planning_action_items = f"{plan}\n\n{directive_block}".strip()
+
+            if target == "planning":
+                self.state.phase_manager.transition_to(ResearchPhase.PLANNING)
+                self._log_phase_transition(ResearchPhase.WRITING, ResearchPhase.PLANNING)
+                self.state.messages = []
+                self._pending_guidance.append((f"PI reflection: {'; '.join(directives)}", 0))
+                self._announce_discussion_phase("PLANNING", ResearchPhase.PLANNING, 1)
+                await self._run_phase(
+                    ResearchPhase.PLANNING,
+                    max_rounds=1,
+                    checkpoint_interval=cfg.checkpoint_interval,
+                )
+                await self._run_synthesis_round(ResearchPhase.PLANNING)
+                # Fresh action items from the re-plan, PI directives re-appended.
+                replanned = self._extract_planning_actions()
+                self.state.planning_action_items = f"{replanned}\n\n{directive_block}".strip()
+                self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
+                self._log_phase_transition(ResearchPhase.PLANNING, ResearchPhase.EXECUTION)
+            else:
+                self.state.phase_manager.transition_to(ResearchPhase.EXECUTION)
+                self._log_phase_transition(ResearchPhase.WRITING, ResearchPhase.EXECUTION)
+            self.state.messages = []
+            self._display.phase_transition("EXECUTION")
+            exp = await self._experimentation.run_experimentation_phase(max_rounds_override=2)
+            self._merge_execution_results(exp)
+
+            # Revise the paper IN PLACE with the new evidence (same paper row).
+            self.state.phase_manager.transition_to(ResearchPhase.WRITING)
+            self._log_phase_transition(ResearchPhase.EXECUTION, ResearchPhase.WRITING)
+            self._display.phase_transition("WRITING")
+            pseudo_review = (
+                "## PI Reflection — revision after additional work\n"
+                f"{directive_block}\n"
+                "New experiments were run to address the directives above; their "
+                "results are in the Execution Fact Sheet. Integrate them into the "
+                "paper (methods, results, discussion, abstract) and update any "
+                "affected numbers. Success criteria for this revision: "
+                f"{verdict.get('success_criteria', '(none stated)')}\n"
+                "## Blocking Changes\n- Address the PI directives with the new results\n"
+                "## Minor Changes\n- None"
+            )
+            revised = await self._review.run_revision(current_body, pseudo_review)
+            if len(revised) >= _MIN_PAPER_LENGTH:
+                paper_draft.assembled_body = revised
+                thread = self._db.get_thread(self.state.thread_id)
+                if thread and thread.get("current_draft_id"):
+                    paper_id = thread["current_draft_id"]
+                    self._db.update_paper(paper_id, body=revised, status="revised")
+                    await asyncio.to_thread(self._writing.save_paper_file, paper_id, revised)
+
+    async def _run_deep_revision_loop(self, reviews: list[Any]) -> str:
+        """R2: PI triage of peer reviews; run new analyses when rewording won't do.
+
+        Returns extra revision feedback describing the new work ("" when the
+        triage decides a text-only revision suffices or the budget is spent).
+        Runs WITHOUT phase transitions (the peer-review loop owns the phase);
+        experiments execute exactly as in a reflection loop-back.
+        """
+        cfg = self._config.orchestrator
+        if self.state.loop_backs_used >= cfg.max_loop_backs:
+            return ""
+        review_text = "\n\n".join(str(getattr(r, "text", None) or r) for r in reviews)[:16_000]
+        triage = await self._reflection.triage_peer_reviews(review_text)
+        self.emit_event(
+            "reflection.peer_triage",
+            {
+                "deep_loop": bool(triage.get("deep_loop")),
+                "reason": str(triage.get("reason") or "")[:400],
+            },
+        )
+        if not triage.get("deep_loop"):
+            return ""
+
+        directives = triage.get("directives", [])
+        self.state.loop_backs_used += 1
+        self.state.reflection_log.append({"target": "peer_deep_revision", "directives": directives})
+        self._display.info(
+            "[PI triage] reviewers demand new analysis — running a deep revision: "
+            + "; ".join(directives)
+        )
+        directive_block = "\n".join(f"PI DIRECTIVE (must be honored): {d}" for d in directives)
+        plan = self.state.planning_action_items.strip()
+        self.state.planning_action_items = f"{plan}\n\n{directive_block}".strip()
+        exp = await self._experimentation.run_experimentation_phase(max_rounds_override=2)
+        self._merge_execution_results(exp)
+        return (
+            "### PI Deep-Revision Addendum\n"
+            "The team ran ADDITIONAL experiments to answer the reviews above:\n"
+            f"{directive_block}\n"
+            "Their results are now part of the experiment record — integrate them "
+            "into the revision (methods, results, discussion) and answer the "
+            "reviewers with the new evidence, not just rewording."
+        )
+
+    def _merge_execution_results(self, exp: Any) -> None:
+        """Fold a loop-back experimentation pass into the cycle's evidence state."""
+        if exp.execution_context:
+            joiner = "\n\n" if self.state.execution_context else ""
+            self.state.execution_context += joiner + exp.execution_context
+        self.state.execution_caveats.extend(exp.caveats)
+        self.state.execution_figures.extend(exp.execution_figures)
+        self.state.successful_code.extend(exp.successful_code)
+        self.state.experiment_metadata.extend(exp.experiment_metadata)
+
     async def _run_internal_review_stage(self, paper_draft: PaperDraft) -> bool:
         """INTERNAL_REVIEW: editor review + revision loop.
 
@@ -907,7 +1079,15 @@ class OrchestrationEngine:
             while (
                 decision in ("minor_revision", "major_revision") and revision_count < max_revisions
             ):
-                paper_draft = await self._review.run_revision_phase(paper_draft, reviews)
+                # R2: on a major revision the PI triages the reviews — demands
+                # that need NEW ANALYSIS (not rewording) trigger one deep
+                # revision loop: extra experiments before the writer responds.
+                extra_feedback = ""
+                if decision == "major_revision" and self._config.orchestrator.enable_reflection:
+                    extra_feedback = await self._run_deep_revision_loop(reviews)
+                paper_draft = await self._review.run_revision_phase(
+                    paper_draft, reviews, extra_feedback=extra_feedback
+                )
                 decision, reviews = await self._review.run_peer_review_phase(paper_draft)
                 revision_count += 1
 
@@ -1461,6 +1641,8 @@ class OrchestrationEngine:
                 await self._literature.process_literature_actions(agent_id, response.content, phase)
                 # [DATA: url] — pre-stage datasets for the sandbox
                 await self._literature.process_data_requests(agent_id, response.content, phase)
+                # [DATASEARCH: query] / [FETCHDATA: id] — repository data acquisition
+                await self._literature.process_dataset_actions(agent_id, response.content, phase)
             except asyncio.CancelledError:
                 raise  # a genuine cycle cancellation must propagate
             except BaseException as e:  # noqa: BLE001 — literature must never be fatal

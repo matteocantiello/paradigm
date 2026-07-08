@@ -102,6 +102,9 @@ class LiteratureConfig(BaseModel):
     arxiv_rate_limit: float = 3.0  # seconds between requests
     max_results_per_search: int = 50
     enable_pdf_fetch: bool = True
+    # Repository data providers for [DATASEARCH:]/[FETCHDATA:] (D2). Zenodo is
+    # domain-agnostic; astro configs add "vizier". Empty list disables the tags.
+    data_providers: list[str] = Field(default_factory=lambda: ["zenodo"])
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     follow_budget_per_round: int = 3
     cited_by_budget_per_round: int = 2
@@ -229,6 +232,12 @@ class OrchestratorConfig(BaseModel):
     enable_multimodal_review: bool = False  # show the editor the actual figure images
     multimodal_review_role: str = "editor"  # role whose provider/model does the figure review
     max_review_figures: int = 6  # cap images sent to the vision model
+    # PI reflection (R1-R3): after WRITING the strongest model (config role "pi")
+    # judges the draft and may send the team back (more experiments / new plan),
+    # trigger a deep revision after peer review, or "call it". Loop-backs are
+    # hard-budgeted; a target can never be looped back to twice.
+    enable_reflection: bool = False
+    max_loop_backs: int = Field(default=2, ge=0)
     # Real-data mandate (D1): "real_only" forbids fabricated datasets (synthetic
     # experiments are excluded from the evidence base + flagged to the editor);
     # "prefer_real" flags but tolerates clearly-labeled synthetic stand-ins;

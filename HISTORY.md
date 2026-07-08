@@ -5124,3 +5124,8 @@ HEAD-TO-HEAD RESULT (same prompt + VizieR tables): OPEN ARM PUBLISHED (paper-cca
 
 > I would like to make sure that paradigm is never using synthetic data. If it requires data, it should look for data online (for example we could wire some repositories from which to search). Claude Science seems to do this (https://www.anthropic.com/news/claude-science-ai-workbench), we could start from astrophysics and link CDS or some other data repositories (https://guides.lib.berkeley.edu/astro/data) or instruct to download data from paper sources. After that, I want to include a new internal review: when humans write papers they always stop and see what the paper looks like and if there is something obvious to improve. Now the process is just linear hypothesis -> planning -> experiments -> writing -> review. I think we should give the agents the ability to go back and (for example) run more experiments or change the plan if the paper seems to be going nowhere. This could be decided by the agent with the strongest model in the mix. Similarly, after the external review, agents should be able to go back and change more than just rewording. The issue is the possibility of non-converging, and if so there should also be the option for an agent to call it -- meaning declaring the paper is not improving and just putting out what is done without spending more resources. Can we plan how to make these improvements? I understand it's a lot
 
+
+## Prompt 257 — Implement R1/R2/R3 + D2, then run a test cycle
+
+> Please implement everything and --- once is implemented -- run a cycle to test
+

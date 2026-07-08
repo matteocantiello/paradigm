@@ -971,12 +971,19 @@ class ReviewHandler:
 
         return decision, reviews
 
-    async def run_revision_phase(self, draft: PaperDraft, reviews: list[PeerReview]) -> PaperDraft:
+    async def run_revision_phase(
+        self,
+        draft: PaperDraft,
+        reviews: list[PeerReview],
+        extra_feedback: str = "",
+    ) -> PaperDraft:
         """Run the REVISION phase: writer revises based on peer feedback.
 
         Args:
             draft: Current paper draft.
             reviews: Peer reviews with feedback.
+            extra_feedback: Additional revision context (e.g. the PI's note that
+                NEW experiments were run for a deep revision — R2).
 
         Returns:
             Updated PaperDraft with revised body.
@@ -1011,6 +1018,8 @@ class ReviewHandler:
             parts.append(f"Recommendation: {review.recommendation}")
             review_parts.append("\n".join(parts))
         review_feedback = "\n\n".join(review_parts)
+        if extra_feedback:
+            review_feedback += "\n\n" + extra_feedback
 
         checkpoint_context = ""
         if self._engine.state.checkpoint:

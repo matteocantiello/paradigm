@@ -58,6 +58,12 @@ LITERATURE_INSTRUCTION = (
     "  [CHAIN: 2301.12345 depth=2 direction=both]   (direction: refs | cites | both; depth ≤ 3)\n\n"
     "**Data staging** (download a dataset for use in experiments):\n"
     "  [DATA: https://example.com/catalog.csv]\n\n"
+    "**Repository data search** (find REAL datasets in wired repositories — "
+    "VizieR/CDS catalogs, Zenodo):\n"
+    "  [DATASEARCH: microturbulence OB stars]\n"
+    "**Repository data fetch** (stage a found dataset into the sandbox, with a "
+    "schema card — use the id EXACTLY as shown in the DATASEARCH results):\n"
+    "  [FETCHDATA: vizier:J/A+A/701/A297]\n\n"
     "**IMPORTANT:** [FOLLOW:], [CITED_BY:], [READ:], and [CHAIN:] require an arXiv "
     "ID (e.g., 2301.12345), NOT a URL. Only use IDs that appeared in real search "
     "results — **never invent or guess an arXiv ID** (invented IDs resolve to "
@@ -92,6 +98,12 @@ LITERATURE_INSTRUCTION = (
     "doesn't).\n"
     "- Use `[DATA:]` during PLANNING to request specific datasets you'll "
     "need in EXECUTION (e.g., catalogs, survey data, spectra).\n"
+    "- **Data acquisition plan (REQUIRED during PLANNING):** every proposed "
+    "experiment must name its data source — an attached file in /data/shared, a "
+    "repository dataset (find one with [DATASEARCH:] and stage it with "
+    "[FETCHDATA:]), a dataset linked from a paper you [READ:], or 'theory/no "
+    "data'. An experiment with no identified real data source must be descoped "
+    "— never planned around synthetic stand-in data.\n"
 )
 
 # ---------------------------------------------------------------------------

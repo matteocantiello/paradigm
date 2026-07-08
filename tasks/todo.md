@@ -292,7 +292,32 @@ Build order: D1 → R1 → D2 → R2+R3 → R4.
       pollution), EXCLUDED marker in results text, blocking-worded caveat
 - [x] 9 tests (incl. the MIST-like fabrication case); suite 1949 green
 
-## R1 — PI reflection gate (next)
-## D2 — VizieR/Zenodo providers + DATASEARCH/FETCHDATA (folds area C)
-## R2+R3 — peer-review deep revision + convergence/call-it
-## R4 — A/B validation
+## R1+R2+R3 — PI reflection, deep revision, call-it  [DONE 2026-07-08]
+- [x] ReflectionHandler (role `pi`: Opus-4.8 premium / GLM-5.2 open): reflection
+      after WRITING (proceed | loop_back{target,directives,success_criteria} |
+      call_it) + peer-review triage (textual vs needs_new_analysis)
+- [x] Mechanical convergence: max_loop_backs=2, repeat-target → forced call_it,
+      budget-spent → proceed-only, unparseable → proceed; call_it = honest
+      caveat, still reviewed
+- [x] Engine loop: WRITING→{EXECUTION,PLANNING} back-edges; reduced experiment
+      pass (max_rounds_override=2, sprints off); PI directives ride
+      planning_action_items; paper revised IN PLACE via the revision path
+      (same row, citation net); R2 deep-revision addendum feeds run_revision_phase
+- [x] events reflection.verdict/loop_back/peer_triage; state loop_backs_used/
+      reflection_log/called_by_pi
+
+## D2 — repository data providers  [DONE 2026-07-08]
+- [x] data_providers.py: VizieR (-words search + asu-tsv fetch, endpoints
+      verified live) + Zenodo (REST); 100MB cap; ids vizier:J/... zenodo:N
+- [x] [DATASEARCH:]/[FETCHDATA:] tags in LiteratureHandler (budgeted, deduped,
+      best-effort); fetched data staged via stage_local_dataset (data cards) +
+      dataset.search/dataset.fetched events
+- [x] literature.data_providers config (default [zenodo]; astro configs add
+      vizier); LITERATURE_INSTRUCTION documents the tags + mandatory Data
+      Acquisition Plan in PLANNING
+- [x] configs: pi role + enable_reflection + providers in production/open/
+      interactive; 15 new tests; suite 1964 green
+
+## R4 — live validation  [IN PROGRESS]
+- [ ] Test cycle: microturbulence prompt with NO attached data (agents must
+      DATASEARCH/FETCHDATA the catalog), open tier, real_only, reflection on

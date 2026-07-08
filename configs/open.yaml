@@ -84,6 +84,9 @@ agent:
     reviewer: { provider: together, model: MiniMaxAI/MiniMax-M3 }
     # Prompt refiner — GLM-5.2: one call per cycle, worth the flagship.
     prompt_refiner: { provider: together, model: zai-org/GLM-5.2, max_tokens: 16384 }
+    # PI — the reflection gate (R1-R3): the strongest open model judges the
+    # draft, may loop the team back, or calls it.
+    pi: { provider: together, model: zai-org/GLM-5.2, max_tokens: 16384 }
 
 # Everything below mirrors production.yaml.
 sandbox:
@@ -100,6 +103,7 @@ sandbox:
   read_only_rootfs: false
 
 literature:
+  data_providers: ["vizier", "zenodo"]
   arxiv_rate_limit: 3.0
   max_results_per_search: 30
   enable_pdf_fetch: true
@@ -134,6 +138,8 @@ orchestrator:
   enable_debates: true
   enable_execution_sprints: true
   enable_verification: false
+  enable_reflection: true
+  max_loop_backs: 2
   data_policy: "real_only"   # fabricated datasets are excluded from the evidence base
   human_gate_mode: "off"
   human_gate_points: []

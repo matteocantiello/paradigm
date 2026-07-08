@@ -161,6 +161,15 @@ class LiteratureHandler:
         self.resolved_data_urls: set[str] = set()  # Cross-round dedup for [DATA:] requests
         self.data_count_this_round: int = 0
 
+        # Repository data providers (D2): [DATASEARCH:]/[FETCHDATA:] tags.
+        from paradigm.literature.data_providers import create_data_providers
+
+        self._data_providers = create_data_providers(
+            getattr(engine._config.literature, "data_providers", [])
+        )
+        self.datasearch_count_this_round: int = 0
+        self.fetched_dataset_ids: set[str] = set()  # cross-round dedup
+
         # External-source degradation: track which literature sources have already
         # emitted a calm "rate-limited / unavailable" notice this cycle, so a flaky
         # arXiv/S2 surfaces ONE informative row instead of a red error per request.
@@ -178,6 +187,7 @@ class LiteratureHandler:
         self.read_count_this_round = 0
         self.data_count_this_round = 0
         self.chain_count_this_round = 0
+        self.datasearch_count_this_round = 0
         self.agent_search_count = {}
 
     def reset_cycle(self) -> None:
@@ -1187,6 +1197,104 @@ class LiteratureHandler:
                 thread_id=self._engine.state.thread_id,
                 phase=str(phase),
             )
+
+    # ------------------------------------------------------------------
+    # Repository data acquisition (D2): [DATASEARCH: query] / [FETCHDATA: id]
+    # ------------------------------------------------------------------
+
+    async def process_dataset_actions(
+        self, agent_id: str, response_text: str, phase: ResearchPhase
+    ) -> None:
+        """Handle [DATASEARCH:]/[FETCHDATA:] — search wired repositories and
+        stage real datasets into the sandbox (with data cards).
+
+        Best-effort like every literature action: a provider hiccup degrades to
+        a note in context, never an aborted cycle.
+        """
+        if phase not in _SEARCH_ENABLED_PHASES or not self._data_providers:
+            return
+
+        # --- searches ---
+        for query in re.findall(r"\[DATASEARCH:\s*([^\]]+)\]", response_text)[:3]:
+            query = query.strip()
+            if not query or self.datasearch_count_this_round >= 2:
+                break
+            self.datasearch_count_this_round += 1
+            candidates = []
+            for provider in self._data_providers:
+                try:
+                    candidates.extend(await provider.search(query, max_results=4))
+                except Exception as e:  # noqa: BLE001 — degrade, never abort
+                    self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+            if candidates:
+                lines = [f"## Dataset search results for '{query}'"]
+                for c in candidates[:8]:
+                    detail = f" ({c.detail})" if c.detail else ""
+                    lines.append(f"- `{c.id}` — {c.title} [{c.source}]{detail}")
+                lines.append(
+                    "Stage one into the sandbox with [FETCHDATA: <id>] "
+                    "(use the id exactly as shown)."
+                )
+                block = "\n".join(lines)
+            else:
+                block = (
+                    f"## Dataset search for '{query}': no datasets found. "
+                    "Broaden the query, or check papers you have [READ:] for data links."
+                )
+            self._append_to_context(block)
+            self._engine._display.info(
+                f"[data search] '{query}' → {len(candidates)} candidate dataset(s)"
+            )
+            self._engine.emit_event(
+                "dataset.search",
+                {"query": query, "n_results": len(candidates), "agent": agent_id},
+            )
+
+        # --- fetches ---
+        from paradigm.literature.data_providers import fetch_dataset
+        from paradigm.literature.resources import stage_local_dataset
+
+        shared_dir = self._engine._config.storage.data_dir / "shared" / "data"
+        for dataset_id in re.findall(r"\[FETCHDATA:\s*([^\]]+)\]", response_text)[:3]:
+            dataset_id = dataset_id.strip().strip("`")
+            if not dataset_id:
+                continue
+            if dataset_id in self.fetched_dataset_ids:
+                self._engine._display.data_stage_skipped(dataset_id, reason="already fetched")
+                continue
+            if self.data_count_this_round >= _DATA_REQUESTS_PER_ROUND:
+                self._engine._display.data_stage_skipped(
+                    dataset_id, reason=f"budget exhausted ({_DATA_REQUESTS_PER_ROUND}/round)"
+                )
+                break
+            try:
+                local = await fetch_dataset(self._data_providers, dataset_id)
+                shared_dir.mkdir(parents=True, exist_ok=True)
+                staged = stage_local_dataset(local, shared_dir)
+            except Exception as e:  # noqa: BLE001
+                self._engine._display.data_stage_error(dataset_id, e)
+                self._append_to_context(f"Dataset fetch FAILED for `{dataset_id}`: {str(e)[:200]}")
+                continue
+            self.fetched_dataset_ids.add(dataset_id)
+            self.data_count_this_round += 1
+            for resource in staged:
+                self._engine.state.resolved_resources.append(resource)
+                self._append_to_context(
+                    f"Fetched dataset `{dataset_id}` → {resource.sandbox_path}\n"
+                    f"{(resource.summary or '')[:1200]}"
+                )
+                self._engine._display.data_staged(
+                    resource.name, resource.size_bytes or 0, dataset_id
+                )
+                self._engine.emit_event(
+                    "dataset.fetched",
+                    {
+                        "dataset_id": dataset_id,
+                        "name": resource.name,
+                        "sandbox_path": resource.sandbox_path,
+                        "agent": agent_id,
+                    },
+                )
 
     # ------------------------------------------------------------------
     # Stall hint helpers

@@ -92,5 +92,11 @@ class ResearchState:
     gate_decisions: dict[str, str] = field(default_factory=dict)
     provenance: ProvenanceRecord | None = None
 
+    # PI reflection (R1-R3): loop-back accounting + the call-it record.
+    loop_backs_used: int = 0
+    reflection_log: list[dict[str, Any]] = field(default_factory=list)
+    called_by_pi: bool = False
+    pi_call_reason: str = ""
+
     # Writing
     forbidden_claims_violations: list[str] = field(default_factory=list)

@@ -95,6 +95,9 @@ agent:
     # into a structured research brief (orchestrator.enable_prompt_preprocessing).
     # One call per cycle, so the premium model costs pennies.
     prompt_refiner: { provider: anthropic, model: claude-opus-4-8 }
+    # PI — the reflection gate (R1-R3): judges the draft, may loop the team
+    # back or call it. A handful of calls per cycle, so the top model is cheap.
+    pi: { provider: anthropic, model: claude-opus-4-8 }
 
 # Code execution sandbox.
 # NOTE: experiments run real code here. It's network-isolated (network=none) and
@@ -115,6 +118,7 @@ sandbox:
   read_only_rootfs: false
 
 literature:
+  data_providers: ["vizier", "zenodo"]
   arxiv_rate_limit: 3.0
   max_results_per_search: 30
   enable_pdf_fetch: true
@@ -163,6 +167,8 @@ orchestrator:
   enable_execution_sprints: true   # operator tuning
   enable_verification: false
   # Unattended remote runs: no blocking gates. Steer via the interaction bar.
+  enable_reflection: true
+  max_loop_backs: 2
   data_policy: "real_only"   # fabricated datasets are excluded from the evidence base
   human_gate_mode: "off"
   human_gate_points: []

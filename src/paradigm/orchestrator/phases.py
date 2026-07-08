@@ -51,7 +51,13 @@ _TRANSITIONS: dict[ResearchPhase, list[ResearchPhase]] = {
         ResearchPhase.PLANNING,
     ],
     ResearchPhase.POST_EXECUTION: [ResearchPhase.WRITING, ResearchPhase.PLANNING],
-    ResearchPhase.WRITING: [ResearchPhase.INTERNAL_REVIEW],
+    # WRITING may loop BACK (PI reflection R1): more experiments or a re-plan
+    # before the draft faces review.
+    ResearchPhase.WRITING: [
+        ResearchPhase.INTERNAL_REVIEW,
+        ResearchPhase.EXECUTION,
+        ResearchPhase.PLANNING,
+    ],
     ResearchPhase.INTERNAL_REVIEW: [ResearchPhase.SUBMITTED, ResearchPhase.WRITING],
     ResearchPhase.SUBMITTED: [ResearchPhase.PEER_REVIEW, ResearchPhase.REJECTED],
     ResearchPhase.PEER_REVIEW: [

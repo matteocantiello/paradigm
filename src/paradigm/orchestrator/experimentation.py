@@ -302,8 +302,14 @@ class ExperimentationHandler:
         # 1C: experiments that have failed at least once this phase (for best-first ordering)
         self._buggy_experiments: set[str] = set()
 
-    async def run_experimentation_phase(self) -> ExperimentationResult:
+    async def run_experimentation_phase(
+        self, max_rounds_override: int | None = None
+    ) -> ExperimentationResult:
         """Run the EXECUTION phase: agents propose and run computational experiments.
+
+        Args:
+            max_rounds_override: Reduced round budget for PI-reflection loop-backs
+                (also disables sprint structure — a loop-back is one focused pass).
 
         Returns:
             ExperimentationResult with execution context and figures.
@@ -311,7 +317,9 @@ class ExperimentationHandler:
         engine = self._engine
         explicit = engine._config.orchestrator.max_experiment_rounds
         max_rounds = (
-            explicit
+            max_rounds_override
+            if max_rounds_override is not None
+            else explicit
             if explicit is not None
             else 2 * engine._config.orchestrator.max_rounds_per_phase
         )
@@ -365,8 +373,10 @@ class ExperimentationHandler:
         _advisory_message = ""
         _skipped_message = ""
 
-        # Sprint configuration
-        enable_sprints = engine._config.orchestrator.enable_execution_sprints
+        # Sprint configuration (a reduced loop-back run is one focused pass)
+        enable_sprints = (
+            engine._config.orchestrator.enable_execution_sprints and max_rounds_override is None
+        )
         num_sprints = engine._config.orchestrator.num_execution_sprints if enable_sprints else 1
         rounds_per_sprint = max(1, -(-max_rounds // num_sprints))  # ceil division
 
