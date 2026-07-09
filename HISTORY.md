@@ -5174,3 +5174,4 @@ Executed all three: (1) DOCS refreshed across the GitHub-exposed set — README 
 
 > Let's first push these changes, then write a concrete refactor plan that we can execute later
 
+Expanded .planning/REFACTORING-2026-07.md into an execution-ready playbook: Wave 0 safety scaffolding (display parity test, backend service tests) → Wave 1 structural (DisplayProtocol, EngineServices with per-handler commit order) → Wave 2 mechanical (constants split w/ reexport shim, backend config-mirror deletion — requires-python>=3.11 voids its rationale, vite manualChunks, HISTORY archive, settings DTO diet) → Wave 3 surgery (mega-method extraction seams incl. the 664-line run_experimentation_phase, PaperContextBuilder, ResearchState mutators) → Wave 4 frontend (reducer split, TS type codegen). Per-item: files, procedure, verification gates, commit boundaries + a session-by-session execution table and global no-behavior-change rules.
