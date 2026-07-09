@@ -169,6 +169,9 @@ class LiteratureHandler:
         )
         self.datasearch_count_this_round: int = 0
         self.fetched_dataset_ids: set[str] = set()  # cross-round dedup
+        # Ids surfaced by this cycle's DATASEARCH results — used to repair a
+        # mangled [FETCHDATA:] id (agents guess "vizier:J/...  (or similar)").
+        self.seen_dataset_ids: list[str] = []
 
         # External-source degradation: track which literature sources have already
         # emitted a calm "rate-limited / unavailable" notice this cycle, so a flaky
@@ -213,6 +216,8 @@ class LiteratureHandler:
         self.followed_paper_ids = set()
         self.cited_by_paper_ids = set()
         self.degraded_sources = set()
+        self.fetched_dataset_ids = set()
+        self.seen_dataset_ids = []
 
     def _handle_source_failure(self, source: str, agent_id: str, error: Exception) -> bool:
         """Record a literature-source failure; return True if handled calmly.
@@ -1231,9 +1236,12 @@ class LiteratureHandler:
                 for c in candidates[:8]:
                     detail = f" ({c.detail})" if c.detail else ""
                     lines.append(f"- `{c.id}` — {c.title} [{c.source}]{detail}")
+                    if c.id not in self.seen_dataset_ids:
+                        self.seen_dataset_ids.append(c.id)
                 lines.append(
-                    "Stage one into the sandbox with [FETCHDATA: <id>] "
-                    "(use the id exactly as shown)."
+                    "Stage one into the sandbox with [FETCHDATA: <id>]. Copy the id "
+                    "VERBATIM from the list above — do NOT append notes, a version, a "
+                    "trailing slash, or '(or similar)'; a mangled id fetches nothing."
                 )
                 block = "\n".join(lines)
             else:
@@ -1255,10 +1263,31 @@ class LiteratureHandler:
         from paradigm.literature.resources import stage_local_dataset
 
         shared_dir = self._engine._config.storage.data_dir / "shared" / "data"
-        for dataset_id in re.findall(r"\[FETCHDATA:\s*([^\]]+)\]", response_text)[:3]:
-            dataset_id = dataset_id.strip().strip("`")
+        for raw_id in re.findall(r"\[FETCHDATA:\s*([^\]]+)\]", response_text)[:3]:
+            # Repair a mangled id (parentheticals, "or similar", trailing slash,
+            # backticks) and, if needed, snap it to the closest DATASEARCH result
+            # — a live run guessed "vizier:J/MNRAS/506/150/ (or similar)" for a
+            # real catalog and fetched nothing.
+            dataset_id, correction = self._resolve_fetchdata_id(raw_id)
             if not dataset_id:
+                self._engine._display.data_stage_error(
+                    raw_id.strip(), "unrecognized id — copy one from the DATASEARCH results"
+                )
+                self._append_to_context(
+                    f"Dataset fetch FAILED for `{raw_id.strip()}`: not a recognized id. "
+                    "Copy an id verbatim from a DATASEARCH result"
+                    + (
+                        f" (available: {', '.join(self.seen_dataset_ids[:6])})"
+                        if self.seen_dataset_ids
+                        else ""
+                    )
+                    + "."
+                )
                 continue
+            if correction:
+                self._engine._display.info(
+                    f"[data fetch] repaired id '{raw_id.strip()}' → '{dataset_id}'"
+                )
             if dataset_id in self.fetched_dataset_ids:
                 self._engine._display.data_stage_skipped(dataset_id, reason="already fetched")
                 continue
@@ -1295,6 +1324,43 @@ class LiteratureHandler:
                         "agent": agent_id,
                     },
                 )
+
+    def _resolve_fetchdata_id(self, raw: str) -> tuple[str | None, bool]:
+        """Clean a [FETCHDATA:] id and repair it against this cycle's search hits.
+
+        Returns ``(id_or_None, was_corrected)``. Strips backticks/quotes,
+        parenthetical asides, "or similar"/version tails, and a trailing slash;
+        if the cleaned id isn't owned by any provider, snaps it to the closest
+        DATASEARCH-returned id (so a paraphrased id still fetches the real
+        catalog). None only when nothing plausible matches.
+        """
+        import difflib
+
+        stripped = raw.strip().strip("`\"'")
+        cleaned = re.sub(r"\s*\([^)]*\)\s*$", "", stripped)  # drop "(or similar)" etc.
+        cleaned = re.sub(r"\s+(?:or\s+similar|e\.?g\.?|etc\.?).*$", "", cleaned, flags=re.I)
+        cleaned = cleaned.strip("`\"' \t/.,;").strip()  # trailing junk: backtick, slash, punct
+        if not cleaned:
+            return None, False
+        corrected = cleaned != stripped
+
+        # A well-formed, provider-owned id is trusted as-is (the agent may know a
+        # valid catalog that was never searched, e.g. vizier:III/284).
+        if any(p.owns(cleaned) for p in self._data_providers):
+            return cleaned, corrected
+
+        # Not owned (missing prefix / typo) → snap to the closest id this cycle's
+        # searches actually returned.
+        if self.seen_dataset_ids:
+            match = difflib.get_close_matches(cleaned, self.seen_dataset_ids, n=1, cutoff=0.6)
+            if match:
+                return match[0], True
+            tail = cleaned.split(":", 1)[-1]
+            tails = {sid.split(":", 1)[-1]: sid for sid in self.seen_dataset_ids}
+            tmatch = difflib.get_close_matches(tail, list(tails), n=1, cutoff=0.7)
+            if tmatch:
+                return tails[tmatch[0]], True
+        return None, False
 
     # ------------------------------------------------------------------
     # Stall hint helpers

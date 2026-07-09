@@ -41,11 +41,14 @@ from urllib.parse import quote
 
 import httpx
 
-_TIMEOUT = 45.0
+_TIMEOUT = 90.0  # survey-catalog exports (GALAH/APOGEE) take server-side time
 _MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024  # match the upload cap
 _VIZIER_WORDS_URL = "https://vizier.cds.unistra.fr/viz-bin/votable"
 _VIZIER_TSV_URL = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv"
-_VIZIER_ROW_CAP = 100_000
+# Bounded sample, not the whole catalog: survey tables (GALAH, APOGEE) with
+# -out.all can exceed the 100 MB download cap at 100k rows. 20k rows keeps a
+# usable slice well under the cap; agents needing more run a targeted TAP query.
+_VIZIER_ROW_CAP = 20_000
 _ZENODO_API = "https://zenodo.org/api/records"
 # Data-file extensions worth staging from a Zenodo record.
 _ZENODO_DATA_EXTS = (".csv", ".tsv", ".txt", ".dat", ".fits", ".json", ".parquet", ".npy", ".npz")
@@ -61,19 +64,36 @@ class DataCandidate:
     detail: str = ""
 
 
-async def _download_capped(client: httpx.AsyncClient, url: str, dest: Path) -> int:
-    """Stream a URL to dest with a hard size cap. Returns bytes written."""
+async def _download_capped(
+    client: httpx.AsyncClient, url: str, dest: Path, *, keep_partial: bool = False
+) -> int:
+    """Stream a URL to dest with a hard size cap. Returns bytes written.
+
+    ``keep_partial`` (line-oriented text only): instead of failing when a big
+    catalog exceeds the cap, keep the prefix trimmed to the last complete line —
+    a bounded, valid sample beats no data. Binary formats leave it False.
+    """
     written = 0
     async with client.stream("GET", url) as r:
         r.raise_for_status()
         with open(dest, "wb") as f:
             async for chunk in r.aiter_bytes():
-                written += len(chunk)
-                if written > _MAX_DOWNLOAD_BYTES:
+                if written + len(chunk) > _MAX_DOWNLOAD_BYTES:
+                    if keep_partial:
+                        f.write(chunk[: _MAX_DOWNLOAD_BYTES - written])
+                        written = _MAX_DOWNLOAD_BYTES
+                        break
                     raise ValueError(f"download exceeds {_MAX_DOWNLOAD_BYTES // 2**20} MB cap")
+                written += len(chunk)
                 f.write(chunk)
     if written == 0:
         raise ValueError("empty download")
+    if keep_partial and written >= _MAX_DOWNLOAD_BYTES:
+        # Trim a truncated text file back to its last complete line.
+        data = dest.read_bytes()
+        nl = data.rfind(b"\n")
+        if nl > 0:
+            dest.write_bytes(data[: nl + 1])
     return written
 
 
@@ -116,10 +136,12 @@ class VizieRDataProvider:
 
     async def fetch(self, dataset_id: str, dest_dir: Path) -> Path:
         cat = dataset_id.split(":", 1)[1] if dataset_id.startswith("vizier:") else dataset_id
-        url = f"{_VIZIER_TSV_URL}?-source={quote(cat, safe='')}&-out.all&-out.max={_VIZIER_ROW_CAP}"
+        # Default (curated main) columns, NOT -out.all: survey catalogs like
+        # GALAH/APOGEE carry ~500 columns and -out.all blows past the size cap.
+        url = f"{_VIZIER_TSV_URL}?-source={quote(cat, safe='')}&-out.max={_VIZIER_ROW_CAP}"
         dest = dest_dir / f"vizier_{_sanitize(cat)}.tsv"
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            await _download_capped(client, url, dest)
+            await _download_capped(client, url, dest, keep_partial=True)
         # A words-page or error page instead of a table is a failed fetch.
         head = dest.read_text(errors="replace")[:4000]
         if "#RESOURCE" not in head and "\t" not in head:
