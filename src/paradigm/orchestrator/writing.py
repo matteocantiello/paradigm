@@ -253,14 +253,24 @@ class WritingHandler:
                 "item that is neither delivered in the paper nor honestly acknowledged "
                 "as not achieved (with the reason), add a Required Change telling the "
                 "writer to acknowledge it plainly. Do NOT let a requested deliverable "
-                "silently disappear.\n\n" + numbered
+                "silently disappear.\n"
+                "SCOPE HONESTY (blocking): if a specific data source, method, or "
+                "sample named in the request was NOT actually used and a substitute "
+                "was used instead (e.g. a survey's own parameters in place of the "
+                "requested cross-match catalog), the paper must state this as a "
+                "PARTIAL/substituted deliverable in Limitations — it may NOT be "
+                "presented in the abstract or conclusion as the requested deliverable "
+                "fully achieved. Flag any such overclaim as a Blocking Change.\n\n" + numbered
             )
         return (
             "\n\n## Explicit Deliverables Requested by the User\n"
             "The research prompt explicitly asked for each item below. For EVERY "
             "item: either deliver it, or state plainly in the paper (Methods or "
             "Limitations) that it was not achieved and why. Do NOT silently omit "
-            "any item.\n\n" + numbered
+            "any item. If you had to SUBSTITUTE a source/method the request named "
+            "(e.g. use one survey's parameters because another was unavailable), "
+            "say so explicitly and call the result PARTIAL — never present a "
+            "substitute as the requested deliverable fully achieved.\n\n" + numbered
         )
 
     def _build_execution_fact_sheet(self) -> str:
@@ -1496,6 +1506,24 @@ class WritingHandler:
         body = orphan_re.sub(_strip_orphan, body)
 
         return body
+
+    def refresh_paper_title(self, paper_id: str, body: str) -> None:
+        """Re-sync the paper's DB title to the ``# `` heading in its body (C).
+
+        The title is set once at creation from the FIRST draft. A reflection
+        loop-back or a revision replaces the whole body — a live run shipped a
+        confident paper whose stored title still read "Null-Execution Study…"
+        from the pre-loop-back draft. Best-effort; never breaks a save.
+        """
+        try:
+            for line in body.split("\n"):
+                if line.startswith("# "):
+                    title = line[2:].strip()
+                    if title:
+                        self._engine._db.update_paper(paper_id, title=title)
+                    return
+        except Exception as e:  # noqa: BLE001
+            self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
 
     def save_paper_file(self, paper_id: str, body: str) -> None:
         """Write paper markdown to the papers directory.

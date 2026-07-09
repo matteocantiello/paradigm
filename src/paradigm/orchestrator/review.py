@@ -581,11 +581,23 @@ class ReviewHandler:
                 return
 
             if feedback.recommendation == "accept":
-                # Paper accepted — update status
-                thread = self._engine._db.get_thread(self._engine.state.thread_id)
-                if thread and thread.get("current_draft_id"):
-                    self._engine._db.update_paper(thread["current_draft_id"], status="reviewed")
-                return
+                # Gate leak guard (D): "accept" while explicit BLOCKING issues
+                # are still open is contradictory — a live run accepted a paper
+                # with one blocking item outstanding. Downgrade to a revision so
+                # the blockers are addressed first. Gated on `tiered` so a legacy
+                # accept-with-required-changes (editor's call) is untouched.
+                if feedback.tiered and feedback.blocking_changes:
+                    self._engine._display.info(
+                        f"[review] editor said accept but {len(feedback.blocking_changes)} "
+                        "blocking issue(s) remain — treating as revise."
+                    )
+                    feedback.recommendation = "revise"
+                else:
+                    # Paper accepted — update status
+                    thread = self._engine._db.get_thread(self._engine.state.thread_id)
+                    if thread and thread.get("current_draft_id"):
+                        self._engine._db.update_paper(thread["current_draft_id"], status="reviewed")
+                    return
 
             # Accept-with-minor-revisions: "revise" with ZERO blocking items means
             # the science stands — apply the cosmetic fixes in ONE final polish
@@ -694,6 +706,7 @@ class ReviewHandler:
         if thread and thread.get("current_draft_id"):
             paper_id = thread["current_draft_id"]
             self._engine._db.update_paper(paper_id, body=current_body, status="reviewed")
+            self._engine._writing.refresh_paper_title(paper_id, current_body)  # C
             await asyncio.to_thread(self._engine._writing.save_paper_file, paper_id, current_body)
 
     async def run_revision(self, current_body: str, review_text: str) -> str:
@@ -1080,6 +1093,7 @@ class ReviewHandler:
         if thread and thread.get("current_draft_id"):
             paper_id = thread["current_draft_id"]
             self._engine._db.update_paper(paper_id, body=revised_body, status="revised")
+            self._engine._writing.refresh_paper_title(paper_id, revised_body)  # C
             self._engine._writing.save_paper_file(paper_id, revised_body)
 
         self._engine._display.revision_complete()

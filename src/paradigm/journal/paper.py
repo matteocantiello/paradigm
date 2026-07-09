@@ -67,6 +67,11 @@ class ReviewFeedback(BaseModel):
     # blocking_changes (conservative — reproduces the old behavior).
     blocking_changes: list[str] = Field(default_factory=list)
     minor_changes: list[str] = Field(default_factory=list)
+    # True only when the editor used explicit ## Blocking/Minor sections. A
+    # legacy un-tiered review mirrors all required_changes into blocking_changes,
+    # so consumers that act on "blocking" (e.g. the accept-with-open-blocking
+    # guard) must gate on this to avoid firing on legacy accept-with-changes.
+    tiered: bool = False
     recommendation: str = "revise"  # "accept", "revise", or "reject"
     # True when a ## Recommendation section was actually parsed; False when the
     # review was incomplete (e.g. truncated before its recommendation) and the
@@ -451,11 +456,12 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
     blocking_changes = _drop_none(_extract_list(sections.get("blocking changes", "")))
     minor_changes = _drop_none(_extract_list(sections.get("minor changes", "")))
 
-    if (
+    tiered = bool(
         blocking_changes
         or minor_changes
         or ("blocking changes" in sections or "minor changes" in sections)
-    ):
+    )
+    if tiered:
         # Tiered review: required_changes stays the combined list for the
         # convergence budget and any legacy consumer counting total work.
         required_changes = blocking_changes + minor_changes
@@ -493,6 +499,7 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
         required_changes=required_changes,
         blocking_changes=blocking_changes,
         minor_changes=minor_changes,
+        tiered=tiered,
         recommendation=recommendation,
         recommendation_explicit="recommendation" in sections,
     )

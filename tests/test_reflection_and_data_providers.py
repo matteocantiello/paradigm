@@ -158,7 +158,7 @@ def _engine_stub(verdicts: list[dict]):
     )
     long_body = "# Revised paper\n" + ("evidence " * 1300)  # > _MIN_PAPER_LENGTH (10k)
     stub._review = SimpleNamespace(run_revision=AsyncMock(return_value=long_body))
-    stub._writing = SimpleNamespace(save_paper_file=MagicMock())
+    stub._writing = SimpleNamespace(save_paper_file=MagicMock(), refresh_paper_title=MagicMock())
     stub._run_reflection_loop = OrchestrationEngine._run_reflection_loop.__get__(stub)
     stub._merge_execution_results = OrchestrationEngine._merge_execution_results.__get__(stub)
     return stub

@@ -26,6 +26,7 @@ REAL = "real"
 DERIVED = "derived"
 RESAMPLED = "resampled"
 SYNTHETIC = "synthetic"
+UNAVAILABLE = "unavailable"  # code TRIED to load data, but the load was empty/HTML/failed
 
 # Reading data into the experiment (staged files, workspace CSVs, FITS, HDF5…).
 _INPUT_RE = re.compile(
@@ -56,6 +57,27 @@ _MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Runtime evidence that a claimed real-data load produced NOTHING — a failed or
+# HTML-only download, or an explicit zero-row/unavailable marker in stdout. The
+# provenance classifier is static (code-only) and would call an HTML error page
+# "real"; this catches the load that never delivered (VM tidal-run failure mode).
+_EMPTY_LOAD_RE = re.compile(
+    r"""
+    <!DOCTYPE\s+html | <html\b |                       # HTML page read as data
+    \b(?:rows?_loaded|n_rows|nrows|n_records|row_count|
+        downloaded|matches|n_matches)\s*[=:]\s*0\b |    # explicit zero
+    RESULT\[[^\]]*(?:rows?_loaded|downloaded|matches)[^\]]*\]\s*=\s*0\b |
+    DATA[\s_]UNAVAILABLE | \bempty\ (?:dataframe|table|catalog|file)\b |
+    \bno\ (?:rows|records|data)\ (?:found|loaded|returned|available)\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _load_was_empty(stdout: str) -> bool:
+    """True when stdout shows a real-data load that returned nothing/HTML."""
+    return bool(stdout) and bool(_EMPTY_LOAD_RE.search(stdout))
+
 
 def classify_data_provenance(code: str, stdout: str = "") -> tuple[str, list[str]]:
     """Classify an experiment's data provenance from its code (+ stdout).
@@ -80,6 +102,13 @@ def classify_data_provenance(code: str, stdout: str = "") -> tuple[str, list[str
         reasons.append(f"loads data but also generates a component it calls '{marker.group(0)}'")
         return SYNTHETIC, reasons
 
+    # B: a load that returned nothing (HTML page / zero rows) is NOT real
+    # evidence even though the code contains read_csv — downgrade so the
+    # real-data mandate doesn't rubber-stamp an empty catalog.
+    if has_input and _load_was_empty(stdout):
+        reasons.append("attempts a data load, but stdout shows it was empty/HTML/unavailable")
+        return UNAVAILABLE, reasons
+
     if has_input and has_random:
         reasons.append("randomness over loaded data (bootstrap/permutation/Monte-Carlo)")
         return RESAMPLED, reasons
@@ -93,5 +122,10 @@ def classify_data_provenance(code: str, stdout: str = "") -> tuple[str, list[str
 
 
 def excluded_by_policy(verdict: str, policy: str) -> bool:
-    """True when this experiment must be dropped from the evidence base."""
-    return policy == "real_only" and verdict == SYNTHETIC
+    """True when this experiment must be dropped from the evidence base.
+
+    ``synthetic`` = fabricated inputs; ``unavailable`` = a real-data load that
+    delivered nothing (HTML/empty). Both are excluded under ``real_only`` — an
+    empty load produces no evidence and must not count as a successful result.
+    """
+    return policy == "real_only" and verdict in (SYNTHETIC, UNAVAILABLE)

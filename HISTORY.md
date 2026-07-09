@@ -5192,3 +5192,9 @@ Added 10 data providers to literature/data_providers.py, all endpoints live-veri
 
 > let's push
 
+
+## Prompt 269 — Analyze the latest VM run (data_vm2) for failures
+
+> I just copied the latest runs from the VM to /Users/mcantiello/astro/paradigm/data_vm2. Could you analyze the last run and see what went wrong? Then we can decide a strategy to fix and improve the current workflow
+
+Implemented A-E for the VM tidal-run data-acquisition failure: A data-acquisition directive on experiment prompts (route via [FETCHDATA:], NEVER download full survey catalogs, query bounded TAP subsets, verify every load with RESULT[*_rows_loaded], report substitutes as PARTIAL); B provenance UNAVAILABLE verdict — a real-data load whose stdout shows HTML/zero-rows/DATA-UNAVAILABLE is downgraded from "real" and excluded under real_only (catches the HTML-error-page-read-as-data case); C refresh_paper_title re-syncs the DB title from the body after every loop-back/revision rewrite (kills the "Null-Execution Study" title on a confident body); D internal review "accept" with explicit open Blocking Changes is downgraded to revise (gated on tiered so legacy accept-with-changes is untouched — added ReviewFeedback.tiered); E requirements block scope-honesty — a substituted source (Gaia GSP-Phot for the requested APOGEE/GALAH) must be reported PARTIAL, overclaim is a Blocking Change. 15 tests; suite 2005 green.

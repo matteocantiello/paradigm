@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from paradigm.literature.resources import ResourceType
 from paradigm.orchestrator.constants import (
     _ADVISORY_PROMPT_TEMPLATE,
+    _DATA_ACQUISITION_DIRECTIVE,
     _DATA_ERROR_PATTERNS,
     _EXECUTION_STDERR_LIMIT,
     _FILE_NOT_FOUND_PATTERNS,
@@ -31,7 +32,11 @@ from paradigm.orchestrator.constants import (
     _topological_sort,
     data_policy_directive,
 )
-from paradigm.orchestrator.data_provenance import classify_data_provenance, excluded_by_policy
+from paradigm.orchestrator.data_provenance import (
+    SYNTHETIC,
+    classify_data_provenance,
+    excluded_by_policy,
+)
 from paradigm.orchestrator.phases import ResearchPhase
 from paradigm.orchestrator.verification import _extract_result_tokens
 from paradigm.sandbox.executor import CodeExecutor
@@ -509,6 +514,9 @@ class ExperimentationHandler:
                     # Methods bar: rank-based stats on skewed data, effect sizes,
                     # documented exclusions (a live reviewer objection, baked in).
                     prompt += _STATS_RIGOR_DIRECTIVE
+                    # Acquisition discipline: fetch via the orchestrator, query
+                    # bounded subsets, verify every load (A).
+                    prompt += _DATA_ACQUISITION_DIRECTIVE
 
                     # Inject the console-as-data-bus contract (1B): print key numbers as
                     # machine-readable tokens so results can be re-extracted and verified.
@@ -694,14 +702,20 @@ class ExperimentationHandler:
                         )
                         if synthetic_excluded:
                             _synthetic_excluded += 1
+                            why = (
+                                "generated its own input data"
+                                if provenance == SYNTHETIC
+                                else "loaded no real data (the load was empty/HTML/unavailable)"
+                            )
                             formatted += (
-                                "\n\n**EXCLUDED BY DATA POLICY**: this experiment "
-                                f"generated its own input data ({'; '.join(prov_reasons)}). "
-                                "Its numbers are NOT part of the evidence base — do not "
-                                "cite them. Acquire real data or descope."
+                                f"\n\n**EXCLUDED BY DATA POLICY**: this experiment {why} "
+                                f"({'; '.join(prov_reasons)}). Its numbers are NOT part of the "
+                                "evidence base — do not cite them. Acquire real data "
+                                "([DATASEARCH:]/[FETCHDATA:] or a bounded TAP query) or descope."
                             )
                             engine._display.warning(
-                                f"[data policy] {block.name} excluded: {'; '.join(prov_reasons)}"
+                                f"[data policy] {block.name} excluded "
+                                f"({provenance}): {'; '.join(prov_reasons)}"
                             )
 
                         all_results.append(formatted)
@@ -944,10 +958,12 @@ class ExperimentationHandler:
 
         if _synthetic_excluded:
             caveats.append(
-                f"{_synthetic_excluded} experiment(s) generated their own input data "
-                "and were EXCLUDED from the evidence base (data policy: real data "
-                "only). Any of their numbers appearing in the paper is a BLOCKING "
-                "defect — they must not be cited."
+                f"{_synthetic_excluded} experiment(s) were EXCLUDED from the evidence "
+                "base (data policy: real data only) — they either fabricated inputs or "
+                "loaded no real data (empty/HTML/unavailable). Any of their numbers "
+                "appearing in the paper is a BLOCKING defect — they must not be cited. "
+                "Acquire the missing data via [DATASEARCH:]/[FETCHDATA:] or a bounded "
+                "TAP query, or descope those analyses honestly."
             )
 
         # Check for vacuous reclassifications in the results text

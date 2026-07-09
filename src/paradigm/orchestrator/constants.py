@@ -61,6 +61,34 @@ def data_policy_directive(policy: str) -> str:
     return _DATA_POLICY_DIRECTIVES.get(policy, "")
 
 
+# Acquisition discipline for experiment prompts (A). A live run tried to
+# download a 3 GB APOGEE catalog inside an experiment, hit the sandbox resource
+# limits, and silently proceeded with no data — while its [DATASEARCH:] results
+# went unused. This routes acquisition through the orchestrator and bans
+# whole-catalog downloads.
+_DATA_ACQUISITION_DIRECTIVE = (
+    "\n\n## DATA ACQUISITION (read before writing any download code)\n"
+    "1. To obtain a dataset, use the ORCHESTRATOR: emit [DATASEARCH: keywords] "
+    "to find it, then [FETCHDATA: <id>] to stage it into /data/shared/data with "
+    "a schema card. Do NOT re-download inside an experiment what [FETCHDATA:] "
+    "can stage — the orchestrator handles size caps and provenance.\n"
+    "2. NEVER download a full survey catalog (Gaia source, APOGEE allStar, GALAH "
+    "master, SDSS spec — these are GB-to-TB). The sandbox has a strict time and "
+    "size budget; a multi-GB download WILL fail and leave you with no data. "
+    "Instead query a BOUNDED SUBSET: a TAP/ADQL query with an explicit WHERE and "
+    "a row cap (e.g. `SELECT TOP 50000 ... FROM gaiadr3.nss_two_body_orbit WHERE "
+    "...`), or a VizieR value-added table ([FETCHDATA: vizier:<id>]).\n"
+    "3. VERIFY every load before you use it: assert the file exists, is not an "
+    "HTML error page, and has a plausible non-zero row count — print "
+    "`RESULT[<name>_rows_loaded]=<n>`. If a load returns 0 rows or an HTML page, "
+    "the data is UNAVAILABLE: print 'DATA UNAVAILABLE: <what/why>', DESCOPE that "
+    "analysis, and do not report results derived from it.\n"
+    "4. If a REQUIRED data source named in the brief cannot be acquired, say so "
+    "plainly — a substitute (e.g. Gaia's own parameters in place of APOGEE) is a "
+    "PARTIAL result, reported as such, never as the requested deliverable."
+)
+
+
 # Statistical-rigor directive for experiment prompts. Evidence: in a live
 # head-to-head, one arm used Pearson-only correlations on strongly skewed,
 # quantized data — the reviewers dinged exactly that. This bakes the standard in.

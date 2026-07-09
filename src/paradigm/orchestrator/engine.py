@@ -1025,6 +1025,7 @@ class OrchestrationEngine:
                 if thread and thread.get("current_draft_id"):
                     paper_id = thread["current_draft_id"]
                     self._db.update_paper(paper_id, body=revised, status="revised")
+                    self._writing.refresh_paper_title(paper_id, revised)  # C
                     await asyncio.to_thread(self._writing.save_paper_file, paper_id, revised)
 
     async def _run_deep_revision_loop(self, reviews: list[Any]) -> str:
