@@ -5129,3 +5129,4 @@ HEAD-TO-HEAD RESULT (same prompt + VizieR tables): OPEN ARM PUBLISHED (paper-cca
 
 > Please implement everything and --- once is implemented -- run a cycle to test
 
+R4 VALIDATION: PUBLISHED (paper-fe2025960b2c). Open tier via toggle, real_only, reflection on, NO data attached. 98 min, $2.76 exact, 844k in / 538k out. Every feature fired live: 8 [DATASEARCH:] + 7 [FETCHDATA:] (agents fetched 7 real VizieR catalogs themselves), 55 experiments (54 ok; provenance real 14/resampled 2/derived 39/SYNTHETIC 0, 0 exclusions), PI reflection ruled proceed with a reasoned verdict, tiered internal review revise(3 blocking)→accept(0) in 2 iterations, peer major_revision → PI triage deep_loop (missing combined-model test) → extra experiments → minor→accepted. The full non-linear, real-data pipeline works end-to-end.

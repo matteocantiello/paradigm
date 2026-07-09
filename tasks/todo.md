@@ -318,6 +318,12 @@ Build order: D1 → R1 → D2 → R2+R3 → R4.
 - [x] configs: pi role + enable_reflection + providers in production/open/
       interactive; 15 new tests; suite 1964 green
 
-## R4 — live validation  [IN PROGRESS]
-- [ ] Test cycle: microturbulence prompt with NO attached data (agents must
-      DATASEARCH/FETCHDATA the catalog), open tier, real_only, reflection on
+## R4 — live validation  [DONE 2026-07-08 — PUBLISHED]
+- [x] paper-fe2025960b2c (thread-2b3d554f0887 successor): microturbulence prompt,
+      NO attached data, open tier, real_only, reflection on. 98 min, $2.76,
+      844k/538k tokens. EVERY new feature fired live: 8 DATASEARCH + 7 FETCHDATA
+      (real VizieR catalogs incl. APOGEE/GALAH-adjacent), 55 experiments
+      (54 success; provenance real 14 / resampled 2 / derived 39 / synthetic 0,
+      0 policy exclusions), PI reflection → proceed (reasoned), internal review
+      revise(3 blocking)→accept(0), peer major_revision → PI triage deep_loop
+      (H3 combined-model test) → new experiments → minor → accepted → PUBLISHED.
