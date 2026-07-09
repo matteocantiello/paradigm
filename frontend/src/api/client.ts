@@ -190,6 +190,8 @@ export interface PaperSummary {
   topics?: string[] | null;
   /** Quality-ledger judge scores (1-10 dims + composite), null until judged. */
   judge_scores?: Record<string, number | string> | null;
+  /** Cover figure filename (largest image); null → card draws a generated cover. */
+  hero_figure?: string | null;
   created_at?: string | null;
   published_at?: string | null;
 }

@@ -5209,3 +5209,9 @@ Highest-leverage follow-up shipped: robust [FETCHDATA:] id resolution + survey-c
 
 > let's push
 
+
+## Prompt 273 — Implement the hybrid papers-collection card (option D)
+
+> This looks great
+
+Approved the D mockup; implementing: backend hero_figure on PaperSummary + frontend hybrid PaperCard (figure hero / procedural cover) in the Observatory theme.

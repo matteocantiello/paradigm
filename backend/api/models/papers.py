@@ -18,6 +18,9 @@ class PaperSummary(BaseModel):
     # Quality-ledger judge scores (novelty/rigor/clarity/significance/honesty
     # 1-10 + composite), None until the paper is judged.
     judge_scores: dict[str, object] | None = None
+    # Cover figure filename (the paper's largest image), served via
+    # /papers/{id}/figures/{name}. None → the card draws a generated cover.
+    hero_figure: str | None = None
     created_at: datetime | None = None
     published_at: datetime | None = None
 

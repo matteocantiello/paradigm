@@ -218,6 +218,7 @@ async def list_papers(
             abstract=p.get("abstract", "")[:500],
             topics=_json_list(p.get("topics")),
             judge_scores=_json_obj(p.get("judge_scores")),
+            hero_figure=_hero_figure(request, p["id"]),
             created_at=p.get("created_at"),
             published_at=p.get("published_at"),
         )
@@ -322,6 +323,35 @@ def _paper_dir(request: Request, paper_id: str) -> Path | None:
     if d.is_dir():
         return d
     return None
+
+
+_HERO_FIGURE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def _hero_figure(request: Request, paper_id: str) -> str | None:
+    """The card cover figure for a paper: its largest image (≈ the richest plot).
+
+    Returns the filename (served via /papers/{id}/figures/{name}) or None when
+    the paper has no thumbnail-worthy figure — the card then draws a generated
+    cover. Best-effort; never raises into the listing.
+    """
+    try:
+        paper_dir = _paper_dir(request, paper_id)
+        if paper_dir is None:
+            return None
+        fig_dir = paper_dir / "figures"
+        if not fig_dir.is_dir():
+            return None
+        images = [
+            f
+            for f in fig_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in _HERO_FIGURE_EXTS
+        ]
+        if not images:
+            return None
+        return max(images, key=lambda f: f.stat().st_size).name
+    except OSError:
+        return None
 
 
 @router.get(
