@@ -899,9 +899,19 @@ The sandbox default is `network_mode: "bridge"` (see [Docker Sandbox](#14-docker
 | Provider | ID format | Description |
 |----------|-----------|-------------|
 | `vizier` | `vizier:J/A+A/701/A297` | VizieR/CDS astronomical catalogs (VOTable resource search, TSV table fetch) |
+| `mast` | `mast:dbo.allpointing` | MAST — Hubble/Webb/TESS/Kepler/Roman archive (IVOA TAP catalog) |
+| `irsa` | `irsa:twomass.allsky_images` | IRSA — NASA/IPAC infrared archive: WISE, 2MASS, Spitzer (TAP) |
+| `ned` | `ned:NEDTAP.objdir` | NED — NASA/IPAC Extragalactic Database (TAP) |
+| `nasa_exoplanet` | `exoplanet:ps` | NASA Exoplanet Archive — confirmed planets, KOIs, time series (TAP) |
+| `simbad` | `simbad:M31` | SIMBAD object cross-match — resolve a name to coordinates/type/basic params |
+| `heasarc` | `heasarc:swiftmastr` | HEASARC high-energy archive (TAP; fetch-by-known-id — its schema search is finicky, so not in the default lists) |
 | `zenodo` | `zenodo:999271` | Zenodo research-data records (domain-agnostic) |
+| `dryad` | `dryad:doi:10.5061/dryad.xxx` | Dryad curated datasets (search returns DOIs; bulk download is often auth-gated) |
+| `uniprot` | `uniprot:P01308` | UniProt — protein sequence/annotation records (TSV) |
+| `pdb` | `pdb:3GOU` | RCSB PDB — macromolecular structures (`.pdb`/`.cif`) |
+| `geo` | `geo:GSE12345` | NCBI GEO — gene-expression series (SOFT family file) |
 
-The domain-agnostic default is `["zenodo"]`; the astro-flavored shipped configs (`default.yaml`, `production.yaml`, `open.yaml`) use `["vizier", "zenodo"]`. An empty list disables both tags.
+The astro-flavored shipped configs (`default.yaml`, `production.yaml`, `open.yaml`, `interactive.yaml`) use `["vizier", "simbad", "ned", "mast", "irsa", "nasa_exoplanet", "zenodo"]`. A biology domain would set e.g. `["uniprot", "pdb", "geo", "zenodo"]`. TAP archives (`mast`/`irsa`/`ned`/`nasa_exoplanet`/`heasarc`) list matching tables on search and stage a bounded TOP-5000 slice on fetch (agents run larger queries themselves in the sandbox). An empty list disables the tags.
 
 **How it works:**
 

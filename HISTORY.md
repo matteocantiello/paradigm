@@ -5175,3 +5175,15 @@ Executed all three: (1) DOCS refreshed across the GitHub-exposed set — README 
 > Let's first push these changes, then write a concrete refactor plan that we can execute later
 
 Expanded .planning/REFACTORING-2026-07.md into an execution-ready playbook: Wave 0 safety scaffolding (display parity test, backend service tests) → Wave 1 structural (DisplayProtocol, EngineServices with per-handler commit order) → Wave 2 mechanical (constants split w/ reexport shim, backend config-mirror deletion — requires-python>=3.11 voids its rationale, vite manualChunks, HISTORY archive, settings DTO diet) → Wave 3 surgery (mega-method extraction seams incl. the 664-line run_experimentation_phase, PaperContextBuilder, ResearchState mutators) → Wave 4 frontend (reducer split, TS type codegen). Per-item: files, procedure, verification gates, commit boundaries + a session-by-session execution table and global no-behavior-change rules.
+
+## Prompt 266 — Question: what data sources can Paradigm plug in?
+
+> What data sources is paradigm able to plug in?
+
+Informational answer (no changes).
+
+## Prompt 267 — Add data providers: MAST, SIMBAD, HEASARC, IRSA, NED, NASA Exoplanet Archive, Dryad, UniProt, PDB, GEO
+
+> Let's add MAST (space telescopes), SIMBAD (object cross-match), HEASARC, IRSA, NED, and the NASA Exoplanet Archive; outside astro, Dryad, and the Claude-Science-style bio set (UniProt, PDB, GEO)
+
+Added 10 data providers to literature/data_providers.py, all endpoints live-verified. Astro (IVOA-TAP catalog base + per-archive subclass): MAST, IRSA, NED, NASA Exoplanet Archive (nonstandard TAP dialect), HEASARC; SIMBAD as object cross-match (name→coords/type). Bio/general (REST): Dryad (search; bulk download auth-gated → actionable error), UniProt (TSV), RCSB PDB (.pdb/.cif), NCBI GEO (SOFT family). 11/12 fully work search+fetch end-to-end; HEASARC's public TAP won't serve TAP_SCHEMA rows anonymously (registered + fetch-by-known-id works, kept out of default lists, documented). TAP base is 3-tier resilient (keyword→name-only→list) + POST + CSV/VOTable parsing + meta-table exclusion + 5000-row cap. Astro configs default to vizier/simbad/ned/mast/irsa/nasa_exoplanet/zenodo; bio set opt-in. Wired into the science DATASEARCH prompt + MANUAL/DOMAINS provider tables. 5 network-free tests (registry/parse/ownership/routing); suite 1995 green.

@@ -97,8 +97,11 @@ Alongside the literature source providers, repository **data providers** back th
 
 | Provider | ID format | Description |
 |----------|-----------|-------------|
-| `vizier` | `vizier:J/A+A/701/A297` | VizieR/CDS astronomical catalogs (astro-specific; CDS ReadMe byte-by-byte specs are parsed into `read_fwf` recipes) |
+| `vizier` | `vizier:J/A+A/701/A297` | VizieR/CDS astronomical catalogs (astro; CDS ReadMe byte-by-byte specs → `read_fwf` recipes) |
+| `mast` / `irsa` / `ned` / `nasa_exoplanet` / `heasarc` | `mast:dbo.allpointing`, `exoplanet:ps`, … | IVOA-TAP astro archives (space telescopes, IR, extragalactic, exoplanets, high-energy) — search lists tables, fetch stages a bounded slice |
+| `simbad` | `simbad:M31` | SIMBAD object cross-match (name → coordinates/type/basic params) |
 | `zenodo` | `zenodo:999271` | Zenodo research-data records (domain-generic) |
+| `dryad` / `uniprot` / `pdb` / `geo` | `uniprot:P01308`, `pdb:3GOU`, `geo:GSE12345` | General + biology repositories (curated datasets, proteins, structures, gene expression) |
 
 The science configs (`default.yaml`, `production.yaml`, `open.yaml`) use `["vizier", "zenodo"]`; the domain-agnostic code default is `["zenodo"]`. An empty list disables the tags.
 
