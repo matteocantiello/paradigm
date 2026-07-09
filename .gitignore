@@ -72,3 +72,8 @@ deploy/.env.production
 # re-include it (constants.ts/utils.ts live here and MUST be tracked).
 !frontend/src/lib/
 !frontend/src/lib/**
+
+# Local scratch (never commit)
+PROMPT-*.md
+data_vm*/
+paper-*.pdf

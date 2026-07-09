@@ -47,7 +47,7 @@
 │                      CODE SANDBOX (Docker)                           │
 │                                                                      │
 │  ┌──────────────────┐  ┌──────────────────┐                         │
-│  │  Container A      │  │  Container B      │  --network=none (default)│
+│  │  Container A      │  │  Container B      │  network: bridge (default)│
 │  │  Python 3.12      │  │  Python 3.12      │  CPU/mem limits        │
 │  │  numpy,scipy,...  │  │  numpy,scipy,...  │  5min timeout           │
 │  └──────────────────┘  └──────────────────┘                         │
@@ -125,7 +125,13 @@
 
 4. EXECUTION (experimentalist leads, analyst + theorist support)
    Agents generate Python code for experiments (```python blocks)
-   Code runs in Docker sandbox (--network=none by default, --network-access to enable)
+   Code runs in Docker sandbox (network_mode "bridge" by default — experiments may
+   fetch public data; test-harness configs pin "none")
+   Data acquisition: datasets staged during IDEATION/PLANNING via [DATA: url] and
+   the repository tags [DATASEARCH:]/[FETCHDATA:] (VizieR/CDS, Zenodo) land in
+   /data/shared/data with data cards; per-experiment data provenance is classified
+   (real/derived/resampled/synthetic) and synthetic runs are excluded from the
+   evidence base under data_policy: real_only
    Results captured, figures extracted
    Multi-round: propose → execute → analyze → retry on failure
    Circuit breaker: halt if failure rate exceeds threshold
@@ -139,6 +145,16 @@
    Editor does internal review → accept or revise
    Figures embedded inline from execution phase
    Output: Paper draft (markdown)
+
+5b. PI REFLECTION (if orchestrator.enable_reflection — ON in shipped configs)
+   A PI agent (config role "pi") judges the assembled draft:
+   proceed → continue to review | call_it → finish honestly with what stands
+   loop_back → WRITING loops back to EXECUTION (more experiments) or PLANNING
+   (re-plan first) with concrete directives + measurable success criteria,
+   then flows through WRITING again. Bounded: max_loop_backs budget (default 2);
+   looping back to the same target twice forces call_it.
+   After peer review, the PI triages major revisions: demands needing genuinely
+   new analysis can trigger one deep revision loop before resubmission.
 
 6. SUBMISSION
    Paper submitted to Editor agent
@@ -170,9 +186,11 @@
 
 Empirical/computational science has no proof checker (the way formal math has a kernel
 that makes hallucination structurally impossible). Paradigm manufactures **proxy
-kernels** that slot into the cycle as default-off, opt-in gates. When enabled they add
-two sub-phases and three human-gate points; the legacy autonomous flow is unchanged when
-they are off.
+kernels** that slot into the cycle as config-gated sub-phases. They default to off in
+code, but **verification is ON in the shipped configs** (default/production/open —
+`fast.yaml` keeps it off since re-execution is slow); pre-registration remains opt-in.
+When enabled they add two sub-phases and three human-gate points; the legacy autonomous
+flow is unchanged when they are off.
 
 ```
  PLANNING
@@ -189,7 +207,7 @@ they are off.
     │
     ▼  (if orchestrator.enable_verification)
  VERIFICATION       Each successful experiment re-runs in a FRESH, seeded
-                    --network=none `verify/<thread>` workspace. A result is "accepted"
+                    `verify/<thread>` workspace. A result is "accepted"
                     only if its RESULT[...] tokens reproduce within tolerance; otherwise
                     it is demoted (accepted | nondeterministic | rejected). If nothing
                     reproduces → status `verification_failed`, abort before WRITING.
@@ -215,6 +233,27 @@ the `papers` table (added via idempotent `ALTER TABLE`), and read back by `parad
 **Output formats** (Phase 2). Optional figure-aware multimodal review (the editor sees the
 actual figures), journal-ready LaTeX/PDF output, and resolve-or-drop citations are layered
 on the WRITING/REVIEW phases — all default-off toggles.
+
+## Web Platform
+
+The engine is UI-agnostic; a web layer wraps it without modifying it:
+
+- **FastAPI backend** (`backend/api/`) bridges the engine into the browser. A
+  `SessionManager` runs each cycle as an `asyncio.Task` and converts the engine's
+  synchronous intervention/decision hooks into async WebSocket round-trips; a
+  `WebSocketDisplayAdapter` implements the terminal `DisplayManager` interface and
+  broadcasts every display event to connected clients — the engine can't tell a
+  browser from a terminal. REST routes cover cycles, sessions, papers/artifacts,
+  agents, models, settings, and config tiers (see `docs/API.md`).
+- **React "Observatory" frontend** (`frontend/`): live agent streams, knowledge and
+  experiment panels, structured decision dialogs (interactive mode), steering,
+  pause/resume, and paper/artifact browsing.
+- **Durable event stream**: alongside the live WebSocket, the orchestrator writes a
+  per-thread, seq-ordered `ResearchEventStream` to `data/threads/<id>/events.jsonl`
+  (`logging/stream.py`). It is the replayable source of record for the research
+  dashboard's epistemic graphs — served via
+  `GET /api/v1/sessions/{id}/event-stream`, it survives backend restarts and lets
+  finished runs be replayed event-by-event.
 
 ## Agent Interaction Model
 

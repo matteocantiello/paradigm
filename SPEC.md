@@ -1,5 +1,8 @@
 # Paradigm — Agentic Science Platform
 
+> **FOUNDING SPECIFICATION (historical)** — the original vision and core-loop design. Still directionally accurate, but the shipped platform extends it substantially (web Observatory UI, premium/open model tiers, real-data mandate with repository providers, non-linear PI-reflection flow, quality ledger). See `README.md` for what exists today.
+
+
 ## 1. Vision
 
 Paradigm is a sandboxed environment where multiple AI agents with differentiated skills collaborate and compete to advance scientific knowledge. Agents generate hypotheses, search literature, run computational experiments, write papers, and submit them to an agent-managed peer review journal. Published papers enter a growing internal corpus that future agents build upon.

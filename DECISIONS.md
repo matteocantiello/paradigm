@@ -194,3 +194,69 @@
 **Rationale**: An allow-list the writer cites by index, plus a deterministic compiler, makes an ungrounded inline citation *impossible by construction* rather than relying on a frequently-skipped post-hoc cleanup. It reuses what already exists (`discovered_papers`, `seen_paper_ids`, `BibliographyBuilder`) so the change is small and additive. Flag-gating + A/B matches the C2 rollout discipline (ADR-012) for a genuine writing-behavior change; the strip net ships on by default because it can only remove provably-fabricated identifiers.
 
 **Consequences**: A/B (cheap Flash-Lite, Cepheid prompt) confirmed the design: **baseline** = 3 ungrounded author-year cites + no references; **treatment** = 7 inline `[N]` cites, 0 free-text cites, **7/7 deterministic corpus-backed references** (real discovered arXiv papers), `corpus_grounded_citations` event (7 cited of 9 discovered). Both cycles exited clean; full suite 1765 passed; +17 unit tests. The allow-list path stays default-off pending a production enablement decision (the A/B evidence supports flipping it in `production.yaml`). scite.ai citation-verification (Smart Citations: supporting/contrasting/mentioning + claim↔citation grounding, the deeper semantic gap) is a separate additive fast-follow via the existing MCP `SourceProvider` seam, pending access. A/B configs: `configs/selftest.yaml` (off) vs `configs/selftest-cite-on.yaml` (on).
+
+---
+
+## ADR-014: Web-first "Observatory" platform
+
+**Status**: Accepted (shipped)
+**Date**: 2026-07-09 (records decisions shipped 2026-06 → 2026-07)
+
+**Context**: The original constraint ("no web server until the CLI works end-to-end") served its purpose: the CLI loop matured first. Research runs are long (1-3 h), collaborative, and benefit from live observation and steering — a terminal is the wrong surface for that.
+
+**Decision**: The web platform (FastAPI backend + React "Observatory" frontend) is the PRIMARY product surface. The engine stays UI-agnostic: the backend bridges it through a `WebSocketDisplayAdapter` mirroring the terminal `DisplayManager`, a session manager (pause/steering/approval hooks), and a durable per-thread `events.jsonl` stream that powers replay. The CLI remains fully supported for headless/scripted runs.
+
+**Consequences**: Every display event must exist in three implementations (terminal, fallback, WS) — an accepted liability scheduled for unification (see `.planning/REFACTORING-2026-07.md`). The old "don't add a web server" rule is retired from CLAUDE.md.
+
+---
+
+## ADR-015: Per-cycle model tiers (premium vs open weights)
+
+**Status**: Accepted (shipped)
+**Date**: 2026-07-07
+
+**Context**: Frontier closed models made cycles cost ~$15-25. Open weights (GLM-5.2, Kimi K2.6, MiniMax-M3 on Together serverless) reached frontier-adjacent quality at a fraction of the price — a live head-to-head published a paper on the open stack for ~$3-6.
+
+**Decision**: Two named tiers with canonical configs — `configs/production.yaml` (premium) and `configs/open.yaml` (open) — selectable PER CYCLE in the setup wizard. The chosen tier's `agent:` section is grafted onto a deep copy of the active config for that session only; concurrent cycles can run different tiers with no restart. Family diversity is deliberate on the open tier (the GLM writer is judged by a Kimi editor and MiniMax reviewers). The quality-ledger judge is FIXED across tiers (gemini-3.5-flash) so scores stay comparable.
+
+**Consequences**: Cheap systematic A/Bs became routine. Gotchas of record: many Together catalog entries are dedicated-endpoint-only (fail serverless), and GLM/Kimi burn ~1k hidden reasoning tokens per turn (billed as output; those roles need 16384 max_tokens headroom).
+
+---
+
+## ADR-016: Real-data mandate (supersedes ADR-005's network=none default)
+
+**Status**: Accepted (shipped)
+**Date**: 2026-07-08
+
+**Context**: With `network=none`, agents fabricated stand-in datasets exactly when acquisition failed ("MIST-like tracks" incident) — the worst possible failure for a science platform: plausible fabricated evidence.
+
+**Decision**: Three coupled changes. (1) Sandbox `network_mode` defaults to `bridge` — experiments may fetch public data (test-harness configs pin `none`); hardening (cap_drop, pids, no-new-privileges) unchanged. (2) `orchestrator.data_policy: real_only` — fabricating datasets is forbidden by prompt AND detected mechanically: a deterministic provenance classifier labels each experiment real/derived/resampled/synthetic from its code, and synthetic experiments are EXCLUDED from the evidence base with a blocking editor alert. Resampling of real data and labeled theory remain legal. (3) Acquisition is a first-class capability: `[DATASEARCH:]`/`[FETCHDATA:]` agent tags against wired repository providers (VizieR/CDS, Zenodo), dataset attachment (CLI `--data`, wizard upload), schema data cards incl. CDS-ReadMe `read_fwf` recipes, and a mandatory data-acquisition plan in PLANNING.
+
+**Consequences**: Validated live: with no data attached, a cycle fetched 6-7 real VizieR catalogs on its own and produced 0 synthetic experiments. ADR-005's isolation rationale is preserved where it matters (hardening, resource caps) but the network default is reversed.
+
+---
+
+## ADR-017: Quality ledger + front-loaded novelty
+
+**Status**: Accepted (shipped)
+**Date**: 2026-07-09
+
+**Context**: Once cycles publish reliably, the bottleneck moves to "is it worth publishing?" — and improvements were being judged by ad-hoc, hand-driven A/Bs.
+
+**Decision**: (1) Every FINISHED paper — published or rejected — is auto-scored by an LLM judge (config role `judge`; five 1-10 dimensions + composite) and the scores persist on `papers.judge_scores`, flow through the API, and render as badges: the quality ledger. Rejections are scored on purpose; the ledger must see failures. (2) The novelty check moved to the FRONT of the cycle (before hypotheses lock in): its verdict annotates the hypothesis-selection gate and a weak verdict queues a differentiation directive into PLANNING.
+
+**Consequences**: Quality is now trendable across cycles, configs, and tiers; every future change can be measured instead of argued. First datapoint: a data-starved run was correctly rejected and scored composite 4.4 (honesty 10, significance 1) — the gates discriminate.
+
+---
+
+## ADR-018: Non-linear research flow (PI reflection, loop-backs, call-it)
+
+**Status**: Accepted (shipped)
+**Date**: 2026-07-08
+
+**Context**: The cycle was a one-way pipeline: a draft with an obvious evidence gap sailed into review, and peer-review revisions could only reword — never run the missing analysis. Humans stop, read their draft, and go back.
+
+**Decision**: A PI role (the strongest model in the active tier) reflects after WRITING: `proceed`, `loop_back` (to EXECUTION or PLANNING with concrete directives and MEASURABLE success criteria; reduced budgets; the paper is then revised in place through the citation-protected revision path), or `call_it` (finish honestly; the paper still faces review with a scope caveat). After peer review, a major revision triggers PI triage: demands needing NEW ANALYSIS run one deep experiment loop before the writer responds. Convergence is mechanical, not trusted: `max_loop_backs` (2), a repeated target forces call_it, spent budgets force proceed, unparseable verdicts default to proceed. In interactive cycles the PI's verdict becomes a decision dialog — the PI proposes, the human disposes.
+
+**Consequences**: Validated live twice: a zero-results draft was caught and looped back; when the loop-back's success criterion went unmet, the PI called it rather than burn budget, and the paper was honestly rejected downstream. Tiered internal review (Blocking vs Minor changes, accept-with-minor, no moving targets) shipped alongside as the review-side counterpart.
+

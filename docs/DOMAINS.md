@@ -91,6 +91,17 @@ Domains are registered at import time via `register_domain()` in `src/paradigm/d
 | `semantic_scholar` | Semantic Scholar API (citation graph traversal) |
 | `internal_corpus` | Local ChromaDB vector store (previously ingested papers) |
 
+### Data Providers
+
+Alongside the literature source providers, repository **data providers** back the `[DATASEARCH: query]` / `[FETCHDATA: id]` agent tags — agents search research-data repositories and stage real datasets into the sandbox (with data cards). They are configured per config file via `literature.data_providers` rather than on the domain profile:
+
+| Provider | ID format | Description |
+|----------|-----------|-------------|
+| `vizier` | `vizier:J/A+A/701/A297` | VizieR/CDS astronomical catalogs (astro-specific; CDS ReadMe byte-by-byte specs are parsed into `read_fwf` recipes) |
+| `zenodo` | `zenodo:999271` | Zenodo research-data records (domain-generic) |
+
+The science configs (`default.yaml`, `production.yaml`, `open.yaml`) use `["vizier", "zenodo"]`; the domain-agnostic code default is `["zenodo"]`. An empty list disables the tags.
+
 ### Sandbox
 
 **Docker image:** `paradigm-sandbox:latest`
@@ -248,9 +259,19 @@ register_domain(_PROFILE)
 
 ### 6. Add source providers (if needed)
 
-If your domain needs data sources beyond arXiv and Semantic Scholar:
+If your domain needs literature sources beyond arXiv and Semantic Scholar:
 1. Implement a new `SourceProvider` subclass in `src/paradigm/literature/providers.py`
 2. Register it in `src/paradigm/literature/provider_factory.py`
+
+### 6b. Add data repository providers (if needed)
+
+If your domain's datasets live in a field-specific repository (the way astronomy's live in VizieR), wire it into the `[DATASEARCH:]`/`[FETCHDATA:]` tags:
+
+1. Implement a provider class in `src/paradigm/literature/data_providers.py` with the same duck-typed interface as `VizieRDataProvider`/`ZenodoDataProvider`: a `name`, `search(query, max_results) -> list[DataCandidate]`, `owns(dataset_id) -> bool` (match your provider-prefixed IDs, e.g. `mydomain:...`), and `fetch(dataset_id, dest_dir) -> Path`.
+2. Register it in the `_PROVIDER_CLASSES` dict in the same module.
+3. Enable it in your domain's config: `literature.data_providers: ["mydomain", "zenodo"]` (Zenodo is worth keeping — it is domain-generic).
+
+Fetched datasets are staged into the sandbox shared data dir with auto-generated data cards, so experiments see them under `/data/shared/data/` regardless of provider.
 
 ### 7. Create a config file
 

@@ -18,11 +18,11 @@ This creates a complete, reproducible trail of how the project was built. If you
 
 ## Project Overview
 
-Paradigm is an agentic science platform where AI agents collaborate to do research, write papers, and submit them to peer review. See `.planning/SPEC.md` for the full specification and `.planning/ROADMAP.md` for the implementation plan.
+Paradigm is an agentic science platform where AI agents collaborate to do research, write papers, and submit them to peer review. See `SPEC.md` (founding specification) and `ROADMAP.md` (original build plan) — both are HISTORICAL; `docs/MANUAL.md` is the current operator manual and `README.md` the current overview.
 
 ## Key Architecture Decisions
 
-Read `.planning/DECISIONS.md` before making architectural changes. Key constraints:
+Read `DECISIONS.md` (repo root) before making architectural changes. Key constraints:
 
 - **Orchestrator is plain Python** (not an agent, not a framework). It must be deterministic and debuggable.
 - **Agents are Claude API calls** with differentiated system prompts. No fine-tuning.
@@ -34,20 +34,26 @@ Read `.planning/DECISIONS.md` before making architectural changes. Key constrain
 ## Project Structure
 
 ```
-src/paradigm/          ← All source code
-  main.py              ← CLI entry point (click or argparse)
-  config.py            ← YAML config loader
-  orchestrator/        ← Core orchestration engine (+ citation_handler.py)
-  agents/              ← Agent definitions and prompts
-  literature/          ← arXiv API, embeddings, corpus, novelty, Perplexity
-  display/             ← Rich terminal UI (live display, components, theme)
+src/paradigm/          ← Core library
+  main.py              ← CLI entry point
+  config.py            ← YAML config loader (providers, tiers, policies)
+  orchestrator/        ← Engine + handlers (writing, review, experimentation,
+                          literature, reflection, data_provenance, …)
+  agents/              ← Agent definitions, prompts, model catalog
+  literature/          ← Source providers, corpus, novelty, data_providers
+  display/             ← Rich terminal UI (mirrored by the WS adapter)
   sandbox/             ← Docker-based code execution
-  journal/             ← Peer review pipeline
+  journal/             ← Paper models, review pipeline, LaTeX export
   storage/             ← Database, checkpoints, graveyard
-  logging/             ← Structured event logging
+  logging/             ← Structured events + per-thread events.jsonl stream
+backend/api/           ← FastAPI web API (routes, session manager, WS display
+                          adapter, model tiers) — the web platform's backend
+frontend/              ← React "Observatory" web app (Vite; landing, wizard,
+                          live session view, papers, replay)
 tests/                 ← pytest tests
 docker/                ← Dockerfile for sandbox
-configs/               ← YAML configuration files
+configs/               ← YAML configs (default/production = premium tier,
+                          open = open-weights tier, + test harness configs)
 ```
 
 ## Coding Standards
@@ -134,7 +140,6 @@ paradigm paper <paper_id>
 ## What NOT to Do
 
 - Don't use LangChain, CrewAI, AutoGen, or similar frameworks. We need full control.
-- Don't add a web server or API until the CLI works end-to-end.
 - Don't optimize for performance before the loop works.
 - Don't hardcode any domain-specific knowledge in the orchestrator or infrastructure.
 - Don't let agents communicate outside the orchestrator's message protocol.

@@ -1,5 +1,8 @@
 # Paradigm — Implementation Roadmap
 
+> **HISTORICAL DOCUMENT** — the original phased build plan. All phases here shipped; the platform has since grown well beyond it (web Observatory, model tiers, real-data mandate, PI reflection, quality ledger). Current status: `README.md`; operator manual: `docs/MANUAL.md`; decisions of record: `DECISIONS.md`.
+
+
 ## Principles
 
 1. **Get the loop working first.** The core loop (ideate → research → write → review → publish) is more important than any individual component being polished.

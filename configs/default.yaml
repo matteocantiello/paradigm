@@ -1,168 +1,179 @@
-# Paradigm Default Configuration
-# API key is loaded from .env file (ANTHROPIC_API_KEY)
+# Paradigm DEFAULT Configuration — production-parity.
+#
+# `paradigm run` and the backend use this file unless PARADIGM_CONFIG points
+# elsewhere. It matches configs/production.yaml (the tuned, validated profile):
+# premium model mapping, real-data mandate, verification kernel, PI reflection,
+# quality ledger, repository data providers, LaTeX/PDF output.
+#
+# Cheaper all-open-weights runs: configs/open.yaml, or the per-cycle
+# "Open models" toggle in the web wizard (needs TOGETHER_API_KEY).
+# Missing provider keys are handled: the model preflight swaps unreachable
+# models to a healthy fallback, and key-less providers hide in the GUI picker.
 
-# LLM provider registry
 providers:
   anthropic:
     type: anthropic
     api_key_env: ANTHROPIC_API_KEY
-    default_model: claude-sonnet-4-5-20250929
+    default_model: claude-haiku-4-5
+  gemini:
+    type: openai_compatible
+    api_key_env: GEMINI_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    default_model: gemini-3.5-flash
+  # TogetherAI (OpenAI-compatible) — selectable per-agent from the GUI model
+  # picker once TOGETHER_API_KEY is set. Hosts open models (Llama / Qwen /
+  # DeepSeek / Mixtral). Unset key → it's simply hidden in the picker.
   together:
     type: openai_compatible
     api_key_env: TOGETHER_API_KEY
     base_url: https://api.together.xyz/v1
     default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
-  google:
+  # OpenAI — selectable per-agent once OPENAI_API_KEY is set (GPT-5 / GPT-4.1 / o4).
+  # Reasoning models (gpt-5*, o*) are handled by the provider shim
+  # (max_completion_tokens, no temperature). Unset key → hidden in the picker.
+  openai:
     type: openai_compatible
-    api_key_env: GEMINI_API_KEY
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    default_model: gemini-3-pro-preview
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    default_model: gpt-4.1-mini
 
-# Agent configuration
 agent:
-  default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
-  opus_model: "claude-opus-4-6"
+  default_model: "gemini-3.1-flash-lite"
+  opus_model: "claude-haiku-4-5"
   max_tokens: 8192
   temperature: 1.0
   token_budget_per_thread: 1000000
-  token_budget_per_agent: 100000
-  default_provider: together
+  token_budget_per_agent: 150000   # operator tuning
+  default_provider: gemini
   overrides:
-    theorist:
-      provider: anthropic
-      model: claude-opus-4-6
-      token_budget_per_agent: 300000
-    experimentalist:
-      provider: anthropic
-      model: claude-opus-4-6
-      token_budget_per_agent: 300000
-    analyst:
-      provider: anthropic
-      model: claude-opus-4-6
-      token_budget_per_agent: 300000
-    synthesizer:
-      provider: anthropic
-      model: claude-opus-4-6
-      token_budget_per_agent: 300000
-    writer:
-      provider: anthropic
-      model: claude-opus-4-6
-      max_tokens: 16384
-      token_budget_per_agent: 300000
-    skeptic:
-      provider: google
-      model: gemini-3-pro-preview
-    editor:
-      provider: google
-      model: gemini-3-pro-preview
+    # Deliberately DIVERSE across all three providers — quality where it matters,
+    # speed/cost where it doesn't. (1 round/phase keeps per-role call counts low,
+    # so the premium models here are affordable.) Tweak any of these live in the
+    # GUI Agents panel — these are just the starting defaults.
+    #
+    # Theorist — a top OpenAI reasoning model for hypothesis quality (one notch
+    # below the experimentalist's best). Reasoning models share their budget with
+    # hidden reasoning, so give it more room. (GPT-5.6 Sol/Terra/Luna is a
+    # restricted limited preview — not GA on our key yet — so both OpenAI roles
+    # stay on 5.4/5.5; revisit theorist→Terra and experimentalist→Sol when it opens.)
+    theorist: { provider: openai, model: gpt-5.4, max_tokens: 12288 }
+    # Analyst + Skeptic — top *practical* Anthropic. Sonnet 4.6 (not Opus) here:
+    # they run each phase, and Sonnet 4.6 is flagship-quality reasoning at far
+    # lower latency/cost. Bump either to claude-opus-4-8 if you want the very top.
+    analyst: { provider: anthropic, model: claude-sonnet-4-6 }
+    skeptic: { provider: anthropic, model: claude-sonnet-4-6 }
+    # Experimentalist — the BEST model: it writes the experiment code (in a retry
+    # loop) where correctness matters most. GPT-5.5 (reasoning → larger budget).
+    experimentalist: { provider: openai, model: gpt-5.5, max_tokens: 16384 }
+    # Writer — Claude Opus 4.8 for the final paper: best long-form markdown/LaTeX
+    # and the most careful (fewest mistakes). Runs once + revisions → cost bounded.
+    writer: { provider: anthropic, model: claude-opus-4-8, max_tokens: 16384 }
+    # Synthesizer — Claude Haiku 4.5: 3.5 Flash returned near-empty discussion
+    # turns half the time in live runs (17-57 chars from 3k-21k-token prompts);
+    # Haiku is comparably cheap and reliable for integration passes.
+    synthesizer: { provider: anthropic, model: claude-haiku-4-5-20251001 }
+    # Reviewers — Gemini 3.5 Flash: fast + capable + cheap for peer-review passes.
+    reviewer: { provider: gemini, model: gemini-3.5-flash }
+    # Editor — the internal review GATE. Claude Sonnet 5 (drop-in upgrade over
+    # Sonnet 4.6, biggest gains in coding/agentic judgment; intro pricing $2/$10 in-
+    # /out through 2026-08-31). Adaptive thinking is ON by default on Sonnet 5 and
+    # shares the max_tokens budget, so give it headroom → a truncated review can't
+    # rubber-stamp or over-reject (the parsing bugs we just fixed).
+    editor: { provider: anthropic, model: claude-sonnet-5, max_tokens: 16384 }
+    # Prompt refiner — the strong-model first pass that turns the raw user prompt
+    # into a structured research brief (orchestrator.enable_prompt_preprocessing).
+    # One call per cycle, so the premium model costs pennies.
+    prompt_refiner: { provider: anthropic, model: claude-opus-4-8 }
+    # PI — the reflection gate (R1-R3): judges the draft, may loop the team
+    # back or call it. A handful of calls per cycle, so the top model is cheap.
+    pi: { provider: anthropic, model: claude-opus-4-8 }
+    # Judge — the quality ledger's scorer. FIXED across tiers (a family
+    # independent of both stacks) so ledger scores are comparable.
+    judge: { provider: gemini, model: gemini-3.5-flash }
 
-# Testing mode overrides (applied when --testing flag is passed)
-testing_overrides:
-  theorist:
-    provider: together
-    model: deepseek-ai/DeepSeek-V4-Pro
-  experimentalist:
-    provider: together
-    model: deepseek-ai/DeepSeek-V4-Pro
-  analyst:
-    provider: together
-    model: moonshotai/Kimi-K2.6
-  synthesizer:
-    provider: together
-    model: moonshotai/Kimi-K2.6
-  writer:
-    provider: together
-    model: zai-org/GLM-5.1
-  skeptic:
-    provider: together
-    model: zai-org/GLM-5.1
-  editor:
-    provider: together
-    model: moonshotai/Kimi-K2.6
-
-# Sandbox configuration
+# Code execution sandbox.
+# NOTE: experiments run real code here with OUTBOUND NETWORK access (bridge —
+# the real-data mandate needs downloads). Hardened (cap_drop + no-new-privileges
+# + pids/cpu/mem/timeout caps), which is strong for a TRUSTED group — but it is
+# not a hard multi-tenant boundary. To disable code execution entirely, set
+# orchestrator.enable_experimentation: false; to isolate, network_mode: "none".
 sandbox:
   enabled: true
   image_name: "paradigm-sandbox:latest"
-  # SPEC hard constraint: agent-generated code runs network-isolated. "none"
-  # also keeps the safety scanner's network-import guard active (executor.py).
-  # Use the explicit --network-access CLI flag to opt in when truly needed.
   network_mode: "bridge"
   cpu_limit: 2.0
   memory_limit: "2g"
-  execution_timeout: 300
+  execution_timeout: 500   # operator tuning
   max_output_size: 10485760
+  pids_limit: 256
+  drop_capabilities: true
+  no_new_privileges: true
+  read_only_rootfs: false
 
-# Literature search configuration
 literature:
+  data_providers: ["vizier", "zenodo"]
   arxiv_rate_limit: 3.0
-  max_results_per_search: 50
+  max_results_per_search: 30
   enable_pdf_fetch: true
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
-  follow_budget_per_round: 3
-  cited_by_budget_per_round: 2
-  read_budget_per_round: 5
-  max_read_chars: 8000
+  follow_budget_per_round: 2   # operator tuning
+  cited_by_budget_per_round: 2   # operator tuning
+  read_budget_per_round: 3
+  max_read_chars: 80000   # operator tuning
   max_citation_results: 10
   max_reference_results: 20
+  mcp:
+    # alphaXiv via Clerk OAuth (rich per-paper breakdowns). DISABLED by default.
+    #
+    # Why off: alphaXiv has NO static API key — only a browser OAuth token that
+    # expires, so keeping it on means periodically re-running `paradigm mcp-login`
+    # and re-copying the token to the server (and a noisy "OAuth flow error"
+    # traceback from the MCP client when it lapses). It is optional + additive:
+    # arXiv, Semantic Scholar, and Perplexity carry the literature without it, and
+    # a missing token already degrades cleanly (the cycle is unaffected). So unless
+    # you actively want alphaXiv's enrichment, leaving it off avoids the upkeep.
+    #
+    # To re-enable: set `enabled: true`, run `paradigm mcp-login` on a machine with
+    # a browser, then copy the token to a persistent path on the server:
+    #   scp -r ~/.paradigm/mcp/ root@<vm>:/root/.paradigm/   and restart.
+    enabled: false
 
-# Storage configuration
 storage:
-  data_dir: "./data"
+  data_dir: "./data"  # overridden by PARADIGM_DATA_DIR -> a persistent, backed-up volume
 
-# Orchestrator configuration
+display:
+  stream_tokens: true
+  stream_chunk_min_chars: 12
+
 orchestrator:
-  max_rounds_per_phase: 10
+  max_rounds_per_phase: 2   # operator tuning (depth over speed)
   enable_checkpointing: true
   checkpoint_interval: 5
   enable_writing: true
-  max_review_iterations: 5
+  max_review_iterations: 3   # operator tuning
   enable_peer_review: true
-  num_reviewers: 2
-  max_revision_rounds: 4
-  enable_experimentation: true
-  # max_experiment_rounds: null  # Default: 2 × max_rounds_per_phase
-  max_searches_per_round: 5
-  enable_debates: true
-  max_debate_exchanges: 3
-  max_debates_per_phase: 2
-  enable_execution_sprints: true
-  num_execution_sprints: 3
-  sprint_review_roles:
-    - theorist
-    - analyst
-    - skeptic
-  # --- Correctness kernel (Phase 1) + output quality (Phase 2). All off by default. ---
-  # Verification kernel (1B): re-execute results in a fresh sandbox; accept only
-  # what reproduces its RESULT[label]=value tokens within tolerance.
-  enable_verification: false
-  verification_tolerance: 1.0e-6
-  verification_seed: 12345
-  verification_reexec_budget: 20
-  abort_on_verification_failure: true
-  # Tree-search / step-restart (1C)
-  enable_best_first_nodes: false
-  enable_step_restart: false
-  debug_buggy_node_prob: 0.3
-  max_step_restarts_per_experiment: 2
-  # Hybrid human-gate (1E): off | advisory | blocking (autonomous by default)
+  num_reviewers: 2   # operator tuning
+  max_revision_rounds: 2   # operator tuning
+  enable_experimentation: true   # set false to disable all code execution
+  max_searches_per_round: 3
+  enable_debates: true   # operator tuning
+  enable_execution_sprints: true   # operator tuning
+  # Reproducibility kernel: re-execute successful experiments in a fresh
+  # sandbox; unreproduced results are demoted out of the paper's evidence.
+  enable_verification: true
+  # Unattended remote runs: no blocking gates. Steer via the interaction bar.
+  enable_quality_ledger: true
+  enable_reflection: true
+  max_loop_backs: 2
+  data_policy: "real_only"   # fabricated datasets are excluded from the evidence base
   human_gate_mode: "off"
-  human_gate_points:
-    - problem_selection
-    - pre_registration
-    - final_verification
-  # Figure-aware multimodal review (Phase 2 P2-VLM)
-  enable_multimodal_review: false
-  multimodal_review_role: "editor"
-  max_review_figures: 6
+  human_gate_points: []
 
-# Scientific skills configuration
 skills:
   skills_dir: "vendor/claude-scientific-skills/scientific-skills"
   default_mode: "default"
-  max_skill_chars: null  # No truncation by default
+  max_skill_chars: null
 
-# Agent episodic memory
 memory:
   enabled: true
   max_memories_per_prompt: 5
@@ -170,39 +181,67 @@ memory:
   collection_name: "agent_memories"
   max_memory_chars: 2000
 
-# Knowledge architecture (world model, evidence graph, tournaments)
 knowledge:
   enable_world_model: true
   world_model_max_context_chars: 3000
   enable_evidence_graph: true
   enable_hypothesis_tournament: true
+  # Swiss pairing bounds the judge calls (~12 at n=8 vs round-robin's 28), so a
+  # larger field is affordable — more hypotheses actually compete (C2 step 5).
   tournament_population_size: 8
   tournament_winners: 2
-  tournament_k_factor: 32.0
-  # Pre-registration / falsifiability (Phase 1A). Off by default.
+  # C2: the world model is the single hypothesis source — the tournament ranks the
+  # canonical [HYPOTHESIS:] set, restatements dedup at creation, and beliefs revise
+  # from the tournament + evidence through one auditable path.
+  unified_hypotheses: true
+  # Semantic de-dup: fold paraphrased restatements (not just literal ones) so the
+  # ~100-hypotheses/cycle collapse to a tighter ranked set. 0.75 folds clear
+  # paraphrases; RAISE toward 0.85 if genuinely distinct mechanisms get merged
+  # (everything in a focused topic is somewhat similar), LOWER toward 0.70 for a
+  # more aggressive collapse. Watch hypothesis.merged vs the ranked-set diversity.
+  # Degrades to normalized (exact restatements only) if the embedder can't load.
+  hypothesis_dedup: embedding
+  # 0.82: a local breast-milk run at 0.75 over-merged DISTINCT mechanisms
+  # (oligosaccharides / lipid droplets / EVs / immune cells folded into ~4
+  # hypotheses) — in a focused topic everything is embedding-similar. 0.82 folds
+  # clear paraphrases while protecting distinct hypotheses (merges are irreversible).
+  hypothesis_dedup_threshold: 0.82
   enable_preregistration: false
-  prereg_require_refutation: true
-  prereg_on_empty: "advisory"  # advisory | blocking
 
-# Paper output formats (Phase 2). Markdown is always written; these are extra.
 journal:
-  enable_latex_output: false   # also write a journal-ready .tex
-  latex_journal: "none"        # none | arxiv | neurips
-  compile_pdf: false           # also compile the .tex to PDF (needs a LaTeX engine)
+  # Write a journal-ready .tex next to each paper and, if a LaTeX engine
+  # (tectonic / xelatex / pdflatex) is on PATH, compile a PDF. Both are
+  # best-effort: with no engine the .tex is still written and nothing breaks.
+  # Install tectonic on the server for one-command, dependency-free PDFs.
+  # The /papers/{id}/pdf endpoint also compiles on demand for existing papers.
+  enable_latex_output: true
+  compile_pdf: true
 
-# Citation grounding and novelty checking
 citation:
+  # Corpus-grounded citations (ADR-013): the writer is shown the cycle's discovered
+  # papers as a numbered [N] allow-list and may cite ONLY those; the bibliography is
+  # compiled deterministically from that set — an ungrounded inline citation becomes
+  # impossible. When the cycle discovered papers this OWNS citations (Perplexity is
+  # skipped); when it discovered NONE, it falls through to Perplexity grounding below.
+  corpus_grounded_citations: true
+  # Always-on safety net: strip fabricated inline arXiv ids (not in the corpus) and log
+  # unverifiable "(Author, Year)" cites. Pure robustness — leave on.
+  strip_ungrounded_citations: true
+  # Perplexity grounding is now the FALLBACK (used only when no papers were discovered).
+  # Seed discovery bootstraps the literature with a few foundational papers at the start
+  # of a cycle (one fast call). Both need PERPLEXITY_API_KEY (no-op cleanly without it).
   enable_citation_grounding: true
-  perplexity_api_key_env: "PERPLEXITY_API_KEY"
-  citation_sections:
-    - "introduction"
-    - "methods"
-  max_retries_per_paragraph: 2
-  perplexity_timeout: 120.0
-  enable_novelty_check: false
-  novelty_mode: "semantic_scholar"
-  futurehouse_api_key_env: "FUTURE_HOUSE_API_KEY"
-  novelty_max_iterations: 5
+  enable_novelty_check: true
   enable_seed_discovery: true
-  seed_discovery_max_papers: 10
-  drop_unresolved_citations: false  # drop refs that don't resolve (vs. bare URLs)
+
+# Testing-mode overrides (--testing flag / the GUI Demo-Testing-Production
+# toggle): the cheap serverless open mapping for fast, low-cost trial runs.
+testing_overrides:
+  theorist: { provider: together, model: zai-org/GLM-5.2, max_tokens: 16384 }
+  analyst: { provider: together, model: MiniMaxAI/MiniMax-M3 }
+  experimentalist: { provider: together, model: zai-org/GLM-5.2, max_tokens: 16384 }
+  synthesizer: { provider: together, model: openai/gpt-oss-120b }
+  skeptic: { provider: together, model: moonshotai/Kimi-K2.6, max_tokens: 16384 }
+  writer: { provider: together, model: zai-org/GLM-5.2, max_tokens: 16384 }
+  editor: { provider: together, model: moonshotai/Kimi-K2.6, max_tokens: 16384 }
+  reviewer: { provider: together, model: MiniMaxAI/MiniMax-M3 }

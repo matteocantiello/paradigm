@@ -419,6 +419,12 @@ PLANNING  (N rounds of research plan development)
 WRITING   (section drafting -> assembly -> optional refinement)
    |        (execution results + caveats injected into RESULTS/METHODS sections)
    |
+   +--[enable_reflection]-- PI REFLECTION (verdict on the draft)
+   |        |    proceed / call_it -> continue below
+   |        |    loop_back -> EXECUTION or PLANNING with directives,
+   |        |                 then back through WRITING (max_loop_backs budget)
+   |        +---------------------------------------------------+
+   |
 INTERNAL_REVIEW  (editor reviews, writer revises if needed)
    |
 SUBMITTED  (desk review by editor-in-chief)
@@ -546,6 +552,20 @@ Three-step process:
 
 **Output:** Complete paper draft saved as `paper-<id>` in the database and as a `.md` file in `data/papers/`. Papers with figures use a subdirectory layout: `data/papers/<paper-id>/<paper-id>.md` with a `figures/` subdirectory.
 
+#### REFLECTION (PI verdict)
+
+When `orchestrator.enable_reflection` is on (it is in the shipped configs), a **PI agent** (config role `pi` — the strongest model in the tier) judges the assembled draft after WRITING and returns one of three verdicts:
+
+- **`proceed`** — the draft is coherent and the evidence supports its claims; go to review (the default).
+- **`loop_back`** — a specific, fixable gap would sink the paper in review. The team is sent back to **EXECUTION** (more experiments) or **PLANNING** (re-plan first), with concrete directives and a MEASURABLE success criterion; the cycle then flows through WRITING again.
+- **`call_it`** — more work won't help; finish honestly with what stands.
+
+Loop-backs are hard-budgeted by `orchestrator.max_loop_backs` (default 2): a second loop-back must show the first one's success criteria were met, looping back to the **same target twice forces `call_it`**, and with the budget spent only `proceed`/`call_it` are valid. The verdict is best-effort — an unparseable reflection defaults to `proceed`, never blocking the cycle.
+
+The PI also **triages peer reviews**: if a major revision's demands require genuinely new analysis (not rewording), it can trigger one *deep revision loop* (new experiments feeding the revision) before resubmission.
+
+In interactive mode the PI's verdict becomes a decision dialog — the operator sees the reasoning, directives, and success criteria, and can accept the proposal or pick a different path (see [Interactive Mode](#8-interactive-mode)).
+
 #### INTERNAL_REVIEW
 
 The editor agent reviews the paper with structured feedback: strengths, weaknesses, required changes, and a recommendation (accept or revise). If revision is needed, the writer revises and the editor re-reviews, up to `max_review_iterations` times.
@@ -580,6 +600,7 @@ The paper is accepted. The orchestrator:
 - Adds the paper to ChromaDB for semantic search
 - Extracts and records citations (both arXiv and internal paper IDs)
 - Updates author agent reputation scores
+- Scores the paper via the quality ledger, when enabled (see [Quality Ledger](#quality-ledger))
 
 #### REJECTED
 
@@ -629,21 +650,33 @@ Role prompts are defined in `src/paradigm/agents/prompts/*.yaml` and compose wit
 
 ## 8. Interactive Mode
 
-Run with `--interactive` to pause for confirmation before major phase transitions.
+Interactive mode puts a human in the loop at key decisions. In the CLI, run with `--interactive`; in the web UI, it is a **per-cycle flag** — toggle "Interactive" in the Setup Wizard when creating the cycle (`interactive: true` on `POST /api/v1/research`). Other cycles on the same server run autonomously.
 
 ```bash
 paradigm run --mode directed --prompt "Your question" --interactive
 ```
 
-### Intervention Points
+### Structured Decision Gates (Web UI)
 
-The system pauses at these transition points:
+Beyond plain phase-transition approvals, an interactive cycle surfaces **typed decision points** with selectable choices (each carries `id`, `label`, `detail`, and where relevant a `score`):
+
+1. **Hypothesis selection** (`hypothesis_selection`) --- after the IDEATION tournament, the full Elo-ranked field of hypotheses is offered with the tournament winners preselected (multi-select). Keep, narrow, or broaden the set; free-text notes become guidance for the next discussion round.
+2. **Experiment-plan approval** (`experiment_plan`) --- before EXECUTION, the action items extracted from PLANNING are shown. Approve as-is, or add notes that are appended to the plan as `OPERATOR DIRECTIVE` lines every experiment prompt re-reads.
+3. **PI reflection** (`pi_reflection`) --- the PI's verdict on the draft (proceed / loop back to execution / loop back to planning / call it) is presented as a decision dialog with the PI's proposal preselected; pick a different path or ride along with notes.
+
+Every decision also offers **pause** and **abort**. Decisions are delivered over the WebSocket as `approval_request` messages with `decision_type`, `choices`, `multi_select`, and `default_ids` fields; respond with `approval_response` (`decision`, optional `notes`, optional `modifications.selected_ids`). See [`docs/API.md`](API.md).
+
+**Auto-continue:** each gate times out after **300 seconds** and defaults to *continue* with the preselected choices, so an unattended interactive run never stalls.
+
+### Classic Phase-Transition Gates
+
+The plain continue/pause/abort confirmations still fire at:
 1. **IDEATION -> PLANNING** --- After ideation completes, before planning begins
-2. **PLANNING -> EXECUTION** --- (experimental/replication modes only) After the research plan is finalized, before computational experiments
+2. **PLANNING -> EXECUTION** --- Before computational experiments (subsumed by the structured experiment-plan gate when a decision hook is connected)
 3. **POST_EXECUTION -> WRITING**, **EXECUTION -> WRITING**, or **PLANNING -> WRITING** --- Before paper drafting begins
 4. **INTERNAL_REVIEW -> SUBMITTED** --- After internal review, before submission to peer review
 
-### At Each Pause
+### At Each CLI Pause
 
 You are prompted:
 
@@ -659,6 +692,12 @@ Your options:
   ```
   - **Yes** --- The cycle is aborted and the thread status is set to `aborted`
   - **No** --- The cycle is paused and the thread status is set to `paused`
+
+### Steering Between Gates
+
+You don't have to wait for a gate to steer. Messages typed into the web UI land at the **next agent turn** (typically within a minute), not the next round boundary — the engine checks for a pause click and drains fresh guidance before every agent speaks. Guidance drained mid-round reaches the remaining speakers immediately and stays visible through the next full round.
+
+This works **during EXECUTION too**, which runs no discussion rounds: between experiments, steering is converted into `OPERATOR DIRECTIVE` lines on the planning action items, which every experiment prompt re-reads.
 
 ### Keyboard Interrupt
 
@@ -751,6 +790,8 @@ Agents embed these tags in their natural-language responses:
 | `[READ: arxiv_id]` | Deep-read key sections of a paper | `[READ: 2301.12345]` |
 | `[CHAIN: id depth=N direction=refs\|cites\|both]` | Multi-hop BFS through the citation graph from one seed | `[CHAIN: 2301.12345 depth=2 direction=both]` |
 | `[DATA: url]` | Stage a dataset for use in experiments | `[DATA: https://example.com/catalog.csv]` |
+| `[DATASEARCH: query]` | Search wired data repositories (VizieR/CDS, Zenodo) for datasets | `[DATASEARCH: OB star TESS photometry catalog]` |
+| `[FETCHDATA: id]` | Fetch a repository dataset by ID and stage it into the sandbox | `[FETCHDATA: vizier:J/A+A/701/A297]` |
 
 `[FOLLOW:]`, `[CITED_BY:]`, `[READ:]`, and `[CHAIN:]` only operate on arXiv IDs that
 actually appeared in a real search result — an invented/hallucinated ID is rejected
@@ -829,7 +870,7 @@ Agents can request external datasets during IDEATION and PLANNING by embedding `
 [DATA: https://example.com/catalog.csv]
 ```
 
-This solves a key limitation: the sandbox runs with `--network=none` by default, so experiments can only use data that was explicitly linked in the seed prompt (downloaded during SEEDING) or synthetic data generated in code. With `[DATA:]`, agents can discover and request relevant datasets during the planning phases.
+The sandbox default is `network_mode: "bridge"` (see [Docker Sandbox](#14-docker-sandbox)), so experiments *can* fetch public data at runtime — but pre-staging with `[DATA:]` is still the preferred route: the download is deterministic, happens outside the sandbox, produces a data card, and survives into the paper's provenance trail. The test-harness configs (`selftest-exp.yaml`, `validate.yaml`, `verify-*.yaml`) pin `network_mode: "none"`, and there pre-staging is the only way to get external data into experiments.
 
 **How it works:**
 
@@ -842,6 +883,60 @@ This solves a key limitation: the sandbox runs with `--network=none` by default,
 **Budget:** Maximum 3 data requests per round (`_DATA_REQUESTS_PER_ROUND`). URLs are deduplicated across the entire cycle --- requesting the same URL twice is silently skipped.
 
 **Intended usage:** Use `[DATA:]` during PLANNING to request specific datasets you'll need in EXECUTION. Combine with `[SEARCH:]` to find papers that reference datasets, then stage the data with `[DATA:]`.
+
+### Repository Data Acquisition (DATASEARCH / FETCHDATA)
+
+`[DATA:]` requires the agent to already know a URL. The repository tags close the loop when it doesn't: agents can *search* wired data repositories and stage what they find.
+
+```
+[DATASEARCH: OB star TESS photometry catalog]
+...results injected into context as provider-prefixed IDs...
+[FETCHDATA: vizier:J/A+A/701/A297]
+```
+
+**Providers** are configured via `literature.data_providers` (implementations in `src/paradigm/literature/data_providers.py`):
+
+| Provider | ID format | Description |
+|----------|-----------|-------------|
+| `vizier` | `vizier:J/A+A/701/A297` | VizieR/CDS astronomical catalogs (VOTable resource search, TSV table fetch) |
+| `zenodo` | `zenodo:999271` | Zenodo research-data records (domain-agnostic) |
+
+The domain-agnostic default is `["zenodo"]`; the astro-flavored shipped configs (`default.yaml`, `production.yaml`, `open.yaml`) use `["vizier", "zenodo"]`. An empty list disables both tags.
+
+**How it works:**
+
+1. `[DATASEARCH: query]` fans the query out to every wired provider (up to 4 candidates each). Results are injected into the literature context as `` `id` — title [source] `` lines with an instruction to stage one via `[FETCHDATA: <id>]`. A `dataset.search` event is emitted.
+2. `[FETCHDATA: id]` downloads the dataset outside the sandbox and stages it into `data/shared/data/` (visible to experiments as `/data/shared/data/`), generating a **data card** — a schema preview injected into context and the EXECUTION prompts. A `dataset.fetched` event is emitted.
+3. **CDS fixed-width tables get first-class treatment:** a CDS `ReadMe`'s byte-by-byte description is the authoritative schema, and whitespace-splitting the `.dat` silently misparses it. The stager parses the ReadMe's byte-by-byte tables and emits a ready-to-paste `pandas.read_fwf` recipe (exact `colspecs` + column names) into the data card.
+
+**Phases:** the same as literature search actions — IDEATION, PLANNING, EXECUTION, POST_EXECUTION.
+
+**Budgets:** 2 `[DATASEARCH:]` per round; `[FETCHDATA:]` shares the 3-per-round data-staging budget with `[DATA:]`. Fetched dataset IDs are deduplicated across the cycle. Like every literature action, failures degrade to a note in context — they never abort the cycle.
+
+### Real-Data Mandate (data_policy)
+
+`orchestrator.data_policy` governs whether experiments may fabricate their input data:
+
+| Policy | Behavior |
+|--------|----------|
+| `real_only` | Fabricating datasets is forbidden. Synthetic experiments are **excluded from the paper's evidence base** and raise a blocking editor alert. Default in `default.yaml`, `production.yaml`, and `open.yaml`. |
+| `prefer_real` | Synthetic stand-ins are tolerated but must be clearly labeled; they are flagged to reviewers. (Code default when a config sets nothing.) |
+| `permissive` | No policy — intended for test harnesses. |
+
+**Provenance classifier.** The policy needs a mechanical answer to "where did this experiment's data come from?", so every executed experiment is classified from its code (and stdout) into one of four verdicts (`src/paradigm/orchestrator/data_provenance.py`):
+
+| Verdict | Meaning |
+|---------|---------|
+| `real` | Loads data files, no random generation |
+| `resampled` | Loads data files AND uses randomness — bootstrap/permutation/Monte-Carlo over real data (legitimate statistics) |
+| `derived` | Neither loads files nor generates randomness (pure computation on prior results) |
+| `synthetic` | Generates random arrays without loading any data, or self-describes its data as synthetic/mock |
+
+Under `real_only`, a `synthetic` verdict excludes the experiment from the evidence base and the editor receives a blocking alert — the writer cannot cite it.
+
+**DATA UNAVAILABLE descope protocol.** The `real_only` experiment directive instructs agents: if the data an experiment needs cannot be found in `/data/shared` (or downloaded), *descope* the experiment and print `DATA UNAVAILABLE: <what and why>`. An honestly missing analysis is publishable; a fabricated one is fraud. The carve-outs matter — resampling of real data and clearly-labeled analytic computation remain allowed.
+
+**Statistical-standards directive.** Alongside the data policy, every experiment prompt carries a statistical-rigor block: inspect distributions before choosing methods (rank-based statistics for skewed/quantized variables), report effect sizes with bootstrap CIs rather than bare p-values, control for confounds before claiming an association is physical, and document every excluded row. It exists because a live head-to-head run was dinged by reviewers for exactly these omissions.
 
 ---
 
@@ -889,21 +984,46 @@ Any provider with an OpenAI-compatible chat completions API can be added using `
 
 Per-role overrides route each agent to a specific provider and model. The default configuration uses three providers for epistemic diversity --- agents from different training lineages are less likely to share the same blind spots.
 
-**Default mode:**
+**Default mode** (`configs/default.yaml` — production-parity premium mapping):
 
 | Role | Provider | Model |
 |------|----------|-------|
-| Theorist, Experimentalist, Analyst, Synthesizer, Writer | Anthropic | `claude-opus-4-6` |
-| Skeptic, Editor | Google | `gemini-3-pro-preview` |
+| Theorist | OpenAI | `gpt-5.4` |
+| Experimentalist | OpenAI | `gpt-5.5` |
+| Analyst, Skeptic | Anthropic | `claude-sonnet-4-6` |
+| Writer, PI, Prompt refiner | Anthropic | `claude-opus-4-8` |
+| Editor | Anthropic | `claude-sonnet-5` |
+| Synthesizer | Anthropic | `claude-haiku-4-5` |
+| Reviewers, Judge | Google | `gemini-3.5-flash` |
 
-**Testing mode** (`--testing` flag) --- eliminates Anthropic and Google API calls for cost-free iteration:
+**Testing mode** (`--testing` flag / the GUI mode toggle) --- the cheap open-weights mapping for fast trial runs:
 
 | Role | Provider | Model |
 |------|----------|-------|
-| Theorist, Experimentalist, Analyst, Synthesizer, Writer, Editor | Together | `deepseek-ai/DeepSeek-V3.1` |
-| Skeptic | Together | `Qwen/Qwen3-235B-A22B-Thinking-2507` |
+| Theorist, Experimentalist, Writer | Together | `zai-org/GLM-5.2` |
+| Skeptic, Editor | Together | `moonshotai/Kimi-K2.6` |
+| Analyst, Reviewers | Together | `MiniMaxAI/MiniMax-M3` |
+| Synthesizer | Together | `openai/gpt-oss-120b` |
 
 Overrides are configured in the `agent.overrides` section of the YAML config. Testing overrides are in the `testing_overrides` section and are applied when the `--testing` CLI flag is passed.
+
+### Model Tiers
+
+Two shipped configs implement the same pipeline on different model tiers:
+
+| Tier | Config | Models |
+|------|--------|--------|
+| `premium` | `configs/production.yaml` | Top closed models per role (e.g. GPT-5.4 theorist, Claude Opus 4.8 writer/PI, Claude Sonnet 5 editor, Gemini for utility roles) |
+| `open` | `configs/open.yaml` | Open-weights models via Together: GLM-5.2 (theorist/experimentalist/writer/PI), Kimi-K2.6 (skeptic/editor), MiniMax-M3 (analyst/reviewer), gpt-oss-120b (synthesizer) |
+
+In the web UI, the Setup Wizard has a per-cycle **Models** toggle (`model_tier`: `premium` | `open`; `null` = whatever the active config runs) — the tier applies to that cycle only, without switching the server config. `GET /api/v1/config/tiers` reports which tiers are available (key-gated) and which one the active config resembles.
+
+Two role overrides matter beyond the classic team:
+
+- **`pi`** — the PI-reflection gate's model (the strongest model in the tier; see [REFLECTION](#reflection-pi-verdict)).
+- **`judge`** — the quality ledger's scorer. Deliberately FIXED across tiers (`gemini-3.5-flash` in both shipped configs), so quality scores stay comparable when you switch tiers.
+
+In `open.yaml` the closed providers stay registered (hidden in the picker without their key), so any role can be flipped back to a frontier model live from the GUI Agents panel.
 
 ### `orchestrator` --- Orchestration Behavior
 
@@ -923,6 +1043,10 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 | `max_searches_per_round` | int | `3` | Max `[SEARCH: ...]` requests processed per round (resets each round) |
 | `enable_convergence_detection` | bool | `true` | Detect when agents converge early in discussion phases and skip remaining rounds |
 | `convergence_confidence_threshold` | float | `0.85` | Minimum confidence (0.0–1.0) to accept convergence and skip rounds |
+| `data_policy` | string | `prefer_real` | Real-data mandate: `real_only` / `prefer_real` / `permissive`. Shipped configs set `real_only`. See [Real-Data Mandate](#real-data-mandate-data_policy) |
+| `enable_reflection` | bool | `false` | PI reflection gate after WRITING (proceed / loop back / call it). ON in shipped configs. See [REFLECTION](#reflection-pi-verdict) |
+| `max_loop_backs` | int | `2` | Hard budget on PI loop-backs per cycle |
+| `enable_quality_ledger` | bool | `false` | Auto-score every finished paper with the `judge` role. ON in shipped configs. See [Quality Ledger](#quality-ledger) |
 
 ### `literature` --- Literature Search
 
@@ -931,6 +1055,7 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 | `arxiv_rate_limit` | float | `3.0` | Seconds between arXiv API requests |
 | `max_results_per_search` | int | `50` | Maximum papers returned per search |
 | `enable_pdf_fetch` | bool | `true` | Fetch and extract PDF text from arXiv |
+| `data_providers` | list | `["zenodo"]` | Repository providers for `[DATASEARCH:]`/`[FETCHDATA:]` (`vizier`, `zenodo`). Shipped configs use `["vizier", "zenodo"]`; empty list disables the tags |
 | `embedding_model` | string | `sentence-transformers/all-MiniLM-L6-v2` | Model for paper embeddings in ChromaDB |
 | `follow_budget_per_round` | int | `3` | Max `[FOLLOW:]` requests per round |
 | `cited_by_budget_per_round` | int | `2` | Max `[CITED_BY:]` requests per round |
@@ -946,7 +1071,7 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 |-----|------|---------|-------------|
 | `enabled` | bool | `true` | Enable Docker sandbox for code execution |
 | `image_name` | string | `paradigm-sandbox:latest` | Docker image name |
-| `network_mode` | string | `none` | Docker network mode (`none` = no network access) |
+| `network_mode` | string | `bridge` | Docker network mode (`bridge` = internet access; `none` = fully isolated — pinned in the test-harness configs) |
 | `cpu_limit` | float | `2.0` | CPU core limit per container |
 | `memory_limit` | string | `2g` | Memory limit per container |
 | `execution_timeout` | int | `300` | Execution timeout in seconds |
@@ -969,7 +1094,7 @@ Overrides are configured in the `agent.overrides` section of the YAML config. Te
 | `citation_sections` | list | `["introduction", "methods"]` | Which paper sections to process for citation insertion |
 | `max_retries_per_paragraph` | int | `2` | Max retries for Perplexity citation calls per paragraph |
 | `perplexity_timeout` | float | `120.0` | Timeout in seconds for Perplexity API calls |
-| `enable_novelty_check` | bool | `false` | Enable novelty assessment during ideation |
+| `enable_novelty_check` | bool | `false` | Front-loaded novelty assessment before hypothesis selection. ON in shipped configs |
 | `novelty_mode` | string | `semantic_scholar` | Novelty checking backend: `semantic_scholar` or `futurehouse` |
 | `novelty_max_iterations` | int | `5` | Max search iterations for Semantic Scholar novelty check |
 | `futurehouse_api_key_env` | string | `FUTURE_HOUSE_API_KEY` | Environment variable name for FutureHouse API key |
@@ -1170,7 +1295,7 @@ Token usage is tracked per API call in the `token_usage` database table and logg
 
 ## 14. Docker Sandbox
 
-The computational sandbox executes Python code in isolated Docker containers. By default, containers have no network access, but this can be overridden with the `--network-access` flag.
+The computational sandbox executes Python code in isolated Docker containers. The default network mode is `"bridge"` (internet access, so experiments can fetch public data); the test-harness configs (`selftest-exp.yaml`, `validate.yaml`, `verify-*.yaml`) pin `network_mode: "none"` for full isolation.
 
 ### Building the Image
 
@@ -1192,44 +1317,32 @@ isn't there. Each experiment runs as a **fresh process** with `numpy` (np),
 
 ### Security Model
 
-- **No network access:** Containers run with `--network=none`
-- **Resource limits:** CPU (2 cores), memory (2 GB), execution timeout (300s)
-- **Non-root user:** Code runs as an unprivileged user
-- **Pre-execution safety scan:** AST-based code scanner rejects patterns like `os.system()`, `subprocess`, network calls, and sandbox escape attempts
+- **Configurable network isolation:** `network_mode: "bridge"` by default; `"none"` for a fully offline container (pinned in the test-harness configs)
+- **Resource limits:** CPU (2 cores), memory (2 GB), execution timeout (300s), pids limit (256)
+- **Non-root user:** Code runs as an unprivileged user (with `cap_drop=ALL` and `no-new-privileges` by default)
+- **Pre-execution safety scan:** AST-based code scanner rejects patterns like `os.system()`, `subprocess`, and sandbox escape attempts (plus network imports when `network_mode` is `"none"`)
 - **Output size limits:** Max 10 MB of output per execution
 
 ### Network Access Mode
 
-By default, sandbox containers run with `--network=none` and the safety scanner blocks all network-related imports (`requests`, `httpx`, `urllib.request`, `http.client`, `aiohttp`, etc.). This is the recommended secure configuration.
+The default is `network_mode: "bridge"`: containers can reach the internet, experiments may download public data at runtime, and agents are told network access is available. The safety scanner keys off this setting — with `"bridge"`, network imports (`requests`, `httpx`, `urllib.request`, etc.) are allowed; other safety checks (`subprocess`, `os.system()`, `exec()`) remain active regardless.
 
-If your research requires downloading data or calling APIs from within experiments, you can enable network access:
+For full isolation, set:
+
+```yaml
+sandbox:
+  network_mode: "none"   # default: "bridge"
+```
+
+With `"none"`, the safety scanner blocks all network-related imports, experiment prompts warn agents that there is NO network access, and external data can only enter via `[DATA:]` / `[FETCHDATA:]` pre-staging or attached datasets. The shipped test-harness configs (`selftest-exp.yaml`, `validate.yaml`, `verify-*.yaml`) pin this mode so harness runs are hermetic.
+
+If your config pins `"none"` but a one-off run needs the network, the CLI flag forces bridge mode for that run:
 
 ```bash
 paradigm run --network-access --prompt "Your research prompt"
 ```
 
-This does three things:
-
-1. **Sets `network_mode="bridge"`** --- containers can reach the internet.
-2. **Disables network-import safety checks** --- `requests`, `httpx`, `urllib.request`, etc. are allowed in experiment code. (Other safety checks like `subprocess`, `os.system()`, and `exec()` remain active.)
-3. **Adjusts experiment prompts** --- agents are told that network access is available instead of receiving the "NO network access" warning.
-
-**When to use it:**
-
-- Experiments that need to query external APIs or download data at runtime.
-- When `[DATA:]` pre-staging during PLANNING is insufficient (e.g., the dataset URL is discovered during code execution, or the agent needs to stream data programmatically).
-
-**When NOT to use it:**
-
-- Most research cycles work fine without network access. Use `[DATA:]` pre-staging to make datasets available without opening the network.
-- Enabling network access reduces the security isolation of the sandbox. Only use it when necessary.
-
-You can also set this permanently in the config:
-
-```yaml
-sandbox:
-  network_mode: "bridge"   # default: "none"
-```
+**Prefer pre-staging even with the network open:** `[DATA:]` / `[DATASEARCH:]` / `[FETCHDATA:]` downloads are deterministic, produce data cards, and leave a provenance trail; runtime downloads inside experiment code do not.
 
 ### Running Without Docker
 
@@ -1248,7 +1361,7 @@ Research cycles will still run but agents cannot execute computational experimen
 sandbox:
   enabled: true
   image_name: "paradigm-sandbox:latest"
-  network_mode: "none"
+  network_mode: "bridge"   # "none" = fully isolated (test-harness configs)
   cpu_limit: 2.0           # CPU cores
   memory_limit: "2g"       # Container memory limit
   execution_timeout: 300   # Seconds before timeout
@@ -1666,7 +1779,13 @@ This gives agents a head start on relevant literature without consuming their pe
 
 ## 19. Novelty Checking
 
-Paradigm can assess the novelty of research ideas before committing to a full research cycle. Two backends are supported.
+Paradigm can assess the novelty of research ideas before committing to a full research cycle. Two backends are supported. Novelty checking is enabled in the shipped configs (`default.yaml`, `production.yaml`, `open.yaml`).
+
+### Front-Loaded Assessment
+
+The check is **front-loaded**: it runs during IDEATION, *before* hypotheses are locked in — after the tournament produces winners but before hypothesis selection — so a weak verdict can still change the work rather than just annotate the finished paper. The result is emitted as a `novelty.assessed` event and, in interactive mode, shown alongside the hypothesis-selection dialog.
+
+If the verdict is **weak** (confidently NOT novel), a **differentiation directive** is queued as guidance for PLANNING: it names the closely-related prior work and instructs the team to explicitly position against it — state what is NEW (data, method, regime, or claim) and plan at least one analysis the prior work did not do.
 
 ### Semantic Scholar Mode (Default)
 
@@ -1681,7 +1800,7 @@ The default novelty checker uses a multi-step process:
 
 ```yaml
 citation:
-  enable_novelty_check: true       # default: false
+  enable_novelty_check: true       # code default: false; ON in shipped configs
   novelty_mode: semantic_scholar    # default
   novelty_max_iterations: 5
 ```
@@ -1893,9 +2012,11 @@ See [`frontend/README.md`](../frontend/README.md) for full setup, directory stru
 
 ## 22. Correctness Kernel & Output Formats
 
-Empirical science has no proof checker, so Paradigm provides opt-in *proxy* gates that
-harden correctness and output quality. **Every feature here is off by default** — the
-legacy autonomous pipeline is unchanged until you enable it. Toggle them in
+Empirical science has no proof checker, so Paradigm provides *proxy* gates that
+harden correctness and output quality. Every feature here defaults to off in code, so
+the legacy autonomous pipeline is unchanged until a config enables it — but the
+**verification kernel is ON in the shipped configs** (`default.yaml`, `production.yaml`,
+`open.yaml`; `fast.yaml` keeps it off because re-execution is slow). Toggle them in
 `configs/default.yaml`, a custom config (`paradigm --config my.yaml run ...`), or the web
 **Settings page** (Orchestrator / Knowledge / Citation / Journal sections). A deep
 implementation write-up lives in [`docs/correctness-kernel-implementation.md`](correctness-kernel-implementation.md).
@@ -1917,15 +2038,16 @@ can't be reinterpreted; refuted/negative results are reported honestly.
 
 ### Verification kernel (re-execution as ground truth)
 
-When enabled, each successful experiment re-runs in a **fresh, seeded `--network=none`
-sandbox** (a new `VERIFICATION` phase) and is accepted only if its `RESULT[label]=value`
-tokens reproduce within tolerance — otherwise it is demoted so the writer can't cite it.
-Enabling verification also activates the **console-as-data-bus contract**: experiments must
-print every key number as `RESULT[label]=value`.
+When enabled, each successful experiment re-runs in a **fresh, seeded sandbox workspace**
+(`verify/<thread>`, a new `VERIFICATION` phase, using the configured sandbox settings) and
+is accepted only if its `RESULT[label]=value` tokens reproduce within tolerance —
+otherwise it is demoted so the writer can't cite it. Enabling verification also activates
+the **console-as-data-bus contract**: experiments must print every key number as
+`RESULT[label]=value`.
 
 | Key (`orchestrator.`) | Type | Default | Description |
 |---|---|---|---|
-| `enable_verification` | bool | `false` | Re-execute results to verify reproducibility |
+| `enable_verification` | bool | `false` (ON in shipped configs) | Re-execute results to verify reproducibility |
 | `verification_tolerance` | float | `1e-6` | Relative tolerance for reproducing metrics |
 | `verification_seed` | int | `12345` | Seed injected before re-execution |
 | `verification_reexec_budget` | int | `20` | Cap on re-runs per cycle |
@@ -1964,6 +2086,25 @@ so autonomous runs never deadlock). Each paper records an engine-written provena
 | `journal.latex_journal` | str | `none` | Preset: `none` / `arxiv` / `neurips` |
 | `journal.compile_pdf` | bool | `false` | Also compile the `.tex` to PDF (needs a LaTeX engine) |
 | `citation.drop_unresolved_citations` | bool | `false` | Drop refs that don't resolve (vs. bare URLs) |
+
+### Quality Ledger
+
+With `orchestrator.enable_quality_ledger: true` (ON in the shipped configs), **every
+finished paper is auto-scored** by the config role `judge` on five dimensions —
+novelty, rigor, clarity, significance, honesty (each 1–10) — plus a composite
+(mean × 10) and a one-sentence justification. The scores are:
+
+- stored on the paper row (`papers.judge_scores`, JSON — includes `composite` and `judge_model`),
+- emitted as a `paper.judged` event on the thread's event stream,
+- returned by the papers API (`judge_scores` on paper responses) and shown as **badges** in the web UI.
+
+The judge model is deliberately **fixed across model tiers** (`gemini-3.5-flash` in both
+shipped configs) so quality is trendable across cycles, configs, and tiers. Scoring is
+best-effort: a judge failure is logged and skipped, never breaking a cycle.
+
+| Key (`orchestrator.`) | Type | Default | Description |
+|---|---|---|---|
+| `enable_quality_ledger` | bool | `false` (ON in shipped configs) | Auto-judge every finished paper |
 
 ### Reproducibility evaluation (`paradigm eval`)
 

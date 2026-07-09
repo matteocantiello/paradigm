@@ -13,116 +13,152 @@
 
 ---
 
-Give Paradigm a research question and it assembles a team of AI agents --- theorist, analyst, experimentalist, skeptic, synthesizer, writer --- that debate hypotheses, search the literature, run computational experiments in a sandboxed environment, draft a paper, and submit it to AI peer review. It can also produce comprehensive literature reviews that survey and synthesize existing work without running experiments. Published papers enter an internal corpus that future research cycles can cite and build upon.
+Type a research question into the Paradigm web console and it assembles a team of AI agents --- theorist, analyst, experimentalist, skeptic, synthesizer, writer, editor, PI --- that debate hypotheses, search the literature, acquire real datasets, run computational experiments in a sandboxed environment, draft a paper, reflect on whether the evidence holds up, and submit the result to AI peer review. You watch it happen live, steer it mid-flight, and read the finished paper (with its digest, reviews, code, and figures) in the same interface. Published papers enter an internal corpus that future research cycles can cite and build upon.
 
 Named after Thomas Kuhn --- paradigm shifts emerge from communities of researchers, not individuals.
 
-## The Research Loop
-
-```
-                    +-----------+
-                    |   Seed    |  You provide a research question,
-                    |  Prompt   |  topic, or hypothesis
-                    +-----+-----+
-                          |
-                    +-----v-----+
-                    |  IDEATION  |  Agents debate hypotheses,
-                    |            |  challenge each other [CHALLENGE: ...]
-                    +-----+-----+
-                          |
-                    +-----v-----+
-                    |  PLANNING  |  Concrete research plan:
-                    |            |  experiments, data needs, success criteria
-                    +-----+-----+
-                          |
-                 +--------v---------+
-                 | PRE-REGISTRATION |  (optional) freeze falsifiable
-                 |                  |  predictions before running
-                 +--------+---------+
-                          |
-               +----------+----------+
-               |                     |
-         +-----v-----+        +-----v-----+
-         | EXECUTION  |        | LITERATURE |  Agents search arXiv,
-         | Sandboxed  |        |  Review    |  fetch PDFs, build
-         | Docker     |        |            |  citation context
-         | experiments|        +-----+------+
-         +-----+-----+              |
-               |                    |
-         +-----v---------+          |
-         | VERIFICATION  |          |  (optional) re-execute in a fresh
-         | re-execute    |          |  sandbox; keep only what reproduces
-         +-----+---------+          |
-               |          +----------+
-               |          |
-         +-----v----------v+
-         |    WRITING       |  Section drafting (each agent writes
-         |                  |  to their expertise), assembly, figures
-         +--------+---------+
-                  |
-         +--------v---------+
-         | INTERNAL REVIEW   |  Editor reviews, requests revisions
-         +--------+---------+
-                  |
-         +--------v---------+
-         |   PEER REVIEW     |  Independent reviewer agents score
-         |                   |  novelty, rigor, clarity, significance
-         +---+--------+-----+
-             |        |
-      +------v--+  +--v-------+
-      |PUBLISHED|  | REVISION |---> resubmit
-      |         |  +----------+
-      +---------+
-```
-
 ## Quick Start
 
+Paradigm is a web platform: a FastAPI backend wrapping the research engine, and a React frontend ("Observatory") for launching, steering, and reading research.
+
 ```bash
-# Clone and set up environment
+# Clone and set up the environment
 git clone https://github.com/matteocantiello/paradigm.git
 cd paradigm
 conda create -n paradigm python=3.12 -y
 conda activate paradigm
-pip install -e ".[dev]"
+pip install -e ".[api,dev]"
 
-# Set your API keys (or create a .env file)
-export ANTHROPIC_API_KEY="sk-ant-..."
-export GEMINI_API_KEY="..."
+# Set API keys (or put them in a .env file)
+export ANTHROPIC_API_KEY="sk-ant-..."   # required
+export GEMINI_API_KEY="..."             # reviewers + quality judge
+export OPENAI_API_KEY="..."             # premium theorist/experimentalist
+export TOGETHER_API_KEY="..."           # open-model tier
 
-# Run a research cycle
-paradigm run --mode directed \
-  --prompt "Explain the period-luminosity relation for Cepheids" \
-  --rounds 2
+# Terminal 1: backend (port 8000)
+uvicorn backend.api.main:app --reload --port 8000
 
-# Run a literature review
-paradigm run --mode review \
-  --prompt "Survey recent advances in asteroseismology of red giants"
-
-# Use a detailed prompt from a file
-paradigm run --mode directed --prompt-file prompt.md
-
-# Start fresh (ignore previously published Paradigm papers)
-paradigm run --mode directed --prompt "New topic" --fresh-corpus
-
-# List produced papers
-paradigm papers
-
-# View a paper
-paradigm paper <paper-id>
+# Terminal 2: frontend (port 3000)
+cd frontend && npm install && npm run dev
 ```
 
-For detailed setup (Docker sandbox, multi-provider config, etc.), see [`INSTALL.md`](INSTALL.md).
+Open http://localhost:3000. The landing page is a prompt console: type a research question, optionally attach datasets, and hit **Launch** --- or **Configure** to open the setup wizard (supervision mode, model tier, research mode, agent team). The live session view shows a Mission Digest (what the team is doing now, what it has found so far, what comes next), a steering bar for typed guidance (delivered at the next agent turn), pause/resume, and decision dialogs when supervision is on.
 
-## Operating Modes
+The CLI still works as a headless alternative:
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| `directed` | Full team investigates a specific question | "Explain the period-luminosity relation for Cepheids" |
-| `explore` | Broad exploration of a topic area | "massive star variability" |
-| `hypothesis` | Focused team tests a specific hypothesis | "Convective overshooting extends MS lifetime by >20%" |
-| `experimental` | Includes experimentalist + Docker sandbox | Computationally-driven research |
-| `replication` | Attempts to reproduce a known result | Verification and extension |
-| `review` | Comprehensive literature review and field synthesis | "Survey recent advances in asteroseismology" |
+```bash
+paradigm run --mode directed \
+  --prompt "Explain the period-luminosity relation for Cepheids" \
+  --data observations.csv
+
+paradigm papers            # list produced papers
+paradigm paper <paper-id>  # view one
+```
+
+For detailed setup (Docker sandbox, all provider keys, frontend build), see [`INSTALL.md`](INSTALL.md).
+
+## The Research Loop
+
+```
+                     +-----------+
+                     |   Seed    |  You provide a research question
+                     |  Prompt   |  (refined into a research brief by a strong LLM)
+                     +-----+-----+
+                           |
+                     +-----v-----+
+                     | IDEATION  |  Agents debate hypotheses,
+                     |           |  challenge each other [CHALLENGE: ...]
+                     +-----+-----+
+                           |        <- novelty check runs BEFORE selection
+                     +-----v-----+
+                     | PLANNING  |  Concrete research plan:
+                     |           |  experiments, data needs, success criteria
+                     +-----+-----+
+                           |
+                +----------+----------+
+                |                     |
+          +-----v------+       +-----v------+
+          | EXECUTION  |       | LITERATURE |  Search arXiv, ADS, Semantic
+     +--->| Sandboxed  |       |   Review   |  Scholar; fetch PDFs; acquire
+     |    | Docker     |       |            |  datasets (VizieR, Zenodo)
+     |    | experiments|       +-----+------+
+     |    +-----+------+             |
+     |          |                    |
+     |   +------v-------+            |
+     |   | VERIFICATION |            |  re-execute in a fresh sandbox;
+     |   | re-execute   |            |  unreproduced results are demoted
+     |   +------+-------+            |
+     |          |          +---------+
+     |          |          |
+     |    +-----v----------v-+
+     |    |     WRITING      |  Section drafting, assembly, figures
+     |    +--------+---------+
+     |             |
+     |    +--------v---------+
+     +----+  PI REFLECTION   |  proceed / loop back / call it
+    loop  +--------+---------+  (loop back: more experiments or
+    back           |             a re-plan; budgeted, max 2)
+    (max 2)        | proceed
+          +--------v---------+
+          | INTERNAL REVIEW  |  Editor gates on Blocking vs Minor changes
+          +--------+---------+
+                   |
+          +--------v---------+
+          |   PEER REVIEW    |  Independent reviewer agents score
+          |                  |  novelty, rigor, clarity, significance
+          +----+--------+----+
+               |        |
+        +------v--+  +--v-------+
+        |PUBLISHED|  | REVISION |---> resubmit (major revisions can
+        | +judged |  +----------+     trigger new experiments)
+        +---------+
+```
+
+The loop is deliberately non-linear. After writing, a PI agent (the strongest model in the tier) reads the draft and decides: **proceed** to review, **loop back** for more experiments or a re-plan (budgeted, max 2 loop-backs), or **call it**. Peer-review major revisions can trigger a deep revision that runs new experiments rather than just rewording. Every finished paper is scored by an independent LLM judge and carries its quality badges in the paper library.
+
+## The Web Platform
+
+**Prompt-first landing** --- The dashboard hero console: pose a question, attach data files, Launch. The **Configure** path opens the SetupWizard: prompt + datasets, then Supervision (Autonomous vs Interactive), Model tier (Top models vs Open models), research mode (directed / explore / test), then team selection and a final review step.
+
+**Live session view** --- Mission Digest panel (Now / So far / Ahead), phase tracker, streaming agent output, experiment and draft panels, hypothesis tournament board, literature and knowledge graphs. The steering bar sends typed guidance that lands at the next agent turn; pause/resume works at round boundaries. In interactive mode, decision dialogs surface structured choices: hypothesis selection, experiment-plan approval, and the PI's reflection verdict. Unanswered decisions time out after 5 minutes and fall back to the agents' own choice.
+
+**Papers view** --- Each paper opens with tabs: Paper, Digest (a plain-language summary generated from the final text), Literature, Reviews, Transcript, Code, and Figures. Judge-score badges show the quality ledger's ratings. Export as Markdown or PDF (server-side LaTeX compile).
+
+**Replay** --- Finished runs can be replayed from their per-thread `events.jsonl` stream: scrub through the cycle's phases, decisions, and outputs after the fact.
+
+## Model Tiers
+
+The wizard offers two model tiers per cycle; both run the identical pipeline.
+
+**Top models** (`configs/production.yaml`) --- frontier closed models, deliberately diverse across providers:
+
+| Role | Model |
+|------|-------|
+| Theorist | `gpt-5.4` |
+| Experimentalist | `gpt-5.5` |
+| Analyst, Skeptic | `claude-sonnet-4-6` |
+| Writer, PI, Prompt refiner | `claude-opus-4-8` |
+| Editor | `claude-sonnet-5` |
+| Synthesizer | `claude-haiku-4-5` |
+| Reviewers, Judge | `gemini-3.5-flash` |
+
+**Open models** (`configs/open.yaml`) --- open-weights models on Together serverless, roughly $3--6 per cycle (vs ~$15--25 on the premium mix): `GLM-5.2` (theorist, experimentalist, writer, PI), `Kimi K2.6` (skeptic, editor), `MiniMax-M3` (analyst, reviewers), `gpt-oss-120b` (synthesizer). Family diversity is deliberate --- the writer's family never grades its own paper.
+
+The judge is pinned to the same model across tiers so quality-ledger scores stay comparable. Any role can be reassigned live from the Agents panel (Anthropic / OpenAI / Gemini / Together catalogs, key-gated).
+
+## Real Data, Verified
+
+Paradigm enforces a real-data mandate end to end:
+
+**Data policy** --- `orchestrator.data_policy: real_only` by default. A provenance classifier labels every dataset an experiment touches (real / derived / resampled / synthetic), and fabricated data is excluded from the paper's evidence base.
+
+**Data acquisition** --- Agents find and fetch real datasets themselves via `[DATASEARCH: query]` and `[FETCHDATA: id]` against wired repositories (VizieR/CDS catalog search, Zenodo records), or pull a specific file with `[DATA: url]`. Users can attach their own files (CLI `--data`, wizard upload); attached datasets get schema data cards --- column names, types, sample rows, and for CDS tables a ReadMe-derived `read_fwf` loading recipe --- so agents load them correctly on the first try.
+
+**Verification kernel** --- On by default. Successful experiments are re-executed in a fresh sandbox; results that don't reproduce are demoted out of the evidence base so the writer can't cite them.
+
+**Quality ledger** --- Every finished paper is automatically scored by an LLM judge on novelty, rigor, clarity, significance, and honesty (plus a composite), stored with the paper and shown as badges in the library.
+
+**Grounded citations** --- The writer cites only from a numbered allow-list of papers the cycle actually discovered; the bibliography is compiled deterministically from that set, and fabricated inline arXiv ids are stripped. A novelty check runs before hypothesis selection, not after the paper is written.
 
 ## Agent Team
 
@@ -136,132 +172,102 @@ Each research cycle assembles a team of specialized agents. Every agent has a di
 | **Skeptic** | Challenges assumptions, identifies weaknesses, triggers debates |
 | **Synthesizer** | Connects ideas across domains, resolves conflicts |
 | **Writer** | Drafts and assembles the paper |
-| **Editor** | Internal quality review before submission |
+| **Editor** | Internal quality gate (Blocking vs Minor changes; accept-with-minor) |
+| **PI** | Post-writing reflection: proceed, loop back, or call it |
 | **Reviewer** | Independent peer review with structured scoring |
+| **Judge** | Scores finished papers for the quality ledger |
 
-Agents can challenge each other mid-discussion using `[CHALLENGE: agent-id: reason]` tags, triggering structured debates with synthesis.
+Agents can challenge each other mid-discussion using `[CHALLENGE: agent-id: reason]` tags, triggering structured debates with synthesis. Experiment prompts carry a statistical-standards directive (distribution-appropriate methods, effect sizes with bootstrap CIs instead of bare p-values, confound control, documented exclusions).
 
-## Multi-Provider LLM Support
+## Computational Sandbox
 
-Paradigm supports multiple LLM backends. Assign different models to different agent roles for cost savings or epistemic diversity:
-
-```yaml
-# configs/default.yaml
-providers:
-  anthropic:
-    type: anthropic
-    api_key_env: ANTHROPIC_API_KEY
-  together:
-    type: openai_compatible
-    api_key_env: TOGETHER_API_KEY
-    base_url: https://api.together.xyz/v1
-    default_model: deepseek-ai/DeepSeek-R1
-
-agent:
-  default_provider: anthropic
-  default_model: claude-sonnet-4-5-20250929
-  overrides:
-    skeptic:
-      provider: together
-      model: deepseek-ai/DeepSeek-R1
-```
-
-Install optional OpenAI-compatible provider support with:
-
-```bash
-pip install -e ".[openai]"
-```
+Experimentalist agents write Python that runs in isolated Docker containers. The default network mode is **`bridge`** --- experiments may fetch public datasets --- with hardening: dropped capabilities, `no-new-privileges`, pids limit, CPU/memory/timeout caps. This is strong isolation for a trusted group, not a multi-tenant boundary. The self-test configs pin `network_mode: "none"`, and the CLI `--network-access` flag exists for configs that default to `none`. Set `orchestrator.enable_experimentation: false` to disable code execution entirely.
 
 ## Key Features
 
 **Domain Profiles** --- Pluggable domain system adapts agent roles, document templates, literature sources, and review criteria to different fields. Built-in domains: science (arXiv, Semantic Scholar) and finance (SSRN, SEC EDGAR, FRED).
 
-**Multi-Source Literature** --- Agents drive their own literature searches via `[SEARCH: query]`, `[FOLLOW: arxiv_id]`, `[CITED_BY: arxiv_id]`, and `[READ: arxiv_id]` tags. Sources include arXiv, Semantic Scholar, PubMed, bioRxiv, NASA ADS, and Google Scholar, with budget-constrained deduplication and stall detection that nudges agents from keyword search toward citation graph traversal.
+**Multi-Source Literature** --- Agents drive their own literature searches via `[SEARCH:]`, `[FOLLOW:]`, `[CITED_BY:]`, and `[READ:]` tags. Sources include arXiv, Semantic Scholar, PubMed, bioRxiv, NASA ADS, and Google Scholar, with budget-constrained deduplication and stall detection that nudges agents from keyword search toward citation-graph traversal. Perplexity powers seed discovery (foundational papers pre-loaded at cycle start) and fallback citation grounding.
 
-**Computational Sandbox** --- Experimentalist agents write Python code that runs in isolated Docker containers (`--network=none` by default). Results, figures, and stdout feed back into the paper. Use `--network-access` to allow containers to reach the internet when experiments need external data or APIs.
+**Prompt preprocessing** --- A strong-LLM first pass turns the raw user prompt into a structured research brief (goals, constraints, candidate datasets) before the team sees it; the original prompt is preserved.
 
-**Literature Review Mode** --- The `review` mode produces comprehensive field surveys without running experiments. A dedicated document template (literature landscape, thematic analysis, critical assessment, future directions) and review-specific prompts guide systematic synthesis.
+**Structured Peer Review** --- Independent reviewer agents score papers on novelty, rigor, clarity, and significance (1--10). Papers can be accepted, revised, or rejected; major revisions can trigger a deep revision with new experiments. Rejected papers go to the "graveyard" where future cycles learn from past failures. For literature-synthesis or theoretical cycles the review bar adapts --- it judges evidence by cited literature and reasoning rather than demanding experimental figures it can't have.
 
-**Structured Peer Review** --- Independent reviewer agents score papers on novelty, rigor, clarity, and significance (1--10). Papers can be accepted, revised, or rejected. Rejected papers go to the "graveyard" where future cycles learn from past failures. For literature-synthesis / theoretical cycles that ran no experiments, the internal-editor and peer-review bar adapts — it judges evidence by cited literature and reasoning rather than demanding experimental figures and quantitative results it can't have.
+**Hypothesis Tournament + World Model** --- The world model is the single hypothesis ledger: restatements deduplicate at creation (embedding-based), an Elo tournament with Swiss pairing ranks the canonical set, and beliefs move `proposed -> supported / contradicted` through one auditable path as evidence lands.
 
 **Agent Memory** --- Agents build episodic memory across research cycles. Lessons, discoveries, and methodological insights persist and are retrieved via semantic search with recency decay.
 
-**Citation Grounding** --- Optional Perplexity-based pipeline inserts real arXiv references into paper drafts and appends a bibliography. A separate seed discovery step pre-populates the corpus with foundational papers before agents begin.
-
 **Focused Debates** --- When agents disagree, structured debates resolve conflicts through back-and-forth exchanges with synthesis, rather than averaging over disagreement.
 
-### Correctness Kernel (opt-in, default-off)
+**Pre-registration (opt-in)** --- Freeze a machine-readable, falsifiable prediction per hypothesis before experiments run; the verdict (confirmed / refuted / inconclusive) is computed only against the frozen rule. (`knowledge.enable_preregistration`)
 
-Empirical science has no proof checker, so Paradigm manufactures proxy ones. All of the following are off by default and enabled via config (see `configs/default.yaml` or the Settings page):
+**Journal-ready LaTeX/PDF** --- Papers emit a journal-styled `.tex` alongside the markdown and compile to PDF when a LaTeX engine (tectonic / xelatex / pdflatex) is available; the web UI's PDF export compiles on demand.
 
-**Pre-registration / Falsifiability** --- Freeze a machine-readable, falsifiable prediction for each hypothesis *before* running experiments (a new `PRE_REGISTRATION` phase). The verdict (confirmed / refuted / inconclusive) is computed only against the frozen rule, so results can't be reinterpreted after the fact; refuted results are reported honestly. (`knowledge.enable_preregistration`)
+**Reproducibility Evaluation** --- `paradigm eval` scores papers on a deterministic + LLM-judge rubric; `--live N --split {train,selection,test}` runs fresh cycles on held-out seed splits and reports reproduction-pass-rate.
 
-**Verification Kernel** --- A reported result is accepted only if its code re-executes in a fresh, seeded `--network=none` sandbox and reproduces its `RESULT[label]=value` tokens within tolerance (a new `VERIFICATION` phase). Experiments that don't reproduce are demoted so the writer can't cite them. (`orchestrator.enable_verification`)
+## Operating Modes
 
-**Tree-search & Step-restart** --- Best-first ordering prefers experiments that haven't failed, and failed multi-step experiments resume from prior artifacts instead of restarting. (`orchestrator.enable_best_first_nodes` / `enable_step_restart`)
+The web wizard offers three modes per cycle:
 
-**Hybrid Human Gates + Provenance** --- Configurable human checkpoints (`off` / `advisory` / `blocking`, with a no-hook deadlock guard) at problem-selection, pre-registration, and final-verification; every paper records a human-vs-agent provenance chain. (`orchestrator.human_gate_mode`)
+| Mode | Description |
+|------|-------------|
+| `directed` | Full team investigates a specific question |
+| `explore` | Open-ended exploration of a topic area |
+| `test` | Quick test run with minimal rounds |
 
-**Unified World Model** --- Makes the world model the single hypothesis ledger. Restatements de-duplicate at creation (pluggable matcher), the Elo tournament ranks the *canonical* hypotheses by reference (Swiss pairing keeps a larger field affordable), and beliefs are revised through one auditable path — driven by tournament results, an evidence support/contradict rule, and the pre-registration verdict — so a hypothesis actually moves `proposed → supported / contradicted` as evidence lands. (`knowledge.unified_hypotheses`; design in [`.planning/WORLD-MODEL-UNIFICATION.md`](.planning/WORLD-MODEL-UNIFICATION.md))
-
-### Output Quality
-
-**Figure-aware Review** --- The editor visually inspects the actual figures (multimodal) to catch caption↔figure mismatches, missing labels, and duplicate/blank figures. (`orchestrator.enable_multimodal_review`)
-
-**Journal-ready LaTeX/PDF** --- Optionally emit a journal-styled `.tex` (and compile a PDF) alongside the markdown paper. (`journal.enable_latex_output` / `compile_pdf`)
-
-**Resolve-or-drop Citations** --- Drop references that don't resolve to real metadata (instead of leaving bare URLs the editor rejects), rewriting in-text markers so none dangle. (`citation.drop_unresolved_citations`)
-
-**Reproducibility Evaluation** --- `paradigm eval` scores papers on a deterministic + LLM-judge rubric; `--live N --split {train,selection,test}` runs fresh cycles on held-out seed splits and reports reproduction-pass-rate, with judge calibration against real publish/reject outcomes.
-
-**Intervention Hooks** --- Run in `--interactive` mode to approve or pause at each phase transition. Or provide a custom hook function for programmatic control.
-
-**Web API** --- Optional FastAPI backend with REST endpoints and WebSocket support for building web-based frontends. Start research cycles, monitor live progress, and intervene with agents in real time. See [`docs/API.md`](docs/API.md).
+The CLI supports additional modes: `hypothesis` (test a specific claim), `experimental` (computation-first), `replication` (reproduce a known result), and `review` (comprehensive literature survey with a dedicated document template, no experiments).
 
 ## Architecture
 
 ```
-Human Operator ──── Web UI (React/Vite, optional)
+Human Operator ──── Web UI "Observatory" (React/Vite, port 3000)
       |                    |
-      |              FastAPI Backend
-      |              (REST + WebSocket)
+      |              FastAPI Backend (port 8000)
+      |              (REST + WebSocket + event streams)
       |                    |
   Orchestrator (deterministic Python state machine)
       |
       |-- Research Agents (LLM API x N)
       |       |-- Claude (Anthropic)
-      |       |-- Gemini (Google)
-      |       |-- DeepSeek, Llama, Qwen, etc. (OpenAI-compatible)
+      |       |-- GPT (OpenAI), Gemini (Google)
+      |       |-- GLM, Kimi, MiniMax, gpt-oss (Together)
       |       |
-      |       +-- Sandbox (Docker containers, --network=none)
+      |       +-- Sandbox (hardened Docker, bridge network)
       |
-      |-- Literature Service
+      |-- Literature + Data Service
       |       |-- arXiv, PubMed, bioRxiv, NASA ADS, Google Scholar
       |       |-- Semantic Scholar (citation graph traversal)
-      |       |-- Perplexity (citation grounding + seed discovery)
+      |       |-- VizieR/CDS + Zenodo (dataset acquisition)
+      |       |-- Perplexity (seed discovery + citation grounding)
       |       +-- ChromaDB (semantic search + internal corpus)
       |
       +-- Journal Pipeline
-              |-- Editor (internal review)
+              |-- Editor (internal review gate)
+              |-- PI (reflection: proceed / loop back / call it)
               |-- Reviewers (structured peer review)
+              |-- Judge (quality ledger)
               +-- Publication / Graveyard
 ```
 
-No frameworks (no LangChain, no CrewAI). The orchestrator is plain Python with explicit phase transitions, full token tracking, and structured JSON event logging.
+No frameworks (no LangChain, no CrewAI). The orchestrator is plain Python with explicit phase transitions, full token tracking, and structured JSON event logging (per-thread `events.jsonl` powering the Replay view).
 
 ## CLI Reference
 
 | Command | Description |
 |---------|-------------|
-| `paradigm run` | Run a research cycle (`--mode`, `--prompt`, `--prompt-file`, `--rounds`, `--interactive`, `--network-access`, `--fresh-corpus`) |
+| `paradigm run` | Run a research cycle (`--mode`, `--prompt`, `--prompt-file`, `--topic`, `--rounds`, `--data <file>` (repeatable), `--interactive`, `--testing`, `--network-access`, `--fresh-corpus`, `--verbose`) |
 | `paradigm eval` | Score papers on a deterministic + LLM-judge rubric; `--live N --split {train,selection,test}` runs fresh cycles and reports reproduction-pass-rate |
 | `paradigm status` | System statistics and token usage |
 | `paradigm papers` | List papers (filter by `--status`) |
 | `paradigm paper ID` | View or export a paper (`--export path.md`) |
 | `paradigm inspect --thread ID` | Inspect a research thread checkpoint |
+| `paradigm agents` | List configured agents and their models |
 | `paradigm memory list --agent ID` | List episodic memories for an agent |
 | `paradigm memory search --query Q` | Semantic search across agent memories |
 | `paradigm memory clear --older-than 90d` | Prune old memories |
+| `paradigm mcp-login` | One-time OAuth login for the optional alphaXiv MCP provider |
+
+`--data` attaches a local dataset file or directory: it is staged into the sandbox-visible shared data directory with a schema preview for the agents. `--testing` swaps every role to cheap open models (the same `testing_overrides` behind the GUI's testing toggle). `configs/default.yaml` is production-parity: 2 rounds per phase with all quality features on.
 
 ## Project Structure
 
@@ -269,25 +275,22 @@ No frameworks (no LangChain, no CrewAI). The orchestrator is plain Python with e
 src/paradigm/
   main.py              CLI entry point
   config.py            YAML config + provider registry
-  orchestrator/        Phase state machine + engine
+  orchestrator/        Phase state machine, engine, reflection, verification
   agents/              Base agent, factory, prompts, skills, memory
     providers.py       Multi-backend LLM abstraction
   domains/             Pluggable domain profiles (science, finance)
-    science/           Science domain: roles, modes, templates, prompts
-    finance/           Finance domain: roles, modes, templates, prompts
-  literature/          Multi-source search, embeddings, corpus, citations
-  display/             Rich terminal UI (live layout, components, theme)
+  literature/          Multi-source search, data providers, corpus, citations
+  display/             Rich terminal UI (CLI runs)
   sandbox/             Docker-based code execution
-  journal/             Peer review + publication pipeline
+  journal/             Peer review, publication, LaTeX/PDF
   storage/             SQLite database, checkpoints, graveyard
-  logging/             Structured JSON event logging
+  logging/             Structured JSON event logging + event streams
 backend/
   api/                 FastAPI web API (REST + WebSocket)
-    routes/            Endpoint handlers
-    models/            Pydantic request/response schemas
+    routes/            research, sessions, papers, agents, models, config, settings, ws
     services/          SessionManager, WebSocket display bridge
-    middleware/        Authentication
-configs/               YAML configuration files
+frontend/              React "Observatory" web UI (Vite + TypeScript)
+configs/               YAML configuration files (default, production, open, ...)
 tests/                 pytest + pytest-asyncio
 ```
 
@@ -295,20 +298,20 @@ tests/                 pytest + pytest-asyncio
 
 | Document | Description |
 |----------|-------------|
-| [`INSTALL.md`](INSTALL.md) | Installation guide (Python, Docker, API keys) |
+| [`INSTALL.md`](INSTALL.md) | Installation guide (Python, Docker, frontend, API keys) |
 | [`docs/MANUAL.md`](docs/MANUAL.md) | Operations manual (comprehensive usage guide) |
 | [`docs/API.md`](docs/API.md) | Web API reference (REST endpoints, WebSocket protocol) |
-| [`backend/README.md`](backend/README.md) | Backend setup and architecture |
+| [`docs/DOMAINS.md`](docs/DOMAINS.md) | Domain profile system (science, finance, custom) |
+| [`backend/README.md`](backend/README.md) | Backend setup, architecture, endpoint inventory |
 | [`frontend/README.md`](frontend/README.md) | Frontend setup, structure, and architecture |
-| [`frontend-plan.md`](frontend-plan.md) | Frontend architecture plan (historical) |
 | [`ROADMAP.md`](ROADMAP.md) | Implementation roadmap and phase status |
 | [`HISTORY.md`](HISTORY.md) | Complete development history |
 
 ## Status
 
-**Alpha** --- The full research loop works end-to-end: seed question to published, peer-reviewed paper.
+**Alpha** --- The full platform works end to end: type a question in the web console, watch the team research it live, read the published, peer-reviewed, judge-scored paper.
 
-All major subsystems are implemented: multi-agent orchestration, multi-source literature search (arXiv, Semantic Scholar, PubMed, bioRxiv, NASA ADS), computational sandbox, paper writing, literature review mode, peer review with revision loops, citation grounding, agent episodic memory, focused debates, multi-provider LLM support, domain profiles, intervention hooks, and a FastAPI web API for programmatic and web-based access.
+All major subsystems are implemented: the Observatory web UI (wizard, live steering, decision dialogs, paper library, replay), multi-agent orchestration with PI reflection loop-backs, real-data acquisition with provenance classification, verification kernel, quality ledger, multi-source literature search, hardened computational sandbox, grounded citations, structured peer review with deep revisions, agent episodic memory, model tiers (frontier and open-weights), and a headless CLI.
 
 ## License
 

@@ -113,6 +113,8 @@ POST /api/v1/research
 | `seed_prompt` | string | Yes | Research question or topic (1-10,000 chars) |
 | `mode` | string | No | `directed`, `explore`, or `test` (default: `directed`) |
 | `team_roles` | string[] | No | Custom agent roles (default: mode-specific team) |
+| `interactive` | bool | No | Interactive supervision: the user approves key decisions during the run (hypothesis selection, experiment plan, PI reflection). Default: `false` |
+| `model_tier` | string | No | `premium` or `open`. `null` = whatever the active config runs |
 | `config_overrides` | object | No | Override config values for this cycle |
 
 **Example:**
@@ -122,7 +124,9 @@ curl -X POST http://localhost:8000/api/v1/research \
   -H "Content-Type: application/json" \
   -d '{
     "seed_prompt": "Explain the period-luminosity relation for Cepheids",
-    "mode": "directed"
+    "mode": "directed",
+    "interactive": true,
+    "model_tier": "premium"
   }'
 ```
 
@@ -138,8 +142,67 @@ curl -X POST http://localhost:8000/api/v1/research \
   "thread_id": null,
   "paper_id": null,
   "current_phase": null,
+  "interactive": true,
+  "model_tier": "premium",
+  "datasets": null,
+  "resumed_from": null,
   "created_at": "2026-02-27T12:00:00Z",
   "updated_at": null
+}
+```
+
+#### Attach a Dataset to a Cycle
+
+```
+POST /api/v1/research/{cycle_id}/datasets?filename=catalog.csv
+```
+
+Attach a dataset file to a **pending** cycle (returns `409` once the session has started). The request body is the **raw file bytes** — no multipart encoding:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/research/cycle-abc123/datasets?filename=catalog.csv" \
+  --data-binary @catalog.csv
+```
+
+| Parameter | In | Required | Description |
+|-----------|-----|----------|-------------|
+| `filename` | query | Yes | Original filename; sanitized server-side |
+
+Files land in a per-cycle holding dir (`data/uploads/<cycle_id>/`) and are staged into the sandbox-visible shared data dir (with data-card schema previews) when the session starts. Allowed extensions: `.csv .tsv .txt .json .dat .fits .parquet .npy .npz .h5 .hdf5` (`415` otherwise). Max 100 MB (`413`); empty bodies are rejected (`400`).
+
+**Response:** `201 Created` — the updated cycle, with the stored path appended to `datasets`.
+
+#### Resume / Continue a Cycle
+
+```
+POST /api/v1/research/{cycle_id}/resume
+```
+
+Continue a cycle from its last checkpoint as a **new run**, with optional steering. Resume is checkpoint-granularity: the prior cycle's checkpoint plus your comment are delivered to a fresh continuation run as first-round guidance. A new cycle is created (linked via `resumed_from`); the original is untouched. Works for interrupted/failed/aborted *and* completed cycles (the latter = "extend this further"). Returns `429` when the server is at its concurrent-session capacity.
+
+**Request body (optional):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `comment` | string | Steering note delivered with the continuation context (max 10,000 chars) |
+
+**Response:** `201 Created` — the new cycle (already `running`, with `resumed_from` set).
+
+#### Research Stats
+
+```
+GET /api/v1/research/stats
+```
+
+Headline counts for the dashboard overview.
+
+**Response:**
+
+```json
+{
+  "total_cycles": 42,
+  "papers_published": 17,
+  "total_tokens": 128394502
 }
 ```
 
@@ -288,6 +351,42 @@ Returns the current knowledge architecture snapshot for a running session (entit
 }
 ```
 
+#### Get Session Event Stream
+
+```
+GET /api/v1/sessions/{session_id}/event-stream
+```
+
+Returns the per-thread, seq-ordered dashboard event stream — the durable record the orchestrator writes to `data/threads/<thread_id>/events.jsonl` and the source for the epistemic graphs (literature constellation, evidence, replay). Works for live sessions and finished ones (the thread is resolved via the cycle store after the session is evicted).
+
+**Response:**
+
+```json
+{
+  "thread_id": "thread-abc",
+  "events": [
+    {"seq": 142, "ts": "...", "type": "hypothesis.created",
+     "phase": "ideation", "round": 2, "agent": "theorist-0", "payload": {}}
+  ]
+}
+```
+
+Events are ordered by `seq` (monotonic within a run) — never by timestamp.
+
+If the session has no thread yet, returns `{"thread_id": null, "events": []}`.
+
+#### Get Session Artifact
+
+```
+GET /api/v1/sessions/{session_id}/artifacts/{artifact_path}
+```
+
+Serves a run artifact (e.g. an experiment figure) by its data-dir-relative path, as a binary file response with the guessed media type. The orchestrator records artifact paths relative to the data dir; paths are resolved and confined to the data dir AND a known artifact root (`executions/`, `workspaces/`, `papers/`, `threads/`) — anything else is a `404`.
+
+```
+GET /api/v1/sessions/sess-xyz789/artifacts/executions/exec-123/figure_1.png
+```
+
 ---
 
 ### Checkpoints
@@ -338,7 +437,18 @@ GET /api/v1/papers?status=published&limit=20&offset=0
 GET /api/v1/papers/{paper_id}
 ```
 
-Returns full paper content including body, abstract, review scores, and metadata.
+Returns full paper content including body, abstract, review scores, and metadata. Both paper summaries and details include `judge_scores` — the quality ledger's auto-judge result when `orchestrator.enable_quality_ledger` is on (`null` otherwise):
+
+```json
+{
+  "judge_scores": {
+    "novelty": 7, "rigor": 8, "clarity": 8, "significance": 6, "honesty": 9,
+    "composite": 76.0,
+    "justification": "…one sentence…",
+    "judge_model": "gemini-3.5-flash"
+  }
+}
+```
 
 #### Get Session Outputs
 
@@ -427,6 +537,22 @@ Returns raw review markdown content.
 }
 ```
 
+#### Get Paper Digest
+
+```
+GET /api/v1/papers/{paper_id}/digest
+```
+
+Returns the plain-language Digest (layman summary) markdown for a paper, generated at cycle end when `journal.enable_digest` is on. Same response shape as reviews (`PaperArtifactContent`); `404` if no digest was generated. The artifacts endpoint reports availability via `has_digest`.
+
+#### Get Paper PDF
+
+```
+GET /api/v1/papers/{paper_id}/pdf
+```
+
+Serves the paper's PDF as a binary response. Returns a pre-built PDF if present; otherwise renders the stored body to LaTeX and compiles it on demand (figures resolve from the paper's `figures/` dir). Responds `503` with a clear message if no LaTeX engine is installed, `404` if the paper body is unavailable. The artifacts endpoint reports availability via `has_pdf`.
+
 #### Get Paper Transcript
 
 ```
@@ -487,9 +613,69 @@ PUT /api/v1/agents/{agent_type}
 
 ---
 
-### Config Mode
+### Model Catalog
 
-Switch between production and testing configurations at runtime.
+#### List Models
+
+```
+GET /api/v1/models?refresh=false
+```
+
+Models the agent picker can offer, grouped by provider. Returns a curated shortlist per provider by default; with `?refresh=true`, each provider whose API key is set is queried for its live model list (cached ~1h; a failed live fetch falls back to that provider's curated list, with the failure reason in `error`).
+
+**Response:**
+
+```json
+{
+  "providers": [
+    {
+      "name": "anthropic",
+      "family": "anthropic",
+      "label": "Anthropic",
+      "available": true,
+      "source": "curated",
+      "error": "",
+      "models": [
+        {"id": "claude-opus-4-8", "label": "Claude Opus 4.8"}
+      ]
+    }
+  ]
+}
+```
+
+`available` reflects whether the provider's API key env var is set. The provider's configured default model is always selectable even if it's not in the shortlist.
+
+---
+
+### Config Mode & Tiers
+
+Switch between production and testing configurations at runtime, and inspect the per-cycle model tiers.
+
+#### Get Model Tiers
+
+```
+GET /api/v1/config/tiers
+```
+
+The model tiers a new cycle can choose between (the Setup Wizard's Models toggle) plus which one the active config resembles.
+
+**Response:**
+
+```json
+{
+  "tiers": [
+    {"id": "premium", "label": "Top models",
+     "description": "Frontier closed models (GPT-5.5, Claude Opus/Sonnet 5, Gemini) — best quality, roughly $15–25 per cycle.",
+     "available": true},
+    {"id": "open", "label": "Open models",
+     "description": "Open weights on Together serverless (GLM-5.2, Kimi K2.6, MiniMax M3) — roughly $2–3 per cycle.",
+     "available": true}
+  ],
+  "default": "premium"
+}
+```
+
+`available` is key-gated (e.g. the `open` tier needs `TOGETHER_API_KEY`). Pass the chosen tier as `model_tier` when creating a cycle.
 
 #### Get Config Mode
 
@@ -533,6 +719,46 @@ curl -X PUT http://localhost:8000/api/v1/config/mode \
   "mode": "testing",
   "testing_available": true
 }
+```
+
+---
+
+### Settings
+
+Runtime settings, organized by config section. Changes apply to the live config (next cycle picks them up) — they are not written back to the YAML file.
+
+#### Get All Settings
+
+```
+GET /api/v1/settings
+```
+
+Returns all sections with current values:
+
+```json
+{
+  "orchestrator": {"max_rounds_per_phase": 10, "...": "..."},
+  "sandbox": {"enabled": true, "network_mode": "bridge", "...": "..."},
+  "literature": {"...": "..."},
+  "knowledge": {"...": "..."},
+  "memory": {"...": "..."},
+  "citation": {"...": "..."},
+  "journal": {"...": "..."}
+}
+```
+
+#### Update a Settings Section
+
+```
+PUT /api/v1/settings/{section}
+```
+
+`section` is one of: `orchestrator`, `sandbox`, `literature`, `knowledge`, `memory`, `citation`, `journal` (`404` otherwise). The body is a partial object of that section's fields; only the fields you send (non-null) are applied. Returns the full updated settings.
+
+```bash
+curl -X PUT http://localhost:8000/api/v1/settings/orchestrator \
+  -H "Content-Type: application/json" \
+  -d '{"enable_verification": true, "max_loop_backs": 1}'
 ```
 
 ---
@@ -588,7 +814,7 @@ Streamed agent output chunks. Reassemble by `stream_id`; `is_final` marks the la
   "stream_id": "stream-001",
   "is_final": false,
   "tokens": 128,
-  "model": "claude-opus-4-6",
+  "model": "claude-opus-4-8",
   "timestamp": "2026-02-27T12:02:40Z"
 }
 ```
@@ -654,10 +880,25 @@ System needs user input (e.g., phase transition approval in interactive mode).
   "from_phase": "ideation",
   "to_phase": "planning",
   "options": ["continue", "pause", "abort"],
+  "decision_type": "",
+  "choices": [],
+  "multi_select": false,
+  "default_ids": [],
   "timeout_seconds": 300,
   "timestamp": "2026-02-27T12:10:00Z"
 }
 ```
+
+**Structured decisions (interactive mode):** typed decision points fill the extra fields; plain phase-transition approvals leave them empty.
+
+| Field | Description |
+|-------|-------------|
+| `decision_type` | The decision kind: `hypothesis_selection`, `experiment_plan`, or `pi_reflection` |
+| `choices` | Selectable choices, each `{id, label, detail, score}` (`score` = Elo rating for hypothesis selection) |
+| `multi_select` | Whether multiple choices may be selected (true for hypothesis selection) |
+| `default_ids` | The preselected choice ids (e.g. the tournament winners, or the PI's proposed verdict) |
+
+If no `approval_response` arrives within `timeout_seconds` (300), the server auto-continues with the defaults, so an unattended run never stalls.
 
 #### `notification`
 
@@ -673,6 +914,14 @@ Non-blocking informational message.
   "timestamp": "2026-02-27T12:03:00Z"
 }
 ```
+
+Categories worth handling for responsiveness UX:
+
+| Category | Meaning |
+|----------|---------|
+| `guidance_delivered` | A user steering message was drained into the agents' prompts (metadata carries the text, phase, and round) — confirm delivery in the UI |
+| `run_parked` | The engine actually parked at the pause gate — agents have stopped (a pause click before this is only *requested*) |
+| `run_resumed` | The engine resumed after a pause |
 
 #### `error`
 
@@ -723,11 +972,16 @@ Respond to an approval request.
   "request_id": "req-456",
   "decision": "continue",
   "notes": "Looks good, proceed to planning",
-  "modifications": null
+  "modifications": {"selected_ids": ["hyp-2", "hyp-5"]}
 }
 ```
 
 `decision` must be one of: `continue`, `pause`, `abort`.
+
+For structured decisions (`decision_type` set on the request):
+
+- `notes` — free text; becomes guidance for the team (e.g. staged for the next discussion round, or appended to the experiment plan as an `OPERATOR DIRECTIVE`).
+- `modifications.selected_ids` — the chosen choice ids. For `hypothesis_selection` this is the set of hypotheses to carry forward; for `pi_reflection` the first id is the chosen verdict (`proceed` / `loop_back_execution` / `loop_back_planning` / `call_it`). Omit to accept the defaults.
 
 #### `session_control`
 
@@ -799,7 +1053,8 @@ backend/api/
     sessions.py        Session management + start/list + knowledge
     agents.py          Agent configuration
     papers.py          Paper browsing/export + artifact endpoints
-    config.py          Config mode (production/testing)
+    config.py          Config mode (production/testing) + model tiers
+    models.py          Model catalog for the agent picker
     settings.py        Settings (orchestrator, sandbox, literature, etc.)
     ws.py              WebSocket endpoint
   models/
