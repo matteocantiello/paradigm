@@ -5148,3 +5148,8 @@ Advisory answer (no implementation): ranked roadmap proposal.
 
 Plan: T1 citation-index validation, scaffolding revision-block strip, statistical-rigor directive, CDS-ReadMe read_fwf data cards, verification ON; T2 quality ledger (auto-judge + storage + API + GUI badge), novelty front-loaded into ideation; T3 reflection as interactive decision, follow-up-cycle affordance, cross-cycle dataset/method lessons. Per-feature commits, full suite + frontend build, final live validation cycle. VM deploy deliberately EXCLUDED (unattended deploy risk); prepared for morning.
 OVERNIGHT VALIDATION RESULT: the run was REJECTED at peer review — and that is the success story. The SLF-vs-metallicity topic proved data-starved (no public SLF amplitude catalogs); the PI reflection caught the zero-results draft, looped back once with a measurable criterion (≥5 real SLF amplitudes), verified it unmet, refused a second loop and CALLED IT; internal review accepted the honest scope; peer review rejected on merit; the quality ledger recorded WHY (composite 4.4: novelty 1, rigor 2, clarity 8, significance 1, honesty 10). 180 min, $5.36, 59 experiments (0 synthetic; verification ran, 0 demotions), 6 real catalogs fetched (incl. Gaia + the Markova table found organically). Every Tier 1-3 feature fired live. All tiers committed: b7b06bc (T1), c947638 (T2), 90dd218 (T3) + docs. NOT pushed; VM deploy deferred to the operator.
+
+## Prompt 261 — Push the overnight work
+
+> Ok let's push
+
