@@ -222,7 +222,9 @@ export function TerminalScreen({
       {resuming && (
         <div className="mt-3 rounded-lg border border-border/70 bg-background/40 p-3">
           <p className="mb-1.5 text-xs text-muted-foreground">
-            Continues from the last checkpoint as a new run. Add optional steering for the team:
+            {converged
+              ? "Starts a follow-up cycle building on the published paper — its findings and open questions are carried over automatically. Optionally steer the direction:"
+              : "Continues from the last checkpoint as a new run. Add optional steering for the team:"}
           </p>
           <textarea
             value={comment}

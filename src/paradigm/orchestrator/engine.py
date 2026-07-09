@@ -375,6 +375,8 @@ class OrchestrationEngine:
             # PI reflection (R1): step back, judge the draft, possibly loop back
             # for more experiments / a re-plan before the draft faces review.
             paper_draft = await self._run_reflection_loop(paper_draft, should_experiment)
+            if paper_draft is None:  # operator paused/aborted at the reflection gate
+                return self.state.thread_id
             if await self._run_internal_review_stage(paper_draft):
                 return self.state.thread_id
             if self._config.orchestrator.enable_peer_review:
@@ -912,7 +914,8 @@ class OrchestrationEngine:
         after which the paper is revised IN PLACE (the revision path — same
         paper row, citation net intact) and re-reflected. Convergence is
         mechanical: max_loop_backs, no-repeat-target, and call_it.
-        Never stops the cycle; always returns a draft for review.
+        Returns the (possibly revised) draft, or None when the operator
+        paused/aborted at the interactive reflection gate.
         """
         cfg = self._config.orchestrator
         if not cfg.enable_reflection or not should_experiment:
@@ -921,6 +924,12 @@ class OrchestrationEngine:
         while True:
             current_body = paper_draft.assembled_body or paper_draft.to_markdown()
             verdict = await self._reflection.run_reflection(current_body)
+            # Interactive mode (T3a): the PI PROPOSES, the human DISPOSES — the
+            # verdict becomes a decision dialog with the PI's choice preselected.
+            if self._decision_hook is not None:
+                verdict = await self._present_reflection_decision(verdict)
+                if verdict is None:  # operator paused/aborted
+                    return None
             self.emit_event(
                 "reflection.verdict",
                 {
@@ -948,7 +957,11 @@ class OrchestrationEngine:
                 )
                 return paper_draft
 
-            # loop_back (already budget/target-validated by the handler)
+            # loop_back (PI-proposed loops are budget/target-validated by the
+            # handler; an operator OVERRIDE must respect the budget too)
+            if self.state.loop_backs_used >= cfg.max_loop_backs:
+                self._display.info("[reflection] loop-back budget exhausted — proceeding to review")
+                return paper_draft
             target = verdict.get("target", "execution")
             directives = verdict.get("directives", [])
             self.state.loop_backs_used += 1
@@ -1057,6 +1070,90 @@ class OrchestrationEngine:
             "into the revision (methods, results, discussion) and answer the "
             "reviewers with the new evidence, not just rewording."
         )
+
+    async def _present_reflection_decision(self, verdict: dict[str, Any]) -> dict[str, Any] | None:
+        """T3a: surface the PI's reflection verdict as an interactive decision.
+
+        The PI proposes; the human disposes: the dialog offers all four moves
+        with the PI's choice preselected and its reasoning as context. Operator
+        notes become directives (loop-back) or the call-it reason. Returns the
+        (possibly overridden) verdict, or None when the operator paused/aborted.
+        """
+        kind = verdict.get("verdict", "proceed")
+        directives = verdict.get("directives") or []
+        default_id = (
+            f"loop_back_{verdict.get('target', 'execution')}" if kind == "loop_back" else kind
+        )
+        description = (
+            f"The PI recommends **{kind.replace('_', ' ')}**: "
+            f"{verdict.get('reason', '(no reason given)')}"
+        )
+        if directives:
+            description += "\n\nProposed directives:\n" + "\n".join(f"- {d}" for d in directives)
+        if verdict.get("success_criteria"):
+            description += f"\n\nSuccess criteria: {verdict['success_criteria']}"
+        payload: dict[str, Any] = {
+            "title": "PI reflection — how should the cycle proceed?",
+            "description": description,
+            "from_phase": "writing",
+            "to_phase": "internal",
+            "multi_select": False,
+            "default_ids": [default_id],
+            "choices": [
+                {"id": "proceed", "label": "Proceed to review", "detail": "The draft is ready."},
+                {
+                    "id": "loop_back_execution",
+                    "label": "Loop back: more experiments",
+                    "detail": "Run additional experiments, then revise the draft.",
+                },
+                {
+                    "id": "loop_back_planning",
+                    "label": "Loop back: re-plan",
+                    "detail": "Rethink the plan first, then experiment and revise.",
+                },
+                {
+                    "id": "call_it",
+                    "label": "Call it",
+                    "detail": "Stop investing — finish honestly with what stands.",
+                },
+            ],
+        }
+        decision = await self._check_decision("pi_reflection", payload)
+        if self._apply_decision_action(decision):
+            return None
+        modifications = decision.get("modifications") or {}
+        selected = (
+            (modifications.get("selected_ids") or [None])[0]
+            if isinstance(modifications, dict)
+            else None
+        )
+        notes = str(decision.get("notes") or "").strip()
+        if not selected or selected == default_id:
+            # Operator kept the PI's proposal; notes still ride along.
+            if notes and kind == "loop_back":
+                verdict["directives"] = [*directives, f"Operator note: {notes}"]
+            elif notes:
+                self._pending_guidance.append((notes, 0))
+            return verdict
+        # Operator override.
+        self._display.info(f"[reflection] operator overrode the PI: {default_id} → {selected}")
+        if selected == "proceed":
+            return {"verdict": "proceed", "reason": notes or "operator choice"}
+        if selected == "call_it":
+            return {"verdict": "call_it", "reason": notes or "operator called it"}
+        target = "planning" if selected == "loop_back_planning" else "execution"
+        new_directives = list(directives)
+        if notes:
+            new_directives.append(notes)
+        if not new_directives:
+            new_directives = ["Address the weakest part of the paper's evidence base."]
+        return {
+            "verdict": "loop_back",
+            "target": target,
+            "directives": new_directives[:5],
+            "success_criteria": verdict.get("success_criteria", ""),
+            "reason": notes or "operator-requested loop-back",
+        }
 
     def _merge_execution_results(self, exp: Any) -> None:
         """Fold a loop-back experimentation pass into the cycle's evidence state."""

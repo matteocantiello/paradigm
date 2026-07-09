@@ -327,3 +327,29 @@ Build order: D1 → R1 → D2 → R2+R3 → R4.
       0 policy exclusions), PI reflection → proceed (reasoned), internal review
       revise(3 blocking)→accept(0), peer major_revision → PI triage deep_loop
       (H3 combined-model test) → new experiments → minor → accepted → PUBLISHED.
+
+
+---
+
+# Overnight shipment (Prompt 260, 2026-07-09)
+
+## Tier 1  [DONE — b7b06bc]
+enforce_reference_integrity (dangling [20] class), revision-block scaffold
+strip, _STATS_RIGOR_DIRECTIVE on experiment prompts, CDS-ReadMe→read_fwf data
+cards (validated on the real Markova ReadMe), enable_verification: true.
+
+## Tier 2  [DONE — c947638]
+Quality ledger: auto-judge every finished paper (fixed cross-tier judge =
+gemini-3.5-flash), papers.judge_scores column + API + gauge badge; novelty
+front-loaded before hypothesis lock-in (+differentiation directive on weak).
+
+## Tier 3  [DONE]
+Interactive reflection (PI proposes → human disposes via DecisionHook, budget
+guard on overrides), follow-up-cycle copy on converged terminal screens,
+cross-cycle lessons in reflection memories (datasets fetched, provenance mix,
+loop-backs, judge composite).
+
+## Final validation  [IN PROGRESS]
+Live open-tier cycle exercising: stats directive, verification kernel, novelty
+front-load, quality ledger, reflection. Suite 1990 green; vite build clean.
+VM deploy DELIBERATELY deferred to the morning (unattended-deploy risk).

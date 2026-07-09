@@ -35,6 +35,46 @@ class MemoryHandler:
         )
         return [e.content for e in events if isinstance(e.content, dict)]
 
+    def _build_outcome_summary(self, outcome: str) -> str:
+        """Cycle facts for reflection memories (cross-cycle lessons, T3c).
+
+        Memories that NAME the repository datasets fetched, the data-provenance
+        mix, and the judge score let future cycles on similar topics start from
+        validated sources and methods instead of relearning them.
+        """
+        engine = self._engine
+        parts = [f"Research cycle ended with status: {outcome}."]
+        try:
+            fetched = sorted(getattr(engine._literature, "fetched_dataset_ids", set()) or [])
+            if fetched:
+                parts.append(
+                    "Repository datasets fetched and used: " + ", ".join(fetched[:8]) + "."
+                )
+            meta = engine.state.experiment_metadata
+            if meta:
+                from collections import Counter
+
+                prov = Counter(str(m.get("data_provenance", "?")) for m in meta)
+                parts.append(
+                    "Experiment data provenance: "
+                    + ", ".join(f"{v} {k}" for k, v in prov.most_common())
+                    + "."
+                )
+            if getattr(engine.state, "loop_backs_used", 0):
+                parts.append(f"PI loop-backs used: {engine.state.loop_backs_used}.")
+            thread = engine._db.get_thread(engine.state.thread_id)
+            paper_id = thread.get("current_draft_id") if thread else None
+            if paper_id:
+                import json as _json
+
+                raw = (engine._db.get_paper(paper_id) or {}).get("judge_scores")
+                js = _json.loads(raw) if isinstance(raw, str) and raw else raw
+                if isinstance(js, dict) and "composite" in js:
+                    parts.append(f"Quality-judge composite: {js['composite']}/10.")
+        except Exception:  # facts are garnish — never block memory generation
+            pass
+        return " ".join(parts)
+
     async def run_memory_generation(self) -> None:
         """Generate agent episodic memories via reflection.
 
@@ -58,7 +98,7 @@ class MemoryHandler:
                     messages=all_messages,
                     seed_prompt=engine.state.seed_prompt,
                     thread_id=engine.state.thread_id,
-                    outcome_summary=f"Research cycle ended with status: {outcome}",
+                    outcome_summary=self._build_outcome_summary(outcome),
                     provider=_reflection_provider,
                     model=_reflection_provider.default_model,
                     database=engine._db,

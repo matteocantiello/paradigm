@@ -141,6 +141,7 @@ def _engine_stub(verdicts: list[dict]):
         messages=[],
         phase_manager=PhaseManager(initial_phase=ResearchPhase.WRITING),
     )
+    stub._decision_hook = None  # autonomous — no interactive reflection dialog
     stub._reflection = SimpleNamespace(run_reflection=AsyncMock(side_effect=verdicts))
     stub._display = MagicMock()
     stub._db = MagicMock()
