@@ -5153,3 +5153,8 @@ OVERNIGHT VALIDATION RESULT: the run was REJECTED at peer review — and that is
 
 > Ok let's push
 
+
+## Prompt 262 — Bug: published paper shows title + abstract twice in the viewer
+
+> A little bug: when the paper is published, in the mardkown version the title and abstract are shown twice (with different styles). [screenshot]
+

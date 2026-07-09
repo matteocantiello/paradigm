@@ -12,6 +12,7 @@ import type { LucideIcon } from "lucide-react";
 import type { PaperArtifactList, PaperDetail } from "@/api/client";
 import { paperPdfUrl } from "@/api/client";
 import { PaperViewer } from "./PaperViewer";
+import { splitPaperFrontMatter } from "@/lib/paperFrontMatter";
 import { PaperTOC } from "./PaperTOC";
 import { PaperExport } from "./PaperExport";
 import { DigestTab } from "./DigestTab";
@@ -77,7 +78,10 @@ export function ArtifactTabs({ paper, artifacts }: ArtifactTabsProps) {
       {activeTab === "paper" && (
         <div className="grid grid-cols-[200px_1fr] gap-6">
           <aside className="sticky top-0 self-start">
-            <PaperTOC body={paper.body} />
+            {/* TOC over the front-matter-stripped body, matching what the
+                viewer renders (title/abstract live in its styled header).
+                Exports keep the FULL body — downloads must be complete. */}
+            <PaperTOC body={splitPaperFrontMatter(paper.body).rest} />
             <div className="mt-4 border-t border-border pt-3">
               <PaperExport
                 title={paper.title}

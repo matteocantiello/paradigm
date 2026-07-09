@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import rehypeKatex from "rehype-katex";
 import type { PaperDetail } from "@/api/client";
 import { paperFigureUrl } from "@/api/client";
+import { splitPaperFrontMatter } from "@/lib/paperFrontMatter";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { TopicBadges } from "@/components/shared/TopicBadges";
 
@@ -52,12 +53,16 @@ interface PaperViewerProps {
 }
 
 export function PaperViewer({ paper }: PaperViewerProps) {
+  // Dedupe the body's own title/abstract against the styled header — and
+  // prefer the body's abstract (the DB column is truncated at 1000 chars).
+  const front = splitPaperFrontMatter(paper.body);
+  const abstract = front.abstract || paper.abstract;
   return (
     <article className="max-w-none">
       {/* Title and metadata */}
       <div className="mb-6">
         <div className="flex items-start justify-between gap-3 mb-2">
-          <h1 className="text-2xl font-bold">{paper.title}</h1>
+          <h1 className="text-2xl font-bold">{front.title || paper.title}</h1>
           <StatusBadge status={paper.status} />
         </div>
         {paper.authors.length > 0 && (
@@ -78,17 +83,21 @@ export function PaperViewer({ paper }: PaperViewerProps) {
             ))}
           </div>
         )}
-        {paper.abstract && (
+        {abstract && (
           <div className="rounded-md border border-border bg-muted/30 p-4">
             <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
               Abstract
             </h3>
-            <p className="text-sm leading-relaxed">{paper.abstract}</p>
+            <div className="text-sm leading-relaxed [&_p]:mb-2 last:[&_p]:mb-0">
+              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                {abstract}
+              </ReactMarkdown>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Body */}
+      {/* Body — front matter stripped (it renders in the styled header above) */}
       <div className="prose-paper">
         <ReactMarkdown
           remarkPlugins={[remarkMath, remarkGfm]}
@@ -99,7 +108,7 @@ export function PaperViewer({ paper }: PaperViewerProps) {
             img: makeFigureImg(paper.paper_id),
           }}
         >
-          {paper.body}
+          {front.rest}
         </ReactMarkdown>
       </div>
 
