@@ -5204,3 +5204,8 @@ RE-TEST RESULT (same tidal prompt, paper-ae3e7c14c0ee): all 5 fixes VALIDATED. S
 
 > Let's tackle the highest-leverage follow-up
 Highest-leverage follow-up shipped: robust [FETCHDATA:] id resolution + survey-catalog reachability. Root cause of the tidal-run data gap: agents FOUND catalogs via DATASEARCH but emitted mangled fetch ids ("vizier:J/MNRAS/506/150/ (or similar)") that fetched nothing — GALAH DR3 (J/MNRAS/506/150) and APOGEE DR17 (III/284, III/286) are both in VizieR and fetchable. Fixes: (1) _resolve_fetchdata_id sanitizes ids (parentheticals, "or similar", backticks, trailing slash/punct) and snaps a non-owned id to the closest DATASEARCH result via difflib; LiteratureHandler tracks seen_dataset_ids per cycle; a truly unrecognized id gets a clear error listing available ids. (2) DATASEARCH result block hardened ("copy VERBATIM — no trailing slash / '(or similar)'"). (3) VizieR fetch drops -out.all (survey catalogs carry ~500 cols) → curated default columns, row cap 100k→20k, and _download_capped gains keep_partial=True so a big table stages a valid bounded prefix (trimmed to last newline) instead of failing on the 100MB cap. Live-verified: the exact mangled id repairs to vizier:J/MNRAS/506/150. 8 new tests; suite 2013 green.
+
+## Prompt 272 — Push
+
+> let's push
+
