@@ -349,7 +349,16 @@ guard on overrides), follow-up-cycle copy on converged terminal screens,
 cross-cycle lessons in reflection memories (datasets fetched, provenance mix,
 loop-backs, judge composite).
 
-## Final validation  [IN PROGRESS]
-Live open-tier cycle exercising: stats directive, verification kernel, novelty
-front-load, quality ledger, reflection. Suite 1990 green; vite build clean.
-VM deploy DELIBERATELY deferred to the morning (unattended-deploy risk).
+## Final validation  [DONE 2026-07-09 — the gates DISCRIMINATED]
+cycle-d7dd6bd9 (SLF variability vs metallicity, open tier, no data attached):
+180 min, $5.36, 1.66M/860k tokens. EVERY overnight feature fired: 9 searches +
+6 fetches (incl. Gaia EDR3 slice + the Markova catalog found organically),
+novelty gate, 59 experiments (0 synthetic, verification phase ran, 0
+demotions), PI reflection caught a zero-results draft → loop_back(execution)
+with measurable criterion → criterion unmet → forced CALL_IT (no repeat) →
+honest scope caveat → internal accept → PEER REVIEW REJECTED on merit →
+quality ledger recorded composite 4.4 (novelty 1, rigor 2, clarity 8,
+significance 1, honesty 10); status_detail 'Rejected at peer review.' The
+system spent bounded resources on a doomed topic and refused to publish weak
+science — the quality machinery discriminates, not rubber-stamps.
+Suite 1990 green; vite build clean. VM deploy deferred to the morning.
