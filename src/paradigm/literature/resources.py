@@ -794,8 +794,107 @@ def build_data_card(path: Path, max_chars: int = _CARD_MAX_CHARS) -> str:
     except Exception:
         lines.append("(contents not previewable)")
 
+    # CDS/VizieR awareness: a ReadMe's byte-by-byte table is the AUTHORITATIVE
+    # schema for the sibling fixed-width .dat files — parse it into an explicit
+    # read_fwf recipe. (A live run parsed a .dat by whitespace-splitting and got
+    # the right columns only by luck; masked values or spaced IDs would have
+    # silently misaligned.)
+    try:
+        if path.name.lower().startswith("readme"):
+            text = path.read_text(errors="replace")[:200_000]
+            specs = parse_cds_readme(text)
+            for fname, cols in list(specs.items())[:4]:
+                lines.append(f"CDS byte-by-byte spec for {fname}:")
+                lines += [
+                    f"  {c['label']}: bytes {c['bytes']}"
+                    + (f" [{c['unit']}]" if c["unit"] and c["unit"] != "---" else "")
+                    + (f" — {c['explanation'][:60]}" if c["explanation"] else "")
+                    for c in cols[:_CARD_MAX_COLS]
+                ]
+                lines.append("  Read it with (do NOT whitespace-split fixed-width files):")
+                lines.append(f"  {cds_read_fwf_recipe(fname, cols)}")
+        elif suffix == ".dat":
+            readme = next((p for p in path.parent.glob("[Rr]ead[Mm]e*") if p.is_file()), None)
+            if readme is not None:
+                specs = parse_cds_readme(readme.read_text(errors="replace")[:200_000])
+                cols = specs.get(path.name)
+                if cols:
+                    lines.append(
+                        f"Fixed-width CDS table — schema in {readme.name}. Columns: "
+                        + ", ".join(c["label"] for c in cols[:_CARD_MAX_COLS])
+                    )
+                    lines.append("  Read with (do NOT whitespace-split):")
+                    lines.append(f"  {cds_read_fwf_recipe(path.name, cols)}")
+    except Exception:
+        pass  # the base card already stands
+
     card = "\n".join(lines)
     return card[:max_chars]
+
+
+# CDS ReadMe "Byte-by-byte Description of file: <name>" table row, e.g.
+#   "   1- 11  A11   ---     Name      Star name"
+#   "  14- 18  F5.2  [K]     Teff      Effective temperature"
+_CDS_ROW_RE = re.compile(r"^\s*(\d+)\s*-\s*(\d+)\s+([AIFELX][\d.]*)\s+(\S+)\s+(\S+)\s*(.*)$")
+_CDS_ROW_SINGLE_RE = re.compile(r"^\s*(\d+)\s+([AIFELX][\d.]*)\s+(\S+)\s+(\S+)\s*(.*)$")
+_CDS_FILE_HEAD_RE = re.compile(r"Byte-by-byte Description of file:?\s*([^\s,]+)", re.IGNORECASE)
+
+
+def parse_cds_readme(text: str) -> dict[str, list[dict[str, str]]]:
+    """Parse a CDS ReadMe's byte-by-byte tables → {filename: [column specs]}.
+
+    Each column spec is ``{"bytes": "1-11", "start": "1", "end": "11",
+    "unit": ..., "label": ..., "explanation": ...}``. Best-effort: malformed
+    sections yield fewer columns, never an exception.
+    """
+    specs: dict[str, list[dict[str, str]]] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        head = _CDS_FILE_HEAD_RE.search(line)
+        if head:
+            current = head.group(1).strip()
+            specs[current] = []
+            continue
+        if current is None:
+            continue
+        m = _CDS_ROW_RE.match(line)
+        if m:
+            start, end, _fmt, unit, label, expl = m.groups()
+            specs[current].append(
+                {
+                    "bytes": f"{start}-{end}",
+                    "start": start,
+                    "end": end,
+                    "unit": unit,
+                    "label": label,
+                    "explanation": expl.strip(),
+                }
+            )
+            continue
+        m1 = _CDS_ROW_SINGLE_RE.match(line)
+        if m1:
+            pos, _fmt, unit, label, expl = m1.groups()
+            specs[current].append(
+                {
+                    "bytes": pos,
+                    "start": pos,
+                    "end": pos,
+                    "unit": unit,
+                    "label": label,
+                    "explanation": expl.strip(),
+                }
+            )
+    return {k: v for k, v in specs.items() if v}
+
+
+def cds_read_fwf_recipe(filename: str, cols: list[dict[str, str]]) -> str:
+    """A ready-to-paste pandas ``read_fwf`` call for a CDS fixed-width table."""
+    colspecs = ", ".join(f"({int(c['start']) - 1},{c['end']})" for c in cols)
+    names = ", ".join(f"'{c['label']}'" for c in cols)
+    return (
+        f"pd.read_fwf('/data/shared/data/{filename}', "
+        f"colspecs=[{colspecs}], names=[{names}], header=None)"
+    )
 
 
 def stage_local_dataset(path: Path, shared_dir: Path) -> list[ResolvedResource]:

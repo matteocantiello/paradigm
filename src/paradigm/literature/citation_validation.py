@@ -189,6 +189,45 @@ def compile_allowlist_citations(
     return f"{new_core}\n\n{references_md}", references_md, cited_entries
 
 
+def enforce_reference_integrity(body: str) -> tuple[str, int]:
+    """Final invariant: every ``[N]`` in the prose must exist in the References.
+
+    A published paper shipped with ``[20]`` cited eight times while its
+    reference list ended at ``[19]`` — a dangling reference that every earlier
+    net missed (they validate against the allow-list, not against the compiled
+    list actually printed). This is the last-line check applied right before a
+    body is saved: markers beyond the printed bibliography are stripped.
+
+    Returns ``(body, n_stripped)``; a body without a References section is
+    returned unchanged (nothing to validate against).
+    """
+    refs_match = _REFS_SECTION_RE.search("\n" + body)
+    if not refs_match:
+        return body, 0
+    refs_text = refs_match.group(0)
+    ref_indices = {int(m.group(1)) for m in _MARKER_RE.finditer(refs_text)}
+    if not ref_indices:
+        return body, 0
+    max_ref = max(ref_indices)
+
+    split_at = len(body) - len(refs_text) + 1  # +1 for the prepended newline
+    prose, refs = body[:split_at], body[split_at:]
+
+    stripped = 0
+
+    def _sub(m: re.Match) -> str:
+        nonlocal stripped
+        if int(m.group(1)) > max_ref:
+            stripped += 1
+            return ""
+        return m.group(0)
+
+    new_prose = _MARKER_RE.sub(_sub, prose)
+    if not stripped:
+        return body, 0
+    return _tidy(new_prose) + refs, stripped
+
+
 def validate_and_strip_citations(
     body: str, valid_arxiv_ids: set[str] | frozenset[str], *, strip: bool = True
 ) -> tuple[str, dict[str, int]]:

@@ -5141,3 +5141,9 @@ Advisory answer (no implementation): ranked roadmap proposal.
 
 > Wait we didn't push? Ok let's push then
 
+
+## Prompt 260 — Overnight: implement and test Tier 1, 2, 3
+
+> I am about to go to sleep. I would like you to work through the night and implement and test Tier 1, then Tier 2 and then Tier 3. Do not stop until all the improvements are implemented and tested
+
+Plan: T1 citation-index validation, scaffolding revision-block strip, statistical-rigor directive, CDS-ReadMe read_fwf data cards, verification ON; T2 quality ledger (auto-judge + storage + API + GUI badge), novelty front-loaded into ideation; T3 reflection as interactive decision, follow-up-cycle affordance, cross-cycle dataset/method lessons. Per-feature commits, full suite + frontend build, final live validation cycle. VM deploy deliberately EXCLUDED (unattended deploy risk); prepared for morning.

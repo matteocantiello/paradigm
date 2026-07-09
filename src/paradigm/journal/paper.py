@@ -203,7 +203,52 @@ def strip_agent_scaffolding(text: str) -> str:
     # Strip leaked first-person reasoning that survived *inside* the body.
     cleaned = _strip_inline_scaffolding(cleaned)
 
+    # Strip revision-process blocks: a revised manuscript sometimes keeps its
+    # "Summary of revisions addressing reviewer feedback" section (a published
+    # draft shipped one). That is correspondence with the editor, not paper
+    # content — remove the heading and everything up to the next heading.
+    cleaned = _strip_revision_blocks(cleaned)
+
     return cleaned.strip()
+
+
+# A heading (markdown #-style OR a standalone bold line) announcing revision
+# bookkeeping rather than science. High precision: requires a revision/response
+# keyword pairing, so a legit section like "Discussion" can never match.
+_REVISION_BLOCK_HEAD_RE = re.compile(
+    r"""^\s*(?:\#{1,4}\s+|\*\*)\s*
+        (?:summary\ of\ (?:the\ )?revisions?\b
+          | revisions?\ (?:made\ )?(?:addressing|in\ response\ to)\b
+          | response\ to\ (?:the\ )?(?:reviewers?|referees?|review(?:er)?\ (?:feedback|comments))\b
+          | revision\ (?:notes?|summary|log)\b
+          | changes\ (?:made\ )?in\ (?:this\ )?(?:revision|response)\b
+        )
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_revision_blocks(text: str) -> str:
+    """Remove revision-correspondence sections from a paper body.
+
+    A matched heading and its content are dropped through to the next markdown
+    heading (any level) or end of document. Code fences are respected.
+    """
+    lines = text.split("\n")
+    kept: list[str] = []
+    skipping = False
+    in_fence = False
+    for line in lines:
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+        if not in_fence and _REVISION_BLOCK_HEAD_RE.match(line):
+            skipping = True
+            continue
+        if skipping and not in_fence and re.match(r"^\s*#{1,4}\s+\S", line):
+            skipping = False  # next real section resumes the paper
+        if not skipping:
+            kept.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept))
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from paradigm.knowledge.json_utils import first_json_array
 from paradigm.literature.citation_validation import (
     build_citation_allowlist,
     compile_allowlist_citations,
+    enforce_reference_integrity,
     validate_and_strip_citations,
 )
 from paradigm.logging.events import EventType
@@ -186,6 +187,19 @@ class WritingHandler:
                     )
             except Exception as e:
                 self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+        # Last-line invariant: no [N] in the prose may point past the printed
+        # References (a published paper shipped a dangling [20] — see
+        # enforce_reference_integrity).
+        try:
+            body, dangling = enforce_reference_integrity(body)
+            if dangling:
+                self._engine._logger.log(
+                    EventType.CITATION_GROUNDING,
+                    content={"event": "dangling_reference_stripped", "count": dangling},
+                    thread_id=self._engine.state.thread_id,
+                )
+        except Exception as e:
+            self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
         return body
 
     async def build_requirements_checklist(self) -> None:

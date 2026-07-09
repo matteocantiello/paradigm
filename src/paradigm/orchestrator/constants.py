@@ -61,6 +61,24 @@ def data_policy_directive(policy: str) -> str:
     return _DATA_POLICY_DIRECTIVES.get(policy, "")
 
 
+# Statistical-rigor directive for experiment prompts. Evidence: in a live
+# head-to-head, one arm used Pearson-only correlations on strongly skewed,
+# quantized data — the reviewers dinged exactly that. This bakes the standard in.
+_STATS_RIGOR_DIRECTIVE = (
+    "\n\n## STATISTICAL STANDARDS (required)\n"
+    "- Inspect distributions BEFORE choosing methods: for skewed, heavy-tailed, "
+    "or discretized/quantized variables, use RANK-BASED statistics (Spearman/"
+    "Kendall, rank regression) — Pearson-only analyses on such data are a known "
+    "reviewer objection.\n"
+    "- Report effect sizes with uncertainty (bootstrap CIs), not bare p-values; "
+    "use permutation tests when the null distribution is not known analytically.\n"
+    "- Control for obvious confounds/collinearity (partial correlations or "
+    "matched comparisons) before claiming an association is physical.\n"
+    "- Document every row/object you exclude and why — print the counts. Silent "
+    "drops become reviewer objections.\n"
+)
+
+
 # ---------------------------------------------------------------------------
 # Mode-specific prompt overrides (round_1 only)
 # ---------------------------------------------------------------------------

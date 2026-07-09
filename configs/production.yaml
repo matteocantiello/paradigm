@@ -165,7 +165,9 @@ orchestrator:
   max_searches_per_round: 3
   enable_debates: true   # operator tuning
   enable_execution_sprints: true   # operator tuning
-  enable_verification: false
+  # Reproducibility kernel: re-execute successful experiments in a fresh
+  # sandbox; unreproduced results are demoted out of the paper's evidence.
+  enable_verification: true
   # Unattended remote runs: no blocking gates. Steer via the interaction bar.
   enable_reflection: true
   max_loop_backs: 2

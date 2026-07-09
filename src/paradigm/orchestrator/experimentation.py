@@ -19,6 +19,7 @@ from paradigm.orchestrator.constants import (
     _MAX_TOTAL_EXPERIMENTS_PER_PHASE,
     _NETWORK_ERROR_PATTERNS,
     _PHASE_INSTRUCTIONS,
+    _STATS_RIGOR_DIRECTIVE,
     _WRITING_MAX_TOKENS,
     _best_first_order,
     _extract_code_blocks,
@@ -505,6 +506,9 @@ class ExperimentationHandler:
                     # Real-data mandate (D1): the policy block rides every
                     # experiment prompt so fabrication is forbidden at the source.
                     prompt += data_policy_directive(engine._config.orchestrator.data_policy)
+                    # Methods bar: rank-based stats on skewed data, effect sizes,
+                    # documented exclusions (a live reviewer objection, baked in).
+                    prompt += _STATS_RIGOR_DIRECTIVE
 
                     # Inject the console-as-data-bus contract (1B): print key numbers as
                     # machine-readable tokens so results can be re-extracted and verified.
