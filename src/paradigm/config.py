@@ -232,6 +232,10 @@ class OrchestratorConfig(BaseModel):
     enable_multimodal_review: bool = False  # show the editor the actual figure images
     multimodal_review_role: str = "editor"  # role whose provider/model does the figure review
     max_review_figures: int = 6  # cap images sent to the vision model
+    # Quality ledger (T2a): auto-judge every finished paper (config role
+    # "judge") and persist the scores, so quality is trendable across cycles,
+    # configs, and model tiers.
+    enable_quality_ledger: bool = False
     # PI reflection (R1-R3): after WRITING the strongest model (config role "pi")
     # judges the draft and may send the team back (more experiments / new plan),
     # trigger a deep revision after peer review, or "call it". Loop-backs are

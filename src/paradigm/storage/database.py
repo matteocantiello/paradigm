@@ -80,7 +80,15 @@ class Database:
         self._add_columns_if_missing(
             cursor,
             "papers",
-            {"verification": "TEXT", "prereg": "TEXT", "provenance": "TEXT", "topics": "TEXT"},
+            {
+                "verification": "TEXT",
+                "prereg": "TEXT",
+                "provenance": "TEXT",
+                "topics": "TEXT",
+                # Quality ledger: auto-judge scores (JSON, 1-10 per dimension)
+                # recorded for every finished paper so quality is trendable.
+                "judge_scores": "TEXT",
+            },
         )
 
         # Agents table
@@ -300,6 +308,7 @@ class Database:
             "prereg",
             "provenance",
             "topics",
+            "judge_scores",
         ]
         for field in json_fields:
             if field in fields and fields[field] is not None:

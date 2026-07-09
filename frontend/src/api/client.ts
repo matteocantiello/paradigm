@@ -188,6 +188,8 @@ export interface PaperSummary {
   status: string;
   abstract: string;
   topics?: string[] | null;
+  /** Quality-ledger judge scores (1-10 dims + composite), null until judged. */
+  judge_scores?: Record<string, number | string> | null;
   created_at?: string | null;
   published_at?: string | null;
 }
@@ -203,6 +205,7 @@ export interface PaperDetail {
   topics?: string[] | null;
   citations: string[];
   review_scores?: Record<string, unknown> | null;
+  judge_scores?: Record<string, number | string> | null;
   citation_count: number;
   created_at?: string | null;
   published_at?: string | null;

@@ -607,12 +607,16 @@ class OrchestrationEngine:
             max_rounds=max_rounds,
             checkpoint_interval=checkpoint_interval,
         )
+        # Novelty at the FRONT (T2b): assess before hypotheses are locked in, so
+        # the verdict can inform the selection gate + steer PLANNING.
+        novelty_note = await self._assess_novelty(seed_prompt)
+
         # Hypothesis tournament (optional, runs before synthesis)
         if self._config.knowledge.enable_hypothesis_tournament:
             winners = await self._tournament.run_tournament()
             if winners:
                 # Interactive mode: the human confirms/edits the winner set.
-                selected = await self._decide_hypothesis_selection(winners)
+                selected = await self._decide_hypothesis_selection(winners, novelty_note)
                 if selected is None:
                     return True
                 winners = selected
@@ -625,21 +629,61 @@ class OrchestrationEngine:
         else:
             await self._run_synthesis_round(ResearchPhase.IDEATION)
 
-        # Novelty check (optional, after IDEATION)
-        if self._config.citation.enable_novelty_check:
-            try:
-                novelty = await self._citation_handler.check_novelty(
-                    seed_prompt, self._config.citation.novelty_mode
-                )
-                if not novelty.is_novel:
-                    self._display.warning(
-                        f"Novelty check: idea may not be novel "
-                        f"(confidence: {novelty.confidence:.0%}, "
-                        f"{novelty.papers_found} related papers found)"
-                    )
-            except Exception as e:
-                self._logger.log_error(e, thread_id=self.state.thread_id)
         return False
+
+    async def _assess_novelty(self, seed_prompt: str) -> str:
+        """T2b: novelty assessment BEFORE hypotheses are locked in.
+
+        Returns a short note shown at the hypothesis-selection gate (empty when
+        the check is off or failed). A weak verdict also queues a
+        differentiation directive for PLANNING, so the team positions the work
+        against prior art instead of unknowingly re-doing it. Best-effort.
+        """
+        if not self._config.citation.enable_novelty_check:
+            return ""
+        try:
+            novelty = await self._citation_handler.check_novelty(
+                seed_prompt, self._config.citation.novelty_mode
+            )
+        except Exception as e:
+            self._logger.log_error(e, thread_id=self.state.thread_id)
+            return ""
+        related = "; ".join((novelty.related_work or [])[:3])
+        self.emit_event(
+            "novelty.assessed",
+            {
+                "is_novel": novelty.is_novel,
+                "confidence": round(novelty.confidence, 2),
+                "papers_found": novelty.papers_found,
+                "related": related[:400],
+            },
+        )
+        if novelty.is_novel:
+            note = (
+                f"Novelty check: looks novel (confidence {novelty.confidence:.0%}, "
+                f"{novelty.papers_found} related papers found)."
+            )
+            self._display.info(f"[novelty] {note}")
+            return note
+        note = (
+            f"Novelty check: WEAK — {novelty.confidence:.0%} confident this is NOT novel "
+            f"({novelty.papers_found} related papers"
+            + (f", e.g. {related}" if related else "")
+            + ")."
+        )
+        self._display.warning(f"[novelty] {note} Differentiation directive queued for planning.")
+        # Steer PLANNING: name the prior art and demand explicit differentiation.
+        self._pending_guidance.append(
+            (
+                "A novelty check found closely related prior work"
+                + (f" ({related})" if related else "")
+                + ". In PLANNING, explicitly position this work against it: state "
+                "what is NEW here (data, method, regime, or claim) and plan at "
+                "least one analysis the prior work did not do.",
+                0,
+            )
+        )
+        return note
 
     async def _run_planning_stage(self) -> bool:
         """PLANNING: discussion rounds + synthesis + action-item extraction.
@@ -1057,6 +1101,8 @@ class OrchestrationEngine:
                 await self._assign_final_topics(paper_id)
                 self._save_auxiliary_files(paper_id)
                 await self._writing.finalize_digest(paper_id)
+                # Rejected papers are scored too — the ledger must see failures.
+                await self._run_quality_judge(paper_id)
             self._print_token_summary()
             return True
         return False
@@ -1130,12 +1176,67 @@ class OrchestrationEngine:
             self._save_auxiliary_files(paper_id)
             # Digest from the FINAL paper body — after all review/revision.
             await self._writing.finalize_digest(paper_id)
+            # Quality ledger (T2a): score the final paper so quality is trendable.
+            await self._run_quality_judge(paper_id)
 
         # Display token usage summary
         self._print_token_summary()
 
         # Generate agent episodic memories via reflection
         await self._memory.run_memory_generation()
+
+    async def _run_quality_judge(self, paper_id: str) -> None:
+        """Score a finished paper with the LLM taste judge and persist the scores.
+
+        The quality ledger: every finished paper (published OR rejected — the
+        ledger must see failures) gets 1-10 scores on the five judge dimensions
+        plus a composite, stored on the paper row and emitted as an event, so
+        quality is comparable across cycles, configs, and model tiers.
+        Best-effort: never breaks a cycle.
+        """
+        if not getattr(self._config.orchestrator, "enable_quality_ledger", False):
+            return
+        try:
+            from paradigm.eval.judge import judge_paper
+
+            paper = self._db.get_paper(paper_id)
+            if not paper or not paper.get("body"):
+                return
+            provider, model, extra_body = self._config.get_provider_and_model_for_role("judge")
+            scores = await asyncio.to_thread(
+                judge_paper,
+                paper.get("title", ""),
+                paper["body"],
+                provider,
+                model,
+                extra_body,
+            )
+            if scores is None:
+                self._display.info("[quality ledger] judge returned no scores — skipped")
+                return
+            payload: dict[str, Any] = scores.model_dump()
+            payload["composite"] = round(scores.mean * 10, 2)
+            payload["judge_model"] = model
+            self._db.update_paper(paper_id, judge_scores=payload)
+            self.emit_event(
+                "paper.judged",
+                {
+                    "paper_id": paper_id,
+                    "composite": payload["composite"],
+                    "novelty": scores.novelty,
+                    "rigor": scores.rigor,
+                    "clarity": scores.clarity,
+                    "significance": scores.significance,
+                    "honesty": scores.honesty,
+                },
+            )
+            self._display.info(
+                f"[quality ledger] composite {payload['composite']}/10 "
+                f"(novelty {scores.novelty}, rigor {scores.rigor}, clarity {scores.clarity}, "
+                f"significance {scores.significance}, honesty {scores.honesty})"
+            )
+        except Exception as e:  # noqa: BLE001 — the ledger must never break a cycle
+            self._logger.log_error(e, thread_id=self.state.thread_id)
 
     async def _run_seeding_phase(self, seed_prompt: str, mode: str) -> str:
         """Initialize the research thread. No agent calls.
@@ -2135,7 +2236,9 @@ class OrchestrationEngine:
             return True
         return False
 
-    async def _decide_hypothesis_selection(self, winners: list[Any]) -> list[Any] | None:
+    async def _decide_hypothesis_selection(
+        self, winners: list[Any], novelty_note: str = ""
+    ) -> list[Any] | None:
         """Interactive mode: let the human pick which hypotheses to carry forward.
 
         The tournament's full ranked field is offered with the winners
@@ -2152,6 +2255,7 @@ class OrchestrationEngine:
             "description": (
                 "The tournament ranked the team's hypotheses by Elo. The winners "
                 "are preselected — keep them, or change the set to carry forward."
+                + (f"\n\n{novelty_note}" if novelty_note else "")
             ),
             "from_phase": "ideation",
             "to_phase": "planning",

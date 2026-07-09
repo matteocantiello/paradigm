@@ -98,6 +98,9 @@ agent:
     # PI — the reflection gate (R1-R3): judges the draft, may loop the team
     # back or call it. A handful of calls per cycle, so the top model is cheap.
     pi: { provider: anthropic, model: claude-opus-4-8 }
+    # Judge — the quality ledger's scorer. FIXED across tiers (a family
+    # independent of both stacks) so ledger scores are comparable.
+    judge: { provider: gemini, model: gemini-3.5-flash }
 
 # Code execution sandbox.
 # NOTE: experiments run real code here. It's network-isolated (network=none) and
@@ -169,6 +172,7 @@ orchestrator:
   # sandbox; unreproduced results are demoted out of the paper's evidence.
   enable_verification: true
   # Unattended remote runs: no blocking gates. Steer via the interaction bar.
+  enable_quality_ledger: true
   enable_reflection: true
   max_loop_backs: 2
   data_policy: "real_only"   # fabricated datasets are excluded from the evidence base
@@ -237,5 +241,5 @@ citation:
   # Seed discovery bootstraps the literature with a few foundational papers at the start
   # of a cycle (one fast call). Both need PERPLEXITY_API_KEY (no-op cleanly without it).
   enable_citation_grounding: true
-  enable_novelty_check: false
+  enable_novelty_check: true
   enable_seed_discovery: true

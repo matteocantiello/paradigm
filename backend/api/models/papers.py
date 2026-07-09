@@ -15,6 +15,9 @@ class PaperSummary(BaseModel):
     status: str
     abstract: str = ""
     topics: list[str] = Field(default_factory=list)
+    # Quality-ledger judge scores (novelty/rigor/clarity/significance/honesty
+    # 1-10 + composite), None until the paper is judged.
+    judge_scores: dict[str, object] | None = None
     created_at: datetime | None = None
     published_at: datetime | None = None
 
@@ -32,6 +35,7 @@ class PaperDetail(BaseModel):
     topics: list[str] = Field(default_factory=list)
     citations: list[str] = Field(default_factory=list)
     review_scores: dict[str, object] | None = None
+    judge_scores: dict[str, object] | None = None
     citation_count: int = 0
     created_at: datetime | None = None
     published_at: datetime | None = None

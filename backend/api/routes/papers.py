@@ -33,6 +33,19 @@ router = APIRouter(prefix="/api/v1", tags=["papers"])
 _demo_papers: dict[str, dict[str, Any]] = {}
 
 
+def _json_obj(raw):
+    """Deserialize a JSON-object column ('' / invalid -> None)."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            v = json.loads(raw)
+            return v if isinstance(v, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            return None
+    return None
+
+
 def _json_list(value: Any) -> list[str]:
     """Best-effort decode of a DB JSON-list column (string or already-a-list) to a list."""
     if not value:
@@ -146,6 +159,7 @@ async def get_output(session_id: str, output_id: str, request: Request) -> Paper
         status=paper.get("status", ""),
         keywords=keywords,
         topics=_json_list(paper.get("topics")),
+        judge_scores=_json_obj(paper.get("judge_scores")),
         citation_count=paper.get("citation_count", 0),
         created_at=paper.get("created_at"),
         published_at=paper.get("published_at"),
@@ -203,6 +217,7 @@ async def list_papers(
             status=p.get("status", ""),
             abstract=p.get("abstract", "")[:500],
             topics=_json_list(p.get("topics")),
+            judge_scores=_json_obj(p.get("judge_scores")),
             created_at=p.get("created_at"),
             published_at=p.get("published_at"),
         )
@@ -279,6 +294,7 @@ async def get_paper(paper_id: str, request: Request) -> PaperDetail:
         status=paper.get("status", ""),
         keywords=keywords,
         topics=_json_list(paper.get("topics")),
+        judge_scores=_json_obj(paper.get("judge_scores")),
         citation_count=paper.get("citation_count", 0),
         created_at=paper.get("created_at"),
         published_at=paper.get("published_at"),
