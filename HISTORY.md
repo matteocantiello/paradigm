@@ -5187,3 +5187,8 @@ Informational answer (no changes).
 > Let's add MAST (space telescopes), SIMBAD (object cross-match), HEASARC, IRSA, NED, and the NASA Exoplanet Archive; outside astro, Dryad, and the Claude-Science-style bio set (UniProt, PDB, GEO)
 
 Added 10 data providers to literature/data_providers.py, all endpoints live-verified. Astro (IVOA-TAP catalog base + per-archive subclass): MAST, IRSA, NED, NASA Exoplanet Archive (nonstandard TAP dialect), HEASARC; SIMBAD as object cross-match (name→coords/type). Bio/general (REST): Dryad (search; bulk download auth-gated → actionable error), UniProt (TSV), RCSB PDB (.pdb/.cif), NCBI GEO (SOFT family). 11/12 fully work search+fetch end-to-end; HEASARC's public TAP won't serve TAP_SCHEMA rows anonymously (registered + fetch-by-known-id works, kept out of default lists, documented). TAP base is 3-tier resilient (keyword→name-only→list) + POST + CSV/VOTable parsing + meta-table exclusion + 5000-row cap. Astro configs default to vizier/simbad/ned/mast/irsa/nasa_exoplanet/zenodo; bio set opt-in. Wired into the science DATASEARCH prompt + MANUAL/DOMAINS provider tables. 5 network-free tests (registry/parse/ownership/routing); suite 1995 green.
+
+## Prompt 268 — Push the data-provider expansion
+
+> let's push
+
