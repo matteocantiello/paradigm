@@ -216,6 +216,57 @@ class TestExtractCodeBlocks:
         with pytest.raises(AttributeError):
             block.name = "other"  # type: ignore[misc]
 
+    def test_py_and_python3_fences_accepted(self):
+        # Mistagged fences must not be dropped (dropping reads as "sufficient").
+        for lang in ("py", "python3", "PYTHON"):
+            text = f"```{lang}\n# EXPERIMENT: e\nimport numpy as np\nprint(1)\n```\n"
+            blocks = _extract_code_blocks(text)
+            assert len(blocks) == 1, lang
+            assert blocks[0].name == "e"
+
+    def test_bare_fence_with_python_signal_accepted(self):
+        text = "```\n# EXPERIMENT: e\nimport numpy as np\nprint(np.pi)\n```\n"
+        blocks = _extract_code_blocks(text)
+        assert len(blocks) == 1
+        assert blocks[0].name == "e"
+
+    def test_bare_fence_prose_rejected(self):
+        text = "```\nWe should analyze the data and compare the two populations.\n```\n"
+        assert _extract_code_blocks(text) == []
+
+    def test_non_python_fences_rejected(self):
+        for lang in ("json", "bash", "r"):
+            text = f"```{lang}\nsome content here\nprint not-python\n```\n"
+            assert _extract_code_blocks(text) == [], lang
+
+
+class TestCaptureStdout:
+    def test_short_stdout_unchanged(self):
+        from paradigm.orchestrator.experimentation import _capture_stdout
+
+        assert _capture_stdout("RESULT[x]=1\n") == "RESULT[x]=1\n"
+
+    def test_result_tokens_past_cap_preserved(self):
+        from paradigm.orchestrator.experimentation import _capture_stdout
+
+        noise = "log line\n" * 2000  # well over the 8000-char cap
+        stdout = noise + "RESULT[rmse]=0.42\nRESULT[n]=1000\n"
+        captured = _capture_stdout(stdout)
+        assert len(captured) < len(stdout)
+        assert "RESULT[rmse]=0.42" in captured
+        assert "RESULT[n]=1000" in captured
+
+
+class TestJoinBlockCode:
+    def test_joins_helper_and_main_blocks(self):
+        from paradigm.orchestrator.experimentation import _join_block_code
+
+        blocks = _extract_code_blocks(
+            "```python\ndef helper():\n    return 1\n```\n```python\nprint(helper())\n```\n"
+        )
+        joined = _join_block_code(blocks)
+        assert "def helper()" in joined and "print(helper())" in joined
+
 
 # --- Unit tests: topological sort ---
 

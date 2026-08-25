@@ -159,6 +159,34 @@ class TestVerifyExperiments:
         records = await VerificationKernel(engine).verify_experiments(FakeExecutor(lambda c: None))
         assert records == []
 
+    async def test_repo_paths_forwarded_to_reexecution(self):
+        """Re-execution must get the same PYTHONPATH the original run had, or an
+        experiment importing a cloned repo re-runs into ModuleNotFound and is
+        wrongly demoted."""
+        from paradigm.literature.resources import ResourceType
+
+        engine = _make_engine(
+            [("exp1", "import mesa\nprint('RESULT[x]=1')")],
+            [{"name": "exp1", "status": "success", "stdout_full": "RESULT[x]=1"}],
+        )
+        engine.state.resolved_resources = [
+            SimpleNamespace(
+                resource_type=ResourceType.CODE_REPO,
+                sandbox_path="/data/shared/repos/mesa",
+                error=None,
+            )
+        ]
+        seen = {}
+
+        class CapturingExecutor(FakeExecutor):
+            async def execute(self, request, repo_paths=None):
+                seen["repo_paths"] = repo_paths
+                return await super().execute(request, repo_paths)
+
+        executor = CapturingExecutor(lambda code: (ExecutionStatus.SUCCESS, "RESULT[x]=1"))
+        await VerificationKernel(engine).verify_experiments(executor)
+        assert seen["repo_paths"] == ["/data/shared/repos/mesa"]
+
 
 # ---------------------------------------------------------------------------
 # apply_gate

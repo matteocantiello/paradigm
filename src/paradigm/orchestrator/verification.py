@@ -93,6 +93,7 @@ class VerificationKernel:
 
         seed = config.verification_seed
         budget = config.verification_reexec_budget
+        repo_paths = self._collect_repo_paths()
         records: list[VerificationRecord] = []
 
         try:
@@ -104,6 +105,7 @@ class VerificationKernel:
                     original_stdout.get(name, ""),
                     seed,
                     config.verification_tolerance,
+                    repo_paths,
                 )
                 records.append(record)
                 engine._display.info(f"Verification [{record.status}]: {name} — {record.detail}")
@@ -115,18 +117,58 @@ class VerificationKernel:
                 await executor.cleanup()
 
     def _build_executor(self) -> CodeExecutor:
-        """Build an executor with a fresh, isolated verification workspace."""
+        """Build an executor whose workspace mirrors the thread's.
+
+        Verification re-runs each experiment, so it must see the same environment
+        the original run did. We snapshot-copy the persistent thread workspace
+        into an isolated ``verify/<thread>`` dir: multi-step experiments that read
+        artifacts an earlier step wrote then reproduce instead of FileNotFound-ing
+        and being wrongly demoted (the copy keeps verification from mutating the
+        real workspace).
+        """
+        import shutil
+
         engine = self._engine
-        workspace = (
-            engine._config.storage.data_dir / "verify" / (engine.state.thread_id or "thread")
-        )
+        thread = engine.state.thread_id or "thread"
+        workspace = engine._config.storage.data_dir / "verify" / thread
         workspace.mkdir(parents=True, exist_ok=True)
+        source_ws = engine._config.storage.data_dir / "workspaces" / thread
+        if source_ws.is_dir():
+            try:
+                shutil.copytree(source_ws, workspace, dirs_exist_ok=True)
+            except OSError as e:  # a copy hiccup must not crash the cycle
+                engine._logger.log_error(e, thread_id=engine.state.thread_id)
         return CodeExecutor(
             config=engine._config.sandbox,
             logger=engine._logger,
             data_dir=engine._config.storage.data_dir,
             workspace_dir=workspace,
         )
+
+    def _collect_repo_paths(self) -> list[str]:
+        """The PYTHONPATH the EXECUTION run used — cloned repos + code-file dirs.
+
+        Recomputed from ``resolved_resources`` (a pure function of state) so
+        verification imports resolve the same way the original run's did; without
+        it, any experiment importing a cloned repo re-runs into ModuleNotFound and
+        is demoted. Defensive ``getattr`` keeps injected test engines working.
+        """
+        from pathlib import Path
+
+        from paradigm.literature.resources import ResourceType
+
+        resources = getattr(self._engine.state, "resolved_resources", None) or []
+        repo_paths = [
+            r.sandbox_path
+            for r in resources
+            if r.resource_type == ResourceType.CODE_REPO and r.sandbox_path and r.error is None
+        ]
+        code_file_dirs = {
+            str(Path(r.sandbox_path).parent)
+            for r in resources
+            if r.resource_type == ResourceType.CODE_FILE and r.sandbox_path and r.error is None
+        }
+        return repo_paths + sorted(code_file_dirs)
 
     async def _verify_one(
         self,
@@ -136,6 +178,7 @@ class VerificationKernel:
         original_stdout: str,
         seed: int,
         tolerance: float,
+        repo_paths: list[str] | None = None,
     ) -> VerificationRecord:
         """Re-execute one experiment and classify whether it reproduced."""
         engine = self._engine
@@ -148,7 +191,8 @@ class VerificationKernel:
                     code=seeded_code,
                     agent_id="verifier",
                     thread_id=engine.state.thread_id,
-                )
+                ),
+                repo_paths=repo_paths,
             )
         except Exception as e:  # noqa: BLE001 — re-execution must never crash the cycle
             engine._logger.log_error(e, thread_id=engine.state.thread_id)

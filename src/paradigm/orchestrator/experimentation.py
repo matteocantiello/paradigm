@@ -38,7 +38,7 @@ from paradigm.orchestrator.data_provenance import (
     excluded_by_policy,
 )
 from paradigm.orchestrator.phases import ResearchPhase
-from paradigm.orchestrator.verification import _extract_result_tokens
+from paradigm.orchestrator.verification import _RESULT_TOKEN_RE, _extract_result_tokens
 from paradigm.sandbox.executor import CodeExecutor
 from paradigm.sandbox.models import ExecutionRequest, ExecutionResult, ExecutionStatus
 
@@ -143,6 +143,38 @@ def _peek_json_schema(filepath: Path, max_keys: int = 8) -> str:
             return f"list[dict] len={len(data)}, entry keys: {keys}{extra}"
         return f"list[{type(first).__name__}] len={len(data)}"
     return f"type: {type(data).__name__}"
+
+
+_STDOUT_CAPTURE_LIMIT = 8000
+
+
+def _capture_stdout(stdout: str, limit: int = _STDOUT_CAPTURE_LIMIT) -> str:
+    """Store a generous head of an experiment's stdout, but never drop a
+    ``RESULT[...]`` token that falls past the cap.
+
+    ``stdout_full`` feeds both the writing fact sheet and the verifier's
+    original-token comparison; a hard truncation silently loses key numbers
+    (missing from the paper, and read as non-reproduced by verification) when an
+    experiment prints verbose logs before its results.
+    """
+    text = stdout or ""
+    if len(text) <= limit:
+        return text
+    overflow = [m.group(0) for m in _RESULT_TOKEN_RE.finditer(text[limit:])]
+    head = text[:limit]
+    if overflow:
+        head += "\n… [stdout truncated; preserved RESULT tokens follow] …\n" + "\n".join(overflow)
+    return head
+
+
+def _join_block_code(blocks: list) -> str:
+    """Concatenate a fix/retry response's code blocks in order.
+
+    A fix targets a single experiment, but models often split it into helper +
+    main blocks (the prompt suggests this for length). Keeping only ``blocks[0]``
+    dropped the rest, guaranteeing a NameError cascade; join them into one script.
+    """
+    return "\n\n".join(b.code for b in blocks if b.code)
 
 
 def _build_workspace_manifest(workspace_dir: Path) -> str:
@@ -809,7 +841,7 @@ class ExperimentationHandler:
 
                         # Build metadata entry for the execution fact sheet
                         stdout_preview = (result.stdout or "")[:200]
-                        stdout_full = (result.stdout or "")[:2000]
+                        stdout_full = _capture_stdout(result.stdout or "")
                         has_figures = any(
                             f.filename.endswith((".png", ".pdf")) for f in result.output_files
                         )
@@ -1127,7 +1159,7 @@ class ExperimentationHandler:
         blocks = _extract_code_blocks(response.content)
         if not blocks:
             return code  # Fallback to original code
-        return blocks[0].code
+        return _join_block_code(blocks)
 
     async def _run_sprint_design_review(
         self,
@@ -1541,6 +1573,6 @@ class ExperimentationHandler:
             blocks = _extract_code_blocks(response.content)
             if not blocks:
                 return result, current_code  # Agent didn't provide corrected code
-            current_code = blocks[0].code  # Use first block
+            current_code = _join_block_code(blocks)  # helper + main, not just block 0
 
         return result, current_code  # Should not reach here, but type-safety

@@ -1360,6 +1360,18 @@ _DATA_ERROR_PATTERNS: list[str] = [
 # ---------------------------------------------------------------------------
 
 _CODE_BLOCK_RE = re.compile(r"```python\s*\n(.*?)```", re.DOTALL)
+# Experiment extractor: capture the fence's language tag (group 1) + body (group
+# 2) so a mistagged fence (```py, ```python3) or a bare ``` block carrying real
+# code isn't silently dropped — which, in round > 1, reads as "no experiments =
+# sufficient" and ends EXECUTION early.
+_EXPERIMENT_CODE_BLOCK_RE = re.compile(r"```[ \t]*([A-Za-z0-9_+-]*)[ \t]*\n(.*?)```", re.DOTALL)
+_PY_FENCE_LANGS = {"", "python", "py", "python3"}
+# Python signals that let us accept an *untagged* fence as code without also
+# swallowing prose/output/table fences.
+_PY_SIGNAL_RE = re.compile(
+    r"^\s*(?:import|from|def|class)\s|#\s*EXPERIMENT:|\bprint\(|\bplt\.|\bnp\.|\bpd\.",
+    re.MULTILINE,
+)
 _EXPERIMENT_NAME_RE = re.compile(r"^#\s*EXPERIMENT:\s*(.+)", re.MULTILINE)
 _EXPERIMENT_DEPENDS_RE = re.compile(r"^#\s*DEPENDS:\s*(.+)", re.MULTILINE)
 _RESTART_AT_RE = re.compile(r"^#\s*RESTART_AT:\s*(\d+)", re.MULTILINE)
@@ -1440,9 +1452,12 @@ _STOP_WORDS = frozenset(
 def _extract_code_blocks(text: str) -> list[CodeBlock]:
     """Extract Python code blocks from agent response text.
 
-    Looks for fenced ```python blocks. Extracts experiment name from
-    a ``# EXPERIMENT: name`` comment on the first line, and optional
-    dependencies from a ``# DEPENDS: dep1, dep2`` comment.
+    Accepts ```python / ```py / ```python3 fences, and a bare ``` fence when its
+    body carries a Python signal (imports, defs, an ``# EXPERIMENT:`` header, …)
+    so mistagged experiment code isn't dropped. Non-Python fences (```json,
+    ```bash) and untagged prose/output fences are skipped. Extracts the
+    experiment name from a ``# EXPERIMENT: name`` comment and optional
+    dependencies from ``# DEPENDS: dep1, dep2``.
 
     Args:
         text: Agent response text.
@@ -1451,9 +1466,13 @@ def _extract_code_blocks(text: str) -> list[CodeBlock]:
         List of CodeBlock instances.
     """
     blocks: list[CodeBlock] = []
-    for match in _CODE_BLOCK_RE.finditer(text):
-        code = match.group(1).strip()
-        if not code:
+    for match in _EXPERIMENT_CODE_BLOCK_RE.finditer(text):
+        lang = match.group(1).strip().lower()
+        code = match.group(2).strip()
+        if not code or lang not in _PY_FENCE_LANGS:
+            continue
+        # An untagged fence must look like code — don't execute quoted prose/output.
+        if lang == "" and not _PY_SIGNAL_RE.search(code):
             continue
         name_match = _EXPERIMENT_NAME_RE.match(code)
         name = name_match.group(1).strip() if name_match else "unnamed_experiment"
