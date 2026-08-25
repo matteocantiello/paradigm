@@ -122,3 +122,54 @@ def test_requirements_block_empty_without_requirements():
     h = WritingHandler(engine)
     h._requirements = []
     assert h.requirements_block(audience="editor") == ""
+
+
+# --- F: FETCHDATA stages where the sandbox actually looks (Prompt 274) --------
+
+
+async def test_fetchdata_stages_at_advertised_sandbox_path(tmp_path, monkeypatch):
+    """A fetched dataset must physically land at the path its sandbox_path maps to.
+
+    Regression: process_dataset_actions passed ``shared/data`` into
+    stage_local_dataset (which appends its own ``data/``), double-nesting every
+    fetched file to ``shared/data/data/<name>`` while advertising
+    ``/data/shared/data/<name>`` — so experiments hit FileNotFound on real data
+    and the whole [FETCHDATA:] repository layer silently delivered nothing.
+    """
+    from pathlib import Path
+    from unittest.mock import AsyncMock
+
+    from paradigm.orchestrator.literature import LiteratureHandler
+    from paradigm.orchestrator.phases import ResearchPhase
+
+    # A real source file standing in for a successful download.
+    src = tmp_path / "download" / "catalog.csv"
+    src.parent.mkdir(parents=True)
+    src.write_text("a,b\n1,2\n3,4\n")
+
+    eng = MagicMock()
+    eng._config.storage.data_dir = tmp_path / "data"
+    eng._config.literature.data_providers = ["vizier"]
+    eng.state.resolved_resources = []
+    h = LiteratureHandler(eng)
+    h.seen_dataset_ids = ["vizier:III/284"]
+
+    monkeypatch.setattr(
+        "paradigm.literature.data_providers.fetch_dataset",
+        AsyncMock(return_value=src),
+    )
+
+    await h.process_dataset_actions(
+        "experimenter", "[FETCHDATA: vizier:III/284]", ResearchPhase.EXECUTION
+    )
+
+    assert len(eng.state.resolved_resources) == 1
+    res = eng.state.resolved_resources[0]
+    # The sandbox mounts <data_dir>/shared at /data/shared, so this advertised
+    # path resolves to <data_dir>/shared/data/<name> on the host.
+    assert res.sandbox_path == f"/data/shared/data/{res.name}"
+    expected = tmp_path / "data" / "shared" / "data" / res.name
+    assert Path(res.local_path) == expected
+    assert expected.is_file()
+    # And it must NOT be double-nested under a second data/ (the bug).
+    assert not (tmp_path / "data" / "shared" / "data" / "data").exists()

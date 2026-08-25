@@ -1262,7 +1262,11 @@ class LiteratureHandler:
         from paradigm.literature.data_providers import fetch_dataset
         from paradigm.literature.resources import stage_local_dataset
 
-        shared_dir = self._engine._config.storage.data_dir / "shared" / "data"
+        # stage_local_dataset() appends the "data/" subdir itself, so pass the
+        # "shared" root here. Passing "shared/data" double-nested every fetched
+        # file to shared/data/data/<name> while sandbox_path advertised
+        # shared/data/<name> — so experiments got FileNotFound on real data.
+        shared_dir = self._engine._config.storage.data_dir / "shared"
         for raw_id in re.findall(r"\[FETCHDATA:\s*([^\]]+)\]", response_text)[:3]:
             # Repair a mangled id (parentheticals, "or similar", trailing slash,
             # backticks) and, if needed, snap it to the closest DATASEARCH result
