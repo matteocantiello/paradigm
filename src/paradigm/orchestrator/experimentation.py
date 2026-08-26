@@ -322,6 +322,56 @@ class ExperimentationResult:
     experiment_metadata: list[dict[str, str | bool]] = field(default_factory=list)
 
 
+@dataclass
+class _ExecutionTally:
+    """Accumulated results + caveat state threaded across sprints and rounds.
+
+    Replaces the loose locals the experimentation phase carried through its nested
+    loops so the sprint/round bodies can be extracted into helpers.
+    """
+
+    all_results: list[str] = field(default_factory=list)
+    execution_figures: list[tuple[str, Path]] = field(default_factory=list)
+    successful_code: list[tuple[str, str]] = field(default_factory=list)
+    experiment_metadata: list[dict[str, str | bool]] = field(default_factory=list)
+    had_network_error: bool = False
+    had_timeout: bool = False
+    circuit_breaker_fired: bool = False
+    total_experiments: int = 0
+    total_failures: int = 0
+    synthetic_excluded: int = 0  # real-data mandate (D1)
+    global_round: int = 0
+    # Cross-round messages: set in a block/round body, consumed next round's prompt.
+    strategy_redirect_message: str = ""
+    advisory_message: str = ""
+    skipped_message: str = ""
+
+
+@dataclass
+class _ExecutionSetup:
+    """Per-phase execution configuration resolved once at phase entry."""
+
+    max_rounds: int
+    repo_paths: list[str]
+    workspace_dir: Path
+    executor: CodeExecutor
+    enable_sprints: bool
+    num_sprints: int
+    rounds_per_sprint: int
+
+
+@dataclass
+class _RoundContext:
+    """Mutable per-round accumulators shared with ``_run_experiment_block``."""
+
+    checkpoint_context: str
+    experimenter: Agent
+    round_total: int = 0
+    round_failures: int = 0
+    failed_in_round: set[str] = field(default_factory=set)
+    skipped_experiments: list[str] = field(default_factory=list)
+
+
 class ExperimentationHandler:
     """Handles the EXECUTION phase: agents propose and run computational experiments."""
 
@@ -353,6 +403,56 @@ class ExperimentationHandler:
         Returns:
             ExperimentationResult with execution context and figures.
         """
+        engine = self._engine
+        setup = self._setup_execution(max_rounds_override)
+
+        tally = _ExecutionTally()
+
+        # Reset cross-round failure tracking for this phase
+        self._failure_categories = {}
+        self._consecutive_failures = 0
+        self._strategy_redirects = 0
+        self._buggy_experiments = set()
+
+        try:
+            for sprint_num in range(1, setup.num_sprints + 1):
+                stop_all_sprints = await self._run_sprint(sprint_num, setup, tally)
+                if stop_all_sprints:
+                    break
+
+            # Build execution context for WRITING phase
+            execution_context = "\n\n".join(tally.all_results) if tally.all_results else ""
+
+            # Checkpoint at end of execution
+            if engine._config.orchestrator.enable_checkpointing:
+                try:
+                    engine.state.checkpoint = await engine._checkpoint_mgr.create_checkpoint(
+                        thread_id=engine.state.thread_id,
+                        phase=str(ResearchPhase.EXECUTION),
+                        round_number=setup.max_rounds,
+                        messages=engine.state.messages,
+                        previous_checkpoint=engine.state.checkpoint,
+                    )
+                    engine._display.checkpoint_saved("end of execution")
+                except Exception as e:
+                    engine._logger.log_error(e, thread_id=engine.state.thread_id)
+                    engine._display.checkpoint_error(e)
+
+        finally:
+            await setup.executor.cleanup()
+
+        caveats = self._build_caveats(tally)
+
+        return ExperimentationResult(
+            execution_context=execution_context,
+            execution_figures=tally.execution_figures,
+            successful_code=tally.successful_code,
+            caveats=caveats,
+            experiment_metadata=tally.experiment_metadata,
+        )
+
+    def _setup_execution(self, max_rounds_override: int | None) -> _ExecutionSetup:
+        """Resolve per-phase execution configuration (rounds, paths, executor, sprints)."""
         engine = self._engine
         explicit = engine._config.orchestrator.max_experiment_rounds
         max_rounds = (
@@ -389,29 +489,6 @@ class ExperimentationHandler:
             workspace_dir=workspace_dir,
         )
 
-        all_results: list[str] = []
-        execution_figures: list[tuple[str, Path]] = []
-        successful_code: list[tuple[str, str]] = []
-        experiment_metadata: list[dict[str, str | bool]] = []
-
-        # Caveat tracking
-        _had_network_error = False
-        _had_timeout = False
-        _vacuous_count = 0
-        _circuit_breaker_fired = False
-        _total_experiments = 0
-        _total_failures = 0
-        _synthetic_excluded = 0  # real-data mandate (D1)
-
-        # Reset cross-round failure tracking for this phase
-        self._failure_categories = {}
-        self._consecutive_failures = 0
-        self._strategy_redirects = 0
-        self._buggy_experiments = set()
-        _strategy_redirect_message = ""
-        _advisory_message = ""
-        _skipped_message = ""
-
         # Sprint configuration (a reduced loop-back run is one focused pass)
         enable_sprints = (
             engine._config.orchestrator.enable_execution_sprints and max_rounds_override is None
@@ -419,549 +496,587 @@ class ExperimentationHandler:
         num_sprints = engine._config.orchestrator.num_execution_sprints if enable_sprints else 1
         rounds_per_sprint = max(1, -(-max_rounds // num_sprints))  # ceil division
 
-        global_round = 0
+        return _ExecutionSetup(
+            max_rounds=max_rounds,
+            repo_paths=repo_paths,
+            workspace_dir=workspace_dir,
+            executor=executor,
+            enable_sprints=enable_sprints,
+            num_sprints=num_sprints,
+            rounds_per_sprint=rounds_per_sprint,
+        )
 
-        try:
-            for sprint_num in range(1, num_sprints + 1):
-                self._current_sprint = sprint_num
-                self._sprint_results = []
+    async def _run_sprint(
+        self, sprint_num: int, setup: _ExecutionSetup, tally: _ExecutionTally
+    ) -> bool:
+        """Run one execution sprint: design review, the round loop, results checkpoint.
 
-                if enable_sprints:
-                    engine._display.sprint_start(sprint_num, num_sprints)
+        Returns:
+            True if all remaining sprints should stop (no experimenter, sprint
+            early-stop, or a circuit breaker fired); False to continue to the next
+            sprint.
+        """
+        engine = self._engine
+        self._current_sprint = sprint_num
+        self._sprint_results = []
 
-                # Find experimenter early (needed for design review)
-                experimenter = engine._find_agent_by_role("experimentalist")
-                if experimenter is None:
-                    experimenter = engine._find_agent_by_role("analyst")
-                if experimenter is None:
-                    engine._display.experiment_no_agent()
-                    break
+        if setup.enable_sprints:
+            engine._display.sprint_start(sprint_num, setup.num_sprints)
 
-                # Build checkpoint context (shared across sprint sub-phases)
-                checkpoint_context = ""
-                if engine.state.checkpoint:
-                    checkpoint_context = engine.state.checkpoint.to_context_string() + "\n\n"
-                file_listing = _list_shared_files(
-                    engine._config.storage.data_dir, engine.state.wall_start_time
+        # Find experimenter early (needed for design review)
+        experimenter = engine._find_agent_by_role("experimentalist")
+        if experimenter is None:
+            experimenter = engine._find_agent_by_role("analyst")
+        if experimenter is None:
+            engine._display.experiment_no_agent()
+            return True
+
+        # Build checkpoint context (shared across sprint sub-phases)
+        checkpoint_context = ""
+        if engine.state.checkpoint:
+            checkpoint_context = engine.state.checkpoint.to_context_string() + "\n\n"
+        file_listing = _list_shared_files(
+            engine._config.storage.data_dir, engine.state.wall_start_time
+        )
+        checkpoint_context = file_listing + "\n\n" + checkpoint_context
+        if engine.state.code_context:
+            checkpoint_context += engine.state.code_context + "\n\n"
+        if engine.state.data_context:
+            checkpoint_context += engine.state.data_context + "\n\n"
+
+        previous_results = "\n\n".join(tally.all_results) if tally.all_results else ""
+
+        # --- DESIGN REVIEW (sprint mode only) ---
+        design_feedback = ""
+        if setup.enable_sprints:
+            design_feedback = await self._run_sprint_design_review(
+                experimenter,
+                sprint_num,
+                setup.num_sprints,
+                checkpoint_context,
+                previous_results,
+            )
+
+        # --- EXECUTE (existing round loop for this sprint's allocation) ---
+        sprint_start_round = tally.global_round + 1
+        sprint_end_round = min(tally.global_round + setup.rounds_per_sprint, setup.max_rounds)
+
+        for round_num in range(sprint_start_round, sprint_end_round + 1):
+            tally.global_round = round_num
+            # Between-experiment pause gate + steering pickup (typed
+            # guidance becomes OPERATOR DIRECTIVE lines on the plan,
+            # which the prompt below re-reads every round).
+            await engine._execution_checkpoint()
+            engine._display.experiment_round(round_num, setup.max_rounds)
+            engine._literature.search_count_this_round = 0
+
+            # Re-find experimenter each round (same pattern as before)
+            experimenter = engine._find_agent_by_role("experimentalist")
+            if experimenter is None:
+                experimenter = engine._find_agent_by_role("analyst")
+            if experimenter is None:
+                engine._display.experiment_no_agent()
+                break
+
+            # Rebuild checkpoint context per round (workspace manifest updates)
+            checkpoint_context = ""
+            if engine.state.checkpoint:
+                checkpoint_context = engine.state.checkpoint.to_context_string() + "\n\n"
+            file_listing = _list_shared_files(
+                engine._config.storage.data_dir, engine.state.wall_start_time
+            )
+            checkpoint_context = file_listing + "\n\n" + checkpoint_context
+            if engine.state.code_context:
+                checkpoint_context += engine.state.code_context + "\n\n"
+            if engine.state.data_context:
+                checkpoint_context += engine.state.data_context + "\n\n"
+
+            # Inject workspace manifest for round 2+ so agents know
+            # which files were saved by prior experiments
+            if round_num > 1:
+                ws_manifest = _build_workspace_manifest(setup.workspace_dir)
+                if ws_manifest:
+                    checkpoint_context = ws_manifest + "\n\n" + checkpoint_context
+
+            previous_results = "\n\n".join(tally.all_results) if tally.all_results else ""
+
+            net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
+
+            if round_num == 1:
+                template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION][
+                    "propose_experiment"
+                ]
+                prompt = template.format(
+                    seed_prompt=engine.state.seed_prompt,
+                    checkpoint_context=checkpoint_context,
+                    previous_results=previous_results,
+                    network_caveat=net_caveat,
                 )
-                checkpoint_context = file_listing + "\n\n" + checkpoint_context
-                if engine.state.code_context:
-                    checkpoint_context += engine.state.code_context + "\n\n"
-                if engine.state.data_context:
-                    checkpoint_context += engine.state.data_context + "\n\n"
+            else:
+                template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
+                prompt = template.format(
+                    seed_prompt=engine.state.seed_prompt,
+                    checkpoint_context=checkpoint_context,
+                    previous_results=previous_results,
+                    network_caveat=net_caveat,
+                )
 
-                previous_results = "\n\n".join(all_results) if all_results else ""
-
-                # --- DESIGN REVIEW (sprint mode only) ---
+            # Inject design review feedback into first round of each sprint
+            if round_num == sprint_start_round and design_feedback:
+                prompt += design_feedback
                 design_feedback = ""
-                if enable_sprints:
-                    design_feedback = await self._run_sprint_design_review(
-                        experimenter,
-                        sprint_num,
-                        num_sprints,
-                        checkpoint_context,
-                        previous_results,
+
+            # Inject planning action items (Fix 5)
+            if engine.state.planning_action_items:
+                prompt += (
+                    "\n\n## Planned Experiments (from PLANNING phase)\n"
+                    "The team agreed on these experiments during planning. "
+                    "Execute them in order of priority:\n"
+                    + engine.state.planning_action_items
+                )
+
+            # Real-data mandate (D1): the policy block rides every
+            # experiment prompt so fabrication is forbidden at the source.
+            prompt += data_policy_directive(engine._config.orchestrator.data_policy)
+            # Methods bar: rank-based stats on skewed data, effect sizes,
+            # documented exclusions (a live reviewer objection, baked in).
+            prompt += _STATS_RIGOR_DIRECTIVE
+            # Validity bar: test in the applicable regime, sanity-check
+            # results, compete alternatives (a live cycle tested a theory
+            # on an out-of-regime sample and reported an artefact).
+            prompt += _SCIENTIFIC_VALIDITY_DIRECTIVE
+            # Acquisition discipline: fetch via the orchestrator, query
+            # bounded subsets, verify every load (A).
+            prompt += _DATA_ACQUISITION_DIRECTIVE
+
+            # Inject the console-as-data-bus contract (1B): print key numbers as
+            # machine-readable tokens so results can be re-extracted and verified.
+            if engine._config.orchestrator.enable_verification:
+                prompt += (
+                    "\n\n## MACHINE-READABLE RESULTS (required)\n"
+                    "Print every key numerical result to stdout on its own line as "
+                    "`RESULT[<label>]=<value>` (e.g. `RESULT[rmse]=0.123`). These exact "
+                    "tokens are re-extracted and the code is re-run to verify the result "
+                    "reproduces — do not omit or rename them."
+                )
+
+            # Inject pre-registered predictions (1A): the experimentalist MUST
+            # compute and print each metric token so the verdict can be evaluated.
+            if engine.state.registered_rules:
+                rule_lines = [
+                    "\n\n## PRE-REGISTERED PREDICTIONS (you MUST report these)",
+                    "For each prediction below, compute the metric and print it on its "
+                    "own line as `<metric_stdout_key>=<value>` (and `<key>_p=<value>` if a "
+                    "p-value is required). These EXACT tokens are parsed to decide whether "
+                    "each hypothesis is confirmed or refuted — do not rename them.",
+                ]
+                for r in engine.state.registered_rules:
+                    rule_lines.append(
+                        f"- `{r.metric_stdout_key}` ({r.metric_name}): "
+                        f"{_format_rule_bound(r)}. Refutation: {r.refutation_condition}"
                     )
+                prompt += "\n".join(rule_lines) + "\n"
 
-                # --- EXECUTE (existing round loop for this sprint's allocation) ---
-                sprint_start_round = global_round + 1
-                sprint_end_round = min(global_round + rounds_per_sprint, max_rounds)
+            # Inject strategy redirect, advisory, and skipped-experiment messages
+            if tally.strategy_redirect_message:
+                prompt += tally.strategy_redirect_message
+                tally.strategy_redirect_message = ""
+            if tally.advisory_message:
+                prompt += tally.advisory_message
+                tally.advisory_message = ""
+            if tally.skipped_message:
+                prompt += tally.skipped_message
+                tally.skipped_message = ""
 
-                for round_num in range(sprint_start_round, sprint_end_round + 1):
-                    global_round = round_num
-                    # Between-experiment pause gate + steering pickup (typed
-                    # guidance becomes OPERATOR DIRECTIVE lines on the plan,
-                    # which the prompt below re-reads every round).
-                    await engine._execution_checkpoint()
-                    engine._display.experiment_round(round_num, max_rounds)
-                    engine._literature.search_count_this_round = 0
+            # Inject learned constraints from prior failures
+            if self._learned_constraints:
+                prompt += (
+                    "\n\n## LEARNED CONSTRAINTS (from prior failures — do NOT violate)\n"
+                    + "\n".join(f"- {c}" for c in self._learned_constraints)
+                    + "\n"
+                )
 
-                    # Re-find experimenter each round (same pattern as before)
-                    experimenter = engine._find_agent_by_role("experimentalist")
-                    if experimenter is None:
-                        experimenter = engine._find_agent_by_role("analyst")
-                    if experimenter is None:
-                        engine._display.experiment_no_agent()
-                        break
+            try:
+                response = await experimenter.generate(
+                    prompt, max_tokens=_WRITING_MAX_TOKENS
+                )
+            except Exception as e:
+                engine._logger.log_error(
+                    e, agent_id=experimenter.agent_id, thread_id=engine.state.thread_id
+                )
+                engine._display.agent_error(experimenter.agent_id, e)
+                break
 
-                    # Rebuild checkpoint context per round (workspace manifest updates)
-                    checkpoint_context = ""
-                    if engine.state.checkpoint:
-                        checkpoint_context = engine.state.checkpoint.to_context_string() + "\n\n"
-                    file_listing = _list_shared_files(
-                        engine._config.storage.data_dir, engine.state.wall_start_time
-                    )
-                    checkpoint_context = file_listing + "\n\n" + checkpoint_context
-                    if engine.state.code_context:
-                        checkpoint_context += engine.state.code_context + "\n\n"
-                    if engine.state.data_context:
-                        checkpoint_context += engine.state.data_context + "\n\n"
+            engine._log_agent_response(
+                experimenter.agent_id,
+                response,
+                ResearchPhase.EXECUTION,
+                "experiment_proposal",
+            )
 
-                    # Inject workspace manifest for round 2+ so agents know
-                    # which files were saved by prior experiments
-                    if round_num > 1:
-                        ws_manifest = _build_workspace_manifest(workspace_dir)
-                        if ws_manifest:
-                            checkpoint_context = ws_manifest + "\n\n" + checkpoint_context
+            await engine._literature.process_search_requests(
+                experimenter.agent_id, response.content, ResearchPhase.EXECUTION
+            )
+            await engine._literature.process_literature_actions(
+                experimenter.agent_id, response.content, ResearchPhase.EXECUTION
+            )
 
-                    previous_results = "\n\n".join(all_results) if all_results else ""
+            # Extract code blocks
+            code_blocks = _extract_code_blocks(response.content)
+            if not code_blocks and round_num > 1:
+                engine._display.experiment_declared_sufficient()
+                break
+            if not code_blocks:
+                engine._display.experiment_no_code()
+                continue
 
-                    net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
+            # Sort by dependency order and execute
+            code_blocks = _topological_sort(code_blocks)
+            # 1C: prefer non-buggy experiments within the round (default-off).
+            if engine._config.orchestrator.enable_best_first_nodes:
+                code_blocks = _best_first_order(
+                    code_blocks,
+                    self._buggy_experiments,
+                    engine._config.orchestrator.debug_buggy_node_prob,
+                    random.Random(f"{engine.state.thread_id}:{round_num}"),
+                )
 
-                    if round_num == 1:
-                        template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION][
-                            "propose_experiment"
-                        ]
-                        prompt = template.format(
-                            seed_prompt=engine.state.seed_prompt,
-                            checkpoint_context=checkpoint_context,
-                            previous_results=previous_results,
-                            network_caveat=net_caveat,
-                        )
-                    else:
-                        template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["analyze_results"]
-                        prompt = template.format(
-                            seed_prompt=engine.state.seed_prompt,
-                            checkpoint_context=checkpoint_context,
-                            previous_results=previous_results,
-                            network_caveat=net_caveat,
-                        )
+            ctx = _RoundContext(
+                checkpoint_context=checkpoint_context,
+                experimenter=experimenter,
+            )
 
-                    # Inject design review feedback into first round of each sprint
-                    if round_num == sprint_start_round and design_feedback:
-                        prompt += design_feedback
-                        design_feedback = ""
-
-                    # Inject planning action items (Fix 5)
-                    if engine.state.planning_action_items:
-                        prompt += (
-                            "\n\n## Planned Experiments (from PLANNING phase)\n"
-                            "The team agreed on these experiments during planning. "
-                            "Execute them in order of priority:\n"
-                            + engine.state.planning_action_items
-                        )
-
-                    # Real-data mandate (D1): the policy block rides every
-                    # experiment prompt so fabrication is forbidden at the source.
-                    prompt += data_policy_directive(engine._config.orchestrator.data_policy)
-                    # Methods bar: rank-based stats on skewed data, effect sizes,
-                    # documented exclusions (a live reviewer objection, baked in).
-                    prompt += _STATS_RIGOR_DIRECTIVE
-                    # Validity bar: test in the applicable regime, sanity-check
-                    # results, compete alternatives (a live cycle tested a theory
-                    # on an out-of-regime sample and reported an artefact).
-                    prompt += _SCIENTIFIC_VALIDITY_DIRECTIVE
-                    # Acquisition discipline: fetch via the orchestrator, query
-                    # bounded subsets, verify every load (A).
-                    prompt += _DATA_ACQUISITION_DIRECTIVE
-
-                    # Inject the console-as-data-bus contract (1B): print key numbers as
-                    # machine-readable tokens so results can be re-extracted and verified.
-                    if engine._config.orchestrator.enable_verification:
-                        prompt += (
-                            "\n\n## MACHINE-READABLE RESULTS (required)\n"
-                            "Print every key numerical result to stdout on its own line as "
-                            "`RESULT[<label>]=<value>` (e.g. `RESULT[rmse]=0.123`). These exact "
-                            "tokens are re-extracted and the code is re-run to verify the result "
-                            "reproduces — do not omit or rename them."
-                        )
-
-                    # Inject pre-registered predictions (1A): the experimentalist MUST
-                    # compute and print each metric token so the verdict can be evaluated.
-                    if engine.state.registered_rules:
-                        rule_lines = [
-                            "\n\n## PRE-REGISTERED PREDICTIONS (you MUST report these)",
-                            "For each prediction below, compute the metric and print it on its "
-                            "own line as `<metric_stdout_key>=<value>` (and `<key>_p=<value>` if a "
-                            "p-value is required). These EXACT tokens are parsed to decide whether "
-                            "each hypothesis is confirmed or refuted — do not rename them.",
-                        ]
-                        for r in engine.state.registered_rules:
-                            rule_lines.append(
-                                f"- `{r.metric_stdout_key}` ({r.metric_name}): "
-                                f"{_format_rule_bound(r)}. Refutation: {r.refutation_condition}"
-                            )
-                        prompt += "\n".join(rule_lines) + "\n"
-
-                    # Inject strategy redirect, advisory, and skipped-experiment messages
-                    if _strategy_redirect_message:
-                        prompt += _strategy_redirect_message
-                        _strategy_redirect_message = ""
-                    if _advisory_message:
-                        prompt += _advisory_message
-                        _advisory_message = ""
-                    if _skipped_message:
-                        prompt += _skipped_message
-                        _skipped_message = ""
-
-                    # Inject learned constraints from prior failures
-                    if self._learned_constraints:
-                        prompt += (
-                            "\n\n## LEARNED CONSTRAINTS (from prior failures — do NOT violate)\n"
-                            + "\n".join(f"- {c}" for c in self._learned_constraints)
-                            + "\n"
-                        )
-
-                    try:
-                        response = await experimenter.generate(
-                            prompt, max_tokens=_WRITING_MAX_TOKENS
-                        )
-                    except Exception as e:
-                        engine._logger.log_error(
-                            e, agent_id=experimenter.agent_id, thread_id=engine.state.thread_id
-                        )
-                        engine._display.agent_error(experimenter.agent_id, e)
-                        break
-
-                    engine._log_agent_response(
-                        experimenter.agent_id,
-                        response,
-                        ResearchPhase.EXECUTION,
-                        "experiment_proposal",
-                    )
-
-                    await engine._literature.process_search_requests(
-                        experimenter.agent_id, response.content, ResearchPhase.EXECUTION
-                    )
-                    await engine._literature.process_literature_actions(
-                        experimenter.agent_id, response.content, ResearchPhase.EXECUTION
-                    )
-
-                    # Extract code blocks
-                    code_blocks = _extract_code_blocks(response.content)
-                    if not code_blocks and round_num > 1:
-                        engine._display.experiment_declared_sufficient()
-                        break
-                    if not code_blocks:
-                        engine._display.experiment_no_code()
-                        continue
-
-                    # Sort by dependency order and execute
-                    code_blocks = _topological_sort(code_blocks)
-                    # 1C: prefer non-buggy experiments within the round (default-off).
-                    if engine._config.orchestrator.enable_best_first_nodes:
-                        code_blocks = _best_first_order(
-                            code_blocks,
-                            self._buggy_experiments,
-                            engine._config.orchestrator.debug_buggy_node_prob,
-                            random.Random(f"{engine.state.thread_id}:{round_num}"),
-                        )
-                    round_total = 0
-                    round_failures = 0
-                    failed_in_round: set[str] = set()
-                    skipped_experiments: list[str] = []
-
-                    for block in code_blocks:
-                        # Check dependency failures — skip if upstream failed
-                        unmet = [dep for dep in block.depends_on if dep in failed_in_round]
-                        if unmet:
-                            engine._display.experiment_skipped(block.name, unmet)
-                            skipped_experiments.append(block.name)
-                            failed_in_round.add(block.name)  # Transitively propagate
-                            experiment_metadata.append(
-                                {
-                                    "name": block.name,
-                                    "status": "skipped",
-                                    "stdout_preview": "",
-                                    "stdout_full": "",
-                                    "has_figures": False,
-                                    "failure_reason": (
-                                        f"Skipped: upstream dependency failed ({', '.join(unmet)})"
-                                    ),
-                                }
-                            )
-                            skip_result = (
-                                f"## {block.name}\n**Status:** skipped "
-                                f"(upstream dependency failed: {', '.join(unmet)})\n"
-                            )
-                            all_results.append(skip_result)
-                            self._sprint_results.append(skip_result)
-                            continue
-
-                        # Enforce total experiment cap per phase
-                        if _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
-                            engine._display.experiment_budget_exhausted(_total_experiments)
-                            break
-
-                        current_code = block.code
-
-                        # Pre-execution code review (opt-in)
-                        if engine._config.orchestrator.enable_pre_execution_review:
-                            review_feedback = await self._pre_execution_review(
-                                current_code, block.name
-                            )
-                            if review_feedback is not None:
-                                current_code = await self._apply_review_fixes(
-                                    experimenter,
-                                    current_code,
-                                    block.name,
-                                    review_feedback,
-                                    checkpoint_context,
-                                )
-
-                        engine._display.experiment_running(block.name)
-                        engine.emit_event(
-                            "experiment.started",
-                            {"experiment_id": block.name, "title": block.name},
-                            agent=experimenter.agent_id if experimenter else None,
-                        )
-                        # Phase C: stream the experiment to the live panel (code now,
-                        # stdout + parsed RESULT[...] once it finishes below).
-                        engine._display.experiment_update(
-                            experiment_id=block.name,
-                            name=block.name,
-                            agent_id=experimenter.agent_id if experimenter else "",
-                            status="running",
-                            code=current_code,
-                        )
-                        result, final_code = await self._execute_with_retry(
-                            executor,
-                            experimenter,
-                            block.name,
-                            current_code,
-                            checkpoint_context,
-                            repo_paths=repo_paths,
-                            workspace_dir=workspace_dir,
-                        )
-                        formatted = _format_execution_result(block.name, result)
-
-                        # Real-data mandate (D1): classify where this experiment's
-                        # inputs came from; under real_only a fabricated-input
-                        # experiment is EXCLUDED from the evidence base.
-                        provenance, prov_reasons = classify_data_provenance(
-                            final_code, result.stdout or ""
-                        )
-                        synthetic_excluded = (
-                            result.status == ExecutionStatus.SUCCESS
-                            and excluded_by_policy(
-                                provenance, engine._config.orchestrator.data_policy
-                            )
-                        )
-                        if synthetic_excluded:
-                            _synthetic_excluded += 1
-                            why = (
-                                "generated its own input data"
-                                if provenance == SYNTHETIC
-                                else "loaded no real data (the load was empty/HTML/unavailable)"
-                            )
-                            formatted += (
-                                f"\n\n**EXCLUDED BY DATA POLICY**: this experiment {why} "
-                                f"({'; '.join(prov_reasons)}). Its numbers are NOT part of the "
-                                "evidence base — do not cite them. Acquire real data "
-                                "([DATASEARCH:]/[FETCHDATA:] or a bounded TAP query) or descope."
-                            )
-                            engine._display.warning(
-                                f"[data policy] {block.name} excluded "
-                                f"({provenance}): {'; '.join(prov_reasons)}"
-                            )
-
-                        all_results.append(formatted)
-                        self._sprint_results.append(formatted)
-
-                        _total_experiments += 1
-                        round_total += 1
-                        if result.status == ExecutionStatus.SUCCESS and not synthetic_excluded:
-                            successful_code.append((block.name, final_code))
-                            self._consecutive_failures = 0
-                        elif synthetic_excluded:
-                            # Not a code failure — don't trip the failure breakers,
-                            # but the experiment contributes no evidence.
-                            pass
-                        else:
-                            round_failures += 1
-                            _total_failures += 1
-                            self._consecutive_failures += 1
-                            failed_in_round.add(block.name)
-                            self._buggy_experiments.add(block.name)  # 1C best-first signal
-
-                            # Categorize failure for strategy redirect
-                            category = _categorize_failure(result)
-                            self._failure_categories[category] = (
-                                self._failure_categories.get(category, 0) + 1
-                            )
-
-                            # Strategy redirect: same-category failures exceed threshold
-                            max_strat = engine._config.orchestrator.max_strategy_retries
-                            if self._failure_categories[category] >= max_strat:
-                                engine._display.experiment_strategy_redirect(
-                                    category, self._failure_categories[category]
-                                )
-                                _strategy_redirect_message = (
-                                    f"\n\n## STRATEGY REDIRECT\n"
-                                    f"You have failed "
-                                    f"{self._failure_categories[category]} times "
-                                    f"with '{category}' errors. Your current approach "
-                                    f"is NOT working. Try a FUNDAMENTALLY different "
-                                    f"approach — different algorithm, different data "
-                                    f"source, or different analysis entirely."
-                                )
-                                self._strategy_redirects += 1
-
-                            # Multi-agent advisory: consecutive failures exceed threshold
-                            advisory_threshold = (
-                                engine._config.orchestrator.execution_advisory_threshold
-                            )
-                            if (
-                                engine._config.orchestrator.enable_execution_advisory
-                                and self._consecutive_failures >= advisory_threshold
-                                and experimenter is not None
-                            ):
-                                _advisory_message = await self._request_advisory(
-                                    experimenter.agent_id
-                                )
-                                self._consecutive_failures = 0  # Reset after advisory
-
-                        # Track caveat triggers
-                        if result.status == ExecutionStatus.TIMEOUT:
-                            _had_timeout = True
-                        stderr_text = result.stderr or ""
-                        if any(p in stderr_text for p in _NETWORK_ERROR_PATTERNS):
-                            _had_network_error = True
-
-                        # Track output figures + dashboard artifacts
-                        exp_artifacts: list[dict[str, str]] = []
-                        for output_file in result.output_files:
-                            kind = _artifact_kind(output_file.filename)
-                            rel = _artifact_rel_path(engine, output_file.path)
-                            exp_artifacts.append({"path": rel, "kind": kind})
-                            if output_file.filename.endswith((".png", ".pdf")):
-                                execution_figures.append((block.name, Path(output_file.path)))
-                                engine.emit_event(
-                                    "artifact.created",
-                                    {"path": rel, "kind": "figure", "experiment_id": block.name},
-                                )
-
-                        status_str = result.status.value
-                        engine._display.experiment_result(block.name, status_str)
-                        engine.emit_event(
-                            "experiment.completed",
-                            {
-                                "experiment_id": block.name,
-                                "status": status_str,
-                                "artifacts": exp_artifacts,
-                                "data_provenance": provenance,
-                                "excluded_by_data_policy": synthetic_excluded,
-                            },
-                        )
-
-                        # Build metadata entry for the execution fact sheet
-                        stdout_preview = (result.stdout or "")[:200]
-                        stdout_full = _capture_stdout(result.stdout or "")
-                        has_figures = any(
-                            f.filename.endswith((".png", ".pdf")) for f in result.output_files
-                        )
-                        # Phase C: final experiment state to the live panel.
-                        engine._display.experiment_update(
-                            experiment_id=block.name,
-                            name=block.name,
-                            agent_id=experimenter.agent_id if experimenter else "",
-                            status=status_str,
-                            code=final_code,
-                            stdout=stdout_full,
-                            results=_extract_result_tokens(result.stdout or ""),
-                            has_figures=has_figures,
-                            figures=[a["path"] for a in exp_artifacts if a["kind"] == "figure"],
-                        )
-                        failure_reason = ""
-                        if result.status != ExecutionStatus.SUCCESS:
-                            if result.error_message:
-                                failure_reason = result.error_message[:500]
-                            elif result.stderr:
-                                failure_reason = result.stderr[:500]
-                            else:
-                                failure_reason = f"Exited with status: {status_str}"
-                        if synthetic_excluded and not failure_reason:
-                            failure_reason = (
-                                "excluded by data policy (real data only): "
-                                + "; ".join(prov_reasons)
-                            )
-                        experiment_metadata.append(
-                            {
-                                "name": block.name,
-                                "status": "excluded_by_data_policy"
-                                if synthetic_excluded
-                                else status_str,
-                                "stdout_preview": stdout_preview,
-                                "stdout_full": stdout_full,
-                                "has_figures": has_figures,
-                                "failure_reason": failure_reason,
-                                "data_provenance": provenance,
-                            }
-                        )
-
-                    # Inject skipped-experiment message for next round
-                    if skipped_experiments:
-                        _skipped_message = (
-                            "\n\n## Skipped Experiments\n"
-                            "These experiments were skipped because upstream "
-                            "dependencies failed:\n"
-                            + "\n".join(f"- {name}" for name in skipped_experiments)
-                            + "\nRe-propose these (or alternatives) with fixed "
-                            "dependencies."
-                        )
-
-                    # Total experiment budget exhausted — break outer loop too
-                    if _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
-                        _circuit_breaker_fired = True
-                        break
-
-                    # Per-round circuit breaker: if >70% of executions failed, stop
-                    if round_total >= 3 and (round_failures / round_total) > 0.7:
-                        engine._display.experiment_high_failure_rate(round_failures, round_total)
-                        _circuit_breaker_fired = True
-                        break
-
-                    # Cross-round circuit breaker: persistent high failure rate
-                    cross_threshold = engine._config.orchestrator.cross_round_failure_threshold
-                    cross_min = engine._config.orchestrator.cross_round_min_experiments
-                    if (
-                        _total_experiments >= cross_min
-                        and (_total_failures / _total_experiments) > cross_threshold
-                    ):
-                        engine._display.experiment_cross_round_breaker(
-                            _total_failures, _total_experiments
-                        )
-                        _circuit_breaker_fired = True
-                        break
-
-                # --- RESULTS CHECKPOINT (sprint mode only, not last sprint) ---
-                if enable_sprints and sprint_num < num_sprints and not _circuit_breaker_fired:
-                    sprint_text = "\n\n".join(self._sprint_results)
-                    stop_reason = await self._run_sprint_results_checkpoint(
-                        sprint_num, num_sprints, checkpoint_context, sprint_text
-                    )
-                    if stop_reason is not None:
-                        if stop_reason == SprintStopReason.PIVOT:
-                            engine._display.sprint_pivot_stop(sprint_num)
-                        else:
-                            engine._display.sprint_early_stop(sprint_num)
-                        break
-
-                if _circuit_breaker_fired or _total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
+            for block in code_blocks:
+                outcome = await self._run_experiment_block(
+                    block, ctx, tally, setup.executor, setup.repo_paths, setup.workspace_dir
+                )
+                if outcome == "skipped":
+                    continue
+                if outcome == "budget_exhausted":
                     break
+                # "ran": proceed to the next block
 
-            # Build execution context for WRITING phase
-            execution_context = "\n\n".join(all_results) if all_results else ""
+            # Inject skipped-experiment message for next round
+            if ctx.skipped_experiments:
+                tally.skipped_message = (
+                    "\n\n## Skipped Experiments\n"
+                    "These experiments were skipped because upstream "
+                    "dependencies failed:\n"
+                    + "\n".join(f"- {name}" for name in ctx.skipped_experiments)
+                    + "\nRe-propose these (or alternatives) with fixed "
+                    "dependencies."
+                )
 
-            # Checkpoint at end of execution
-            if engine._config.orchestrator.enable_checkpointing:
-                try:
-                    engine.state.checkpoint = await engine._checkpoint_mgr.create_checkpoint(
-                        thread_id=engine.state.thread_id,
-                        phase=str(ResearchPhase.EXECUTION),
-                        round_number=max_rounds,
-                        messages=engine.state.messages,
-                        previous_checkpoint=engine.state.checkpoint,
-                    )
-                    engine._display.checkpoint_saved("end of execution")
-                except Exception as e:
-                    engine._logger.log_error(e, thread_id=engine.state.thread_id)
-                    engine._display.checkpoint_error(e)
+            # Total experiment budget exhausted — break outer loop too
+            if tally.total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
+                tally.circuit_breaker_fired = True
+                break
 
-        finally:
-            await executor.cleanup()
+            # Per-round circuit breaker: if >70% of executions failed, stop
+            if ctx.round_total >= 3 and (ctx.round_failures / ctx.round_total) > 0.7:
+                engine._display.experiment_high_failure_rate(ctx.round_failures, ctx.round_total)
+                tally.circuit_breaker_fired = True
+                break
 
-        # Build caveats list
+            # Cross-round circuit breaker: persistent high failure rate
+            cross_threshold = engine._config.orchestrator.cross_round_failure_threshold
+            cross_min = engine._config.orchestrator.cross_round_min_experiments
+            if (
+                tally.total_experiments >= cross_min
+                and (tally.total_failures / tally.total_experiments) > cross_threshold
+            ):
+                engine._display.experiment_cross_round_breaker(
+                    tally.total_failures, tally.total_experiments
+                )
+                tally.circuit_breaker_fired = True
+                break
+
+        # --- RESULTS CHECKPOINT (sprint mode only, not last sprint) ---
+        if (
+            setup.enable_sprints
+            and sprint_num < setup.num_sprints
+            and not tally.circuit_breaker_fired
+        ):
+            sprint_text = "\n\n".join(self._sprint_results)
+            stop_reason = await self._run_sprint_results_checkpoint(
+                sprint_num, setup.num_sprints, checkpoint_context, sprint_text
+            )
+            if stop_reason is not None:
+                if stop_reason == SprintStopReason.PIVOT:
+                    engine._display.sprint_pivot_stop(sprint_num)
+                else:
+                    engine._display.sprint_early_stop(sprint_num)
+                return True
+
+        if (
+            tally.circuit_breaker_fired
+            or tally.total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE
+        ):
+            return True
+
+        return False
+
+    async def _run_experiment_block(
+        self,
+        block,
+        ctx: _RoundContext,
+        tally: _ExecutionTally,
+        executor: CodeExecutor,
+        repo_paths: list[str],
+        workspace_dir: Path,
+    ) -> str:
+        """Run one experiment block within a round.
+
+        Returns:
+            "skipped" when an upstream dependency failed (the round loop should
+            ``continue``), "budget_exhausted" when the per-phase experiment cap is
+            reached (the round loop should ``break``), or "ran" once the experiment
+            has executed.
+        """
+        engine = self._engine
+        experimenter = ctx.experimenter
+
+        # Check dependency failures — skip if upstream failed
+        unmet = [dep for dep in block.depends_on if dep in ctx.failed_in_round]
+        if unmet:
+            engine._display.experiment_skipped(block.name, unmet)
+            ctx.skipped_experiments.append(block.name)
+            ctx.failed_in_round.add(block.name)  # Transitively propagate
+            tally.experiment_metadata.append(
+                {
+                    "name": block.name,
+                    "status": "skipped",
+                    "stdout_preview": "",
+                    "stdout_full": "",
+                    "has_figures": False,
+                    "failure_reason": (
+                        f"Skipped: upstream dependency failed ({', '.join(unmet)})"
+                    ),
+                }
+            )
+            skip_result = (
+                f"## {block.name}\n**Status:** skipped "
+                f"(upstream dependency failed: {', '.join(unmet)})\n"
+            )
+            tally.all_results.append(skip_result)
+            self._sprint_results.append(skip_result)
+            return "skipped"
+
+        # Enforce total experiment cap per phase
+        if tally.total_experiments >= _MAX_TOTAL_EXPERIMENTS_PER_PHASE:
+            engine._display.experiment_budget_exhausted(tally.total_experiments)
+            return "budget_exhausted"
+
+        current_code = block.code
+
+        # Pre-execution code review (opt-in)
+        if engine._config.orchestrator.enable_pre_execution_review:
+            review_feedback = await self._pre_execution_review(
+                current_code, block.name
+            )
+            if review_feedback is not None:
+                current_code = await self._apply_review_fixes(
+                    experimenter,
+                    current_code,
+                    block.name,
+                    review_feedback,
+                    ctx.checkpoint_context,
+                )
+
+        engine._display.experiment_running(block.name)
+        engine.emit_event(
+            "experiment.started",
+            {"experiment_id": block.name, "title": block.name},
+            agent=experimenter.agent_id if experimenter else None,
+        )
+        # Phase C: stream the experiment to the live panel (code now,
+        # stdout + parsed RESULT[...] once it finishes below).
+        engine._display.experiment_update(
+            experiment_id=block.name,
+            name=block.name,
+            agent_id=experimenter.agent_id if experimenter else "",
+            status="running",
+            code=current_code,
+        )
+        result, final_code = await self._execute_with_retry(
+            executor,
+            experimenter,
+            block.name,
+            current_code,
+            ctx.checkpoint_context,
+            repo_paths=repo_paths,
+            workspace_dir=workspace_dir,
+        )
+        formatted = _format_execution_result(block.name, result)
+
+        # Real-data mandate (D1): classify where this experiment's
+        # inputs came from; under real_only a fabricated-input
+        # experiment is EXCLUDED from the evidence base.
+        provenance, prov_reasons = classify_data_provenance(
+            final_code, result.stdout or ""
+        )
+        synthetic_excluded = (
+            result.status == ExecutionStatus.SUCCESS
+            and excluded_by_policy(
+                provenance, engine._config.orchestrator.data_policy
+            )
+        )
+        if synthetic_excluded:
+            tally.synthetic_excluded += 1
+            why = (
+                "generated its own input data"
+                if provenance == SYNTHETIC
+                else "loaded no real data (the load was empty/HTML/unavailable)"
+            )
+            formatted += (
+                f"\n\n**EXCLUDED BY DATA POLICY**: this experiment {why} "
+                f"({'; '.join(prov_reasons)}). Its numbers are NOT part of the "
+                "evidence base — do not cite them. Acquire real data "
+                "([DATASEARCH:]/[FETCHDATA:] or a bounded TAP query) or descope."
+            )
+            engine._display.warning(
+                f"[data policy] {block.name} excluded "
+                f"({provenance}): {'; '.join(prov_reasons)}"
+            )
+
+        tally.all_results.append(formatted)
+        self._sprint_results.append(formatted)
+
+        tally.total_experiments += 1
+        ctx.round_total += 1
+        if result.status == ExecutionStatus.SUCCESS and not synthetic_excluded:
+            tally.successful_code.append((block.name, final_code))
+            self._consecutive_failures = 0
+        elif synthetic_excluded:
+            # Not a code failure — don't trip the failure breakers,
+            # but the experiment contributes no evidence.
+            pass
+        else:
+            ctx.round_failures += 1
+            tally.total_failures += 1
+            self._consecutive_failures += 1
+            ctx.failed_in_round.add(block.name)
+            self._buggy_experiments.add(block.name)  # 1C best-first signal
+
+            # Categorize failure for strategy redirect
+            category = _categorize_failure(result)
+            self._failure_categories[category] = (
+                self._failure_categories.get(category, 0) + 1
+            )
+
+            # Strategy redirect: same-category failures exceed threshold
+            max_strat = engine._config.orchestrator.max_strategy_retries
+            if self._failure_categories[category] >= max_strat:
+                engine._display.experiment_strategy_redirect(
+                    category, self._failure_categories[category]
+                )
+                tally.strategy_redirect_message = (
+                    f"\n\n## STRATEGY REDIRECT\n"
+                    f"You have failed "
+                    f"{self._failure_categories[category]} times "
+                    f"with '{category}' errors. Your current approach "
+                    f"is NOT working. Try a FUNDAMENTALLY different "
+                    f"approach — different algorithm, different data "
+                    f"source, or different analysis entirely."
+                )
+                self._strategy_redirects += 1
+
+            # Multi-agent advisory: consecutive failures exceed threshold
+            advisory_threshold = (
+                engine._config.orchestrator.execution_advisory_threshold
+            )
+            if (
+                engine._config.orchestrator.enable_execution_advisory
+                and self._consecutive_failures >= advisory_threshold
+                and experimenter is not None
+            ):
+                tally.advisory_message = await self._request_advisory(
+                    experimenter.agent_id
+                )
+                self._consecutive_failures = 0  # Reset after advisory
+
+        # Track caveat triggers
+        if result.status == ExecutionStatus.TIMEOUT:
+            tally.had_timeout = True
+        stderr_text = result.stderr or ""
+        if any(p in stderr_text for p in _NETWORK_ERROR_PATTERNS):
+            tally.had_network_error = True
+
+        # Track output figures + dashboard artifacts
+        exp_artifacts: list[dict[str, str]] = []
+        for output_file in result.output_files:
+            kind = _artifact_kind(output_file.filename)
+            rel = _artifact_rel_path(engine, output_file.path)
+            exp_artifacts.append({"path": rel, "kind": kind})
+            if output_file.filename.endswith((".png", ".pdf")):
+                tally.execution_figures.append((block.name, Path(output_file.path)))
+                engine.emit_event(
+                    "artifact.created",
+                    {"path": rel, "kind": "figure", "experiment_id": block.name},
+                )
+
+        status_str = result.status.value
+        engine._display.experiment_result(block.name, status_str)
+        engine.emit_event(
+            "experiment.completed",
+            {
+                "experiment_id": block.name,
+                "status": status_str,
+                "artifacts": exp_artifacts,
+                "data_provenance": provenance,
+                "excluded_by_data_policy": synthetic_excluded,
+            },
+        )
+
+        # Build metadata entry for the execution fact sheet
+        stdout_preview = (result.stdout or "")[:200]
+        stdout_full = _capture_stdout(result.stdout or "")
+        has_figures = any(
+            f.filename.endswith((".png", ".pdf")) for f in result.output_files
+        )
+        # Phase C: final experiment state to the live panel.
+        engine._display.experiment_update(
+            experiment_id=block.name,
+            name=block.name,
+            agent_id=experimenter.agent_id if experimenter else "",
+            status=status_str,
+            code=final_code,
+            stdout=stdout_full,
+            results=_extract_result_tokens(result.stdout or ""),
+            has_figures=has_figures,
+            figures=[a["path"] for a in exp_artifacts if a["kind"] == "figure"],
+        )
+        failure_reason = ""
+        if result.status != ExecutionStatus.SUCCESS:
+            if result.error_message:
+                failure_reason = result.error_message[:500]
+            elif result.stderr:
+                failure_reason = result.stderr[:500]
+            else:
+                failure_reason = f"Exited with status: {status_str}"
+        if synthetic_excluded and not failure_reason:
+            failure_reason = (
+                "excluded by data policy (real data only): "
+                + "; ".join(prov_reasons)
+            )
+        tally.experiment_metadata.append(
+            {
+                "name": block.name,
+                "status": "excluded_by_data_policy"
+                if synthetic_excluded
+                else status_str,
+                "stdout_preview": stdout_preview,
+                "stdout_full": stdout_full,
+                "has_figures": has_figures,
+                "failure_reason": failure_reason,
+                "data_provenance": provenance,
+            }
+        )
+        return "ran"
+
+    def _build_caveats(self, tally: _ExecutionTally) -> list[str]:
+        """Assemble the WRITING-phase caveats list from accumulated execution state."""
+        engine = self._engine
         caveats: list[str] = []
 
         # Synthetic data detection: if experiments ran but no /data/shared/ files existed
@@ -969,33 +1084,33 @@ class ExperimentationHandler:
         has_shared_data = shared_dir.exists() and any(
             f.is_file() for f in shared_dir.rglob("*") if f.is_file()
         )
-        if successful_code and not has_shared_data:
+        if tally.successful_code and not has_shared_data:
             caveats.append(
                 "All experiments used synthetic/simulated data — "
                 "no observational data was available in the sandbox."
             )
 
-        if _circuit_breaker_fired:
+        if tally.circuit_breaker_fired:
             caveats.append(
                 "The experiment circuit breaker fired (>70% failure rate). "
                 "Many experiments failed, limiting the evidence base."
             )
 
-        if _had_network_error:
+        if tally.had_network_error:
             caveats.append(
                 "One or more experiments encountered network errors. "
                 "The sandbox has no internet access, so any results relying "
                 "on external data retrieval are absent."
             )
 
-        if _had_timeout:
+        if tally.had_timeout:
             caveats.append(
                 "One or more experiments timed out before completion. Results may be incomplete."
             )
 
-        if _synthetic_excluded:
+        if tally.synthetic_excluded:
             caveats.append(
-                f"{_synthetic_excluded} experiment(s) were EXCLUDED from the evidence "
+                f"{tally.synthetic_excluded} experiment(s) were EXCLUDED from the evidence "
                 "base (data policy: real data only) — they either fabricated inputs or "
                 "loaded no real data (empty/HTML/unavailable). Any of their numbers "
                 "appearing in the paper is a BLOCKING defect — they must not be cited. "
@@ -1005,20 +1120,14 @@ class ExperimentationHandler:
 
         # Check for vacuous reclassifications in the results text
         vacuous_marker = "produced no scientific output"
-        _vacuous_count = sum(1 for r in all_results if vacuous_marker in r)
-        if _vacuous_count > 0:
+        vacuous_count = sum(1 for r in tally.all_results if vacuous_marker in r)
+        if vacuous_count > 0:
             caveats.append(
-                f"{_vacuous_count} experiment(s) were reclassified from SUCCESS to "
+                f"{vacuous_count} experiment(s) were reclassified from SUCCESS to "
                 f"FAILURE for producing no meaningful scientific output."
             )
 
-        return ExperimentationResult(
-            execution_context=execution_context,
-            execution_figures=execution_figures,
-            successful_code=successful_code,
-            caveats=caveats,
-            experiment_metadata=experiment_metadata,
-        )
+        return caveats
 
     async def _request_advisory(self, experimenter_id: str) -> str:
         """Request one-line advice from each non-experimentalist agent.
