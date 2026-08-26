@@ -104,7 +104,17 @@ _DATA_ACQUISITION_DIRECTIVE = (
     "FRAGILE: VERIFY it returned rows (print rows_loaded), and if it returns "
     "empty/HTML, FALL BACK to the [FETCHDATA:]-staged tables + a local crossmatch. "
     "NEVER build a pipeline whose every step depends on one un-fallback'd live "
-    "query — stage the data first so the analysis can proceed even if TAP is down."
+    "query — stage the data first so the analysis can proceed even if TAP is down.\n"
+    "7. YOUR WORKING SAMPLE MUST BE REPRODUCIBLE. Verification RE-RUNS your code, "
+    "so derive the analysis from the [FETCHDATA:]-staged file (fixed bytes on "
+    "disk) — do NOT re-pull the same data with a live query inside the analysis. A "
+    "live `SELECT TOP N ...` WITHOUT an `ORDER BY` returns a DIFFERENT random "
+    "sample each run, so your medians/counts drift and every downstream experiment "
+    "is flagged NON-REPRODUCIBLE and discarded (an entire cycle's work lost). If "
+    "you must run a live query: (a) add `ORDER BY <stable key>` (e.g. source_id) "
+    "so the same rows return every time, and (b) CACHE it — write the result to "
+    "/data/workspace once and read that file on subsequent runs "
+    "(`if cached_file.exists(): read it; else: fetch and write it`)."
 )
 
 

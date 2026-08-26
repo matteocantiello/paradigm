@@ -187,3 +187,18 @@ def test_acquisition_directive_makes_staging_primary_with_tap_fallback():
     assert "gaia:gaiadr3.nss_two_body_orbit" in d  # concrete reliable stage
     assert "FALL BACK" in d and "rows_loaded" in d
     assert "un-fallback" in d  # never hinge a pipeline on one live query
+
+
+# --- H: reproducible data acquisition (Prompt 277 cycle-2) -------------------
+
+
+def test_acquisition_directive_requires_reproducible_sample():
+    """Regression: an agent used a live `SELECT TOP N` (no ORDER BY) whose sample
+    varied per run → verification flagged the whole chain non-reproducible and
+    discarded it. The directive now mandates reading the staged file or an
+    ORDER BY-ed, cached live query."""
+    d = _DATA_ACQUISITION_DIRECTIVE
+    assert "REPRODUCIBLE" in d
+    assert "ORDER BY" in d
+    assert "NON-REPRODUCIBLE" in d
+    assert "CACHE" in d or "cache" in d
