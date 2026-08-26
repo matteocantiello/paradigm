@@ -581,13 +581,25 @@ def build_data_context(resources: list[ResolvedResource]) -> str:
     lines.append("")
 
     # Data cards: schema previews so experiments never blind-guess column
-    # names/dtypes (URL-downloaded and locally-attached datasets alike).
+    # names/dtypes. Bounded: a multi-table catalog can stage ~20 sub-tables, and
+    # a full card each would bloat every experiment prompt — cap the full cards
+    # and note the rest (all files are already listed above with their paths).
+    shown = 0
     for r in data_resources:
-        if r.local_path:
-            card = build_data_card(Path(r.local_path))
-            if card:
-                lines.append(card)
-                lines.append("")
+        if not r.local_path:
+            continue
+        if shown >= _MAX_DATA_CARDS:
+            remaining = sum(1 for x in data_resources[data_resources.index(r) :] if x.local_path)
+            lines.append(
+                f"_({remaining} more data file(s) listed above — load any the same way; "
+                "read its header row for column names.)_"
+            )
+            break
+        card = build_data_card(Path(r.local_path))
+        if card:
+            lines.append(card)
+            lines.append("")
+            shown += 1
 
     return "\n".join(lines)
 
@@ -634,6 +646,10 @@ _CARD_MAX_COLS = 30
 _CARD_CELL_CAP = 24  # chars per head-row cell
 _CARD_LOW_CARDINALITY = 12  # <= this many distinct values -> show value counts
 _CARD_MAX_CHARS = 2000
+# Cap full schema cards per prompt: a multi-table catalog stages ~20 sub-tables,
+# and a full card each would swamp the experiment prompt. The rest stay listed
+# (name + path + size) above, with a note on how to load them.
+_MAX_DATA_CARDS = 15
 _STAGE_MAX_DIR_FILES = 20  # files carded per attached directory
 
 _SAFE_NAME_RE = re.compile(r"[^\w.\-]+")

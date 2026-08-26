@@ -636,3 +636,35 @@ class TestBinaryFormatCards:
         pq = tmp_path / "d.parquet"
         pq.write_bytes(b"PAR1" + b"\x00" * 100)
         assert "read_parquet" in build_data_card(pq)
+
+
+class TestDataCardCap:
+    def test_many_data_files_cap_full_cards(self, tmp_path):
+        """A multi-table catalog can stage ~20 sub-tables; full cards are capped
+        and the rest are noted (still listed above)."""
+        from paradigm.literature.resources import (
+            ResolvedResource,
+            ResourceType,
+            build_data_context,
+        )
+
+        resources = []
+        for i in range(22):
+            f = tmp_path / f"t{i:02d}.csv"
+            f.write_text("a,b\n1,2\n3,4\n")
+            resources.append(
+                ResolvedResource(
+                    url=f"file://{f}",
+                    resource_type=ResourceType.DATA,
+                    name=f.name,
+                    local_path=str(f),
+                    sandbox_path=f"/data/shared/data/{f.name}",
+                    size_bytes=f.stat().st_size,
+                )
+            )
+        ctx = build_data_context(resources)
+        # All 22 files are still listed (name + path) ...
+        assert ctx.count("/data/shared/data/t") == 22
+        # ... but full schema cards are capped at 15.
+        assert ctx.count("### Data card:") == 15
+        assert "more data file(s) listed above" in ctx
