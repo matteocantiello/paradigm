@@ -20,6 +20,7 @@ from paradigm.orchestrator.constants import (
     _MAX_TOTAL_EXPERIMENTS_PER_PHASE,
     _NETWORK_ERROR_PATTERNS,
     _PHASE_INSTRUCTIONS,
+    _ROBUSTNESS_DIRECTIVE,
     _SCIENTIFIC_VALIDITY_DIRECTIVE,
     _STATS_RIGOR_DIRECTIVE,
     _WRITING_MAX_TOKENS,
@@ -388,6 +389,8 @@ class ExperimentationHandler:
         # Sprint tracking
         self._current_sprint: int = 0
         self._sprint_results: list[str] = []
+        # Iterate-to-robustness: 0 = main sprints, >0 = a focused stress-test pass
+        self._robustness_pass: int = 0
         # 1C: experiments that have failed at least once this phase (for best-first ordering)
         self._buggy_experiments: set[str] = set()
 
@@ -415,10 +418,29 @@ class ExperimentationHandler:
         self._buggy_experiments = set()
 
         try:
-            for sprint_num in range(1, setup.num_sprints + 1):
-                stop_all_sprints = await self._run_sprint(sprint_num, setup, tally)
-                if stop_all_sprints:
+            # Main sprints, then iterate-to-robustness: extra focused passes that
+            # stress-test the headline result until it holds or a pass adds nothing.
+            pass_num = 0
+            sprint_counter = 0
+            while True:
+                n_success_before = len(tally.successful_code)
+                n_sprints_this_pass = setup.num_sprints if pass_num == 0 else 1
+                stopped = False
+                for _ in range(n_sprints_this_pass):
+                    sprint_counter += 1
+                    if await self._run_sprint(
+                        sprint_counter, setup, tally, robustness_pass=pass_num
+                    ):
+                        stopped = True
+                        break
+                added = len(tally.successful_code) - n_success_before
+                if not self._should_iterate_robustness(
+                    pass_num=pass_num, stopped=stopped, added_this_pass=added, tally=tally
+                ):
                     break
+                pass_num += 1
+                # Grant the robustness pass its own round budget on top of the main run.
+                setup.max_rounds += setup.rounds_per_sprint
 
             # Build execution context for WRITING phase
             execution_context = "\n\n".join(tally.all_results) if tally.all_results else ""
@@ -450,6 +472,28 @@ class ExperimentationHandler:
             caveats=caveats,
             experiment_metadata=tally.experiment_metadata,
         )
+
+    def _should_iterate_robustness(
+        self, *, pass_num: int, stopped: bool, added_this_pass: int, tally: _ExecutionTally
+    ) -> bool:
+        """Decide whether to run another focused robustness pass after this one.
+
+        Runs extra stress-test passes (up to ``robustness_max_passes``) while there
+        is an established result to challenge, stopping early when a pass adds no
+        new successful experiment (nothing left to try) or the cycle stalled/aborted.
+        """
+        cfg = self._engine._config.orchestrator
+        if not getattr(cfg, "enable_robustness_loop", False):
+            return False
+        if pass_num + 1 > cfg.robustness_max_passes:
+            return False
+        if stopped or tally.circuit_breaker_fired:
+            return False  # no experimenter / early-stop / breaker — don't hammer a broken cycle
+        if not tally.successful_code:
+            return False  # nothing established to stress-test
+        if pass_num >= 1 and added_this_pass == 0:
+            return False  # the previous robustness pass was dry — treat as converged
+        return True
 
     def _setup_execution(self, max_rounds_override: int | None) -> _ExecutionSetup:
         """Resolve per-phase execution configuration (rounds, paths, executor, sprints)."""
@@ -507,9 +551,16 @@ class ExperimentationHandler:
         )
 
     async def _run_sprint(
-        self, sprint_num: int, setup: _ExecutionSetup, tally: _ExecutionTally
+        self,
+        sprint_num: int,
+        setup: _ExecutionSetup,
+        tally: _ExecutionTally,
+        robustness_pass: int = 0,
     ) -> bool:
         """Run one execution sprint: design review, the round loop, results checkpoint.
+
+        ``robustness_pass`` > 0 marks a focused stress-test pass (iterate-to-
+        robustness): the experiment prompt gains the robustness directive.
 
         Returns:
             True if all remaining sprints should stop (no experimenter, sprint
@@ -518,9 +569,12 @@ class ExperimentationHandler:
         """
         engine = self._engine
         self._current_sprint = sprint_num
+        self._robustness_pass = robustness_pass
         self._sprint_results = []
 
-        if setup.enable_sprints:
+        if robustness_pass > 0:
+            engine._display.info(f"[robustness] stress-test pass {robustness_pass}")
+        elif setup.enable_sprints:
             engine._display.sprint_start(sprint_num, setup.num_sprints)
 
         # Find experimenter early (needed for design review)
@@ -603,9 +657,7 @@ class ExperimentationHandler:
             net_caveat = _network_caveat(engine._config.sandbox.network_mode != "none")
 
             if round_num == 1:
-                template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION][
-                    "propose_experiment"
-                ]
+                template = _PHASE_INSTRUCTIONS[ResearchPhase.EXECUTION]["propose_experiment"]
                 prompt = template.format(
                     seed_prompt=engine.state.seed_prompt,
                     checkpoint_context=checkpoint_context,
@@ -631,8 +683,7 @@ class ExperimentationHandler:
                 prompt += (
                     "\n\n## Planned Experiments (from PLANNING phase)\n"
                     "The team agreed on these experiments during planning. "
-                    "Execute them in order of priority:\n"
-                    + engine.state.planning_action_items
+                    "Execute them in order of priority:\n" + engine.state.planning_action_items
                 )
 
             # Real-data mandate (D1): the policy block rides every
@@ -645,6 +696,10 @@ class ExperimentationHandler:
             # results, compete alternatives (a live cycle tested a theory
             # on an out-of-regime sample and reported an artefact).
             prompt += _SCIENTIFIC_VALIDITY_DIRECTIVE
+            # Robustness pass: the headline result is established — now try to
+            # break it (vary choices, subsample, control confounds).
+            if getattr(self, "_robustness_pass", 0) > 0:
+                prompt += _ROBUSTNESS_DIRECTIVE
             # Acquisition discipline: fetch via the orchestrator, query
             # bounded subsets, verify every load (A).
             prompt += _DATA_ACQUISITION_DIRECTIVE
@@ -697,9 +752,7 @@ class ExperimentationHandler:
                 )
 
             try:
-                response = await experimenter.generate(
-                    prompt, max_tokens=_WRITING_MAX_TOKENS
-                )
+                response = await experimenter.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
             except Exception as e:
                 engine._logger.log_error(
                     e, agent_id=experimenter.agent_id, thread_id=engine.state.thread_id
@@ -849,9 +902,7 @@ class ExperimentationHandler:
                     "stdout_preview": "",
                     "stdout_full": "",
                     "has_figures": False,
-                    "failure_reason": (
-                        f"Skipped: upstream dependency failed ({', '.join(unmet)})"
-                    ),
+                    "failure_reason": (f"Skipped: upstream dependency failed ({', '.join(unmet)})"),
                 }
             )
             skip_result = (
@@ -871,9 +922,7 @@ class ExperimentationHandler:
 
         # Pre-execution code review (opt-in)
         if engine._config.orchestrator.enable_pre_execution_review:
-            review_feedback = await self._pre_execution_review(
-                current_code, block.name
-            )
+            review_feedback = await self._pre_execution_review(current_code, block.name)
             if review_feedback is not None:
                 current_code = await self._apply_review_fixes(
                     experimenter,
@@ -912,14 +961,9 @@ class ExperimentationHandler:
         # Real-data mandate (D1): classify where this experiment's
         # inputs came from; under real_only a fabricated-input
         # experiment is EXCLUDED from the evidence base.
-        provenance, prov_reasons = classify_data_provenance(
-            final_code, result.stdout or ""
-        )
-        synthetic_excluded = (
-            result.status == ExecutionStatus.SUCCESS
-            and excluded_by_policy(
-                provenance, engine._config.orchestrator.data_policy
-            )
+        provenance, prov_reasons = classify_data_provenance(final_code, result.stdout or "")
+        synthetic_excluded = result.status == ExecutionStatus.SUCCESS and excluded_by_policy(
+            provenance, engine._config.orchestrator.data_policy
         )
         if synthetic_excluded:
             tally.synthetic_excluded += 1
@@ -935,8 +979,7 @@ class ExperimentationHandler:
                 "([DATASEARCH:]/[FETCHDATA:] or a bounded TAP query) or descope."
             )
             engine._display.warning(
-                f"[data policy] {block.name} excluded "
-                f"({provenance}): {'; '.join(prov_reasons)}"
+                f"[data policy] {block.name} excluded ({provenance}): {'; '.join(prov_reasons)}"
             )
 
         tally.all_results.append(formatted)
@@ -960,9 +1003,7 @@ class ExperimentationHandler:
 
             # Categorize failure for strategy redirect
             category = _categorize_failure(result)
-            self._failure_categories[category] = (
-                self._failure_categories.get(category, 0) + 1
-            )
+            self._failure_categories[category] = self._failure_categories.get(category, 0) + 1
 
             # Strategy redirect: same-category failures exceed threshold
             max_strat = engine._config.orchestrator.max_strategy_retries
@@ -982,17 +1023,13 @@ class ExperimentationHandler:
                 self._strategy_redirects += 1
 
             # Multi-agent advisory: consecutive failures exceed threshold
-            advisory_threshold = (
-                engine._config.orchestrator.execution_advisory_threshold
-            )
+            advisory_threshold = engine._config.orchestrator.execution_advisory_threshold
             if (
                 engine._config.orchestrator.enable_execution_advisory
                 and self._consecutive_failures >= advisory_threshold
                 and experimenter is not None
             ):
-                tally.advisory_message = await self._request_advisory(
-                    experimenter.agent_id
-                )
+                tally.advisory_message = await self._request_advisory(experimenter.agent_id)
                 self._consecutive_failures = 0  # Reset after advisory
 
         # Track caveat triggers
@@ -1031,9 +1068,7 @@ class ExperimentationHandler:
         # Build metadata entry for the execution fact sheet
         stdout_preview = (result.stdout or "")[:200]
         stdout_full = _capture_stdout(result.stdout or "")
-        has_figures = any(
-            f.filename.endswith((".png", ".pdf")) for f in result.output_files
-        )
+        has_figures = any(f.filename.endswith((".png", ".pdf")) for f in result.output_files)
         # Phase C: final experiment state to the live panel.
         engine._display.experiment_update(
             experiment_id=block.name,
@@ -1055,16 +1090,11 @@ class ExperimentationHandler:
             else:
                 failure_reason = f"Exited with status: {status_str}"
         if synthetic_excluded and not failure_reason:
-            failure_reason = (
-                "excluded by data policy (real data only): "
-                + "; ".join(prov_reasons)
-            )
+            failure_reason = "excluded by data policy (real data only): " + "; ".join(prov_reasons)
         tally.experiment_metadata.append(
             {
                 "name": block.name,
-                "status": "excluded_by_data_policy"
-                if synthetic_excluded
-                else status_str,
+                "status": "excluded_by_data_policy" if synthetic_excluded else status_str,
                 "stdout_preview": stdout_preview,
                 "stdout_full": stdout_full,
                 "has_figures": has_figures,

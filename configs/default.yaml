@@ -161,6 +161,10 @@ orchestrator:
   max_searches_per_round: 3
   enable_debates: true   # operator tuning
   enable_execution_sprints: true   # operator tuning
+  # Iterate-to-robustness: after the main sprints, run focused passes that
+  # stress-test the headline result until it holds or a pass adds nothing new.
+  enable_robustness_loop: true   # operator tuning (depth where it matters)
+  robustness_max_passes: 2
   # Reproducibility kernel: re-execute successful experiments in a fresh
   # sandbox; unreproduced results are demoted out of the paper's evidence.
   enable_verification: true

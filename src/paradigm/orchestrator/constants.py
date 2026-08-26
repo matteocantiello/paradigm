@@ -162,6 +162,28 @@ _SCIENTIFIC_VALIDITY_DIRECTIVE = (
 )
 
 
+# Injected on ROBUSTNESS passes (iterate-to-robustness loop): the main results
+# are already established; this pass exists to try to BREAK them, which is where
+# real research spends most of its time.
+_ROBUSTNESS_DIRECTIVE = (
+    "\n\n## ROBUSTNESS PASS — try to BREAK your own headline result\n"
+    "Your main experiments are done and their numbers are above in the prior "
+    "results. This pass is NOT for re-running them or adding new directions — it "
+    "is to STRESS-TEST the headline claim and find out whether it survives:\n"
+    "- VARY the arbitrary analysis choices (thresholds, bin edges, quality cuts, "
+    "the estimator/model) and report how much the headline number moves.\n"
+    "- SUBSAMPLE stability: split the data (halves, by a covariate) and check the "
+    "result holds in each part.\n"
+    "- CONFOUNDS: re-test the claim controlling for the most plausible systematic "
+    "(a selection effect, an instrument/quality variable, a correlated nuisance).\n"
+    "- Print a clear verdict token per headline quantity, e.g. "
+    "`RESULT[<name>_robust]=1` (holds) or `=0` (fragile), plus the varied values.\n"
+    "A result that dissolves under these checks is NOT a finding — reporting that "
+    "honestly is a valid and valuable outcome. Read the staged/cached data; do NOT "
+    "re-pull live (keep it reproducible)."
+)
+
+
 # ---------------------------------------------------------------------------
 # Mode-specific prompt overrides (round_1 only)
 # ---------------------------------------------------------------------------

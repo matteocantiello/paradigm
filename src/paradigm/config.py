@@ -217,6 +217,11 @@ class OrchestratorConfig(BaseModel):
     max_conceptual_figures: int = 3  # Cap on figures per paper
     enable_execution_sprints: bool = False  # Off by default for backward compat
     num_execution_sprints: int = 3
+    # Iterate-to-robustness: after the main sprints, run focused extra passes that
+    # stress-test the headline results (vary thresholds/cuts/methods) until they
+    # hold or a pass adds nothing new — real research spends most time here.
+    enable_robustness_loop: bool = False  # Off by default for backward compat
+    robustness_max_passes: int = 2  # cap on extra stress-test passes beyond the main sprints
     # Tree-search / step-restart (Phase 1C). All off by default.
     enable_step_restart: bool = False  # inject "resume from prior artifacts" retry guidance
     enable_best_first_nodes: bool = False  # prefer non-buggy experiments in within-round order
