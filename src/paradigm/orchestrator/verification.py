@@ -153,6 +153,18 @@ class VerificationKernel:
         if source_ws.is_dir():
             try:
                 shutil.copytree(source_ws, workspace, dirs_exist_ok=True)
+                # The copy runs as the backend user (root on a server), so the
+                # copied artifacts are root-owned; the sandbox runs as a non-root
+                # uid and must be able to OVERWRITE them on re-execution (an
+                # experiment that re-writes its cached CSV would otherwise hit
+                # PermissionError → be wrongly demoted → abort the cycle). Make the
+                # copied tree world-writable, mirroring the executor's own
+                # _make_sandbox_writable on the workspace dir.
+                for p in workspace.rglob("*"):
+                    try:
+                        p.chmod(0o777 if p.is_dir() else 0o666)
+                    except OSError:
+                        pass
             except OSError as e:  # a copy hiccup must not crash the cycle
                 engine._logger.log_error(e, thread_id=engine.state.thread_id)
         return CodeExecutor(

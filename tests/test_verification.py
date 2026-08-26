@@ -288,3 +288,30 @@ class TestBookkeepingTokens:
         records = await VerificationKernel(engine).verify_experiments(executor)
         assert records[0].status == "accepted"
         assert records[0].reproduced is True
+
+
+def test_verify_workspace_copy_is_writable(tmp_path):
+    """The verify-workspace snapshot must be writable by the non-root sandbox
+    user — the copy runs as the backend user, so root-owned copies would block a
+    re-executed experiment from overwriting its cached CSV (PermissionError →
+    wrong demotion → aborted cycle on Linux). Prompt 278 VM regression."""
+    from unittest.mock import patch
+
+    from paradigm.orchestrator.verification import VerificationKernel
+
+    src = tmp_path / "workspaces" / "t1"
+    src.mkdir(parents=True)
+    f = src / "cached.csv"
+    f.write_text("a,b\n1,2\n")
+    f.chmod(0o444)  # read-only, as a root-owned artifact would land
+
+    engine = MagicMock()
+    engine._config.storage.data_dir = tmp_path
+    engine.state.thread_id = "t1"
+
+    with patch("paradigm.orchestrator.verification.CodeExecutor"):
+        VerificationKernel(engine)._build_executor()
+
+    copied = tmp_path / "verify" / "t1" / "cached.csv"
+    assert copied.exists()
+    assert copied.stat().st_mode & 0o200  # owner-writable → sandbox can overwrite
