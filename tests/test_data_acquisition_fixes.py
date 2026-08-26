@@ -202,3 +202,36 @@ def test_acquisition_directive_requires_reproducible_sample():
     assert "ORDER BY" in d
     assert "NON-REPRODUCIBLE" in d
     assert "CACHE" in d or "cache" in d
+
+
+# --- I: partial DATA-UNAVAILABLE + real results stays REAL (Prompt 278 cycle-2) --
+
+
+def test_conditional_unavailable_with_real_results_not_excluded():
+    """A partial 'DATA UNAVAILABLE' for ONE sub-case must NOT exclude an
+    experiment that still produced substantive results — a correct radius-valley
+    paper's central theory-discrimination result was wrongly demoted this way and
+    the paper was peer-rejected for 'reliance on an excluded experiment'."""
+    code = "import pandas as pd\ndf = pd.read_csv('/data/shared/data/valley.csv')\n"
+    stdout = (
+        "DATA UNAVAILABLE: fewer than 3 detected bins for fixed/kde\n"
+        "DATA UNAVAILABLE: fewer than 3 detected bins for quantile/gmm2\n"
+        "RESULT[theory_distance_z_photoevaporation]=0.4899\n"
+        "RESULT[valley_slope_beta_m]=0.228\n"
+    )
+    assert classify_data_provenance(code, stdout)[0] == REAL
+
+
+def test_unavailable_still_fires_when_no_real_results():
+    code = "import pandas as pd\ndf = pd.read_csv('/data/shared/data/x.csv')\n"
+    stdout = "DATA UNAVAILABLE: catalog missing\nRESULT[apogee_rows_loaded]=0\n"
+    assert classify_data_provenance(code, stdout)[0] == UNAVAILABLE
+
+
+def test_has_substantive_result_helper():
+    from paradigm.orchestrator.data_provenance import _has_substantive_result
+
+    assert _has_substantive_result("RESULT[slope]=0.23")
+    assert not _has_substantive_result("RESULT[nss_rows_loaded]=50000")  # bookkeeping
+    assert not _has_substantive_result("RESULT[valley]=0.0")  # zero
+    assert not _has_substantive_result("no result tokens here")

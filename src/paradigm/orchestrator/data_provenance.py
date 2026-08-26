@@ -78,6 +78,33 @@ _EMPTY_LOAD_RE = re.compile(
 )
 
 
+# A RESULT[label]=value token; used to tell a partial-but-productive experiment
+# from one that truly delivered nothing.
+_RESULT_VALUE_RE = re.compile(
+    r"RESULT\[\s*([A-Za-z0-9_]+?)\s*\]\s*=\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
+)
+# Bookkeeping labels whose values don't represent a scientific result.
+_BOOKKEEPING_LABEL_RE = re.compile(
+    r"rows?_loaded|n_rows|nrows|_count|row_count|n_records|downloaded|matches|"
+    r"loaded_from_cache|from_cache|_saved",
+    re.IGNORECASE,
+)
+
+
+def _has_substantive_result(stdout: str) -> bool:
+    """True if stdout carries a non-zero, non-bookkeeping ``RESULT[...]`` — i.e. the
+    experiment actually produced a scientific number, not just row counts."""
+    for label, raw in _RESULT_VALUE_RE.findall(stdout or ""):
+        if _BOOKKEEPING_LABEL_RE.search(label):
+            continue
+        try:
+            if float(raw) != 0.0:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def _load_was_empty(stdout: str) -> bool:
     """True when stdout shows a real-data load that returned nothing/HTML."""
     return bool(stdout) and bool(_EMPTY_LOAD_RE.search(stdout))
@@ -116,8 +143,13 @@ def classify_data_provenance(code: str, stdout: str = "") -> tuple[str, list[str
 
     # B: a load that returned nothing (HTML page / zero rows) is NOT real
     # evidence even though the code contains read_csv — downgrade so the
-    # real-data mandate doesn't rubber-stamp an empty catalog.
-    if has_input and _load_was_empty(stdout):
+    # real-data mandate doesn't rubber-stamp an empty catalog. But a CONDITIONAL
+    # "DATA UNAVAILABLE" for one sub-case (e.g. "fewer than 3 bins for kde") must
+    # NOT exclude an experiment that still produced substantive results — that
+    # partial-but-productive case wrongly demoted a correct paper's central
+    # result and got it peer-rejected. Only mark unavailable when nothing real
+    # came out.
+    if has_input and _load_was_empty(stdout) and not _has_substantive_result(stdout):
         reasons.append("attempts a data load, but stdout shows it was empty/HTML/unavailable")
         return UNAVAILABLE, reasons
 
