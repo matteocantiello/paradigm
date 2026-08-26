@@ -38,6 +38,23 @@ def _extract_result_tokens(stdout: str) -> dict[str, float]:
     return values
 
 
+# Run-dependent bookkeeping tokens (whether a cache was hit, wall-clock timing).
+# These legitimately differ between the first run and the verification re-run —
+# e.g. loaded_from_cache flips 0→1 once the cache exists — so they must NOT count
+# against reproducibility. The reproducibility directive tells agents to cache
+# live pulls, which is exactly what makes this flag flip.
+_BOOKKEEPING_TOKEN_RE = re.compile(
+    r"loaded_from_cache|from_cache|cache_hit|cache_miss|cache_used|is_cached|"
+    r"\belapsed|runtime|wall_?clock|wall_?time|timestamp|_epoch\b",
+    re.IGNORECASE,
+)
+
+
+def _drop_bookkeeping(tokens: dict[str, float]) -> dict[str, float]:
+    """Drop run-dependent bookkeeping tokens before the reproducibility compare."""
+    return {k: v for k, v in tokens.items() if not _BOOKKEEPING_TOKEN_RE.search(k)}
+
+
 def _relative_error(a: float, b: float) -> float:
     """Symmetric relative error between two values."""
     denom = max(abs(a), abs(b), _EPSILON)
@@ -206,8 +223,8 @@ class VerificationKernel:
             record.detail = f"re-execution did not succeed (status={result.status})"
             return record
 
-        orig = _extract_result_tokens(original_stdout)
-        rerun = _extract_result_tokens(result.stdout)
+        orig = _drop_bookkeeping(_extract_result_tokens(original_stdout))
+        rerun = _drop_bookkeeping(_extract_result_tokens(result.stdout))
         record.original_values = orig
         record.rerun_values = rerun
 

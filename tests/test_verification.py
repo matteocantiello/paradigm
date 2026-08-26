@@ -247,3 +247,44 @@ class TestVerificationPhase:
     def test_legacy_execution_to_post_execution_still_valid(self):
         pm = PhaseManager(ResearchPhase.EXECUTION)
         assert pm.can_transition_to(ResearchPhase.POST_EXECUTION)
+
+
+class TestBookkeepingTokens:
+    """Run-dependent bookkeeping tokens (cache flags, timing) must not fail
+    reproducibility — Prompt 277 cycle-4."""
+
+    def test_drop_bookkeeping_keeps_science(self):
+        from paradigm.orchestrator.verification import _drop_bookkeeping
+
+        t = {
+            "loaded_from_cache": 1.0,
+            "gaia_ap_join_loaded_from_cache": 0.0,
+            "elapsed_seconds": 3.2,
+            "nss_rows": 50000.0,
+            "pcirc_days": 0.97,
+        }
+        kept = _drop_bookkeeping(t)
+        assert set(kept) == {"nss_rows", "pcirc_days"}
+
+    async def test_cache_flag_flip_does_not_fail_verification(self):
+        # First run: cache miss (flag 0); verify re-run: cache hit (flag 1). The
+        # science token is identical, so the experiment must still verify.
+        engine = _make_engine(
+            [("acquire", "code")],
+            [
+                {
+                    "name": "acquire",
+                    "status": "success",
+                    "stdout_full": "RESULT[loaded_from_cache]=0\nRESULT[nss_rows]=50000",
+                }
+            ],
+        )
+        executor = FakeExecutor(
+            lambda code: (
+                ExecutionStatus.SUCCESS,
+                "RESULT[loaded_from_cache]=1\nRESULT[nss_rows]=50000",
+            )
+        )
+        records = await VerificationKernel(engine).verify_experiments(executor)
+        assert records[0].status == "accepted"
+        assert records[0].reproduced is True
