@@ -173,3 +173,17 @@ async def test_fetchdata_stages_at_advertised_sandbox_path(tmp_path, monkeypatch
     assert expected.is_file()
     # And it must NOT be double-nested under a second data/ (the bug).
     assert not (tmp_path / "data" / "shared" / "data" / "data").exists()
+
+
+# --- G: FETCHDATA-staging is the reliable primary path (Prompt 277 cycle-1) ---
+
+
+def test_acquisition_directive_makes_staging_primary_with_tap_fallback():
+    """Regression: a directive over-promoting server-side TAP joins steered an
+    agent to a live query whose failure cascaded through the whole pipeline; the
+    reliable path is FETCHDATA-staging, with any live TAP query verified + fell
+    back to staged data."""
+    d = _DATA_ACQUISITION_DIRECTIVE
+    assert "gaia:gaiadr3.nss_two_body_orbit" in d  # concrete reliable stage
+    assert "FALL BACK" in d and "rows_loaded" in d
+    assert "un-fallback" in d  # never hinge a pipeline on one live query
