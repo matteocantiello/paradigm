@@ -351,6 +351,19 @@ def test_provider_ownership_and_registry():
     ]
 
 
+def test_gaia_provider_registered_and_owns():
+    from paradigm.literature.data_providers import GaiaDataProvider
+
+    g = GaiaDataProvider()
+    assert g.owns("gaia:gaiadr3.nss_two_body_orbit")
+    assert not g.owns("vizier:I/357")
+    assert [p.name for p in create_data_providers(["gaia"])] == ["gaia"]
+    # Present in the astro default config so cycles can reach it.
+    from paradigm.config import load_config
+
+    assert "gaia" in load_config("configs/default.yaml").literature.data_providers
+
+
 @pytest.mark.asyncio
 async def test_fetch_dataset_unknown_id_raises():
     with pytest.raises(ValueError, match="no configured data provider"):

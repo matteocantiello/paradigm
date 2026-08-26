@@ -99,7 +99,7 @@ literature:
   # Astro archives (search-on-demand). Also available (register by name):
   # heasarc (known its TAP schema-search is finicky), and the biology set
   # dryad / uniprot / pdb / geo for a bio domain.
-  data_providers: ["vizier", "simbad", "ned", "mast", "irsa", "nasa_exoplanet", "zenodo"]
+  data_providers: ["vizier", "gaia", "simbad", "ned", "mast", "irsa", "nasa_exoplanet", "zenodo"]
   arxiv_rate_limit: 3.0
   max_results_per_search: 30
   enable_pdf_fetch: true

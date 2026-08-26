@@ -126,3 +126,54 @@ def test_json_obj_parses_and_rejects():
     assert _json_obj("[1,2]") is None
     assert _json_obj("") is None
     assert _json_obj(None) is None
+
+
+class TestJudgeParse:
+    """Robust parsing of a (thinking) judge's response — Prompt 277 / Phase 1."""
+
+    def test_fenced_json_all_keys(self):
+        from paradigm.eval.judge import _parse_judge_json
+
+        raw = (
+            "```json\n"
+            '{"novelty":8,"rigor":7,"clarity":9,"significance":6,'
+            '"honesty":10,"justification":"solid"}\n```'
+        )
+        s = _parse_judge_json(raw)
+        assert s is not None
+        assert s.novelty == 8 and s.honesty == 10 and s.justification == "solid"
+
+    def test_thinking_prose_with_braces_then_json(self):
+        from paradigm.eval.judge import _parse_judge_json
+
+        raw = (
+            "<thinking>weigh {novelty} vs {significance}</thinking>\n"
+            '{"novelty":5,"rigor":5,"clarity":5,"significance":5,"honesty":5,"justification":"x"}'
+        )
+        s = _parse_judge_json(raw)
+        assert s is not None and s.novelty == 5
+
+    def test_no_json_returns_none(self):
+        from paradigm.eval.judge import _parse_judge_json
+
+        assert _parse_judge_json("I cannot score this paper.") is None
+
+    def test_judge_passes_reasoning_headroom(self):
+        # Regression: max_tokens=1024 starved thinking judges → empty content →
+        # "judge returned no scores".
+        from paradigm.eval.judge import judge_paper
+
+        seen: dict = {}
+
+        class FakeProvider:
+            def complete(self, **kw):
+                seen.update(kw)
+                return (
+                    '{"novelty":5,"rigor":5,"clarity":5,"significance":5,'
+                    '"honesty":5,"justification":"x"}',
+                    10,
+                    10,
+                )
+
+        assert judge_paper("T", "body", FakeProvider(), "m") is not None
+        assert seen["max_tokens"] >= 8192

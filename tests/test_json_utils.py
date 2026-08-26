@@ -43,6 +43,15 @@ class TestFirstJsonObject:
     def test_truncated_object_returns_none(self):
         assert first_json_object('{"converged": true, "confidence"') is None
 
+    def test_thinking_prose_with_stray_braces(self):
+        # A reasoning judge wraps JSON in prose whose braces defeat the greedy
+        # span; salvage recovers the real object.
+        raw = '<thinking>weigh {novelty, rigor} vs {clarity}</thinking>\n{"novelty": 8, "rigor": 6}'
+        assert first_json_object(raw) == {"novelty": 8, "rigor": 6}
+
+    def test_valid_object_before_trailing_prose_braces(self):
+        assert first_json_object('{"a": 1} then unrelated {notes: here}') == {"a": 1}
+
 
 class TestFirstJsonArray:
     def test_clean(self):

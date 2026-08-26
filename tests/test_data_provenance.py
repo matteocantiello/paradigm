@@ -98,3 +98,37 @@ def test_config_default_and_yaml(monkeypatch):
 
     assert load_config("configs/production.yaml").orchestrator.data_policy == "real_only"
     assert load_config("configs/open.yaml").orchestrator.data_policy == "real_only"
+
+
+# --- deterministic (non-random) fabrication (Prompt 277 / Phase 1) -----------
+
+
+def test_selflabeled_deterministic_fabrication_is_synthetic():
+    # Analytic stand-in presented as data, no randomness, no load — used to slip
+    # through as 'derived'.
+    code = "# placeholder data until the real catalog loads\nperiods = np.linspace(1, 10, 50)\n"
+    assert classify_data_provenance(code)[0] == SYNTHETIC
+
+
+def test_hardcoded_dummy_values_is_synthetic():
+    code = "dummy_values = np.array([1.2, 3.4, 5.6, 7.8])\nprint(dummy_values.mean())\n"
+    assert classify_data_provenance(code)[0] == SYNTHETIC
+
+
+def test_legit_theory_computation_stays_derived():
+    # A real Zahn theory curve (no data claim, no fabrication marker) must NOT be
+    # excluded — guards the precision of the fabrication check.
+    code = (
+        "P = np.linspace(0.1, 20, 200)\n"
+        "a_over_R = (P / 365.25) ** (2 / 3) * 215\n"
+        "t_circ = a_over_R ** 8\n"
+        "print('RESULT[tcirc_min]=', t_circ.min())\n"
+    )
+    assert classify_data_provenance(code)[0] == DERIVED
+
+
+def test_real_load_with_theory_still_real():
+    code = (
+        "df = pd.read_csv('/data/shared/data/orbits.tsv', sep='\\t')\ncurve = np.linspace(0,1,10)\n"
+    )
+    assert classify_data_provenance(code)[0] == "real"

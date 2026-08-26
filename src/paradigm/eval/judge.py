@@ -73,9 +73,11 @@ def judge_paper(
             model=model,
             system=_JUDGE_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
-            # 1024, not 512: a thinking judge (Sonnet 5) can exhaust a tight
-            # budget before emitting the JSON and silently return None.
-            max_tokens=1024,
+            # 16384, not 1024: a thinking/reasoning judge (Gemini 3.5, Sonnet 5)
+            # spends hidden reasoning tokens from this same budget, and a tight cap
+            # left no room for the visible JSON → empty content → no scores. Give
+            # the reasoning-model headroom the rest of the stack already uses.
+            max_tokens=16384,
             extra_body=extra_body,
         )
     except Exception:

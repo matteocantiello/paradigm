@@ -590,3 +590,49 @@ class TestDataContextCards:
         assert "/data/shared/data/sample.csv" in ctx
         assert "### Data card: sample.csv" in ctx
         assert "a: int" in ctx
+
+
+class TestBinaryFormatCards:
+    @staticmethod
+    def _fits_header(cards):
+        body = "".join(c.ljust(80)[:80] for c in cards) + "END".ljust(80)
+        pad = (2880 - len(body) % 2880) % 2880
+        return body + " " * pad
+
+    def test_fits_bintable_lists_columns(self, tmp_path):
+        from paradigm.literature.resources import build_data_card
+
+        primary = self._fits_header(
+            ["SIMPLE  =                    T", "BITPIX  =    8", "NAXIS   =    0"]
+        )
+        ext = self._fits_header(
+            [
+                "XTENSION= 'BINTABLE'",
+                "NAXIS   =                    2",
+                "NAXIS1  =                   16",
+                "NAXIS2  =                  100",
+                "TFIELDS =                    2",
+                "TTYPE1  = 'RA'",
+                "TFORM1  = 'D'",
+                "TUNIT1  = 'deg'",
+                "TTYPE2  = 'DEC'",
+                "TFORM2  = 'D'",
+                "TUNIT2  = 'deg'",
+            ]
+        )
+        f = tmp_path / "cat.fits"
+        f.write_bytes((primary + ext).encode("ascii"))
+        card = build_data_card(f)
+        assert "FITS file" in card
+        assert "RA" in card and "DEC" in card and "deg" in card
+        assert "astropy" in card
+
+    def test_hdf5_and_parquet_give_loader_hint(self, tmp_path):
+        from paradigm.literature.resources import build_data_card
+
+        h5 = tmp_path / "d.h5"
+        h5.write_bytes(b"\x89HDF\r\n\x1a\n" + b"\x00" * 100)
+        assert "h5py" in build_data_card(h5)
+        pq = tmp_path / "d.parquet"
+        pq.write_bytes(b"PAR1" + b"\x00" * 100)
+        assert "read_parquet" in build_data_card(pq)

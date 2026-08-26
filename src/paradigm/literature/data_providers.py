@@ -9,7 +9,11 @@ Providers (plain httpx, endpoints verified live 2026-07-08 / 2026-07-09):
 
 Astronomy —
 - VizieR/CDS   — ``-words`` catalog search + ``asu-tsv`` download
-                 (``vizier:J/A+A/701/A297``).
+                 (``vizier:J/A+A/701/A297``); multi-table catalogs are split
+                 into one staged file per sub-table.
+- Gaia (ESA)   — Gaia archive TAP (``gaia:gaiadr3.nss_two_body_orbit``); full
+                 server-side ADQL, so orbits and stellar parameters can be
+                 JOINed on ``source_id`` in one bounded query.
 - MAST         — space-telescope archive (Hubble/Webb/TESS/Kepler), TAP catalog.
 - IRSA         — NASA/IPAC infrared archive, TAP catalog.
 - HEASARC      — high-energy archive, TAP catalog (``heasarc:swiftmastr``).
@@ -438,6 +442,26 @@ class ExoplanetArchiveDataProvider(_TapCatalogProvider):
     _EXOPLANET_STYLE = True
 
 
+class GaiaDataProvider(_TapCatalogProvider):
+    """ESA Gaia archive TAP — DR3 astrometry, NSS binary orbits, astrophysical
+    parameters (the canonical Gaia source).
+
+    Because it runs full ADQL server-side, ``[FETCHDATA: gaia:gaiadr3.<table>]``
+    stages a bounded slice of a real Gaia table with correctly-named columns and
+    ALL rows (e.g. every ``nss_two_body_orbit`` solution type, including the
+    short-period SB1/SB2 orbits) — the reliable alternative to a multi-table
+    VizieR export. For combining orbits with stellar parameters, an experiment
+    should JOIN ``nss_two_body_orbit`` to ``astrophysical_parameters`` on
+    ``source_id`` in one bounded server-side query rather than crossmatching
+    capped local files.
+    """
+
+    name = "gaia"
+    _BASE_URL = "https://gea.esac.esa.int/tap-server/tap/sync"
+    _PREFIX = "gaia"
+    _SOURCE = "ESA Gaia Archive"
+
+
 # ---------------------------------------------------------------------------
 # SIMBAD — object cross-match (name → coordinates / type / basic parameters)
 # ---------------------------------------------------------------------------
@@ -711,6 +735,7 @@ class GeoDataProvider:
 _PROVIDER_CLASSES: dict[str, type] = {
     # Astronomy
     "vizier": VizieRDataProvider,
+    "gaia": GaiaDataProvider,
     "mast": MastDataProvider,
     "irsa": IrsaDataProvider,
     "heasarc": HeasarcDataProvider,
@@ -737,12 +762,20 @@ def create_data_providers(names: list[str]) -> list[Any]:
 
 
 async def fetch_dataset(providers: list[Any], dataset_id: str) -> Path:
-    """Download a dataset id via whichever provider owns it (temp location)."""
+    """Download a dataset id via whichever provider owns it (temp location).
+
+    Retries the owning provider once on failure — archive TAP endpoints have
+    transient hiccups, and losing a whole dataset to one timeout is worse than a
+    second attempt.
+    """
     dataset_id = dataset_id.strip()
     tmp_dir = Path(tempfile.mkdtemp(prefix="paradigm-data-"))
     for p in providers:
         if p.owns(dataset_id):
-            return await p.fetch(dataset_id, tmp_dir)
+            try:
+                return await p.fetch(dataset_id, tmp_dir)
+            except Exception:
+                return await p.fetch(dataset_id, tmp_dir)  # one retry on transient failure
     raise ValueError(
         f"no configured data provider recognizes '{dataset_id}' "
         "(use the id exactly as shown in the DATASEARCH results)"

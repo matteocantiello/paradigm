@@ -29,16 +29,27 @@ def strip_fences(text: str) -> str:
 def first_json_object(text: str) -> dict | None:
     """Return the first complete, parseable JSON object in ``text``, or None.
 
-    Robust to code fences and chatty preamble ("Here is my verdict: {...}").
+    Robust to code fences, chatty preamble ("Here is my verdict: {...}"),
+    reasoning-model prose that itself contains braces, and truncation: after the
+    greedy region fails, salvage the first complete top-level ``{...}`` via a
+    brace-balanced, string-aware scan (the same recovery ``first_json_array`` uses).
+    This is what a thinking judge needs — it may wrap the JSON in ``<thinking>``
+    prose whose stray braces defeat the greedy match.
     """
-    m = _FIRST_OBJ_RE.search(text or "")
-    if not m:
+    s = strip_fences(text)
+    m = _FIRST_OBJ_RE.search(s)
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
+    start = s.find("{")
+    if start == -1:
         return None
-    try:
-        obj = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    return obj if isinstance(obj, dict) else None
+    salvaged = _salvage_objects(s[start:])
+    return salvaged[0] if salvaged else None
 
 
 def first_json_array(text: str) -> list | None:

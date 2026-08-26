@@ -684,11 +684,66 @@ def _card_delimiter(sample: str, suffix: str) -> str | None:
     return None  # .dat/.txt: whitespace
 
 
+_FITS_CARD_RE = re.compile(r"^([A-Z0-9_-]{1,8})\s*=\s*(.+)$")
+
+
+def _fits_card_lines(path: Path) -> list[str]:
+    """Schema lines from a FITS header — stdlib only (no astropy on the host).
+
+    FITS headers are ASCII 80-char cards, so we can list a table's ``TTYPE``
+    column names (+ units/format) or an image's dimensions without a reader,
+    then hand the agent the right astropy loader. Bounded header scan; never raises.
+    """
+    try:
+        with open(path, "rb") as f:
+            data = f.read(2880 * 60)  # bounded scan of the leading header blocks
+    except OSError:
+        return ["FITS file (unreadable header)."]
+    cols: dict[int, str] = {}
+    units: dict[int, str] = {}
+    forms: dict[int, str] = {}
+    dims: list[str] = []
+    naxis = 0
+    for i in range(0, len(data) - len(data) % 80, 80):
+        card = data[i : i + 80].decode("ascii", "replace")
+        if card[:8].strip() == "END":
+            continue
+        m = _FITS_CARD_RE.match(card.strip())
+        if not m:
+            continue
+        k = m.group(1)
+        v = m.group(2).split("/")[0].strip().strip("'").strip()
+        if k == "NAXIS":
+            naxis = int(v) if v.isdigit() else naxis
+        elif re.fullmatch(r"TTYPE\d+", k):
+            cols[int(k[5:])] = v
+        elif re.fullmatch(r"TUNIT\d+", k):
+            units[int(k[5:])] = v
+        elif re.fullmatch(r"TFORM\d+", k):
+            forms[int(k[5:])] = v
+        elif re.fullmatch(r"NAXIS[1-9]\d*", k) and not cols:
+            dims.append(v)
+    lines = ["FITS file."]
+    if cols:
+        lines.append(f"Table columns ({len(cols)}):")
+        for n in sorted(cols)[:_CARD_MAX_COLS]:
+            fm = f" ({forms[n]})" if forms.get(n) else ""
+            u = f" [{units[n]}]" if units.get(n) else ""
+            lines.append(f"  - {cols[n]}{fm}{u}")
+        lines.append("  Read with: from astropy.table import Table; t = Table.read(path)")
+    elif dims:
+        lines.append(f"Image HDU: {naxis or len(dims)}D, dims={'x'.join(dims)}")
+        lines.append("  Read with: from astropy.io import fits; hdul = fits.open(path)")
+    return lines
+
+
 def _is_dashes_separator(row: list[str]) -> bool:
     """True for an asu-tsv ``---\\t---`` header/data separator row."""
-    return bool(row) and all(
-        c.strip() == "" or set(c.strip()) == {"-"} for c in row
-    ) and any(set(c.strip()) == {"-"} for c in row)
+    return (
+        bool(row)
+        and all(c.strip() == "" or set(c.strip()) == {"-"} for c in row)
+        and any(set(c.strip()) == {"-"} for c in row)
+    )
 
 
 def _tabular_card_lines(path: Path) -> list[str]:
@@ -783,6 +838,14 @@ def build_data_card(path: Path, max_chars: int = _CARD_MAX_CHARS) -> str:
     try:
         if suffix in _CARD_TABULAR_EXTS:
             lines += _tabular_card_lines(path)
+        elif suffix in (".fits", ".fit"):
+            lines += _fits_card_lines(path)
+        elif suffix in (".h5", ".hdf5"):
+            lines.append("HDF5 file. Read with: import h5py; f = h5py.File(path); list(f.keys())")
+        elif suffix == ".parquet":
+            lines.append("Parquet file. Read with: import pandas as pd; df = pd.read_parquet(path)")
+        elif suffix in (".npy", ".npz"):
+            lines.append("NumPy binary. Read with: import numpy as np; arr = np.load(path)")
         elif suffix == ".json":
             import json as _json
 

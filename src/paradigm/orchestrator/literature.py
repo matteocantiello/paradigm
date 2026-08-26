@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -1225,12 +1226,18 @@ class LiteratureHandler:
             if not query or self.datasearch_count_this_round >= 2:
                 break
             self.datasearch_count_this_round += 1
-            candidates = []
-            for provider in self._data_providers:
+
+            async def _search_one(provider: Any, q: str = query) -> list:
                 try:
-                    candidates.extend(await provider.search(query, max_results=4))
+                    return await provider.search(q, max_results=4)
                 except Exception as e:  # noqa: BLE001 — degrade, never abort
                     self._engine._logger.log_error(e, thread_id=self._engine.state.thread_id)
+                    return []
+
+            # Query providers concurrently — one slow archive must not serialize
+            # 8 providers × a 90s timeout into a multi-minute stall.
+            results = await asyncio.gather(*[_search_one(p) for p in self._data_providers])
+            candidates = [c for sub in results for c in sub]
             if candidates:
                 lines = [f"## Dataset search results for '{query}'"]
                 for c in candidates[:8]:

@@ -51,9 +51,13 @@ _RANDOM_RE = re.compile(
 )
 
 # The experiment says its own data is synthetic (word-boundary, case-insensitive).
+# Covers deterministic stand-ins too (fabricated/dummy/hardcoded/made-up), not
+# just "synthetic" — an analytic array presented as observations is fabrication.
 _MARKER_RE = re.compile(
-    r"\b(?:synthetic|mock|fake|toy|placeholder|simulated)[\s_-]*"
-    r"(?:data|dataset|catalog|catalogue|observations|sample|tracks|grid|light[\s_-]?curves?)\b",
+    r"\b(?:synthetic|mock|fake|toy|placeholder|simulated|fabricated|dummy|"
+    r"hard[\s_-]?coded|made[\s_-]?up|stand[\s_-]?in|hypothetical|illustrative)[\s_-]*"
+    r"(?:data|dataset|catalog|catalogue|observations|sample|tracks|grid|"
+    r"light[\s_-]?curves?|values|points|table)\b",
     re.IGNORECASE,
 )
 
@@ -89,6 +93,14 @@ def classify_data_provenance(code: str, stdout: str = "") -> tuple[str, list[str
     has_input = bool(_INPUT_RE.search(code))
     has_random = bool(_RANDOM_RE.search(code))
     marker = _MARKER_RE.search(code) or _MARKER_RE.search(stdout or "")
+
+    # Explicit self-labeled fabrication with no real load is synthetic even when
+    # built deterministically (np.linspace/hardcoded arrays presented as data) —
+    # the classifier used to require randomness and let analytic stand-ins pass
+    # as 'derived'. High precision: it keys on the agent's own description.
+    if marker and not has_input:
+        reasons.append(f"self-describes its data as '{marker.group(0)}' with no real-data load")
+        return SYNTHETIC, reasons
 
     if has_random and not has_input:
         reasons.append("generates random arrays without loading any data file")
