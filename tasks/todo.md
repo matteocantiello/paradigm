@@ -18,11 +18,17 @@ Branch: responsive-live-progress. Commit+push per bundle; do NOT merge to main o
 - [x] 8. Gaia (ESA TAP) provider — LIVE-validated: 5000 NSS orbits, mixed types, 1548 P<10d.
 - [x] 9. Judge robustness: max_tokens 1024→16384 + first_json_object salvage fallback.
 
-## Phase 2 — real-insight lever
-- [ ] 10. Review VALIDITY gate: "does it answer its own question in the testable regime?" (blocking).
-- [ ] 11. Honor the novelty gate (is_novel=false → pivot/differentiate, don't duplicate).
-- [ ] 12. Experiment-level competition/selection (run 2-3 alternatives, pick on a pre-declared metric).
-- [ ] 13. Correctness layer: self-checking invariants + sanity oracles; stats-rigor as a gate.
+## Phase 2 — real-insight lever  ✅ DONE (directive/gate level)
+- [x] 10. Editor review VALIDITY gate: mandatory check #7 — tests its own hypothesis, in-regime,
+      no artefactual headline; unreframed overclaim = blocking (honest pilot still OK).
+- [x] 11. Novelty: already handled — differentiation directive queued on is_novel=false; #10 reinforces.
+- [x] 12. COMPETE ALTERNATIVES in the validity directive (run 2-3, pick on pre-declared metric).
+      (Deeper engine-level experiment tournament deferred — needs W3.1 refactor first; higher risk.)
+- [x] 13. REGIME RELEVANCE + SANITY ORACLES directive (agents write in-sandbox assertions = self-enforcing).
+
+## Extra bug (from run-1 post-mortem)
+- [ ] Review blocking-counter mis-parse: iter said "Blocking: None" but counter logged 8 →
+      paper died on revision_exhausted technicality, not a real decision.
 
 ## Cycles (acid tests)
 - [ ] Cycle 1 after Phase 1a+1 → analyze → learn.

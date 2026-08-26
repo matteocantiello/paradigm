@@ -121,6 +121,32 @@ _STATS_RIGOR_DIRECTIVE = (
 )
 
 
+# Scientific-validity directive. Evidence: a live cycle "tested" tidal theory on
+# a sample lying entirely OUTSIDE the regime where the theory applies, then
+# reported an efficiency factor that was a pure geometric artefact — honest but
+# meaningless. Domain-agnostic (no field specifics baked in).
+_SCIENTIFIC_VALIDITY_DIRECTIVE = (
+    "\n\n## SCIENTIFIC VALIDITY (make the test actually test the claim)\n"
+    "- REGIME RELEVANCE: a theory or effect is only testable where it operates. "
+    "Before testing it, verify your sample actually lies in that regime; if most "
+    "objects fall outside it, filter to the relevant sub-sample FIRST. A sample "
+    "outside the applicable regime cannot test the claim — a number computed from "
+    "it is inconclusive or artefactual, not a measurement.\n"
+    "- SANITY ORACLES: add self-checking assertions to every experiment (units, "
+    "plausibility/magnitude bounds, known limiting cases). A quantity that spans "
+    "many orders of magnitude, or that is driven entirely by one geometric or "
+    "selection factor rather than the effect under study, is a red flag — not a "
+    "discovery. A result that fails its own sanity check is not a finding.\n"
+    "- COMPETE ALTERNATIVES: when a claim admits more than one reasonable method "
+    "or parameterization, run 2-3 alternatives and pick the winner on a metric you "
+    "DECLARE beforehand; report that you compared them. A method shown to beat its "
+    "alternatives is stronger evidence than one reported in isolation.\n"
+    "- REPORT THE FIELD'S OWN OBSERVABLE: prefer the standard quantity the field "
+    "uses to adjudicate the claim over a convenient proxy that may be dominated by "
+    "sample construction.\n"
+)
+
+
 # ---------------------------------------------------------------------------
 # Mode-specific prompt overrides (round_1 only)
 # ---------------------------------------------------------------------------
@@ -676,7 +702,20 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "6. **Forbidden claims:** Cross-reference every major claim against the "
             "Forbidden Claims list. If the paper describes a failed experiment as "
             "successful or claims results from analyses that were never completed, "
-            "that is a MANDATORY REJECT regardless of other qualities.\n\n"
+            "that is a MANDATORY REJECT regardless of other qualities.\n"
+            "7. **Scientific validity & question answered (NOT just honesty):** Does "
+            "the paper actually TEST its stated hypothesis and DELIVER its stated "
+            "deliverables? A paper can be perfectly honest and traceable yet still "
+            "fail here. Flag as BLOCKING if: (a) the sample/method/regime cannot "
+            "support the central claim (e.g. the data lie OUTSIDE the regime where "
+            "the tested theory applies, or N is far too small for the claimed "
+            "measurement); (b) a headline quantity is not actually measured but only "
+            "assumed, bounded, or is an artifact of sample construction rather than a "
+            "physical result; or (c) the title/abstract claim more than the evidence "
+            "shows. The fix is to REFRAME the claims/title to match the evidence — an "
+            "honest, correctly-scoped null or pilot result is acceptable, but an "
+            "UNREFRAMED overclaim (or a study that does not answer its own question "
+            "and does not say so up front) is blocking.\n\n"
             "**Reference format (house style):** the bibliography is compiled "
             "automatically from the discovered corpus in arXiv style (author, title, "
             "arXiv id + link). Do NOT request journal-style formatting (volume, pages, "

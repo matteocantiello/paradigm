@@ -20,6 +20,7 @@ from paradigm.orchestrator.constants import (
     _MAX_TOTAL_EXPERIMENTS_PER_PHASE,
     _NETWORK_ERROR_PATTERNS,
     _PHASE_INSTRUCTIONS,
+    _SCIENTIFIC_VALIDITY_DIRECTIVE,
     _STATS_RIGOR_DIRECTIVE,
     _WRITING_MAX_TOKENS,
     _best_first_order,
@@ -546,6 +547,10 @@ class ExperimentationHandler:
                     # Methods bar: rank-based stats on skewed data, effect sizes,
                     # documented exclusions (a live reviewer objection, baked in).
                     prompt += _STATS_RIGOR_DIRECTIVE
+                    # Validity bar: test in the applicable regime, sanity-check
+                    # results, compete alternatives (a live cycle tested a theory
+                    # on an out-of-regime sample and reported an artefact).
+                    prompt += _SCIENTIFIC_VALIDITY_DIRECTIVE
                     # Acquisition discipline: fetch via the orchestrator, query
                     # bounded subsets, verify every load (A).
                     prompt += _DATA_ACQUISITION_DIRECTIVE
