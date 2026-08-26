@@ -447,8 +447,24 @@ def parse_review_feedback(text: str) -> ReviewFeedback:
         return [item for item in items if item]
 
     def _drop_none(items: list[str]) -> list[str]:
-        """An explicit 'None' entry means the section is intentionally empty."""
-        return [i for i in items if i.strip().lower() not in ("none", "none.", "n/a")]
+        """An explicit 'None' entry means the section is intentionally empty.
+
+        Editors often write 'None' followed by explanatory prose ('None — all
+        previously-flagged issues are resolved'). When the FIRST item is such a
+        declaration, the section carries no real changes and the following prose
+        is commentary, not blocking items — counting it inflated the blocking
+        count and killed a clean paper on a revision-exhaustion technicality.
+        A genuine item that merely starts with 'None' ('None of the figures
+        exist') is preserved via the negative lookahead.
+        """
+        cleaned = [i for i in items if i.strip()]
+        if cleaned and re.match(
+            r"^none\b(?!\s+(?:of|are|were|is|was|exist|remain|appear|match))",
+            cleaned[0].strip(),
+            re.IGNORECASE,
+        ):
+            return []
+        return [i for i in cleaned if i.strip().lower() not in ("none", "none.", "n/a")]
 
     strengths = _extract_list(sections.get("strengths", ""))
     weaknesses = _extract_list(sections.get("weaknesses", ""))

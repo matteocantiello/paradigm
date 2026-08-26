@@ -68,6 +68,32 @@ def test_parse_legacy_review_is_conservatively_blocking():
     """Un-tiered reviews keep the old semantics: everything blocks."""
     fb = parse_review_feedback(_LEGACY_REVIEW)
     assert len(fb.required_changes) == 2
+
+
+def test_blocking_none_with_prose_is_empty():
+    """'None' + explanatory prose must count as ZERO blocking — not one item per
+    line (which killed a clean paper on a revision-exhaustion technicality)."""
+    review = (
+        "## Recommendation\naccept\n\n"
+        "## Blocking Changes\n"
+        "None. All previously-flagged issues have been resolved in this revision.\n"
+        "The abstract and results are now internally consistent.\n\n"
+        "## Minor Changes\n- None\n"
+    )
+    fb = parse_review_feedback(review)
+    assert fb.blocking_changes == []
+    assert fb.recommendation == "accept"
+
+
+def test_blocking_item_starting_with_none_is_kept():
+    """A genuine blocking item that happens to start with 'None' is preserved."""
+    review = (
+        "## Recommendation\nrevise\n\n"
+        "## Blocking Changes\n- None of the three figures referenced in Section 4 exist.\n\n"
+        "## Minor Changes\n- None\n"
+    )
+    fb = parse_review_feedback(review)
+    assert len(fb.blocking_changes) == 1
     assert fb.blocking_changes == fb.required_changes
     assert fb.minor_changes == []
 
