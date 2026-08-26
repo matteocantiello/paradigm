@@ -31,7 +31,18 @@ Branch: responsive-live-progress. Commit+push per bundle; do NOT merge to main o
       paper died on revision_exhausted technicality, not a real decision.
 
 ## Cycles (acid tests)
-- [ ] Cycle 1 after Phase 1a+1 → analyze → learn.
-- [ ] Cycle 2 after Phase 2 → analyze → learn → iterate if needed.
+- [x] Cycle 1 (tidal_run2, premium) → FAILED: 10 unavailable exclusions, 0 verified.
+      LEARNING: the Phase 1a directive over-promoted server-side TAP joins → the agent
+      hand-rolled a live Gaia TAP query, its NSS-schema query returned 0 cols, and its own
+      dependency guard cascaded "DATA UNAVAILABLE" through the whole chain; NSS was never
+      staged. FIX (2e1301d): FETCHDATA-staging is the reliable primary path (incl.
+      gaia:gaiadr3.<table>); TAP join is an optional, verified, must-fall-back option.
+- [ ] Cycle 2 (tidal_run3, premium, FIXED directive) → running; watching exclusions vs verified.
+
+## Extra refinements shipped during runs
+- [x] Data-card cap (5476a3a): multi-table catalogs stage ~20 sub-tables; cap full cards at 15.
 
 ## Review (fill in as I go)
+- Phase 1a/1/2 + review-parser bug + directive-regression fix all committed & pushed through 2e1301d.
+- Net: the multi-table split, Gaia provider, binary cards, judge fix, validity gate are sound;
+  the one live regression (directive over-steering) was caught by Cycle 1 and fixed for Cycle 2.
