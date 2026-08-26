@@ -101,6 +101,47 @@ def _sanitize(name: str) -> str:
     return re.sub(r"[^\w.\-]+", "_", name).strip("._") or "dataset"
 
 
+_VIZIER_TABLE_RE = re.compile(r"^#Table\s+(.+)$", re.M)
+# asu-tsv header/data separator: dash-groups joined by tabs. A width-1 column
+# (e.g. a 1-char Flags field) yields a single "-", so segments are 1+ dashes.
+_VIZIER_DASHES_RE = re.compile(r"^-{3,}[-\t]*\s*$", re.M)
+
+
+def split_vizier_tables(text: str) -> list[tuple[str, str]]:
+    """Split a multi-table VizieR asu-tsv export into ``(name, standalone_text)``.
+
+    A ``-source=<catalog>`` fetch of a multi-table catalog (e.g. Gaia DR3 NSS
+    ``I/357``, which bundles 17 solution-type sub-tables) concatenates every
+    sub-table under ONE ``#RESOURCE`` preamble, each with its own ``#Column``
+    schema + header. Read as a single TSV, only the first table's columns align
+    with its data — every other sub-table's rows land in the wrong columns and
+    get silently dropped (this is what buried ~52k short-period Gaia binaries).
+
+    Returns one entry per sub-table, each prefixed with the shared preamble so it
+    is a valid standalone single-table export. A single-table input returns
+    ``[("", text)]`` (caller keeps its existing one-file behaviour).
+    """
+    marks = list(_VIZIER_TABLE_RE.finditer(text))
+    if len(marks) <= 1:
+        return [("", text)]
+    preamble = text[: marks[0].start()]
+    out: list[tuple[str, str]] = []
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        block = text[m.start() : end]
+        name = m.group(1).strip().rstrip(":").strip()
+        # Skip a table only when we can POSITIVELY confirm it is empty (a dashes
+        # separator with no data after it). If the separator can't be located we
+        # keep the table — never drop real data over a parsing edge case.
+        dash = _VIZIER_DASHES_RE.search(block)
+        if dash is not None and not any(
+            ln.strip() and not ln.startswith("#") for ln in block[dash.end() :].splitlines()
+        ):
+            continue
+        out.append((name, preamble + block))
+    return out or [("", text)]
+
+
 def parse_vizier_resources(votable_text: str, max_results: int = 4) -> list[DataCandidate]:
     """Extract catalog RESOURCEs (name= + DESCRIPTION) from a VizieR VOTable."""
     out: list[DataCandidate] = []
@@ -143,11 +184,22 @@ class VizieRDataProvider:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             await _download_capped(client, url, dest, keep_partial=True)
         # A words-page or error page instead of a table is a failed fetch.
-        head = dest.read_text(errors="replace")[:4000]
-        if "#RESOURCE" not in head and "\t" not in head:
+        text = dest.read_text(errors="replace")
+        if "#RESOURCE" not in text[:4000] and "\t" not in text[:4000]:
             dest.unlink(missing_ok=True)
             raise ValueError(f"VizieR returned no table for '{cat}'")
-        return dest
+        # A multi-table catalog must be split into one file per sub-table, or
+        # every sub-table after the first is misread against the wrong header.
+        tables = split_vizier_tables(text)
+        if len(tables) <= 1:
+            return dest
+        dest.unlink(missing_ok=True)
+        out_dir = dest_dir / f"vizier_{_sanitize(cat)}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for name, tbl_text in tables:
+            fname = _sanitize(name or "table")
+            (out_dir / f"{fname}.tsv").write_text(tbl_text)
+        return out_dir
 
 
 class ZenodoDataProvider:

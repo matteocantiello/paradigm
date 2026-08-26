@@ -466,6 +466,35 @@ class TestBuildDataCard:
         card = build_data_card(f)
         assert "nu_char: float" in card
 
+    def test_vizier_asu_tsv_shows_real_columns(self, tmp_path):
+        """A VizieR asu-tsv card must show real column names (Per, ecc), not the
+        #RESOURCE line, and skip the units/dashes rows — else experiments guess
+        'period' and crash on load."""
+        from paradigm.literature.resources import build_data_card
+
+        t = "\t"
+        asu = "\n".join(
+            [
+                "#RESOURCE=yCat_999",
+                f"#Table{t}I_999_orbits:",
+                f"#Column{t}Source{t}(I19){t}id",
+                f"#Column{t}Per{t}(F10){t}period",
+                f"#Column{t}ecc{t}(F6){t}ecc",
+                f"Source{t}Per{t}ecc",
+                f" {t}d{t} ",
+                f"-------------------{t}----------{t}------",
+                f"100{t}3.5{t}0.12",
+                f"200{t}7.1{t}0.44",
+            ]
+        )
+        f = tmp_path / "orbits.tsv"
+        f.write_text(asu)
+        card = build_data_card(f)
+        assert "Source: int" in card
+        assert "Per: float" in card and "ecc: float" in card
+        assert "#RESOURCE" not in card  # comment metadata skipped
+        assert "3.5" in card and "-----" not in card  # data shown, dashes dropped
+
     def test_json_array_card(self, tmp_path):
         from paradigm.literature.resources import build_data_card
 

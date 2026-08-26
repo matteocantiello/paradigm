@@ -85,7 +85,21 @@ _DATA_ACQUISITION_DIRECTIVE = (
     "analysis, and do not report results derived from it.\n"
     "4. If a REQUIRED data source named in the brief cannot be acquired, say so "
     "plainly — a substitute (e.g. Gaia's own parameters in place of APOGEE) is a "
-    "PARTIAL result, reported as such, never as the requested deliverable."
+    "PARTIAL result, reported as such, never as the requested deliverable.\n"
+    "5. A [FETCHDATA:] of a multi-table catalog (e.g. Gaia DR3 NSS) stages ONE "
+    "FILE PER SUB-TABLE. Read the data card for EACH and pick the one that fits "
+    "your need — for SHORT-period/close binaries use the spectroscopic (SB1/SB2) "
+    "or eclipsing-binary orbit tables, NOT the astrometric table (which is "
+    "intrinsically long-period). Use the EXACT column names the card lists (e.g. "
+    "`Per`, `ecc`) — never guess names like `period`/`eccentricity`; a wrong name "
+    "raises KeyError and wastes the run.\n"
+    "6. To COMBINE two surveys (e.g. Gaia orbits x APOGEE/GALAH stellar "
+    "parameters), prefer a SERVER-SIDE TAP JOIN on the archive (e.g. `SELECT ... "
+    "FROM gaiadr3.nss_two_body_orbit AS o JOIN gaiadr3.astrophysical_parameters "
+    "AS p USING (source_id) WHERE ...`) over downloading two catalogs and joining "
+    "locally: staged files are CAPPED samples, so a LOCAL crossmatch yield "
+    "collapses to a few percent and biases what survives. One bounded server-side "
+    "join returns matched rows directly."
 )
 
 

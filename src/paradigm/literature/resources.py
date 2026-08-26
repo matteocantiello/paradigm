@@ -684,35 +684,48 @@ def _card_delimiter(sample: str, suffix: str) -> str | None:
     return None  # .dat/.txt: whitespace
 
 
+def _is_dashes_separator(row: list[str]) -> bool:
+    """True for an asu-tsv ``---\\t---`` header/data separator row."""
+    return bool(row) and all(
+        c.strip() == "" or set(c.strip()) == {"-"} for c in row
+    ) and any(set(c.strip()) == {"-"} for c in row)
+
+
 def _tabular_card_lines(path: Path) -> list[str]:
-    """Schema lines for a delimited text file (header, dtypes, head, value counts)."""
+    """Schema lines for a delimited text file (header, dtypes, head, value counts).
+
+    Handles VizieR/CDS asu-tsv exports: leading ``#`` metadata is skipped and the
+    units + dashes rows between header and data are dropped, so the card shows the
+    REAL column names (e.g. ``Per``, ``ecc``) instead of a ``#RESOURCE`` line —
+    otherwise experiments guess names like ``period`` and crash on load.
+    """
     import csv as _csv
 
     with open(path, encoding="utf-8", errors="replace", newline="") as f:
-        sample = f.read(8192)
-        f.seek(0)
-        delimiter = _card_delimiter(sample, path.suffix.lower())
-        if delimiter is not None:
-            reader = _csv.reader(f, delimiter=delimiter)
-            rows = []
-            for row in reader:
-                rows.append(row)
-                if len(rows) > _CARD_SAMPLE_ROWS:
-                    break
-        else:
-            rows = []
-            for line in f:
-                if line.strip():
-                    rows.append(line.split())
-                if len(rows) > _CARD_SAMPLE_ROWS:
-                    break
+        raw: list[str] = []
+        for line in f:
+            if line.startswith("#"):
+                continue  # asu-tsv / VizieR comment metadata
+            raw.append(line)
+            if len(raw) > _CARD_SAMPLE_ROWS + 5:
+                break
 
-    rows = [r for r in rows if r]
+    delimiter = _card_delimiter("".join(raw[:64]), path.suffix.lower())
+    if delimiter is not None:
+        rows = [r for r in _csv.reader(raw, delimiter=delimiter) if r]
+    else:
+        rows = [ln.split() for ln in raw if ln.strip()]
+
     if len(rows) < 2:
         return ["(no parseable rows)"]
 
     header = [h.strip() for h in rows[0]][:_CARD_MAX_COLS]
     data_rows = rows[1:]
+    # asu-tsv: drop the units row + dashes separator so dtypes/head see real data.
+    for i, r in enumerate(rows[1:5], start=1):
+        if _is_dashes_separator(r):
+            data_rows = rows[i + 1 :]
+            break
     n_cols_note = (
         f" (first {_CARD_MAX_COLS} columns shown)" if len(rows[0]) > _CARD_MAX_COLS else ""
     )

@@ -14,6 +14,7 @@ from paradigm.literature.data_providers import (
     create_data_providers,
     fetch_dataset,
     parse_vizier_resources,
+    split_vizier_tables,
 )
 from paradigm.orchestrator.engine import OrchestrationEngine
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
@@ -242,6 +243,101 @@ def test_parse_vizier_resources():
     assert [c.id for c in got] == ["vizier:J/A+A/701/A297", "vizier:J/ApJ/875/129"]
     assert got[0].title.startswith("Microturbulence across the HR Diagram")
     assert got[1].title == "Another catalog"  # whitespace collapsed
+
+
+# A 2-table asu-tsv export (like Gaia DR3 NSS I/357), tabs explicit. The second
+# table has a width-1 "Flag" column → a single-dash segment in the separator.
+_T = "\t"
+_MULTI_TSV = "\n".join(
+    [
+        "#RESOURCE=yCat_999",
+        "#Name: I/999",
+        "#Title: Test multi-table catalog",
+        f"#Table{_T}I_999_orbits:",
+        "#Name: I/999/orbits",
+        f"#Column{_T}Source{_T}(I19){_T}id",
+        f"#Column{_T}Per{_T}(F10){_T}period",
+        f"Source{_T}Per",
+        f" {_T}d",
+        f"-------------------{_T}----------",
+        f"100{_T}3.5",
+        f"200{_T}7.1",
+        f"#Table{_T}I_999_params:",
+        "#Name: I/999/params",
+        f"#Column{_T}Source{_T}(I19){_T}id",
+        f"#Column{_T}Teff{_T}(F6){_T}temp",
+        f"#Column{_T}Flag{_T}(I1){_T}f",
+        f"Source{_T}Teff{_T}Flag",
+        f" {_T}K{_T} ",
+        f"-------------------{_T}------{_T}-",  # width-1 Flag → single dash
+        f"100{_T}5500{_T}0",
+        f"300{_T}6000{_T}1",
+        "",
+    ]
+)
+
+
+def _cols(line: str) -> int:
+    return len(line.split("\t"))
+
+
+def test_split_vizier_multitable_aligns_each_subtable():
+    tables = split_vizier_tables(_MULTI_TSV)
+    assert [n for n, _ in tables] == ["I_999_orbits", "I_999_params"]
+    for name, text in tables:
+        assert "#RESOURCE=yCat_999" in text  # shared preamble prepended
+        rows = [ln for ln in text.splitlines() if ln and not ln.startswith("#")]
+        header, _units, _dashes, *data = rows
+        assert data, f"{name} lost its data"
+        # Every sub-table's header aligns with its own data (the whole point).
+        assert all(_cols(d) == _cols(header) for d in data)
+    # The width-1 Flag column (single-dash separator) must NOT drop the table.
+    params = dict(tables)["I_999_params"]
+    assert "6000" in params and _cols(params.splitlines()[-2]) == 3
+
+
+def test_split_vizier_single_table_unchanged():
+    single = "\n".join(["#RESOURCE=x", "Source\tPer", " \td", "---\t---", "1\t2"])
+    assert split_vizier_tables(single) == [("", single)]
+
+
+def test_split_vizier_skips_positively_empty_table():
+    empty = "\n".join(
+        [
+            "#RESOURCE=x",
+            f"#Table{_T}I_1_full:",
+            f"Source{_T}Per",
+            f" {_T}d",
+            "---\t---",
+            f"1{_T}2",
+            f"#Table{_T}I_1_empty:",
+            f"Source{_T}Per",
+            f" {_T}d",
+            "---\t---",  # header+units+dashes, no data
+        ]
+    )
+    names = [n for n, _ in split_vizier_tables(empty)]
+    assert names == ["I_1_full"]  # empty table dropped, full one kept
+
+
+@pytest.mark.asyncio
+async def test_fetch_multitable_returns_directory(tmp_path, monkeypatch):
+    """A multi-table VizieR fetch stages one file per sub-table, not one
+    misaligned blob."""
+    import paradigm.literature.data_providers as dp
+
+    async def fake_download(client, url, dest, *, keep_partial=False):
+        dest.write_text(_MULTI_TSV)
+        return len(_MULTI_TSV)
+
+    monkeypatch.setattr(dp, "_download_capped", fake_download)
+    out = await VizieRDataProvider().fetch("vizier:I/999", tmp_path)
+    assert out.is_dir()
+    files = sorted(p.name for p in out.iterdir())
+    assert files == ["I_999_orbits.tsv", "I_999_params.tsv"]
+    # Each staged file is a valid standalone single-table export.
+    for f in out.iterdir():
+        assert split_vizier_tables(f.read_text()) == [("", f.read_text())]
 
 
 def test_provider_ownership_and_registry():
