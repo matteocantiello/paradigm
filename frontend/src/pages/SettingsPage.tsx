@@ -323,6 +323,34 @@ export function SettingsPage() {
               onChange={(v) => orchestrator.set("abort_on_verification_failure", v)}
             />
             <ToggleField
+              label="Iterate-to-robustness loop"
+              description="After the main sprints, run focused passes that stress-test the headline result until it holds or adds nothing new"
+              value={orchestrator.local.enable_robustness_loop as boolean}
+              onChange={(v) => orchestrator.set("enable_robustness_loop", v)}
+            />
+            <NumberField
+              label="Robustness passes"
+              description="Max extra stress-test passes beyond the main sprints"
+              value={orchestrator.local.robustness_max_passes as number}
+              onChange={(v) => orchestrator.set("robustness_max_passes", v)}
+              min={1}
+              max={5}
+            />
+            <ToggleField
+              label="Independent replication gate"
+              description="An independent agent re-derives the paper's headline from the data and stress-tests it; a fragile/unreproduced result must be reframed before review accepts"
+              value={orchestrator.local.enable_replication_gate as boolean}
+              onChange={(v) => orchestrator.set("enable_replication_gate", v)}
+            />
+            <NumberField
+              label="Replication specifications"
+              description="Alternative specifications the replicator must try"
+              value={orchestrator.local.replication_max_specs as number}
+              onChange={(v) => orchestrator.set("replication_max_specs", v)}
+              min={2}
+              max={10}
+            />
+            <ToggleField
               label="Best-first experiment ordering"
               description="Prefer non-buggy experiments within a round"
               value={orchestrator.local.enable_best_first_nodes as boolean}

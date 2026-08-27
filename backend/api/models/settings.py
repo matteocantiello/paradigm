@@ -25,6 +25,10 @@ class OrchestratorSettings(BaseModel):
     enable_verification: bool = False
     verification_tolerance: float = 1e-6
     abort_on_verification_failure: bool = True
+    enable_robustness_loop: bool = False
+    robustness_max_passes: int = 2
+    enable_replication_gate: bool = False
+    replication_max_specs: int = 5
     enable_best_first_nodes: bool = False
     enable_step_restart: bool = False
     human_gate_mode: str = "off"  # off | advisory | blocking
@@ -98,6 +102,10 @@ class OrchestratorSettingsUpdate(BaseModel):
     enable_verification: bool | None = None
     verification_tolerance: float | None = None
     abort_on_verification_failure: bool | None = None
+    enable_robustness_loop: bool | None = None
+    robustness_max_passes: int | None = None
+    enable_replication_gate: bool | None = None
+    replication_max_specs: int | None = None
     enable_best_first_nodes: bool | None = None
     enable_step_restart: bool | None = None
     human_gate_mode: str | None = None

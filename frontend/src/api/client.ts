@@ -352,6 +352,10 @@ export interface OrchestratorSettings {
   enable_verification: boolean;
   verification_tolerance: number;
   abort_on_verification_failure: boolean;
+  enable_robustness_loop: boolean;
+  robustness_max_passes: number;
+  enable_replication_gate: boolean;
+  replication_max_specs: number;
   enable_best_first_nodes: boolean;
   enable_step_restart: boolean;
   human_gate_mode: string; // off | advisory | blocking
