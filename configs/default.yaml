@@ -165,6 +165,11 @@ orchestrator:
   # stress-test the headline result until it holds or a pass adds nothing new.
   enable_robustness_loop: true   # operator tuning (depth where it matters)
   robustness_max_passes: 2
+  # Layer 1: independent adversarial replication of the paper's headline claim —
+  # re-derive it from the data and stress-test it; a fragile/unreproduced verdict
+  # goes to review as blocking (force reframe).
+  enable_replication_gate: true
+  replication_max_specs: 5
   # Reproducibility kernel: re-execute successful experiments in a fresh
   # sandbox; unreproduced results are demoted out of the paper's evidence.
   enable_verification: true

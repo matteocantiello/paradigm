@@ -88,6 +88,10 @@ class ResearchState:
     verification_records: list[VerificationRecord] = field(default_factory=list)
     dropped_claims: list[str] = field(default_factory=list)
 
+    # Adversarial replication gate (Layer 1): independent re-derivation + spec-curve
+    # verdict on the paper's headline claim (None until the gate runs).
+    replication_report: Any = None
+
     # Hybrid human-gate (1E): decision recorded at each named gate point + provenance.
     gate_decisions: dict[str, str] = field(default_factory=dict)
     provenance: ProvenanceRecord | None = None

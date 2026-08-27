@@ -64,6 +64,7 @@ from paradigm.orchestrator.memory import MemoryHandler
 from paradigm.orchestrator.phases import PhaseManager, ResearchPhase
 from paradigm.orchestrator.preregistration import PreRegistrationHandler
 from paradigm.orchestrator.reflection import ReflectionHandler
+from paradigm.orchestrator.replication import ReplicationHandler
 from paradigm.orchestrator.review import ReviewHandler
 from paradigm.orchestrator.scheduler import Scheduler
 from paradigm.orchestrator.state import ResearchState
@@ -171,6 +172,7 @@ class OrchestrationEngine:
         self._world_model = WorldModelHandler(self)
         self._prereg = PreRegistrationHandler(self)
         self._verification = VerificationKernel(self)
+        self._replication = ReplicationHandler(self)
 
         # Lazy import to avoid circular dependency (tournament_handler → constants → engine)
         from paradigm.knowledge.tournament_handler import TournamentHandler
@@ -377,6 +379,10 @@ class OrchestrationEngine:
             paper_draft = await self._run_reflection_loop(paper_draft, should_experiment)
             if paper_draft is None:  # operator paused/aborted at the reflection gate
                 return self.state.thread_id
+            # Layer 1: an INDEPENDENT replicator re-derives the headline from the data
+            # and stress-tests it; a fragile/unreproduced verdict is fed to review as
+            # a blocking, reframe-forcing note (catches what the text reviewer can't).
+            self.state.replication_report = await self._replication.run_replication(paper_draft)
             if await self._run_internal_review_stage(paper_draft):
                 return self.state.thread_id
             if self._config.orchestrator.enable_peer_review:

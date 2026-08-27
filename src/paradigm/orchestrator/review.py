@@ -410,6 +410,13 @@ class ReviewHandler:
                     "traced to an experiment output."
                 )
 
+            # Inject the independent replication verdict (Layer 1) so the editor can
+            # enforce check #8: a fragile/unreproduced headline must be reframed.
+            rep = getattr(self._engine.state, "replication_report", None)
+            rep_block = rep.as_review_block() if hasattr(rep, "as_review_block") else ""
+            if isinstance(rep_block, str) and rep_block:
+                prompt += "\n\n" + rep_block
+
             # Inject forbidden claims block for the editor
             forbidden_block = self._engine._writing._build_forbidden_claims_block()
             if forbidden_block:

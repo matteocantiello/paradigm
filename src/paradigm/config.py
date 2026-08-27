@@ -222,6 +222,15 @@ class OrchestratorConfig(BaseModel):
     # hold or a pass adds nothing new — real research spends most time here.
     enable_robustness_loop: bool = False  # Off by default for backward compat
     robustness_max_passes: int = 2  # cap on extra stress-test passes beyond the main sprints
+    # Adversarial replication gate (Layer 1): after WRITING, an INDEPENDENT
+    # replicator re-derives the paper's headline number from the data and stress-
+    # tests it across alternative specifications. A headline that flips sign / can't
+    # be reproduced is fed to review as blocking (force reframe). Catches fragile /
+    # overstated findings the text-level skeptic can't. Off by default.
+    enable_replication_gate: bool = False
+    replication_max_specs: int = 5  # alternative specifications the replicator must try
+    # Fraction of specifications that must keep the headline's sign to count as robust.
+    replication_sign_stability: float = 0.8
     # Tree-search / step-restart (Phase 1C). All off by default.
     enable_step_restart: bool = False  # inject "resume from prior artifacts" retry guidance
     enable_best_first_nodes: bool = False  # prefer non-buggy experiments in within-round order

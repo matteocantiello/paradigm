@@ -184,6 +184,45 @@ _ROBUSTNESS_DIRECTIVE = (
 )
 
 
+# Adversarial replication gate (Layer 1). An INDEPENDENT agent re-derives the
+# paper's headline number from the data and stress-tests it — catching fragile /
+# overstated findings that a text-level reviewer cannot see.
+_REPLICATOR_SYSTEM = (
+    "You are an independent, adversarial replicator. Your job is to try to BREAK a "
+    "paper's headline result by re-deriving it from the raw data and stress-testing "
+    "it across alternative specifications — not to confirm it. You write and run ONE "
+    "self-contained Python script and report structured RESULT[...] verdict tokens."
+)
+
+_REPLICATOR_PROMPT = (
+    "You are an INDEPENDENT REPLICATOR. Another team wrote the paper below; you do "
+    "NOT trust its numbers. You have the SAME data they used, staged under "
+    "/data/shared/data and any cached intermediates under /data/workspace. Your job "
+    "is to try to BREAK the headline result.\n\n"
+    "## Paper (abstract + key results)\n{paper_headline}\n\n"
+    "## Available data\n{data_context}\n\n"
+    "Write ONE self-contained Python script that does the following and prints "
+    "machine-readable RESULT[...] tokens:\n"
+    "1. Identify the paper's SINGLE most important quantitative claim — the headline "
+    "effect the conclusion rests on (a slope, correlation, ratio, difference, ...). "
+    "State it in a comment: the quantity, the paper's value, and its sign.\n"
+    "2. RE-DERIVE that number YOURSELF from the raw staged data. Do NOT reuse the "
+    "authors' final numbers — recompute it. Print `RESULT[headline_recomputed]=<v>`.\n"
+    "3. STRESS-TEST it: recompute the SAME quantity under {max_specs} DIFFERENT but "
+    "equally-defensible specifications a skeptical referee would try (a different "
+    "sample cut, control variable, subgroup, or estimator). For EACH print "
+    "`RESULT[spec_<shortname>_value]=<v>` and "
+    "`RESULT[spec_<shortname>_sign]=<1 if positive, -1 if negative>`.\n"
+    "4. Print `RESULT[n_specs]=<how many alternatives you tried>` and "
+    "`RESULT[n_same_sign]=<how many kept the headline's sign>`.\n"
+    "5. Print `RESULT[headline_reproduced]=<1 if your recomputed value has the SAME "
+    "sign AND is within a factor of 2 of the paper's headline value, else 0>`.\n\n"
+    "Be adversarial and HONEST: if the effect flips sign or loses significance under "
+    "reasonable choices, THAT is the finding — report it. Read the real staged/cached "
+    "data; never fabricate. Emit the script in a single ```python block."
+)
+
+
 # ---------------------------------------------------------------------------
 # Mode-specific prompt overrides (round_1 only)
 # ---------------------------------------------------------------------------
@@ -752,7 +791,15 @@ _PHASE_INSTRUCTIONS: dict[ResearchPhase, dict[str, str]] = {
             "shows. The fix is to REFRAME the claims/title to match the evidence — an "
             "honest, correctly-scoped null or pilot result is acceptable, but an "
             "UNREFRAMED overclaim (or a study that does not answer its own question "
-            "and does not say so up front) is blocking.\n\n"
+            "and does not say so up front) is blocking.\n"
+            "8. **Independent replication (if an 'Independent Replication Report' "
+            "appears below):** an independent agent re-derived the headline result "
+            "from the data and stress-tested it. If that report's verdict is FRAGILE "
+            "(the effect flips sign / loses significance across reasonable "
+            "specifications) or NOT REPRODUCED, then the paper stating the headline "
+            "without prominently reporting that fragility — at the strength that "
+            "actually survives — is BLOCKING. A finding that is not robust to "
+            "specification must be reframed as such, not headlined as robust.\n\n"
             "**Reference format (house style):** the bibliography is compiled "
             "automatically from the discovered corpus in arXiv style (author, title, "
             "arXiv id + link). Do NOT request journal-style formatting (volume, pages, "
