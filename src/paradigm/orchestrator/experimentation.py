@@ -640,10 +640,16 @@ class ExperimentationHandler:
                 engine._config.storage.data_dir, engine.state.wall_start_time
             )
             checkpoint_context = file_listing + "\n\n" + checkpoint_context
+            # The data cards + cloned-code context are the big, cycle-stable block
+            # (a multi-table catalog stages ~20 cards). Route them to a cached
+            # prefix so they are billed once, not re-sent in every experiment
+            # prompt across all rounds/retries.
+            data_cache_prefix = ""
             if engine.state.code_context:
-                checkpoint_context += engine.state.code_context + "\n\n"
+                data_cache_prefix += engine.state.code_context + "\n\n"
             if engine.state.data_context:
-                checkpoint_context += engine.state.data_context + "\n\n"
+                data_cache_prefix += engine.state.data_context + "\n\n"
+            data_cache_prefix = data_cache_prefix or None
 
             # Inject workspace manifest for round 2+ so agents know
             # which files were saved by prior experiments
@@ -752,7 +758,9 @@ class ExperimentationHandler:
                 )
 
             try:
-                response = await experimenter.generate(prompt, max_tokens=_WRITING_MAX_TOKENS)
+                response = await experimenter.generate(
+                    prompt, max_tokens=_WRITING_MAX_TOKENS, cache_prefix=data_cache_prefix
+                )
             except Exception as e:
                 engine._logger.log_error(
                     e, agent_id=experimenter.agent_id, thread_id=engine.state.thread_id

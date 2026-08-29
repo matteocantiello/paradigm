@@ -105,7 +105,11 @@ class ReplicationHandler:
                 model=model,
                 system=_REPLICATOR_SYSTEM,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=8192,
+                # 16384, not 8192: a reasoning-model replicator spends hidden
+                # thinking tokens from this budget and a tight cap left no room for
+                # the visible script → empty output → the gate silently produced
+                # nothing (observed twice in production). Match the judge's headroom.
+                max_tokens=16384,
                 extra_body=extra_body,
             )
             engine._db.record_token_usage(
@@ -116,18 +120,27 @@ class ReplicationHandler:
             )
         except Exception as e:  # noqa: BLE001 — replication must never crash the cycle
             engine._logger.log_error(e, thread_id=engine.state.thread_id)
-            return ReplicationReport(ran=False, verdict=ERROR, detail=str(e)[:200])
+            return self._finalize(ReplicationReport(ran=False, verdict=ERROR, detail=str(e)[:200]))
 
         blocks = _extract_code_blocks(text)
         if not blocks:
-            return ReplicationReport(ran=True, verdict=ERROR, detail="replicator produced no code")
+            return self._finalize(
+                ReplicationReport(ran=True, verdict=ERROR, detail="replicator produced no code")
+            )
         stdout = await self._execute("\n\n".join(b.code for b in blocks if b.code))
         if stdout is None:
-            return ReplicationReport(
-                ran=True, verdict=ERROR, detail="replication code failed to run"
+            return self._finalize(
+                ReplicationReport(ran=True, verdict=ERROR, detail="replication code failed to run")
             )
 
-        report = self._assess(stdout)
+        return self._finalize(self._assess(stdout))
+
+    def _finalize(self, report: ReplicationReport) -> ReplicationReport:
+        """Emit the replication verdict + surface it — even on error, so a failed
+        gate is never silently invisible (the failure mode we hit twice)."""
+        engine = self._engine
+        if report.verdict == SKIPPED:
+            return report  # gate off / no draft — nothing to report
         engine.emit_event(
             "replication.completed",
             {
@@ -135,12 +148,18 @@ class ReplicationHandler:
                 "reproduced": report.reproduced,
                 "sign_stability": round(report.sign_stability, 2),
                 "n_specs": report.n_specs,
+                "detail": report.detail,
             },
         )
-        engine._display.info(
-            f"[replication] {report.verdict} — headline sign stable "
-            f"{report.n_same_sign}/{report.n_specs}"
-        )
+        if report.n_specs:
+            engine._display.info(
+                f"[replication] {report.verdict} — headline sign stable "
+                f"{report.n_same_sign}/{report.n_specs}"
+            )
+        else:
+            engine._display.warning(
+                f"[replication] {report.verdict}" + (f" — {report.detail}" if report.detail else "")
+            )
         return report
 
     def _assess(self, stdout: str) -> ReplicationReport:

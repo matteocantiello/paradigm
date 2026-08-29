@@ -91,6 +91,32 @@ class TestGateWiring:
         r = await h.run_replication(None)
         assert r.verdict == SKIPPED
 
+    def test_finalize_emits_event_on_error(self):
+        """A failed gate must emit an event + surface — never vanish silently
+        (the bug: 0 replication events across two production runs)."""
+        from paradigm.orchestrator.replication import ERROR, ReplicationReport
+
+        h = _handler(enabled=True)
+        h._engine.emit_event = MagicMock()
+        out = h._finalize(ReplicationReport(ran=True, verdict=ERROR, detail="produced no code"))
+        assert out.verdict == ERROR
+        h._engine.emit_event.assert_called_once()
+        assert h._engine.emit_event.call_args.args[0] == "replication.completed"
+
+    def test_finalize_skipped_stays_silent(self):
+        h = _handler(enabled=True)
+        h._engine.emit_event = MagicMock()
+        h._finalize(ReplicationReport(ran=False, verdict=SKIPPED))
+        h._engine.emit_event.assert_not_called()
+
+    def test_replicator_uses_reasoning_headroom(self):
+        import inspect
+
+        from paradigm.orchestrator import replication
+
+        src = inspect.getsource(replication.ReplicationHandler.run_replication)
+        assert "max_tokens=16384" in src  # not the starved 8192
+
 
 def test_config_defaults_and_default_yaml(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")

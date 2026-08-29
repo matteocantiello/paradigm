@@ -218,3 +218,28 @@ class TestSharedContextCachePrefix:
 
         await agent.generate("q", cache_prefix="SHARED CONTEXT")
         assert provider.complete.call_args.kwargs["cache_prefix"] == "SHARED CONTEXT"
+
+
+def test_experimentation_passes_data_cache_prefix():
+    """The experimentation phase routes the (big, stable) data context to a
+    cached prefix — the fix for caching not firing where the 38k actually lives."""
+    import inspect
+
+    from paradigm.orchestrator import experimentation
+
+    src = inspect.getsource(experimentation)
+    assert "data_cache_prefix" in src
+    assert "cache_prefix=data_cache_prefix" in src
+
+
+def test_build_agent_prompt_excludes_literature_from_cache_prefix():
+    """Literature grows each round and thrashed the cache — it must stay in the
+    user prompt, not the cached prefix."""
+    import inspect
+
+    from paradigm.orchestrator import engine as engine_mod
+
+    src = inspect.getsource(engine_mod.OrchestrationEngine._build_agent_prompt)
+    # literature is appended to checkpoint_context (user prompt), not cache_blocks
+    assert 'cache_blocks.append("## Literature Context' not in src
+    assert "Literature Context" in src  # still injected, just uncached

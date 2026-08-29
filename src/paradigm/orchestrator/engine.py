@@ -2044,7 +2044,10 @@ class OrchestrationEngine:
         if "literature" in context_needs:
             lit = self._literature.literature_context
             if lit:
-                cache_blocks.append("## Literature Context\n" + lit)
+                # Literature GROWS across rounds ([SEARCH:]/[READ:]/[FOLLOW:]), so
+                # caching it thrashed the prefix (measured: writes >> reads). Keep
+                # it in the (uncached) user prompt; only stable blocks are cached.
+                checkpoint_context = "## Literature Context\n" + lit + "\n\n" + checkpoint_context
 
         if "execution" in context_needs and self.state.execution_context:
             exec_block = "## Experiment Results\n" + self.state.execution_context
