@@ -340,8 +340,21 @@ def status(config: Config) -> None:
         usage = database.get_token_usage()
         click.echo("System Status:")
         click.echo(f"  Total tokens used: {usage['total_tokens']:,}")
-        click.echo(f"  Input tokens: {usage['input_tokens']:,}")
+        click.echo(f"  Input tokens (uncached): {usage['input_tokens']:,}")
         click.echo(f"  Output tokens: {usage['output_tokens']:,}")
+        cread = usage.get("cache_read_tokens", 0)
+        cwrite = usage.get("cache_write_tokens", 0)
+        if cread or cwrite:
+            # Naive = what input would have cost with no caching (every read/write
+            # re-sent at full price). Billed ≈ uncached + 0.1*read + 1.25*write.
+            naive_input = usage["input_tokens"] + cread + cwrite
+            billed_input = usage["input_tokens"] + 0.1 * cread + 1.25 * cwrite
+            saved = 1 - billed_input / naive_input if naive_input else 0.0
+            click.echo(f"  Cache reads: {cread:,}  writes: {cwrite:,}")
+            click.echo(
+                f"  Prompt-cache savings: ~{saved:.0%} of input "
+                f"({naive_input:,.0f} → {billed_input:,.0f} effective input tokens)"
+            )
     finally:
         database.close()
 

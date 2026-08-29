@@ -38,11 +38,18 @@ class Message(BaseModel):
 
 
 class TokenUsage(BaseModel):
-    """Token usage tracking."""
+    """Token usage tracking.
+
+    ``input_tokens`` is the UNcached input. ``cache_read_tokens`` /
+    ``cache_write_tokens`` are the prompt-cache portions (0 when caching is off or
+    unsupported), so the truly billed input is the sum of all three.
+    """
 
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class AgentResponse(BaseModel):
@@ -181,6 +188,8 @@ class Agent:
             input_tokens=response.usage.input_tokens + retry.usage.input_tokens,
             output_tokens=response.usage.output_tokens + retry.usage.output_tokens,
             total_tokens=response.usage.total_tokens + retry.usage.total_tokens,
+            cache_read_tokens=response.usage.cache_read_tokens + retry.usage.cache_read_tokens,
+            cache_write_tokens=response.usage.cache_write_tokens + retry.usage.cache_write_tokens,
         )
         return retry
 
@@ -198,7 +207,7 @@ class Agent:
         self, messages: list[dict[str, str]], max_tokens: int, stream_id: str = ""
     ) -> AgentResponse:
         """Non-streaming API call for small responses."""
-        content, input_tokens, output_tokens = self._provider.complete(
+        result = self._provider.complete(
             model=self.model,
             system=self.system_prompt,
             messages=messages,
@@ -206,11 +215,14 @@ class Agent:
             temperature=self.temperature,
             extra_body=self.extra_body,
         )
+        content, input_tokens, output_tokens = result
 
         usage = TokenUsage(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=input_tokens + output_tokens,
+            cache_read_tokens=getattr(result, "cache_read_tokens", 0),
+            cache_write_tokens=getattr(result, "cache_write_tokens", 0),
         )
 
         self.total_input_tokens += usage.input_tokens
@@ -229,6 +241,8 @@ class Agent:
         content_parts: list[str] = []
         input_tokens = 0
         output_tokens = 0
+        cache_read = 0
+        cache_write = 0
         sink = self._stream_sink
         min_chars = self._stream_min_chars
         pending: list[str] = []
@@ -244,7 +258,7 @@ class Agent:
         if sink is not None:
             sink(self.agent_id, stream_id, "", "start", None)
 
-        for chunk, in_tok, out_tok in self._provider.complete_streaming(
+        for item in self._provider.complete_streaming(
             model=self.model,
             system=self.system_prompt,
             messages=messages,
@@ -252,6 +266,7 @@ class Agent:
             temperature=self.temperature,
             extra_body=self.extra_body,
         ):
+            chunk, in_tok, out_tok = item
             if chunk:
                 content_parts.append(chunk)
                 if sink is not None:
@@ -262,6 +277,8 @@ class Agent:
             if in_tok or out_tok:
                 input_tokens = in_tok
                 output_tokens = out_tok
+                cache_read = getattr(item, "cache_read_tokens", 0)
+                cache_write = getattr(item, "cache_write_tokens", 0)
 
         _flush()  # emit any buffered remainder before the final event
         content = "".join(content_parts)
@@ -269,6 +286,8 @@ class Agent:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=input_tokens + output_tokens,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
         )
 
         self.total_input_tokens += usage.input_tokens

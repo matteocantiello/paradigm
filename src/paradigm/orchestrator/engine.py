@@ -1740,6 +1740,8 @@ class OrchestrationEngine:
                         output_tokens=response.usage.output_tokens,
                         agent_id=agent_id,
                         thread_id=self.state.thread_id,
+                        cache_read_tokens=response.usage.cache_read_tokens,
+                        cache_write_tokens=response.usage.cache_write_tokens,
                     )
                     self.emit_event(
                         "warning.emitted",
@@ -1832,6 +1834,8 @@ class OrchestrationEngine:
                 output_tokens=response.usage.output_tokens,
                 agent_id=agent_id,
                 thread_id=self.state.thread_id,
+                cache_read_tokens=response.usage.cache_read_tokens,
+                cache_write_tokens=response.usage.cache_write_tokens,
             )
 
             # Literature actions are BEST-EFFORT and must never abort the cycle: a

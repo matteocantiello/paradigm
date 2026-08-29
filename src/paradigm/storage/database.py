@@ -197,9 +197,20 @@ class Database:
                 model TEXT NOT NULL,
                 input_tokens INTEGER NOT NULL,
                 output_tokens INTEGER NOT NULL,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_write_tokens INTEGER NOT NULL DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Prompt-cache accounting for pre-existing token_usage tables.
+        self._add_columns_if_missing(
+            cursor,
+            "token_usage",
+            {
+                "cache_read_tokens": "INTEGER NOT NULL DEFAULT 0",
+                "cache_write_tokens": "INTEGER NOT NULL DEFAULT 0",
+            },
+        )
 
         # World model snapshots (knowledge architecture)
         cursor.execute("""
@@ -682,21 +693,27 @@ class Database:
         output_tokens: int,
         agent_id: str | None = None,
         thread_id: str | None = None,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> None:
         """Record token usage for an API call.
 
         Args:
             model: Model used
-            input_tokens: Input token count
+            input_tokens: UNcached input token count
             output_tokens: Output token count
             agent_id: Agent ID (if applicable)
             thread_id: Thread ID (if applicable)
+            cache_read_tokens: Prompt-cache read tokens (billed ~0.1x)
+            cache_write_tokens: Prompt-cache write tokens (billed ~1.25x)
         """
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            INSERT INTO token_usage (timestamp, agent_id, thread_id, model, input_tokens, output_tokens)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO token_usage
+                (timestamp, agent_id, thread_id, model, input_tokens, output_tokens,
+                 cache_read_tokens, cache_write_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now(UTC).isoformat(),
@@ -705,6 +722,8 @@ class Database:
                 model,
                 input_tokens,
                 output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
             ),
         )
         self.conn.commit()
@@ -722,7 +741,11 @@ class Database:
             Dict with input_tokens, output_tokens, total_tokens
         """
         cursor = self.conn.cursor()
-        query = "SELECT SUM(input_tokens) as input, SUM(output_tokens) as output FROM token_usage WHERE 1=1"
+        query = (
+            "SELECT SUM(input_tokens) as input, SUM(output_tokens) as output, "
+            "SUM(cache_read_tokens) as cread, SUM(cache_write_tokens) as cwrite "
+            "FROM token_usage WHERE 1=1"
+        )
         params: list[Any] = []
 
         if thread_id:
@@ -737,11 +760,15 @@ class Database:
 
         input_tokens = row["input"] or 0
         output_tokens = row["output"] or 0
+        cache_read = row["cread"] or 0
+        cache_write = row["cwrite"] or 0
 
         return {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
+            "cache_read_tokens": cache_read,
+            "cache_write_tokens": cache_write,
         }
 
     # Graveyard operations

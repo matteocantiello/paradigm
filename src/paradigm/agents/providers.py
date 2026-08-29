@@ -40,6 +40,73 @@ class ProviderConfig(BaseModel):
     default_model: str | None = None
 
 
+# Minimum prefix size worth a cache breakpoint. Anthropic only caches prefixes
+# above a model-dependent minimum (1024 tokens most models, 2048 for Haiku);
+# below it the cache_control marker is silently ignored (wasted). Gate on a
+# conservative char proxy (~4 chars/token) sized for the largest minimum, so we
+# never mark a prefix that won't actually cache.
+_CACHE_MIN_CHARS = 8192
+
+
+class LLMResult(tuple):
+    """A ``(text, input_tokens, output_tokens)`` result carrying optional cache
+    stats as attributes.
+
+    Subclasses ``tuple`` so the historical 3-tuple unpacking every caller uses
+    (``text, i, o = provider.complete(...)``) is unchanged, while instrumentation
+    can read ``.cache_read_tokens`` / ``.cache_write_tokens`` off the same object.
+    ``input_tokens`` is the UNcached input; cache reads/writes are separate (that
+    is how the providers report them), so the true billed input is
+    ``input_tokens + cache_read_tokens + cache_write_tokens``.
+    """
+
+    cache_read_tokens: int
+    cache_write_tokens: int
+
+    def __new__(
+        cls,
+        text: str,
+        input_tokens: int,
+        output_tokens: int,
+        *,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> LLMResult:
+        obj = super().__new__(cls, (text, input_tokens, output_tokens))
+        obj.cache_read_tokens = cache_read_tokens
+        obj.cache_write_tokens = cache_write_tokens
+        return obj
+
+
+def _int_or_zero(value: Any) -> int:
+    """Coerce a usage field to a non-negative int (0 for None/missing/non-numeric).
+
+    Providers' usage objects (and test mocks) may leave cache fields absent or
+    non-numeric; caching accounting must never crash a call over that.
+    """
+    return value if isinstance(value, int) and value >= 0 else 0
+
+
+def _openai_cached_tokens(usage: Any) -> int:
+    """Cached prompt tokens from an OpenAI-compatible usage object (0 if absent)."""
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is None:
+        return 0
+    return _int_or_zero(getattr(details, "cached_tokens", 0))
+
+
+def _cacheable_system(system: str) -> Any:
+    """Wrap a long system prompt in a cache-controlled block (Anthropic).
+
+    System prompts are stable per role and reused across every round, so caching
+    the prefix turns 10-16 full re-sends per role into one write + cheap reads.
+    Short prompts stay plain strings (below the cache minimum a marker only costs).
+    """
+    if system and len(system) >= _CACHE_MIN_CHARS:
+        return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+    return system
+
+
 @runtime_checkable
 class LLMProvider(Protocol):
     """Protocol for LLM backends (Anthropic, OpenAI-compatible, etc.)."""
@@ -131,7 +198,7 @@ class AnthropicProvider:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": system,
+            "system": _cacheable_system(system),
             "messages": messages,
         }
         if _accepts_temperature(model):
@@ -145,7 +212,14 @@ class AnthropicProvider:
         for block in response.content:
             if hasattr(block, "text"):
                 content += block.text
-        return content, response.usage.input_tokens, response.usage.output_tokens
+        u = response.usage
+        return LLMResult(
+            content,
+            u.input_tokens,
+            u.output_tokens,
+            cache_read_tokens=_int_or_zero(getattr(u, "cache_read_input_tokens", 0)),
+            cache_write_tokens=_int_or_zero(getattr(u, "cache_creation_input_tokens", 0)),
+        )
 
     @staticmethod
     def build_image_message(text: str, images: list[tuple[str, bytes]]) -> dict:
@@ -179,7 +253,7 @@ class AnthropicProvider:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": system,
+            "system": _cacheable_system(system),
             "messages": messages,
         }
         if _accepts_temperature(model):
@@ -189,8 +263,15 @@ class AnthropicProvider:
         with self._client.messages.stream(**kwargs) as stream:
             for text in stream.text_stream:
                 yield text, 0, 0
-            final = stream.get_final_message()
-            yield "", final.usage.input_tokens, final.usage.output_tokens
+            u = stream.get_final_message().usage
+            # Final yield carries the usage; cache stats ride as attributes on it.
+            yield LLMResult(
+                "",
+                u.input_tokens,
+                u.output_tokens,
+                cache_read_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
+                cache_write_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
+            )
 
 
 # OpenAI reasoning models (o-series, GPT-5) reject `temperature` (only the default
@@ -256,7 +337,17 @@ class OpenAICompatibleProvider:
         usage = response.usage
         input_tokens = usage.prompt_tokens if usage else 0
         output_tokens = usage.completion_tokens if usage else 0
-        return content, input_tokens, output_tokens
+        # OpenAI-compatible endpoints auto-cache; report cached-prompt tokens as
+        # reads (no explicit write/read split). prompt_tokens already INCLUDES the
+        # cached portion, so subtract it to keep input_tokens = uncached input,
+        # matching the Anthropic convention.
+        cached = _openai_cached_tokens(usage)
+        return LLMResult(
+            content,
+            max(0, input_tokens - cached),
+            output_tokens,
+            cache_read_tokens=cached,
+        )
 
     @staticmethod
     def build_image_message(text: str, images: list[tuple[str, bytes]]) -> dict:
@@ -294,13 +385,15 @@ class OpenAICompatibleProvider:
         stream = self._client.chat.completions.create(**kwargs)
         input_tokens = 0
         output_tokens = 0
+        cached = 0
         for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content, 0, 0
             if chunk.usage:
                 input_tokens = chunk.usage.prompt_tokens
                 output_tokens = chunk.usage.completion_tokens
-        yield "", input_tokens, output_tokens
+                cached = _openai_cached_tokens(chunk.usage)
+        yield LLMResult("", max(0, input_tokens - cached), output_tokens, cache_read_tokens=cached)
 
 
 def create_provider(config: ProviderConfig) -> LLMProvider:
