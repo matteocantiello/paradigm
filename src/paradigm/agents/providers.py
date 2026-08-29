@@ -107,6 +107,37 @@ def _cacheable_system(system: str) -> Any:
     return system
 
 
+def _anthropic_system(system: str, cache_prefix: str | None) -> Any:
+    """Build the Anthropic ``system`` param, caching a shared-context prefix.
+
+    ``cache_prefix`` is the cycle-stable context (data cards + literature) that is
+    IDENTICAL across every agent in a cycle. Placing it as the first system block
+    with a cache breakpoint means it is written to cache once and read cheaply by
+    all ~50 agent calls — the dominant re-injection cost. The role-specific system
+    prompt follows as a second (uncached) block. Falls back to caching the system
+    prompt alone when there is no usable shared prefix.
+    """
+    if cache_prefix and len(cache_prefix) >= _CACHE_MIN_CHARS:
+        blocks: list[dict[str, Any]] = [
+            {"type": "text", "text": cache_prefix, "cache_control": {"type": "ephemeral"}}
+        ]
+        if system:
+            blocks.append({"type": "text", "text": system})
+        return blocks
+    return _cacheable_system(system)
+
+
+def _openai_system(system: str, cache_prefix: str | None) -> str:
+    """OpenAI-compatible system string: shared prefix + role prompt (auto-cached).
+
+    OpenAI-family endpoints auto-cache identical prefixes, so a stable shared
+    context placed first is cached without an explicit breakpoint.
+    """
+    if cache_prefix:
+        return f"{cache_prefix}\n\n{system}" if system else cache_prefix
+    return system
+
+
 @runtime_checkable
 class LLMProvider(Protocol):
     """Protocol for LLM backends (Anthropic, OpenAI-compatible, etc.)."""
@@ -123,6 +154,7 @@ class LLMProvider(Protocol):
         max_tokens: int,
         temperature: float = 0.7,
         extra_body: dict[str, Any] | None = None,
+        cache_prefix: str | None = None,
     ) -> tuple[str, int, int]:
         """Synchronous completion.
 
@@ -140,6 +172,7 @@ class LLMProvider(Protocol):
         max_tokens: int,
         temperature: float = 0.7,
         extra_body: dict[str, Any] | None = None,
+        cache_prefix: str | None = None,
     ) -> Iterator[tuple[str, int, int]]:
         """Streaming completion.
 
@@ -194,11 +227,12 @@ class AnthropicProvider:
         max_tokens: int,
         temperature: float = 0.7,
         extra_body: dict[str, Any] | None = None,
+        cache_prefix: str | None = None,
     ) -> tuple[str, int, int]:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": _cacheable_system(system),
+            "system": _anthropic_system(system, cache_prefix),
             "messages": messages,
         }
         if _accepts_temperature(model):
@@ -249,11 +283,12 @@ class AnthropicProvider:
         max_tokens: int,
         temperature: float = 0.7,
         extra_body: dict[str, Any] | None = None,
+        cache_prefix: str | None = None,
     ) -> Iterator[tuple[str, int, int]]:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": _cacheable_system(system),
+            "system": _anthropic_system(system, cache_prefix),
             "messages": messages,
         }
         if _accepts_temperature(model):
@@ -323,8 +358,11 @@ class OpenAICompatibleProvider:
         max_tokens: int,
         temperature: float = 0.7,
         extra_body: dict[str, Any] | None = None,
+        cache_prefix: str | None = None,
     ) -> tuple[str, int, int]:
-        full_messages = [{"role": "system", "content": system}] + messages
+        full_messages = [
+            {"role": "system", "content": _openai_system(system, cache_prefix)}
+        ] + messages
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": full_messages,
@@ -371,8 +409,11 @@ class OpenAICompatibleProvider:
         max_tokens: int,
         temperature: float = 0.7,
         extra_body: dict[str, Any] | None = None,
+        cache_prefix: str | None = None,
     ) -> Iterator[tuple[str, int, int]]:
-        full_messages = [{"role": "system", "content": system}] + messages
+        full_messages = [
+            {"role": "system", "content": _openai_system(system, cache_prefix)}
+        ] + messages
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": full_messages,

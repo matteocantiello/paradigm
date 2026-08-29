@@ -134,6 +134,7 @@ class Agent:
         prompt: str,
         context: list[dict[str, str]] | None = None,
         max_tokens: int | None = None,
+        cache_prefix: str | None = None,
     ) -> AgentResponse:
         """Generate a response using the LLM provider.
 
@@ -144,10 +145,14 @@ class Agent:
             prompt: User prompt
             context: Optional conversation context as list of {role, content} dicts
             max_tokens: Override max tokens for this call (defaults to agent's max_tokens)
+            cache_prefix: Cycle-stable shared context (data cards + literature) placed
+                as a cached leading system block, so it is billed once and read
+                cheaply across every agent call instead of re-sent each time.
 
         Returns:
             AgentResponse with content and token usage
         """
+        self._cache_prefix = cache_prefix
         messages = []
 
         # Add context if provided
@@ -214,6 +219,7 @@ class Agent:
             max_tokens=max_tokens,
             temperature=self.temperature,
             extra_body=self.extra_body,
+            cache_prefix=getattr(self, "_cache_prefix", None),
         )
         content, input_tokens, output_tokens = result
 
@@ -265,6 +271,7 @@ class Agent:
             max_tokens=max_tokens,
             temperature=self.temperature,
             extra_body=self.extra_body,
+            cache_prefix=getattr(self, "_cache_prefix", None),
         ):
             chunk, in_tok, out_tok = item
             if chunk:

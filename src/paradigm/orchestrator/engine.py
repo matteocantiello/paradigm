@@ -1713,10 +1713,10 @@ class OrchestrationEngine:
             # Turn-level pause + steering pickup (see _interaction_checkpoint).
             await self._interaction_checkpoint(phase, round_num)
             agent = self.state.agents[agent_id]
-            prompt = self._build_agent_prompt(agent, phase, round_num)
+            cache_prefix, prompt = self._build_agent_prompt(agent, phase, round_num)
 
             try:
-                response = await agent.generate(prompt)
+                response = await agent.generate(prompt, cache_prefix=cache_prefix)
                 # Thin-output retry: some providers intermittently return a
                 # near-empty turn from a huge prompt (observed live: 6/12
                 # synthesizer turns of 17-57 chars) — one retry usually recovers
@@ -1973,16 +1973,18 @@ class OrchestrationEngine:
         agent: Agent,
         phase: ResearchPhase,
         round_num: int,
-    ) -> str:
+    ) -> tuple[str | None, str]:
         """Build the prompt for an agent in a given phase and round.
+
+        Returns ``(cache_prefix, prompt)``: the cache_prefix is the cycle-stable
+        shared context (data cards + literature + references + code) identical
+        across agents, to be cached as a leading system block; the prompt is the
+        per-agent/per-round remainder.
 
         Args:
             agent: The agent to prompt.
             phase: Current phase.
             round_num: Current round number.
-
-        Returns:
-            Formatted prompt string.
         """
         templates = _PHASE_INSTRUCTIONS.get(phase, {})
         template_key = "round_1" if round_num == 1 else "later_rounds"
@@ -2020,16 +2022,29 @@ class OrchestrationEngine:
                     "## Prior Team Proposals (this round)\n" + recent_messages + "\n\n"
                 )
 
-        # Phase-appropriate context injection — only inject what each phase needs
+        # Phase-appropriate context injection — only inject what each phase needs.
+        # The CYCLE-STABLE blocks (data cards, literature, references, code) are
+        # identical across every agent in the round, so they are collected into a
+        # cache_prefix placed as a cached leading system block — written once and
+        # read cheaply by all agents — instead of re-billed in each user prompt.
+        # Per-round/dynamic blocks (execution results, checkpoint, messages) stay
+        # in the user prompt.
         context_needs = _PHASE_CONTEXT_NEEDS.get(phase, set())
+        cache_blocks: list[str] = []
+
+        if "code_data" in context_needs:
+            if self.state.code_context:
+                cache_blocks.append(self.state.code_context)
+            if self.state.data_context:
+                cache_blocks.append(self.state.data_context)
+
+        if "references" in context_needs and self.state.reference_context:
+            cache_blocks.append(self.state.reference_context)
 
         if "literature" in context_needs:
             lit = self._literature.literature_context
             if lit:
-                checkpoint_context = "## Literature Context\n" + lit + "\n\n" + checkpoint_context
-
-        if "references" in context_needs and self.state.reference_context:
-            checkpoint_context = self.state.reference_context + "\n\n" + checkpoint_context
+                cache_blocks.append("## Literature Context\n" + lit)
 
         if "execution" in context_needs and self.state.execution_context:
             exec_block = "## Experiment Results\n" + self.state.execution_context
@@ -2038,12 +2053,6 @@ class OrchestrationEngine:
                     f"- {c}" for c in self.state.execution_caveats
                 )
             checkpoint_context = exec_block + "\n\n" + checkpoint_context
-
-        if "code_data" in context_needs:
-            if self.state.data_context:
-                checkpoint_context = self.state.data_context + "\n\n" + checkpoint_context
-            if self.state.code_context:
-                checkpoint_context = self.state.code_context + "\n\n" + checkpoint_context
 
         # Graveyard context stays IDEATION round 1 only
         if phase == ResearchPhase.IDEATION and round_num == 1:
@@ -2211,7 +2220,8 @@ class OrchestrationEngine:
         ):
             formatted += _KNOWLEDGE_TAG_INSTRUCTION
 
-        return formatted
+        cache_prefix = "\n\n".join(b for b in cache_blocks if b) if cache_blocks else None
+        return cache_prefix, formatted
 
     @staticmethod
     def _build_established_points(messages: list[dict[str, Any]]) -> str:

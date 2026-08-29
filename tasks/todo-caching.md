@@ -11,11 +11,15 @@ Branch: responsive-live-progress. Commit per increment; suite green each step.
 - [ ] Engine + direct callers: pass cache stats to record_token_usage.
 - [ ] Cycle-end report: show cache read/write + effective-vs-billed savings.
 
-## Increment 2 — CACHING (one phase prototype)
-- [ ] Anthropic complete/complete_streaming: mark system block cache_control=ephemeral (universal, safe).
-- [ ] Agent.generate: optional cached_prefix → user message as [cached block][tail].
-- [ ] Engine: for EXECUTION phase, split built prompt into (shared_prefix, tail); pass cached_prefix.
-- [ ] Measure cache_read climb via Increment 1.
+## Increment 2 — CACHING  ✅ DONE + live-verified
+- [x] Part A: mark long system block cache_control=ephemeral (universal). Live: 90% saved on a cached call.
+- [x] Part B: cache the cycle-stable shared context (data cards+literature+refs+code) as a leading
+      system block. Agent.generate(cache_prefix=...) → provider _anthropic_system/_openai_system.
+      _build_agent_prompt now returns (cache_prefix, prompt); discussion path passes it.
+      LIVE-VERIFIED cross-agent sharing: 31,010-token shared block written once (theorist),
+      READ by skeptic + analyst (different roles) → 62,020 tokens reused across 2 calls.
+- [x] Instrumentation surfaces it: `paradigm status` shows reads/writes + % input saved.
+Suite 2092+ green.
 
 ## Tests
 - [ ] LLMResult unpacking + attrs; cache-token capture; DB round-trip; report formatting.

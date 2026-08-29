@@ -589,7 +589,7 @@ class TestBuildAgentPromptDebate:
             {"theorist-0": theorist},
         )
 
-        prompt = engine._build_agent_prompt(theorist, ResearchPhase.IDEATION, 2)
+        _, prompt = engine._build_agent_prompt(theorist, ResearchPhase.IDEATION, 2)
         assert "[CHALLENGE:" in prompt
 
     def test_debate_instruction_in_planning(self, mock_config, tmp_db, tmp_logger, mock_corpus):
@@ -603,7 +603,7 @@ class TestBuildAgentPromptDebate:
             {"theorist-0": theorist},
         )
 
-        prompt = engine._build_agent_prompt(theorist, ResearchPhase.PLANNING, 2)
+        _, prompt = engine._build_agent_prompt(theorist, ResearchPhase.PLANNING, 2)
         assert "[CHALLENGE:" in prompt
 
     def test_no_debate_instruction_in_writing(self, mock_config, tmp_db, tmp_logger, mock_corpus):
@@ -617,7 +617,7 @@ class TestBuildAgentPromptDebate:
             {"theorist-0": theorist},
         )
 
-        prompt = engine._build_agent_prompt(theorist, ResearchPhase.WRITING, 1)
+        _, prompt = engine._build_agent_prompt(theorist, ResearchPhase.WRITING, 1)
         assert "[CHALLENGE:" not in prompt
 
     def test_no_debate_instruction_when_disabled(self, tmp_path, tmp_db, tmp_logger, mock_corpus):
@@ -635,7 +635,7 @@ class TestBuildAgentPromptDebate:
         theorist = make_mock_agent("theorist-0", "theorist")
         engine = _build_engine(config, tmp_db, tmp_logger, mock_corpus, {"theorist-0": theorist})
 
-        prompt = engine._build_agent_prompt(theorist, ResearchPhase.IDEATION, 2)
+        _, prompt = engine._build_agent_prompt(theorist, ResearchPhase.IDEATION, 2)
         assert "[CHALLENGE:" not in prompt
 
 

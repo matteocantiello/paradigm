@@ -169,3 +169,52 @@ def test_agent_generate_threads_cache_tokens(monkeypatch):
     assert resp.usage.cache_read_tokens == 800
     assert resp.usage.cache_write_tokens == 30
     assert resp.usage.input_tokens == 50
+
+
+class TestSharedContextCachePrefix:
+    """Part B: cycle-stable shared context is cached as a leading system block,
+    identical across agents, so it is billed once and read by all."""
+
+    def test_anthropic_system_caches_shared_prefix_block(self):
+        from paradigm.agents.providers import _anthropic_system
+
+        prefix = "DATA CARDS " * 1000  # well above the cache minimum
+        out = _anthropic_system("role prompt", prefix)
+        assert isinstance(out, list) and len(out) == 2
+        assert out[0]["cache_control"] == {"type": "ephemeral"}
+        assert out[0]["text"].startswith("DATA CARDS")
+        assert out[1]["text"] == "role prompt"  # role block uncached, second
+
+    def test_anthropic_system_falls_back_without_prefix(self):
+        from paradigm.agents.providers import _anthropic_system
+
+        # No shared prefix → behaves like plain system caching (short → str).
+        assert _anthropic_system("short role", None) == "short role"
+
+    def test_openai_system_prepends_shared_prefix(self):
+        from paradigm.agents.providers import _openai_system
+
+        assert _openai_system("role", "shared").startswith("shared")
+        assert "role" in _openai_system("role", "shared")
+
+    async def test_provider_receives_cache_prefix_from_agent(self):
+        # Agent.generate threads cache_prefix through to the provider call.
+        from paradigm.agents.base import Agent
+
+        agent = Agent.__new__(Agent)
+        agent.agent_id = "a"
+        agent.model = "claude-x"
+        agent.system_prompt = "sys"
+        agent.temperature = 0.7
+        agent.extra_body = None
+        agent.max_tokens = 100
+        agent.total_input_tokens = 0
+        agent.total_output_tokens = 0
+        agent._stream_sink = None
+        agent._STREAMING_THRESHOLD = 10_000
+        provider = MagicMock()
+        provider.complete.return_value = LLMResult("ok", 10, 5)
+        agent._provider = provider
+
+        await agent.generate("q", cache_prefix="SHARED CONTEXT")
+        assert provider.complete.call_args.kwargs["cache_prefix"] == "SHARED CONTEXT"

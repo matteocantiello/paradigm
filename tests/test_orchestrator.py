@@ -876,21 +876,24 @@ class TestOrchestrationEngine:
             )
             await engine.run_research_cycle(seed_prompt=prompt, mode="directed")
 
+        # Cycle-stable resource contexts now ride the cache_prefix (a cached
+        # leading system block) rather than the user prompt — assert on the
+        # combined content the model actually receives.
+        def _full(call):
+            return (call.args[0] or "") + "\n" + (call.kwargs.get("cache_prefix") or "")
+
         # IDEATION gets references only (not code/data per _PHASE_CONTEXT_NEEDS)
         first_agent = list(engine.state.agents.values())[0]
-        ideation_prompt = first_agent.generate.call_args_list[0][0][0]
-        assert "Web Reference Materials" in ideation_prompt
-        assert "Available Code Resources" not in ideation_prompt
-        assert "Available Data Files" not in ideation_prompt
+        ideation = _full(first_agent.generate.call_args_list[0])
+        assert "Web Reference Materials" in ideation
+        assert "Available Code Resources" not in ideation
+        assert "Available Data Files" not in ideation
 
         # PLANNING gets code/data (not references per _PHASE_CONTEXT_NEEDS)
-        # Round 1 of PLANNING is after all IDEATION rounds. Each round has
-        # 5 active agents (editor/writer excluded). 2 rounds × 5 = 10 calls.
-        # Agent call index 10 is the first PLANNING call for this agent.
-        planning_prompt = first_agent.generate.call_args_list[2][0][0]
-        assert "Available Code Resources" in planning_prompt
-        assert "Available Data Files" in planning_prompt
-        assert "Web Reference Materials" not in planning_prompt
+        planning = _full(first_agent.generate.call_args_list[2])
+        assert "Available Code Resources" in planning
+        assert "Available Data Files" in planning
+        assert "Web Reference Materials" not in planning
 
     @pytest.mark.asyncio
     async def test_editor_writer_excluded_from_ideation_planning(
@@ -2894,7 +2897,7 @@ class TestConsensusBuildSummary:
         engine.state.checkpoint = None
 
         agent = make_mock_agent("theorist-0", "theorist")
-        prompt = engine._build_agent_prompt(agent, ResearchPhase.PLANNING, 1)
+        _, prompt = engine._build_agent_prompt(agent, ResearchPhase.PLANNING, 1)
         assert "Prior Phase Consensus" in prompt
         assert "Stars pulsate" in prompt
         assert "Do NOT re-derive" in prompt
