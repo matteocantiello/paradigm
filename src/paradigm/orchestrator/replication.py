@@ -48,28 +48,44 @@ class ReplicationReport:
     n_same_sign: int = 0
     sign_stability: float = 0.0
     detail: str = ""
+    headline_is_null: bool = False  # the paper's headline is a null / no-effect / bound claim
 
     @property
     def is_blocking(self) -> bool:
-        """A fragile / not-reproduced headline must be reframed before acceptance."""
+        """A fragile / not-reproduced headline must be reframed before acceptance.
+
+        For a null headline, NOT_REPRODUCED means the replicator found a real effect
+        the paper called null — also blocking; REPRODUCED means the null is
+        independently confirmed (robust) and does not block.
+        """
         return self.verdict in (FRAGILE, NOT_REPRODUCED)
 
     def as_review_block(self) -> str:
         """Markdown block injected into the editor prompt (empty when uninformative)."""
         if not self.ran or self.verdict in (SKIPPED, ERROR):
             return ""
-        head = {
-            REPRODUCED: "REPRODUCED — the headline re-derived and kept its sign across specifications.",
-            FRAGILE: "FRAGILE — the headline re-derived but its sign/size did NOT survive alternative specifications.",
-            NOT_REPRODUCED: "NOT REPRODUCED — an independent re-derivation did not recover the headline.",
-        }.get(self.verdict, self.verdict)
-        lines = [
-            "## Independent Replication Report",
-            head,
-            f"- Independent re-derivation of the headline value: {self.headline_recomputed}",
-            f"- Sign stable in {self.n_same_sign}/{self.n_specs} alternative specifications "
-            f"({self.sign_stability:.0%}).",
-        ]
+        if self.headline_is_null:
+            head = {
+                REPRODUCED: "NULL CONFIRMED — an independent re-analysis agrees the headline "
+                "shows no significant effect; the null is robust.",
+                NOT_REPRODUCED: "NULL CONTRADICTED — an independent re-analysis found a "
+                "SIGNIFICANT effect that the paper reports as null. Either the paper missed a "
+                "real effect or the null is unsafe — it must address this.",
+            }.get(self.verdict, self.verdict)
+            lines = ["## Independent Replication Report", head]
+        else:
+            head = {
+                REPRODUCED: "REPRODUCED — the headline re-derived and kept its sign across specifications.",
+                FRAGILE: "FRAGILE — the headline re-derived but its sign/size did NOT survive alternative specifications.",
+                NOT_REPRODUCED: "NOT REPRODUCED — an independent re-derivation did not recover the headline.",
+            }.get(self.verdict, self.verdict)
+            lines = [
+                "## Independent Replication Report",
+                head,
+                f"- Independent re-derivation of the headline value: {self.headline_recomputed}",
+                f"- Sign stable in {self.n_same_sign}/{self.n_specs} alternative specifications "
+                f"({self.sign_stability:.0%}).",
+            ]
         if self.detail:
             lines.append(f"- {self.detail}")
         return "\n".join(lines)
@@ -167,7 +183,7 @@ class ReplicationHandler:
         cfg = self._engine._config.orchestrator
         tok = _extract_result_tokens(stdout)
         recomputed = tok.get("headline_recomputed")
-        reproduced = tok.get("headline_reproduced", 0.0) >= 1.0
+        is_null = tok.get("headline_is_null", 0.0) >= 1.0
         n_specs = int(tok.get("n_specs", 0) or 0)
         n_same = int(tok.get("n_same_sign", 0) or 0)
         # Fall back to the per-spec sign tokens when the summary counts are absent.
@@ -179,6 +195,39 @@ class ReplicationHandler:
                 n_same = sum(1 for s in signs if (s >= 0) == head_pos)
         stability = (n_same / n_specs) if n_specs else 0.0
 
+        # NULL headline: "reproducing a sign" doesn't apply. The null is credible
+        # only if the replicator ALSO finds no significant effect. null_holds=0 means
+        # it found a real effect the paper called null → blocking.
+        if is_null:
+            null_tok = tok.get("null_holds")
+            if null_tok is None:
+                verdict, detail = (
+                    REPRODUCED,
+                    "Null headline — the replicator did not report an independent null check.",
+                )
+            elif null_tok >= 1.0:
+                verdict, detail = (
+                    REPRODUCED,
+                    "Independent analysis confirms no significant effect; the null is robust.",
+                )
+            else:
+                verdict, detail = (
+                    NOT_REPRODUCED,
+                    "Independent analysis found a significant effect the paper reports as null.",
+                )
+            return ReplicationReport(
+                ran=True,
+                verdict=verdict,
+                headline_recomputed=recomputed,
+                reproduced=(verdict == REPRODUCED),
+                n_specs=n_specs,
+                n_same_sign=n_same,
+                sign_stability=stability,
+                detail=detail,
+                headline_is_null=True,
+            )
+
+        reproduced = tok.get("headline_reproduced", 0.0) >= 1.0
         if not reproduced:
             verdict, detail = (
                 NOT_REPRODUCED,

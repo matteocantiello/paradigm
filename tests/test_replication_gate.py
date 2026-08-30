@@ -144,3 +144,58 @@ def test_editor_review_has_replication_check():
     editor = _PHASE_INSTRUCTIONS[ResearchPhase.INTERNAL_REVIEW]["editor_review"]
     assert "Independent replication" in editor
     assert "FRAGILE" in editor and "reframed" in editor
+
+
+class TestNullHeadline:
+    """A null-result headline: 'reproduce a sign' doesn't apply — the null is only
+    credible if the replicator ALSO finds no significant effect (Prompt 278)."""
+
+    def test_null_confirmed_is_reproduced_not_blocking(self):
+        from paradigm.orchestrator.replication import REPRODUCED
+
+        h = _handler()
+        r = h._assess(
+            "RESULT[headline_is_null]=1\nRESULT[headline_recomputed]=0.01\n"
+            "RESULT[null_holds]=1\nRESULT[n_specs]=5\n"
+        )
+        assert r.headline_is_null and r.verdict == REPRODUCED
+        assert not r.is_blocking
+        assert "NULL CONFIRMED" in r.as_review_block()
+
+    def test_null_contradicted_is_not_reproduced_and_blocking(self):
+        from paradigm.orchestrator.replication import NOT_REPRODUCED
+
+        h = _handler()
+        r = h._assess(
+            "RESULT[headline_is_null]=1\nRESULT[headline_recomputed]=0.30\n"
+            "RESULT[null_holds]=0\nRESULT[n_specs]=5\n"
+        )
+        assert r.headline_is_null and r.verdict == NOT_REPRODUCED
+        assert r.is_blocking  # the paper called a real effect null → must address it
+        assert "NULL CONTRADICTED" in r.as_review_block()
+
+    def test_null_without_check_does_not_block(self):
+        # Replicator flagged null but emitted no null_holds → don't punish an honest
+        # null (the old false-negative bug); non-blocking.
+        h = _handler()
+        r = h._assess("RESULT[headline_is_null]=1\nRESULT[headline_recomputed]=0.0\n")
+        assert r.headline_is_null and not r.is_blocking
+
+    def test_effect_headline_unaffected(self):
+        # Non-null path still keys on headline_reproduced + sign stability.
+        from paradigm.orchestrator.replication import REPRODUCED
+
+        h = _handler()
+        r = h._assess(
+            "RESULT[headline_is_null]=0\nRESULT[headline_recomputed]=-0.05\n"
+            "RESULT[headline_reproduced]=1\nRESULT[n_specs]=5\nRESULT[n_same_sign]=5\n"
+        )
+        assert not r.headline_is_null and r.verdict == REPRODUCED
+
+
+def test_replicator_prompt_classifies_null():
+    from paradigm.orchestrator.constants import _REPLICATOR_PROMPT
+
+    assert "headline_is_null" in _REPLICATOR_PROMPT
+    assert "null_holds" in _REPLICATOR_PROMPT
+    assert "NULL claim" in _REPLICATOR_PROMPT
