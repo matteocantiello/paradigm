@@ -38,7 +38,7 @@ class TestCacheableSystem:
     def test_long_system_becomes_cache_controlled_block(self):
         out = _cacheable_system("x" * (_CACHE_MIN_CHARS + 1))
         assert isinstance(out, list)
-        assert out[0]["cache_control"] == {"type": "ephemeral"}
+        assert out[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
         assert out[0]["text"].startswith("x")
 
     def test_empty_system_unchanged(self):
@@ -181,7 +181,7 @@ class TestSharedContextCachePrefix:
         prefix = "DATA CARDS " * 1000  # well above the cache minimum
         out = _anthropic_system("role prompt", prefix)
         assert isinstance(out, list) and len(out) == 2
-        assert out[0]["cache_control"] == {"type": "ephemeral"}
+        assert out[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
         assert out[0]["text"].startswith("DATA CARDS")
         assert out[1]["text"] == "role prompt"  # role block uncached, second
 
@@ -243,3 +243,11 @@ def test_build_agent_prompt_excludes_literature_from_cache_prefix():
     # literature is appended to checkpoint_context (user prompt), not cache_blocks
     assert 'cache_blocks.append("## Literature Context' not in src
     assert "Literature Context" in src  # still injected, just uncached
+
+
+def test_cache_control_uses_1h_ttl():
+    """The shared-context cache uses the 1h TTL so it survives the long EXECUTION
+    gap (5-min default expired between phases → wasteful re-writes)."""
+    from paradigm.agents.providers import _CACHE_CONTROL
+
+    assert _CACHE_CONTROL == {"type": "ephemeral", "ttl": "1h"}

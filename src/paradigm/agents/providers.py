@@ -47,6 +47,14 @@ class ProviderConfig(BaseModel):
 # never mark a prefix that won't actually cache.
 _CACHE_MIN_CHARS = 8192
 
+# Cache retention. The default ephemeral cache is 5 min, which EXPIRES across a
+# long phase (agents fire in early and late phases with a multi-minute EXECUTION
+# gap between), forcing wasteful re-writes (measured: writes >> reads). The 1h TTL
+# keeps the shared-context prefix warm for the whole cycle — 2x write cost vs
+# 1.25x, but it converts those re-writes into 0.1x reads. GA in the SDK (no beta
+# header needed).
+_CACHE_CONTROL = {"type": "ephemeral", "ttl": "1h"}
+
 
 class LLMResult(tuple):
     """A ``(text, input_tokens, output_tokens)`` result carrying optional cache
@@ -103,7 +111,7 @@ def _cacheable_system(system: str) -> Any:
     Short prompts stay plain strings (below the cache minimum a marker only costs).
     """
     if system and len(system) >= _CACHE_MIN_CHARS:
-        return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        return [{"type": "text", "text": system, "cache_control": _CACHE_CONTROL}]
     return system
 
 
@@ -119,7 +127,7 @@ def _anthropic_system(system: str, cache_prefix: str | None) -> Any:
     """
     if cache_prefix and len(cache_prefix) >= _CACHE_MIN_CHARS:
         blocks: list[dict[str, Any]] = [
-            {"type": "text", "text": cache_prefix, "cache_control": {"type": "ephemeral"}}
+            {"type": "text", "text": cache_prefix, "cache_control": _CACHE_CONTROL}
         ]
         if system:
             blocks.append({"type": "text", "text": system})
